@@ -36,12 +36,14 @@ def _create_dataframe(variant_collection,
     for variant in variant_collection:
         for effect in variant.effects(raise_on_error=raise_on_error):
             try:
-                # Skip over non-coding mutations
+                # Skip over non-coding mutations (and unpredictable
+                # coding mutations)
                 mutation_start = effect.mutation_start
                 mutation_end = effect.mutation_end
                 source_sequence = effect.mutant_protein_sequence
             except Exception as e:
-                raise e
+                if raise_on_error:
+                    raise e
                 continue
 
             df_lists['chr'].append(variant.contig)
