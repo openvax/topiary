@@ -2,7 +2,7 @@ from pyensembl import EnsemblRelease
 from varcode import Variant, VariantCollection
 from nose.tools import eq_
 
-from varmhc import predict
+from utopia import predict
 
 
 def test_basic():

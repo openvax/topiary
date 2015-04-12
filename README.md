@@ -1,2 +1,2 @@
-# varmhc
-Adapter for varcode and mhctools
+# utopia
+Given variants, generate scored epitopes.
