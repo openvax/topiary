@@ -12,30 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import os
 
-readme_filename = os.path.join(os.path.dirname(__file__), 'README.md')
-with open(readme_filename, 'r') as f:
-  readme = f.read()
+from setuptools import setup
+
+readme_dir = os.path.dirname(__file__)
+readme_filename = os.path.join(readme_dir, 'README.md')
 
 try:
-  import pypandoc
-  readme = pypandoc.convert(readme, to='rst', format='md')
+    with open(readme_filename, 'r') as f:
+        readme = f.read()
 except:
-  print("Conversion of long_description from MD to reStructuredText failed...")
-  pass
+    readme = ""
 
+try:
+    import pypandoc
+    readme = pypandoc.convert(readme, to='rst', format='md')
+except:
+    print(
+        "Conversion of long_description from MD to reStructuredText failed...")
 
-from setuptools import setup
 
 if __name__ == '__main__':
     setup(
         name='utopia',
         version="0.0.0",
         description="Given variants, generate scored epitopes",
-      	author="Tavi Nathanson",
+        author="Tavi Nathanson",
         author_email="tavi {dot} nathanson {at} gmail {dot} com",
-      	url="https://github.com/hammerlab/utopia",
+        url="https://github.com/hammerlab/utopia",
         license="http://www.apache.org/licenses/LICENSE-2.0.html",
         classifiers=[
             'Development Status :: 3 - Alpha',
@@ -47,11 +53,11 @@ if __name__ == '__main__':
             'Topic :: Scientific/Engineering :: Bio-Informatics',
         ],
         install_requires=[
-            'numpy==1.7',
-            'pandas==0.13.1',
-            'mhctools==0.0.0',
-            'varcode==0.1.0',
-            'nose==1.3.6'
+            'numpy >=1.7, <2.0',
+            'pandas >=0.13.1, <0.17.0',
+            'mhctools >=0.0.0, <0.1.0',
+            'varcode >=0.1.1, <0.2.0',
+            'nose >=1.3.6, <1.4'
         ],
         long_description=readme,
         packages=['utopia'],
