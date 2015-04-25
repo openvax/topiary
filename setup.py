@@ -36,12 +36,12 @@ except:
 
 if __name__ == '__main__':
     setup(
-        name='utopia',
+        name='topiary',
         version="0.0.0",
-        description="Given variants, generate scored epitopes",
+        description="Predict cancer epitopes from cancer sequence data",
         author="Tavi Nathanson",
         author_email="tavi {dot} nathanson {at} gmail {dot} com",
-        url="https://github.com/hammerlab/utopia",
+        url="https://github.com/hammerlab/topiary",
         license="http://www.apache.org/licenses/LICENSE-2.0.html",
         classifiers=[
             'Development Status :: 3 - Alpha',
@@ -60,5 +60,5 @@ if __name__ == '__main__':
             'nose >=1.3.6, <1.4'
         ],
         long_description=readme,
-        packages=['utopia'],
+        packages=['topiary'],
     )
