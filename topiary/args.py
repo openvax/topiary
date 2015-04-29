@@ -17,7 +17,6 @@ Common commandline arguments used by scripts
 """
 
 import argparse
-import logging
 
 import mhctools
 from mhctools.alleles import normalize_allele_name
@@ -52,8 +51,6 @@ variant_arg_group.add_argument("--maf",
 #    help="Individual variant in a format such as chr1:3848C>G",)
 
 def variant_collection_from_args(args):
-    if args.variant:
-        logging.warn("Parsing for individual variants not yet implemented")
     variant_collections = []
     for vcf_path in args.vcf:
         variant_collections.append(varcode.load_vcf(vcf_path))
@@ -61,7 +58,8 @@ def variant_collection_from_args(args):
         variant_collections.append(varcode.load_maf(maf_path))
 
     if len(variant_collections) == 0:
-        raise ValueError("No variant collections loaded")
+        raise ValueError(
+            "No variants loaded (use --maf or --vcf options)")
     elif len(variant_collections) == 1:
         return variant_collections[0]
     else:
@@ -82,20 +80,18 @@ mhc_options_arg_group.add_argument("--mhc-epitope-lengths",
     type=parse_int_list,
     help="Lengths of epitopes to consider for MHC binding prediction")
 
-def epitope_lengths_from_args(args):
-    return parse_int_list(args.mhc_epitope_lengths)
-
-mhc_options_arg_group.add_argument("--mhc-alleles-file",
+arg_parser.add_argument("--mhc-alleles-file",
     help="File with one HLA allele per line")
 
-mhc_options_arg_group.add_argument("--mhc-alleles",
+arg_parser.add_argument("--mhc-alleles",
     default="",
     help="Comma separated list of allele (default HLA-A*02:01)")
 
 def mhc_alleles_from_args(args):
     alleles = [
-        normalize_allele_name(allele)
+        normalize_allele_name(allele.strip())
         for allele in args.mhc_alleles.split(",")
+        if allele.strip()
     ]
     if args.mhc_alleles_file:
         with open(args.mhc_alleles_file, 'r') as f:
@@ -104,7 +100,8 @@ def mhc_alleles_from_args(args):
                 if line:
                     alleles.append(normalize_allele_name(line))
     if len(alleles) == 0:
-        raise ValueError("MHC alleles required")
+        raise ValueError(
+            "MHC alleles required (use --mhc-alleles or --mhc-alleles-file)")
     return alleles
 
 #
@@ -156,11 +153,10 @@ def mhc_binding_predictor_from_args(args):
             break
     if mhc_class is None:
         raise ValueError("No MHC prediction method specified")
-    epitope_lengths = epitope_lengths_from_args(args)
     alleles = mhc_alleles_from_args(args)
     return mhc_class(
         alleles=alleles,
-        epitope_lengths=epitope_lengths)
+        epitope_lengths=args.mhc_epitope_lengths)
 #
 # Mutated sequence options
 #
@@ -185,7 +181,7 @@ rna_group = arg_parser.add_argument_group(
 rna_group.add_argument(
     "--rna-gene-fpkm-file",
     help="Cufflinks tracking file (FPKM measurements for Ensembl genes)",
-    required=True)
+    required=False)
 
 rna_group.add_argument(
     "--rna-gene-expression-threshold",

@@ -189,7 +189,7 @@ class MutantEpitopePredictor(object):
         effects = variants.effects(
             raise_on_error=raise_on_variant_effect_error)
 
-        return self.epitopes_from_effects(
+        return self.epitopes_from_mutation_effects(
             effects=effects,
             gene_expression_dict=gene_expression_dict,
             gene_expression_threshold=gene_expression_threshold,

@@ -56,7 +56,7 @@ if __name__ == '__main__':
             'numpy >=1.7, <2.0',
             'pandas >=0.13.1, <0.17.0',
             'mhctools >=0.0.0, <0.1.0',
-            'varcode >=0.1.1, <0.2.0',
+            'varcode >=0.3.0, <0.4.0',
             'nose >=1.3.6, <1.4'
         ],
         long_description=readme,
