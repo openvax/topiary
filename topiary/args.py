@@ -203,3 +203,30 @@ rna_group.add_argument(
     "--rna-transcript-expression-threshold",
     help="Minimum FPKM for transcript expression",
     default=1.0)
+
+#
+# Filtering of epitopes
+#
+filter_group = arg_parser.add_argument_group(
+    title="Filtering Options",
+    description="Criteria for removing epitopes from results")
+
+filter_group.add_argument(
+    "--filter-ic50",
+    help="Drop epitopes with predicted IC50 nM affinity above this value",
+    default=None)
+
+
+filter_group.add_argument(
+    "--filter-percentile",
+    help="Drop epitopes with predicted IC50 percentile rank above this value",
+    default=None)
+
+#
+# Output
+#
+arg_parser.add_argument(
+    "--output",
+    default=None,
+    help="Path to output CSV file")
+

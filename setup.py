@@ -39,8 +39,8 @@ if __name__ == '__main__':
         name='topiary',
         version="0.0.0",
         description="Predict cancer epitopes from cancer sequence data",
-        author="Tavi Nathanson",
-        author_email="tavi {dot} nathanson {at} gmail {dot} com",
+        author="Alex Rubinsteyn",
+        author_email="alex {dot} nathanson {at} gmail {dot} com",
         url="https://github.com/hammerlab/topiary",
         license="http://www.apache.org/licenses/LICENSE-2.0.html",
         classifiers=[
@@ -56,9 +56,12 @@ if __name__ == '__main__':
             'numpy >=1.7, <2.0',
             'pandas >=0.13.1, <0.17.0',
             'mhctools >=0.0.0, <0.1.0',
-            'varcode >=0.3.0, <0.4.0',
+            'varcode >=0.3.1, <0.4.0',
             'nose >=1.3.6, <1.4'
         ],
         long_description=readme,
         packages=['topiary'],
+        scripts=[
+            'scripts/topiary'
+        ],
     )

@@ -25,8 +25,8 @@ Example usage:
         --vcf somatic.vcf
         --rna-gene-fpkm-file genes.fpkm_tracking
         --rna-transcript-fpkm-file isoforms.fpkm_tracking
-        --ic50-cutoff 500
-        --percentile-cutoff 2
+        --filter-ic50 500
+        --filter-percentile 2
         --output results.csv
 """
 
@@ -44,8 +44,14 @@ def main():
         mhc_model=mhc_model,
         padding_around_mutation=0)
     variants = variant_collection_from_args(args)
-    print(variants)
-    print(predictor.epitopes_from_variants(variants))
+    epitopes = predictor.epitopes_from_variants(variants)
+    if args.filter_ic50:
+        pass
+    if args.filter_percentile:
+        pass
+    if args.output:
+        pass
+    print(epitopes)
 
 if __name__ == "__main__":
     main()

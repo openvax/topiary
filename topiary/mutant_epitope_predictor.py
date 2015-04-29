@@ -18,7 +18,7 @@ def create_fasta_dict(effects, padding_around_mutation):
     fasta_dict = {}
     for effect in effects:
         # TODO: will mhctools take an object key?
-        key = effect.variant
+        key = effect
         seq = effect.mutant_protein_sequence
         # some effects will lack a mutant protein sequence since
         # they are either silent or unpredictable
@@ -27,7 +27,6 @@ def create_fasta_dict(effects, padding_around_mutation):
             mutation_end = effect.aa_mutation_end_offset
             start = max(0, mutation_start - padding_around_mutation)
             end = min(len(seq), mutation_end + padding_around_mutation)
-            print(effect, start, end)
             fasta_dict[key] = seq[start:end]
     return fasta_dict
 
