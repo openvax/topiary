@@ -29,6 +29,11 @@ Example usage:
         --filter-percentile 2
         --output results.csv
 """
+from varcode.rna import (
+    load_cufflinks_dataframe,
+    load_cufflinks_fpkm_dict,
+    remap_novel_gene_expression_onto_ensembl_ids,
+)
 
 from topiary import (
     arg_parser,
@@ -44,12 +49,42 @@ def main():
     mhc_model = mhc_binding_predictor_from_args(args)
     predictor = MutantEpitopePredictor(
         mhc_model=mhc_model,
-        padding_around_mutation=args.padding_around_mutation)
+        padding_around_mutation=args.padding_around_mutation,
+        ic50_cutoff=args.ic50_cutoff,
+        percentile_cutoff=args.percentile_cutoff)
     variants = variant_collection_from_args(args)
-    epitopes = predictor.epitopes_from_variants(variants)
+    if args.rna_gene_fpkm_file:
+        gene_expression_df = load_cufflinks_dataframe(args.rna_gene_fpkm_file)
+        if args.rna_remap_novel_genes_onto_ensembl:
+            gene_expression_dict = remap_novel_gene_expression_onto_ensembl_ids(
+                gene_expression_df)
+        else:
+            gene_expression_dict = {
+                row.id: row.fpkm
+                for (_, row)
+                in gene_expression_df.iterrows()
+            }
+    else:
+        gene_expression_dict = None
+
+    if args.rna_transcript_fpkm_file:
+        transcript_expression_dict = load_cufflinks_fpkm_dict(
+            args.rna_transcript_fpkm_file)
+    else:
+        transcript_expression_dict = None
+
+    epitopes = predictor.epitopes_from_variants(
+        variants,
+        gene_expression_dict=gene_expression_dict,
+        gene_expression_threshold=args.rna_min_gene_expression,
+        transcript_expression_dict=transcript_expression_dict,
+        transcript_expression_threshold=args.rna_min_transcript_expression,
+        raise_on_variant_effect_error=not args.skip_variant_errors)
     df = epitopes_to_dataframe(epitopes)
-    if args.output:
-        df.to_csv(args.output, index=False)
+    if args.output_csv:
+        df.to_csv(args.output_csv, index=False)
+    if args.output_html:
+        df.to_html(args.output_html, index=False)
     print(df)
 
 if __name__ == "__main__":

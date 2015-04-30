@@ -4,16 +4,17 @@ Predict mutation-derived cancer T-cell epitopes from (1) somatic variants (2) tu
 ## Example
 
 ```sh
-/topiary 
-  --vcf somatic.vcf  
-  --mhc-pan 
-  --mhc-alleles-file patient_hla.txt 
-  --filter-ic50 500 
-  --filter-percentile 2.0 
-  --mhc-epitope-lengths 8-11 
-  --rna-gene-fpkm-file genes.fpkm_tracking 
-  --rna-gene-expression-threshold 4.0
+/topiary
+  --vcf somatic.vcf
+  --mhc-pan
+  --mhc-alleles HLA-A*02:01,HLA-B*07:02
+  --ic50-cutoff 500
+  --percentile-cutoff 2.0
+  --mhc-epitope-lengths 8-11
+  --rna-gene-fpkm-file genes.fpkm_tracking
+  --rna-min-gene-expression 4.0
   --rna-transcript-fpkm-file isoforms.fpkm_tracking
-  --rna-transcript-expression-threshold 1.5
-  --output epitopes.csv
+  --rna-min-transcript-expression 1.5
+  --output-csv epitopes.csv
+  --output-html epitopes.html
 ```

@@ -137,7 +137,6 @@ mhc_predictor_flags = [
             mhctools.IedbSMM_PMBEC),
 ]
 
-
 for flag, help_string, mhc_class in mhc_predictor_flags:
     mhc_predictor_arg_group.add_argument(flag,
         default=False,
@@ -185,9 +184,9 @@ rna_group.add_argument(
     required=False)
 
 rna_group.add_argument(
-    "--rna-gene-expression-threshold",
+    "--rna-min-gene-expression",
     help="Minimum FPKM for gene expression",
-    default=4.0,
+    default=0.0,
     type=float)
 
 rna_group.add_argument(
@@ -203,9 +202,9 @@ rna_group.add_argument(
     help="Cufflinks tracking file (FPKM measurements for Ensembl transcripts)")
 
 rna_group.add_argument(
-    "--rna-transcript-expression-threshold",
+    "--rna-min-transcript-expression",
     help="Minimum FPKM for transcript expression",
-    default=1.0,
+    default=0.0,
     type=float)
 
 #
@@ -216,23 +215,41 @@ filter_group = arg_parser.add_argument_group(
     description="Criteria for removing epitopes from results")
 
 filter_group.add_argument(
-    "--filter-ic50",
+    "--ic50-cutoff",
     help="Drop epitopes with predicted IC50 nM affinity above this value",
     default=None,
     type=float)
 
 
 filter_group.add_argument(
-    "--filter-percentile",
+    "--percentile-cutoff",
     help="Drop epitopes with predicted IC50 percentile rank above this value",
     default=None,
     type=float)
 
 #
-# Output
+# Misc
 #
 arg_parser.add_argument(
-    "--output",
+    "--skip-variant-errors",
+    default=False,
+    action="store_true",
+    help="Skip variants which cause errors")
+
+#
+# Output
+#
+
+output_group = arg_parser.add_argument_group(
+    title="Output",
+    description="Write results to different formats")
+
+output_group.add_argument(
+    "--output-csv",
     default=None,
     help="Path to output CSV file")
 
+output_group.add_argument(
+    "--output-html",
+    default=None,
+    help="Path to output HTML file")

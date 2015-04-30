@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+
 from typechecks import require_integer
 from varcode import EffectCollection, VariantCollection
 from mhctools import EpitopeCollection, BindingPrediction
@@ -21,21 +23,20 @@ from .convert import extract_mutant_peptides
 def _apply_filter(
         filter_fn,
         collection,
-        expression_dict,
-        threshold,
-        gene_or_transcript):
+        extra_args=(),
+        filter_name=""):
     """
     Apply filter to effect collection and print number of dropped elements
     """
     n_before = len(collection)
-    filtered = filter_fn(collection, expression_dict, threshold)
+    filtered = filter_fn(collection, *extra_args)
     n_after = len(filtered)
-    if n_before != n_after:
-        print("%s expression filtering removed %d/%d entries of %s" % (
-            gene_or_transcript,
-            (n_before - n_after),
-            n_before,
-            gene_or_transcript))
+    logging.info(
+        "%s filtering removed %d/%d entries of %s",
+        filter_name,
+        (n_before - n_after),
+        n_before,
+        collection.__class__.__name__)
     return filtered
 
 def _dict_from_namedtuple(obj):
@@ -128,21 +129,30 @@ class MutantEpitopePredictor(object):
         """
         # we only care about effects which impac the coding sequence of a
         # protein
-        effects = effects.drop_silent_and_noncoding()
+        effects = _apply_filter(
+            EffectCollection.drop_silent_and_noncoding,
+            effects,
+            filter_name="Silent mutation")
         if gene_expression_dict:
             effects = _apply_filter(
                 EffectCollection.filter_by_gene_expression,
-                gene_expression_dict,
-                gene_expression_threshold,
-                "Gene")
+                effects,
+                extra_args=(gene_expression_dict, gene_expression_threshold),
+                filter_name="Gene expression")
         if transcript_expression_dict:
             _apply_filter(
                 EffectCollection.filter_by_transcript_expression,
-                transcript_expression_dict,
-                transcript_expression_threshold,
-                "Transcript")
+                effects,
+                extra_args=(
+                    transcript_expression_dict,
+                    transcript_expression_threshold),
+                filter_name="Transcript expression")
 
         variant_effect_groups = effects.groupby_variant()
+
+        if len(variant_effect_groups) == 0:
+            logging.warn("No candidates for MHC binding prediction")
+            return EpitopeCollection([])
 
         if transcript_expression_dict:
             # if expression data is available, then for each variant
@@ -238,15 +248,19 @@ class MutantEpitopePredictor(object):
         if gene_expression_dict:
             variants = _apply_filter(
                 VariantCollection.filter_by_gene_expression,
-                gene_expression_dict,
-                gene_expression_threshold,
-                "Gene")
+                variants,
+                extra_args=(
+                    gene_expression_dict,
+                    gene_expression_threshold),
+                filter_name="Gene expression")
         if transcript_expression_dict:
             variants = _apply_filter(
                 VariantCollection.filter_by_transcript_expression,
-                transcript_expression_dict,
-                transcript_expression_threshold,
-                "Transcript")
+                variants,
+                extra_args=(
+                    transcript_expression_dict,
+                    transcript_expression_threshold),
+                filter_name="Transcript")
 
         effects = variants.effects(
             raise_on_error=raise_on_variant_effect_error)
