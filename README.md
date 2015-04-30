@@ -4,8 +4,8 @@ Predict mutation-derived cancer T-cell epitopes from (1) somatic variants (2) tu
 ## Example
 
 ```sh
-/topiary -
-  -vcf somatic.vcf  
+/topiary 
+  --vcf somatic.vcf  
   --mhc-pan 
   --mhc-alleles-file patient_hla.txt 
   --filter-ic50 500 
