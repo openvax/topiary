@@ -4,7 +4,7 @@ from .args import (
     mhc_binding_predictor_from_args
 )
 from .mutant_epitope_predictor import MutantEpitopePredictor
-from .serialize_results import (
+from .convert import (
     epitopes_to_dataframe,
     epitopes_to_csv
 )

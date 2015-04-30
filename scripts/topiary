@@ -35,7 +35,7 @@ from topiary import (
     mhc_binding_predictor_from_args,
     variant_collection_from_args,
     MutantEpitopePredictor,
-    epitopes_to_csv,
+    epitopes_to_dataframe,
 )
 
 args = arg_parser.parse_args()
@@ -47,14 +47,10 @@ def main():
         padding_around_mutation=args.padding_around_mutation)
     variants = variant_collection_from_args(args)
     epitopes = predictor.epitopes_from_variants(variants)
-    if args.filter_ic50:
-        epitopes = epitopes.filter(lambda x: x.value <= args.filter_ic50)
-    if args.filter_percentile:
-        epitopes = epitopes.filter(
-            lambda x: x.percentile_rank <= args.filter_percentile)
+    df = epitopes_to_dataframe(epitopes)
     if args.output:
-        epitopes_to_csv(epitopes, args.output)
-    print(epitopes)
+        df.to_csv(args.output, index=False)
+    print(df)
 
 if __name__ == "__main__":
     main()

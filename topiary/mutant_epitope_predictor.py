@@ -12,25 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-
 from typechecks import require_integer
+from varcode import EffectCollection, VariantCollection
+from mhctools import EpitopeCollection, BindingPrediction
 
-def create_fasta_dict(effects, padding_around_mutation):
-    fasta_dict = {}
-    for effect in effects:
-        # TODO: will mhctools take an object key?
-        key = effect
-        seq = effect.mutant_protein_sequence
-        # some effects will lack a mutant protein sequence since
-        # they are either silent or unpredictable
-        if seq:
-            mutation_start = effect.aa_mutation_start_offset
-            mutation_end = effect.aa_mutation_end_offset
-            start = max(0, mutation_start - padding_around_mutation)
-            end = min(len(seq), mutation_end + padding_around_mutation)
-            fasta_dict[key] = seq[start:end]
-    return fasta_dict
+from .convert import extract_mutant_peptides
+
+def _apply_filter(
+        filter_fn,
+        collection,
+        expression_dict,
+        threshold,
+        gene_or_transcript):
+    """
+    Apply filter to effect collection and print number of dropped elements
+    """
+    n_before = len(collection)
+    filtered = filter_fn(collection, expression_dict, threshold)
+    n_after = len(filtered)
+    if n_before != n_after:
+        print("%s expression filtering removed %d/%d entries of %s" % (
+            gene_or_transcript,
+            (n_before - n_after),
+            n_before,
+            gene_or_transcript))
+    return filtered
+
+def _dict_from_namedtuple(obj):
+    return {
+        field_name: getattr(obj, field_name)
+        for field_name in obj._fields
+    }
 
 class MutantEpitopePredictor(object):
     def __init__(
@@ -38,7 +50,7 @@ class MutantEpitopePredictor(object):
             mhc_model,
             padding_around_mutation=0,
             ic50_cutoff=None,
-            percentile_rank_cutoff=None):
+            percentile_cutoff=None):
         """
         Parameters
         ----------
@@ -52,6 +64,12 @@ class MutantEpitopePredictor(object):
             Number of amino acids on each side of the mutation to include
             in candidate epitopes. If not given, then padding_around_mutation
             is set to one less than the maximum epitope length.
+
+        ic50_cutoff : float, optional
+            Drop any binding predictions with IC50 nM weaker than this cutoff.
+
+        percentile_cutoff : float, optional
+            Drop any binding predictions with percentile rank below this cutoff.
         """
         require_integer(
             padding_around_mutation, "Padding around mutated residues")
@@ -73,6 +91,8 @@ class MutantEpitopePredictor(object):
         padding_around_mutation = max(
             padding_around_mutation, min_required_padding)
         self.padding_around_mutation = padding_around_mutation
+        self.ic50_cutoff = ic50_cutoff
+        self.percentile_cutoff = percentile_cutoff
 
     def epitopes_from_mutation_effects(
             self,
@@ -110,25 +130,17 @@ class MutantEpitopePredictor(object):
         # protein
         effects = effects.drop_silent_and_noncoding()
         if gene_expression_dict:
-            n_before = len(effects)
-            effects = effects.filter_by_gene_expression(
+            effects = _apply_filter(
+                EffectCollection.filter_by_gene_expression,
                 gene_expression_dict,
-                gene_expression_threshold)
-            n_after = len(effects)
-            if n_before > n_after:
-                logging.info(
-                    "Gene expression filtering removed %d/%d effects" % (
-                        (n_before - n_after), n_before))
+                gene_expression_threshold,
+                "Gene")
         if transcript_expression_dict:
-            n_before = len(effects)
-            effects = effects.filter_by_transcript_expression(
+            _apply_filter(
+                EffectCollection.filter_by_transcript_expression,
                 transcript_expression_dict,
-                transcript_expression_threshold)
-            n_after = len(effects)
-            if n_before > n_after:
-                logging.info(
-                    "Transcript expression filtering removed %d/%d effects" % (
-                        (n_before - n_after), n_before))
+                transcript_expression_threshold,
+                "Transcript")
 
         variant_effect_groups = effects.groupby_variant()
 
@@ -152,10 +164,41 @@ class MutantEpitopePredictor(object):
             for variant_effects in variant_effect_groups.values()
         ]
 
-        fasta_dict = create_fasta_dict(
+        peptide_interval_dict = extract_mutant_peptides(
             effects=final_effects,
             padding_around_mutation=self.padding_around_mutation)
-        return self.mhc_model.predict(fasta_dict)
+        peptide_dict = {
+            effect: source_sequence[start:end]
+            for (effect, (source_sequence, start, end))
+            in peptide_interval_dict.items()
+        }
+        # adjust offsets and source sequences of peptides in binding
+        # predictions to reflect the longer source sequence they come from
+        binding_predictions = []
+        for x in self.mhc_model.predict(peptide_dict):
+            effect = x.source_sequence_key
+            (source_sequence, source_start, _) = peptide_interval_dict[effect]
+            fields = _dict_from_namedtuple(x)
+            fields["source_sequence"] = source_sequence
+            fields["offset"] = fields["offset"] + source_start
+            binding_predictions.append(BindingPrediction(**fields))
+
+        # filter out low binders
+        if self.ic50_cutoff:
+            binding_predictions = [
+                x
+                for x in binding_predictions
+                if x.value <= self.ic50_cutoff
+            ]
+
+        if self.percentile_cutoff:
+            binding_predictions = [
+                x
+                for x in binding_predictions
+                if x.percentile_rank <= self.percentile_cutoff
+            ]
+
+        return EpitopeCollection(binding_predictions)
 
     def epitopes_from_variants(
             self,
@@ -193,25 +236,17 @@ class MutantEpitopePredictor(object):
         # on the protein sequence.
 
         if gene_expression_dict:
-            n_before = len(variants)
-            variants = variants.filter_by_gene_expression(
+            variants = _apply_filter(
+                VariantCollection.filter_by_gene_expression,
                 gene_expression_dict,
-                gene_expression_threshold)
-            n_after = len(variants)
-            if n_before > n_after:
-                logging.info(
-                    "Gene expression filtering removed %d/%d variants" % (
-                        (n_before - n_after), n_before))
+                gene_expression_threshold,
+                "Gene")
         if transcript_expression_dict:
-            n_before = len(variants)
-            variants = variants.filter_by_transcript_expression(
+            variants = _apply_filter(
+                VariantCollection.filter_by_transcript_expression,
                 transcript_expression_dict,
-                transcript_expression_threshold)
-            n_after = len(variants)
-            if n_before > n_after:
-                logging.info(
-                    "Transcript expression filtering removed %d/%d variants" % (
-                        (n_before - n_after), n_before))
+                transcript_expression_threshold,
+                "Transcript")
 
         effects = variants.effects(
             raise_on_error=raise_on_variant_effect_error)
