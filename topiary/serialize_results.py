@@ -14,6 +14,8 @@
 
 from collections import defaultdict
 
+import pandas as pd
+
 def epitopes_to_dataframe(epitope_collection):
     """
     An mhctools.EpitopeCollection creates a very noisy DataFrame representation
@@ -21,21 +23,40 @@ def epitopes_to_dataframe(epitope_collection):
     So, here's some specialized logic for making a DataFrame from a
     Variant-specific EpitopeCollection
     """
-    columns = defaultdict(list)
+    column_dict = defaultdict(list)
+
+    # list of column names and functions to extract the value for that column
+    # from a single binding prediction
+    simple_column_extractors = [
+        ("peptide", lambda x: x.peptide),
+        ("allele", lambda x: x.allele),
+        ("length", lambda x: x.length),
+        ("ic50", lambda x: x.value),
+        ("percentile_rank", lambda x: x.percentile_rank),
+        ("prediction_method", lambda x: x.prediction_method_name),
+        ("source_seq_offset", lambda x: x.offset),
+        ("source_seq_mut_start", lambda x: x.aa_mutation_start_offset),
+        ("source_seq_mut_end", lambda x: x.aa_mutation_end_offset)
+    ]
     for x in epitope_collection:
-        columns['peptde'] = x.peptide
-        columns['allele'] = x.allele
-        columns['length'] = x.length
-        columns['ic50'] = x.value
-        columns['percentile_rank'] = x.percentile_rank
-        columns['prediction_method'] = x.prediction_method_name
+        for column_name, fn in simple_column_extractors:
+            column_dict[column_name].append(fn(x))
         effect = x.source_sequence_key
         variant = effect.variant
-        mut_start = effect.aa_mutation_start_offset
-        mut_end = effect.aa_mutation_end_offset
-        columns['effect_type'] = effect.__class__.__name__
-        columns['variant'] = variant.short_description
+        # half-open interval of mutated residues in the source sequence
+        # the peptide was extracted from
+        mut_start_in_source_seq = effect.aa_mutation_start_offset
+        mut_end_in_source_seq = effect.aa_mutation_end_offset
+        column_dict['effect_type'] = effect.__class__.__name__
+        column_dict['variant'] = variant.short_description
+        mut_start = min(max(0, mut_start_in_source_seq - x.offset), x.length)
+        mut_end = min(max(0, mut_end_in_source_seq), x.length)
+        mutated = mut_start != mut_end
+        column_dict['mut_start'] = mut_start
+        column_dict['mut_end'] = mut_end
+        column_dict['mutated'] = mutated
+        return pd.DataFrame(column_dict)
 
 def epitopes_to_csv(epitope_collection, csv_path):
     df = epitopes_to_dataframe(epitope_collection)
-    df.to_csv(csv_path)
+    df.to_csv(csv_path, index=False)

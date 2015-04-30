@@ -162,8 +162,9 @@ def mhc_binding_predictor_from_args(args):
 #
 arg_parser.add_argument(
     "--padding-around-mutation",
-    default=None,
-    help="How many extra amino acids to include on either side of a mutation")
+    default=0,
+    help="How many extra amino acids to include on either side of a mutation",
+    type=int)
 
 arg_parser.add_argument(
     "--self-filter-directory",
@@ -186,14 +187,16 @@ rna_group.add_argument(
 rna_group.add_argument(
     "--rna-gene-expression-threshold",
     help="Minimum FPKM for gene expression",
-    default=4.0)
+    default=4.0,
+    type=float)
 
 rna_group.add_argument(
     "--rna-remap-novel-genes-onto-ensembl",
     help=(
         "If a novel gene is fully contained by known Ensembl gene, then "
         "merge their expression values"),
-    default=False)
+    default=False,
+    action="store_true")
 
 rna_group.add_argument(
     "--rna-transcript-fpkm-file",
@@ -202,7 +205,8 @@ rna_group.add_argument(
 rna_group.add_argument(
     "--rna-transcript-expression-threshold",
     help="Minimum FPKM for transcript expression",
-    default=1.0)
+    default=1.0,
+    type=float)
 
 #
 # Filtering of epitopes
@@ -214,13 +218,15 @@ filter_group = arg_parser.add_argument_group(
 filter_group.add_argument(
     "--filter-ic50",
     help="Drop epitopes with predicted IC50 nM affinity above this value",
-    default=None)
+    default=None,
+    type=float)
 
 
 filter_group.add_argument(
     "--filter-percentile",
     help="Drop epitopes with predicted IC50 percentile rank above this value",
-    default=None)
+    default=None,
+    type=float)
 
 #
 # Output

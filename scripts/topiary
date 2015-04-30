@@ -34,23 +34,26 @@ from topiary import (
     arg_parser,
     mhc_binding_predictor_from_args,
     variant_collection_from_args,
-    MutantEpitopePredictor
+    MutantEpitopePredictor,
+    epitopes_to_csv,
 )
+
 args = arg_parser.parse_args()
 
 def main():
     mhc_model = mhc_binding_predictor_from_args(args)
     predictor = MutantEpitopePredictor(
         mhc_model=mhc_model,
-        padding_around_mutation=0)
+        padding_around_mutation=args.padding_around_mutation)
     variants = variant_collection_from_args(args)
     epitopes = predictor.epitopes_from_variants(variants)
     if args.filter_ic50:
-        pass
+        epitopes = epitopes.filter(lambda x: x.value <= args.filter_ic50)
     if args.filter_percentile:
-        pass
+        epitopes = epitopes.filter(
+            lambda x: x.percentile_rank <= args.filter_percentile)
     if args.output:
-        pass
+        epitopes_to_csv(epitopes, args.output)
     print(epitopes)
 
 if __name__ == "__main__":

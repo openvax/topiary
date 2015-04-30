@@ -39,8 +39,8 @@ if __name__ == '__main__':
         name='topiary',
         version="0.0.0",
         description="Predict cancer epitopes from cancer sequence data",
-        author="Alex Rubinsteyn",
-        author_email="alex {dot} nathanson {at} gmail {dot} com",
+        author="Alex Rubinsteyn, Tavi Nathanson",
+        author_email="alex {dot} rubinsteyn {at} gmail {dot} com",
         url="https://github.com/hammerlab/topiary",
         license="http://www.apache.org/licenses/LICENSE-2.0.html",
         classifiers=[

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+
 from typechecks import require_integer
 
 def create_fasta_dict(effects, padding_around_mutation):
@@ -34,7 +36,9 @@ class MutantEpitopePredictor(object):
     def __init__(
             self,
             mhc_model,
-            padding_around_mutation=0):
+            padding_around_mutation=0,
+            ic50_cutoff=None,
+            percentile_rank_cutoff=None):
         """
         Parameters
         ----------
@@ -106,13 +110,25 @@ class MutantEpitopePredictor(object):
         # protein
         effects = effects.drop_silent_and_noncoding()
         if gene_expression_dict:
+            n_before = len(effects)
             effects = effects.filter_by_gene_expression(
                 gene_expression_dict,
                 gene_expression_threshold)
+            n_after = len(effects)
+            if n_before > n_after:
+                logging.info(
+                    "Gene expression filtering removed %d/%d effects" % (
+                        (n_before - n_after), n_before))
         if transcript_expression_dict:
+            n_before = len(effects)
             effects = effects.filter_by_transcript_expression(
                 transcript_expression_dict,
                 transcript_expression_threshold)
+            n_after = len(effects)
+            if n_before > n_after:
+                logging.info(
+                    "Transcript expression filtering removed %d/%d effects" % (
+                        (n_before - n_after), n_before))
 
         variant_effect_groups = effects.groupby_variant()
 
@@ -177,13 +193,25 @@ class MutantEpitopePredictor(object):
         # on the protein sequence.
 
         if gene_expression_dict:
+            n_before = len(variants)
             variants = variants.filter_by_gene_expression(
                 gene_expression_dict,
                 gene_expression_threshold)
+            n_after = len(variants)
+            if n_before > n_after:
+                logging.info(
+                    "Gene expression filtering removed %d/%d variants" % (
+                        (n_before - n_after), n_before))
         if transcript_expression_dict:
+            n_before = len(variants)
             variants = variants.filter_by_transcript_expression(
                 transcript_expression_dict,
                 transcript_expression_threshold)
+            n_after = len(variants)
+            if n_before > n_after:
+                logging.info(
+                    "Transcript expression filtering removed %d/%d variants" % (
+                        (n_before - n_after), n_before))
 
         effects = variants.effects(
             raise_on_error=raise_on_variant_effect_error)
