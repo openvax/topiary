@@ -63,7 +63,7 @@ You *must* choose an MHC binding predictor using one of the following flags:
 * `--mhc-smm-iedb`: SMM via the IEDB web API
 * `--mhc-smm-pmbec-iedb`: SMM-PMBEC via the IEDB web API
 
-### MHC alleles
+### MHC Alleles
 You must specify the alleles to perform binding prediction for using one of
 the following flags:
 
@@ -72,10 +72,13 @@ line
 * `--mhc-alleles MHC_ALLELES`: Comma separated list of allele names,
 e.g. "HLA-A02:01,HLA-B07:02"
 
-### MHC Binding Prediction Parameters and Filtering
+### Peptide Length
 
 * `--mhc-epitope-lengths MHC_EPITOPE_LENGTHS`: comma separated list of integers
 specifying which peptide lengths to use for MHC binding prediction
+
+### Binding Prediction Filtering
+
 * `--keep-wildtype-epitopes`: Topiary will normally discard predicted epitopes
 which don't overlap a mutated region of a protein. Use this flag to keep all
 predicted epitopes you must this
@@ -87,6 +90,11 @@ this threshold (lower values are stricter filters, typical value is 2.0)
 
 ### Misc
 
-* `--padding-around-mutation PADDING_AROUND_MUTATION`
-* `--self-filter-directory SELF_FILTER_DIRECTORY`
-* `--skip-variant-errors`
+* `--padding-around-mutation PADDING_AROUND_MUTATION`: Include more unmutated residues
+around the mutation (useful when combined with `--keep-wildtype-epitopes`)
+* `--self-filter-directory SELF_FILTER_DIRECTORY`: Directory of files named by MHC allele
+containing a  self peptide ligandome (peptides which should be excluded from
+results)
+* `--skip-variant-errors`: If a particular mutation causes an exception to be raised
+during annotation, you can skip it using this flag.
+
