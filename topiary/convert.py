@@ -40,12 +40,18 @@ def extract_mutant_peptides(effects, padding_around_mutation):
             result[effect] = (seq, start, end)
     return result
 
-def epitopes_to_dataframe(epitope_collection):
+def epitopes_to_dataframe(
+        epitope_collection,
+        gene_expression_dict=None,
+        transcript_expression_dict=None):
     """
     An mhctools.EpitopeCollection creates a very noisy DataFrame representation
     (since it doesn't know e.g. that Topiary's sequence keys are variants).
     So, here's some specialized logic for making a DataFrame from a
-    Variant-specific EpitopeCollection
+    Variant-specific EpitopeCollection.
+
+    Optional arguments for expression level dictionaries will cause the
+    data frame to have columns 'gene_expression' and/or 'transcript_expression'.
     """
     column_dict = defaultdict(list)
 
@@ -72,6 +78,21 @@ def epitopes_to_dataframe(epitope_collection):
             lambda x: x.source_sequence_key.aa_mutation_end_offset),
         ("peptide_offset_in_protein", lambda x: x.offset),
     ]
+    if gene_expression_dict:
+        key_fn_pair = (
+            "gene_expression",
+            lambda x: gene_expression_dict.get(
+                x.source_sequence_key.gene_id, 0.0)
+        )
+        simple_column_extractors.append(key_fn_pair)
+    if transcript_expression_dict:
+        key_fn_pair = (
+            "gene_expression",
+            lambda x: transcript_expression_dict.get(
+                x.source_sequence_key.transcript_id, 0.0)
+        )
+        simple_column_extractors.append(key_fn_pair)
+
     for x in epitope_collection:
         for column_name, fn in simple_column_extractors:
             column_dict[column_name].append(fn(x))

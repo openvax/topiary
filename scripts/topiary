@@ -80,7 +80,11 @@ def main():
         transcript_expression_dict=transcript_expression_dict,
         transcript_expression_threshold=args.rna_min_transcript_expression,
         raise_on_variant_effect_error=not args.skip_variant_errors)
-    df = epitopes_to_dataframe(epitopes)
+
+    df = epitopes_to_dataframe(
+        epitopes,
+        gene_expression_dict=gene_expression_dict,
+        transcript_expression_dict=transcript_expression_dict)
     if args.output_csv:
         df.to_csv(args.output_csv, index=False)
     if args.output_html:
