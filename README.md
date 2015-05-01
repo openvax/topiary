@@ -23,10 +23,10 @@ Predict mutation-derived cancer T-cell epitopes from (1) somatic variants (2) tu
 
 ### Genomic Variants
 
-It's required to specify at least one variant input file:
+You must specify at least one variant input file:
 
-* `--vcf VCF_FILENAME`: Load a VCF file
-* `--maf MAF_FILENAME`: Load a TCGA MAF file
+* `--vcf VCF_FILENAME`: Load a [VCF](http://www.1000genomes.org/wiki/analysis/variant%20call%20format/vcf-variant-call-format-version-41) file
+* `--maf MAF_FILENAME`: Load a TCGA [MAF](https://wiki.nci.nih.gov/display/TCGA/Mutation+Annotation+Format+%28MAF%29+Specification) file
 
 ### Output Format
 
@@ -69,7 +69,7 @@ the following flags:
 * `--mhc-alleles-file MHC_ALLELES_FILE`: Text file containing one allele name per
 line
 * `--mhc-alleles MHC_ALLELES`: Comma separated list of allele names,
-e.g. "HLA-A*02:01,HLA-B*07:02"
+e.g. "HLA-A02:01,HLA-B07:02"
 
 ### MHC Binding Options
 * `--mhc-epitope-lengths MHC_EPITOPE_LENGTHS`: comma separated list of integers
