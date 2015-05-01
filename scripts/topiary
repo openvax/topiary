@@ -46,6 +46,7 @@ from topiary import (
 args = arg_parser.parse_args()
 
 def main():
+    print(args)
     mhc_model = mhc_binding_predictor_from_args(args)
     predictor = MutantEpitopePredictor(
         mhc_model=mhc_model,

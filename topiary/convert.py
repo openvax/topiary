@@ -56,40 +56,51 @@ def epitopes_to_dataframe(
     column_dict = defaultdict(list)
 
     # list of column names and functions to extract the value for that column
-    # from a single binding prediction
+    # from a single binding prediction.
+    # Important for understanding this code: each element of epitope_collection
+    # is an mhctools.BindingPrediction object whose `source_sequence_key` field
+    # is being abused to store a Varcode.MutationEffect object (which acts as
+    # a unique key for the longer amino acid sequences out of which we pulled
+    # candidate epitopes)
+
+    def get_effect(binding_prediction):
+        return binding_prediction.source_sequence_key
+
+    def get_variant(binding_prediction):
+        return get_effect(binding_prediction).variant
+
     simple_column_extractors = [
         ("allele", lambda x: x.allele),
         ("peptide", lambda x: str(x.peptide)),
         ("length", lambda x: x.length),
         ("ic50", lambda x: x.value),
         ("percentile_rank", lambda x: x.percentile_rank),
-        ("gene",
-            lambda x: x.source_sequence_key.gene_name),
-        ("transcript",
-            lambda x: x.source_sequence_key.transcript_name),
-        ("variant", lambda x: x.source_sequence_key.variant.short_description),
-        ("effect_type", lambda x: x.source_sequence_key.__class__.__name__),
+        ("gene", lambda x: get_effect(x).gene_name),
+        ("transcript", lambda x: get_effect(x).transcript_name),
+        ("variant", lambda x: get_variant(x).short_description),
+        ("effect", lambda x: get_effect(x).short_description),
+        ("effect_type", lambda x: get_effect(x).__class__.__name__),
         ("prediction_method", lambda x: x.prediction_method_name),
         ("protein_sequence",
-            lambda x: str(x.source_sequence_key.mutant_protein_sequence)),
+            lambda x: str(get_effect(x).mutant_protein_sequence)),
         ("protein_mutation_start",
-            lambda x: x.source_sequence_key.aa_mutation_start_offset),
+            lambda x: get_effect(x).aa_mutation_start_offset),
         ("protein_mutation_end",
-            lambda x: x.source_sequence_key.aa_mutation_end_offset),
+            lambda x: get_effect(x).aa_mutation_end_offset),
         ("peptide_offset_in_protein", lambda x: x.offset),
     ]
     if gene_expression_dict:
         key_fn_pair = (
             "gene_expression",
-            lambda x: gene_expression_dict.get(
-                x.source_sequence_key.gene_id, 0.0)
+            lambda x: gene_expression_dict.get(get_effect(x).gene_id, 0.0)
         )
         simple_column_extractors.append(key_fn_pair)
+
     if transcript_expression_dict:
         key_fn_pair = (
-            "gene_expression",
+            "transcript_expression",
             lambda x: transcript_expression_dict.get(
-                x.source_sequence_key.transcript_id, 0.0)
+                get_effect(x).transcript_id, 0.0)
         )
         simple_column_extractors.append(key_fn_pair)
 
@@ -104,7 +115,7 @@ def epitopes_to_dataframe(
         mut_end_in_source_seq = effect.aa_mutation_end_offset
         # TODO: write unit tests for all interval logic,
         # since it's easy to get wrong
-        if (x.offset >= mut_end_in_source_seq and
+        if (x.offset >= mut_end_in_source_seq or
                 x.offset + x.length - 1 < mut_start_in_source_seq):
             peptide_mut_start = peptide_mut_end = None
             mutated = False
@@ -117,9 +128,9 @@ def epitopes_to_dataframe(
                 x.length,
                 max(0, mut_end_in_source_seq - x.offset))
             mutated = True
-        column_dict['peptide_mutation_start'] = peptide_mut_start
-        column_dict['peptide_mutation_end'] = peptide_mut_end
-        column_dict['peptide_contains_mutation'] = mutated
+        column_dict['peptide_mutation_start'].append(peptide_mut_start)
+        column_dict['peptide_mutation_end'].append(peptide_mut_end)
+        column_dict['peptide_contains_mutation'].append(mutated)
     column_names = [pair[0] for pair in simple_column_extractors] + [
         'peptide_mutation_start',
         'peptide_mutation_end',
