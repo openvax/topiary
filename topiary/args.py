@@ -25,7 +25,7 @@ import mhctools
 from mhctools.alleles import normalize_allele_name
 import varcode
 
-from .common import parse_int_list
+from .parsing_helpers import parse_int_list
 
 
 arg_parser = argparse.ArgumentParser()
@@ -237,6 +237,12 @@ filter_group.add_argument(
     help="Drop epitopes with predicted IC50 percentile rank above this value",
     default=None,
     type=float)
+
+filter_group.add_argument(
+    "--drop-wildtype-epitopes",
+    help="Drop epitopes which do not contain mutated residues",
+    default=False,
+    action="store_true")
 
 #
 # Misc
