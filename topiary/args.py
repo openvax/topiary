@@ -16,7 +16,10 @@
 Common commandline arguments used by scripts
 """
 
+
+from __future__ import print_function, division, absolute_import
 import argparse
+import logging
 
 import mhctools
 from mhctools.alleles import normalize_allele_name
@@ -153,6 +156,14 @@ def mhc_binding_predictor_from_args(args):
     if mhc_class is None:
         raise ValueError("No MHC prediction method specified")
     alleles = mhc_alleles_from_args(args)
+    epitope_lengths = args.epitope_lengths
+    logging.info(
+        ("Building MHC binding prediction %s"
+         " for alleles %s"
+         " and epitope lengths %s") % (
+            mhc_class.__class__.__name__,
+            alleles,
+            epitope_lengths))
     return mhc_class(
         alleles=alleles,
         epitope_lengths=args.mhc_epitope_lengths)
