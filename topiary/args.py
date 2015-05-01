@@ -156,7 +156,7 @@ def mhc_binding_predictor_from_args(args):
     if mhc_class is None:
         raise ValueError("No MHC prediction method specified")
     alleles = mhc_alleles_from_args(args)
-    epitope_lengths = args.epitope_lengths
+    epitope_lengths = args.mhc_epitope_lengths
     logging.info(
         ("Building MHC binding prediction %s"
          " for alleles %s"
@@ -166,7 +166,7 @@ def mhc_binding_predictor_from_args(args):
             epitope_lengths))
     return mhc_class(
         alleles=alleles,
-        epitope_lengths=args.mhc_epitope_lengths)
+        epitope_lengths=epitope_lengths)
 #
 # Mutated sequence options
 #
