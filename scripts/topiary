@@ -46,14 +46,16 @@ from topiary import (
 args = arg_parser.parse_args()
 
 def main():
+    print("Topiary commandline arguments:")
     print(args)
+
     mhc_model = mhc_binding_predictor_from_args(args)
     predictor = MutantEpitopePredictor(
         mhc_model=mhc_model,
         padding_around_mutation=args.padding_around_mutation,
         ic50_cutoff=args.ic50_cutoff,
         percentile_cutoff=args.percentile_cutoff,
-        drop_wildtype_epitopes=args.drop_wildtype_epitopes)
+        keep_wildtype_epitopes=args.keep_wildtype_epitopes)
     variants = variant_collection_from_args(args)
     if args.rna_gene_fpkm_file:
         gene_expression_df = load_cufflinks_dataframe(args.rna_gene_fpkm_file)

@@ -59,7 +59,7 @@ class MutantEpitopePredictor(object):
             padding_around_mutation=0,
             ic50_cutoff=None,
             percentile_cutoff=None,
-            drop_wildtype_epitopes=False):
+            keep_wildtype_epitopes=False):
         """
         Parameters
         ----------
@@ -80,8 +80,8 @@ class MutantEpitopePredictor(object):
         percentile_cutoff : float, optional
             Drop any binding predictions with percentile rank below this cutoff.
 
-        drop_wildtype_epitopes : bool
-            Only keep epitopes which contain mutated residues
+        keep_wildtype_epitopes : bool
+            Keep epitopes which don't contain mutated residues
         """
         require_integer(
             padding_around_mutation, "Padding around mutated residues")
@@ -105,7 +105,7 @@ class MutantEpitopePredictor(object):
         self.padding_around_mutation = padding_around_mutation
         self.ic50_cutoff = ic50_cutoff
         self.percentile_cutoff = percentile_cutoff
-        self.drop_wildtype_epitopes = drop_wildtype_epitopes
+        self.keep_wildtype_epitopes = keep_wildtype_epitopes
 
     def epitopes_from_mutation_effects(
             self,
@@ -225,7 +225,7 @@ class MutantEpitopePredictor(object):
                 collection_name="binding predictions",
             )
 
-        if self.drop_wildtype_epitopes:
+        if not self.keep_wildtype_epitopes:
             binding_predictions = _apply_filter(
                 filter_fn=lambda x: contains_mutation(x, x.source_sequence_key),
                 collection=binding_predictions,

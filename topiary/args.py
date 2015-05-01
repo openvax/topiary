@@ -239,8 +239,8 @@ filter_group.add_argument(
     type=float)
 
 filter_group.add_argument(
-    "--drop-wildtype-epitopes",
-    help="Drop epitopes which do not contain mutated residues",
+    "--keep-wildtype-epitopes",
+    help="Keep epitopes which do not contain mutated residues",
     default=False,
     action="store_true")
 

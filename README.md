@@ -52,6 +52,7 @@ for transcripts
 ### Choose an MHC Binding Predictor
 
 You *must* choose an MHC binding predictor using one of the following flags:
+
 * `--mhc-pan`: Local NetMHCpan
 * `--mhc-cons`: Local NetMHCcons
 * `--mhc-random`: Random IC50 values
@@ -71,11 +72,21 @@ line
 * `--mhc-alleles MHC_ALLELES`: Comma separated list of allele names,
 e.g. "HLA-A02:01,HLA-B07:02"
 
-### MHC Binding Options
+### MHC Binding Prediction Parameters and Filtering
+
 * `--mhc-epitope-lengths MHC_EPITOPE_LENGTHS`: comma separated list of integers
-specifying which peptide lengths to perform MHC binding prediction for
+specifying which peptide lengths to use for MHC binding prediction
+* `--keep-wildtype-epitopes`: Topiary will normally discard predicted epitopes
+which don't overlap a mutated region of a protein. Use this flag to keep all
+predicted epitopes you must this
+* `--ic50-cutoff IC50_CUTOFF`: Drop peptides with predicted IC50 nM greater
+than this value (typical value is 500.0)
+* `--percentile-cutoff PERCENTILE_CUTOFF`: Drop peptides with percentile rank
+of their predicted IC50 (among predictions for a particular allele) fall below
+this threshold (lower values are stricter filters, typical value is 2.0)
 
 ### Misc
+
 * `--padding-around-mutation PADDING_AROUND_MUTATION`
 * `--self-filter-directory SELF_FILTER_DIRECTORY`
 * `--skip-variant-errors`
