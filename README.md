@@ -19,6 +19,29 @@ Predict mutation-derived cancer T-cell epitopes from (1) somatic variants (2) tu
   --output-html epitopes.html
 ```
 
+## Installation
+
+You can install Topiary and all of the libraries it depends on by running:
+```
+pip install topiary
+```
+
+You'll need to download the reference genome sequences and annotations for a
+recent Ensembl release (e.g. 79) by running:
+
+```
+pyensembl install --release 79
+```
+
+If you want to work with variants which were aligned against the older reference
+GRCh37, you will need to also download its annotation data, which is contained
+in Ensembl release 75:
+
+```
+pyensembl install --release 75
+```
+
+
 ## Commandline Arguments
 
 ### Genomic Variants
