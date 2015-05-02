@@ -29,11 +29,6 @@ Example usage:
         --filter-percentile 2
         --output results.csv
 """
-from varcode.rna import (
-    load_cufflinks_dataframe,
-    load_cufflinks_fpkm_dict,
-    remap_novel_gene_expression_onto_ensembl_ids,
-)
 
 from topiary import (
     arg_parser,
@@ -41,6 +36,11 @@ from topiary import (
     variant_collection_from_args,
     MutantEpitopePredictor,
     epitopes_to_dataframe,
+)
+from topiary.rna import (
+    load_cufflinks_dataframe,
+    load_cufflinks_fpkm_dict,
+    remap_novel_gene_expression_onto_ensembl_ids,
 )
 
 args = arg_parser.parse_args()
@@ -90,9 +90,9 @@ def main():
         gene_expression_dict=gene_expression_dict,
         transcript_expression_dict=transcript_expression_dict)
     if args.output_csv:
-        df.to_csv(args.output_csv, index=False)
+        df.to_csv(args.output_csv, index=True, index_label="#")
     if args.output_html:
-        df.to_html(args.output_html, index=False)
+        df.to_html(args.output_html, index=True)
     print(df)
 
 if __name__ == "__main__":
