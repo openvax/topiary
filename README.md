@@ -104,7 +104,7 @@ specifying which peptide lengths to use for MHC binding prediction
 
 * `--keep-wildtype-epitopes`: Topiary will normally discard predicted epitopes
 which don't overlap a mutated region of a protein. Use this flag to keep all
-predicted epitopes you must this
+predicted epitopes, even if all they lack any mutated residues.
 * `--ic50-cutoff IC50_CUTOFF`: Drop peptides with predicted IC50 nM greater
 than this value (typical value is 500.0)
 * `--percentile-cutoff PERCENTILE_CUTOFF`: Drop peptides with percentile rank

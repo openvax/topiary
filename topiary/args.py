@@ -218,6 +218,9 @@ rna_group.add_argument(
     default=0.0,
     type=float)
 
+# TODO:
+# --rna-read-evidence-bam flag for filtering by Varcode.read_evidence
+# --rna-min-read-evidence minimum number of RNA reads containing variant allele
 #
 # Filtering of epitopes
 #

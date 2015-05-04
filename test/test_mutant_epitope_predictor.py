@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+from __future__ import print_function, division, absolute_import
+
 from mhctools import NetMHCpan
 from nose.tools import eq_
 from pyensembl import ensembl_grch37 as ensembl
