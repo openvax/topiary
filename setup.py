@@ -15,7 +15,7 @@
 from __future__ import print_function
 import os
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 readme_dir = os.path.dirname(__file__)
 readme_filename = os.path.join(readme_dir, 'README.md')
@@ -60,7 +60,7 @@ if __name__ == '__main__':
             'nose >=1.3.6, <1.4'
         ],
         long_description=readme,
-        packages=['topiary'],
+        packages=find_packages(exclude="test"),
         scripts=[
             'scripts/topiary'
         ],
