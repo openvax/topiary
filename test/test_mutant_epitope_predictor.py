@@ -16,7 +16,7 @@
 from __future__ import print_function, division, absolute_import
 
 from mhctools import NetMHCpan
-from nose.tools import eq_
+from nose.tools import eq_, raises
 from pyensembl import ensembl_grch37 as ensembl
 from topiary import MutantEpitopePredictor, epitopes_to_dataframe
 from varcode import Variant, VariantCollection
@@ -52,17 +52,28 @@ mhc_model = NetMHCpan(
 
 def test_epitope_prediction_without_padding():
     predictor_without_padding = MutantEpitopePredictor(
-        mhc_model=mhc_model,
-        padding_around_mutation=0)
+        mhc_model=mhc_model)
     output_without_padding = predictor_without_padding.epitopes_from_variants(
       variants=variants)
     # one prediction for each variant * number of alleles
     eq_(len(output_without_padding.strong_binders(500.0)), 4)
 
-def test_epitope_prediction_with_padding():
+@raises(ValueError)
+def test_epitope_prediction_with_invalid_padding():
     predictor_with_padding = MutantEpitopePredictor(
         mhc_model=mhc_model,
-        padding_around_mutation=1)
+        padding_around_mutation=7)
+
+@raises(ValueError)
+def test_epitope_prediction_with_invalid_zero_padding():
+    predictor_with_padding = MutantEpitopePredictor(
+        mhc_model=mhc_model,
+        padding_around_mutation=0)
+
+def test_epitope_prediction_with_valid_padding():
+    predictor_with_padding = MutantEpitopePredictor(
+        mhc_model=mhc_model,
+        padding_around_mutation=8)
     output_with_padding = predictor_with_padding.epitopes_from_variants(
       variants=variants)
     eq_(len(output_with_padding), 108)
