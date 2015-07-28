@@ -46,10 +46,12 @@ pyensembl install --release 75
 
 ### Genomic Variants
 
-You must specify at least one variant input file:
+Specify some variants by giving at least one of the following options. They can
+be used in combination and repeated.
 
 * `--vcf VCF_FILENAME`: Load a [VCF](http://www.1000genomes.org/wiki/analysis/variant%20call%20format/vcf-variant-call-format-version-41) file
 * `--maf MAF_FILENAME`: Load a TCGA [MAF](https://wiki.nci.nih.gov/display/TCGA/Mutation+Annotation+Format+%28MAF%29+Specification) file
+* `--variant CHR POS REF ALT : Specify an individual variant (requires --ensembl-version)`
 
 ### Output Format
 
