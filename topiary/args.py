@@ -47,22 +47,43 @@ variant_arg_group.add_argument("--maf",
     action="append",
     help="Genomic variants in TCGA's MAF format",)
 
-# TODO: add variant parsing from the commandline
-#  variant_arg_group.add_argument("--variant",
-#    default=[],
-#    action="append",
-#    help="Individual variant in a format such as chr1:3848C>G",)
+variant_arg_group.add_argument("--variant",
+    default=[],
+    action="append",
+    nargs=4,
+    metavar=("CHR", "POS", "REF", "ALT"),
+    help="Individual variant as 4 arguments giving chromsome, position, ref, "
+    "and alt. Example: chr1 3848 C G. Use '.' to indicate empty alleles for "
+    "insertions or deletions.")
+variant_arg_group.add_argument("--ensembl-version", type=int,
+    help="What reference your variant coordinates are in, specified as the "
+    "ensembl version that uses those coordinates. Use '75' for grch37, '79' "
+    "for grch38. "
+    "This is ignored for MAF files, since each row includes the reference. "
+    "For VCF files, this is used if specified, and otherwise is guessed from "
+    "the header. For variants specfied on the commandline with --variant, "
+    "this option is required.")
 
 def variant_collection_from_args(args):
     variant_collections = []
     for vcf_path in args.vcf:
-        variant_collections.append(varcode.load_vcf(vcf_path))
+        variant_collections.append(
+            varcode.load_vcf(vcf_path, ensembl_version=args.ensembl_version))
     for maf_path in args.maf:
         variant_collections.append(varcode.load_maf(maf_path))
+    if args.variant:
+        if not args.ensembl_version:
+            raise ValueError(
+                "--ensembl-version must be specified when using --variant")
+        variant_collections.append(varcode.VariantCollection([
+            varcode.Variant(
+                chromosome, position, ref, alt, ensembl=args.ensembl_version)
+            for (chromosome, position, ref, alt) in args.variant
+        ]))
 
     if len(variant_collections) == 0:
         raise ValueError(
-            "No variants loaded (use --maf or --vcf options)")
+            "No variants loaded (use --maf, --vcf, or --variant options)")
     elif len(variant_collections) == 1:
         return variant_collections[0]
     else:
