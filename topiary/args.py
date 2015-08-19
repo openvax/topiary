@@ -23,6 +23,7 @@ import logging
 
 import mhctools
 from mhctools.alleles import normalize_allele_name
+from pyensembl import genome_for_reference_name
 import varcode
 
 from .parsing_helpers import parse_int_list
@@ -47,6 +48,7 @@ variant_arg_group.add_argument("--maf",
     action="append",
     help="Genomic variants in TCGA's MAF format",)
 
+
 variant_arg_group.add_argument("--variant",
     default=[],
     action="append",
@@ -55,35 +57,57 @@ variant_arg_group.add_argument("--variant",
     help="Individual variant as 4 arguments giving chromsome, position, ref, "
     "and alt. Example: chr1 3848 C G. Use '.' to indicate empty alleles for "
     "insertions or deletions.")
-variant_arg_group.add_argument("--ensembl-version", type=int,
-    help="What reference your variant coordinates are in, specified as the "
-    "ensembl version that uses those coordinates. Use '75' for grch37, '79' "
-    "for grch38. "
-    "This is ignored for MAF files, since each row includes the reference. "
+
+variant_arg_group.add_argument("--reference-name", type=int,
+    help="What reference assembly your variant coordinates are using. "
+    "Examples: 'hg19', 'GRCh38', or 'mm9'. "
+    "This argument is ignored for MAF files, since each row includes "
+    "the reference. "
     "For VCF files, this is used if specified, and otherwise is guessed from "
     "the header. For variants specfied on the commandline with --variant, "
     "this option is required.")
 
+variant_arg_group.add_argument("--json-variant-files",
+    default=[],
+    action="append",
+    help="Path to Varcode.VariantCollection object serialized as a JSON file.")
+
 def variant_collection_from_args(args):
     variant_collections = []
     for vcf_path in args.vcf:
-        variant_collections.append(
-            varcode.load_vcf(vcf_path, ensembl_version=args.ensembl_version))
+        vcf_variants = varcode.load_vcf(
+            vcf_path,
+            reference_name=args.reference_name)
+        variant_collections.append(vcf_variants)
     for maf_path in args.maf:
-        variant_collections.append(varcode.load_maf(maf_path))
+        maf_variants = varcode.load_maf(maf_path)
+        variant_collections.append(maf_variants)
+
     if args.variant:
-        if not args.ensembl_version:
+        if not args.reference_name:
             raise ValueError(
-                "--ensembl-version must be specified when using --variant")
+                "--reference-name must be specified when using --variant")
         variant_collections.append(varcode.VariantCollection([
             varcode.Variant(
-                chromosome, position, ref, alt, ensembl=args.ensembl_version)
+                chromosome, position,
+                ref=ref,
+                alt=alt,
+                ensembl=genome_for_reference_name(args.reference_name))
             for (chromosome, position, ref, alt) in args.variant
         ]))
 
     if len(variant_collections) == 0:
         raise ValueError(
             "No variants loaded (use --maf, --vcf, or --variant options)")
+
+    for json_path in args.json_variants:
+        with open(json_path, 'r') as f:
+            json_string = f.read()
+            variant_collections.append(
+                varcode.VariantCollection.from_json(json_string))
+    if len(variant_collections) == 0:
+        raise ValueError(
+            "No variants loaded (use --maf, --vcf, --json-variants options)")
     elif len(variant_collections) == 1:
         return variant_collections[0]
     else:

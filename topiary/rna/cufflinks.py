@@ -169,7 +169,7 @@ def load_cufflinks_dataframe(
 
     # gene names are given either as "-" or a comma separated list
     # e.g. "BRAF1,PFAM2"
-    gene_names_strings = df[gene_names_column]
+    gene_names_strings = df[gene_names_column].copy()
     gene_names_strings[gene_names_strings == "-"] = ""
     # split each entry into a list of zero or more strings
     gene_names_lists = gene_names_strings.str.split(",")
