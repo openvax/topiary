@@ -56,7 +56,7 @@ class MutantEpitopePredictor(object):
     def __init__(
             self,
             mhc_model,
-            padding_around_mutation=0,
+            padding_around_mutation=None,
             ic50_cutoff=None,
             percentile_cutoff=None,
             keep_wildtype_epitopes=False):
@@ -83,8 +83,10 @@ class MutantEpitopePredictor(object):
         keep_wildtype_epitopes : bool
             Keep epitopes which don't contain mutated residues
         """
-        require_integer(
-            padding_around_mutation, "Padding around mutated residues")
+        if padding_around_mutation is not None:
+            require_integer(
+                padding_around_mutation,
+                "Padding around mutated residues")
 
         self.mhc_model = mhc_model
 
@@ -96,12 +98,18 @@ class MutantEpitopePredictor(object):
             raise ValueError(
                 "Epitope lengths must be positive integers, got: %s" % (
                     min(self.epitope_lengths),))
-        # even if user doesn't want any padding around the mutation we need
+        # If user doesn't provide any padding around the mutation we need
         # to at least include enough of the surrounding non-mutated
         # residues to construct candidate epitopes of the specified lengths
         min_required_padding = max(self.epitope_lengths) - 1
-        padding_around_mutation = max(
-            padding_around_mutation, min_required_padding)
+        if padding_around_mutation is None:
+            padding_around_mutation = min_required_padding
+        else:
+            if padding_around_mutation < min_required_padding:
+                raise ValueError("Padding around mutation cannot "
+                                 "be less than %d for epitope lengths "
+                                 "%s" % (min_required_padding,
+                                         self.epitope_lengths))
         self.padding_around_mutation = padding_around_mutation
         self.ic50_cutoff = ic50_cutoff
         self.percentile_cutoff = percentile_cutoff
