@@ -100,7 +100,7 @@ def variant_collection_from_args(args):
         raise ValueError(
             "No variants loaded (use --maf, --vcf, or --variant options)")
 
-    for json_path in args.json_variants:
+    for json_path in args.json_variant_files:
         with open(json_path, 'r') as f:
             json_string = f.read()
             variant_collections.append(
@@ -156,50 +156,37 @@ def mhc_alleles_from_args(args):
 # MHC Binding Prediction
 #
 
-mhc_predictor_arg_group = arg_parser.add_mutually_exclusive_group(
+mhc_predictors = {
+    "netmhc": mhctools.NetMHC,
+    "netmhcpan": mhctools.NetMHCpan,
+    "netmhccons": mhctools.NetMHCcons,
+    "random": mhctools.RandomBindingPredictor,
+    # TODO implement SMM predictors in mhctools
+    "smm": None,
+    "smm-pmbec": None,
+    # use NetMHCpan via IEDB's web API
+    "netmhcpan-iedb": mhctools.IedbNetMHCpan,
+    # use NetMHCcons via IEDB's web API
+    "netmhccons-iedb": mhctools.IedbNetMHCcons,
+    # use SMM via IEDB's web API
+    "smm-iedb": mhctools.IedbSMM,
+    # use SMM-PMBEC via IEDB's web API
+    "smm-pmbec-iedb": mhctools.IedbSMM_PMBEC,
+    # Class II MHC binding prediction using NetMHCIIpan via IEDB
+    "netmhciipan-iedb": mhctools.IedbNetMHCIIpan,
+}
+
+mhc_predictor_arg_group = arg_parser.add_argument(
+    "--mhc-predictor",
+    choices=list(sorted(mhc_predictors.keys())),
+    type=lambda s: s.lower().strip(),
     required=True)
 
-mhc_predictor_flags = [
-    ("--mhc-pan",
-            "Use local NetMHCcons binding predictor",
-            mhctools.NetMHCpan),
-    ("--mhc-cons",
-            "Use local NetMHCcons binding predictor",
-            mhctools.NetMHCcons),
-    ("--mhc-random",
-        "Random values instead for MHC binding prediction",
-        mhctools.RandomBindingPredictor),
-    ("--mhc-smm", "Use local SMM binding predictor", None),
-    ("--mhc-smm-pmbec", "Use local SMM-PMBEC binding predictor", None),
-    ("--mhc-pan-iedb",
-            "Use NetMHCpan via IEDB's web API",
-            mhctools.IedbNetMHCpan),
-    ("--mhc-cons-iedb",
-            "Use NetMHCpan via IEDB's web API",
-            mhctools.IedbNetMHCcons),
-    ("--mhc-smm-iedb",
-            "Use SMM via IEDB's web API",
-            mhctools.IedbSMM),
-    ("--mhc-smm-pmbec-iedb",
-            "Use SMM-PMBEC via IEDB's web API",
-            mhctools.IedbSMM_PMBEC),
-]
-
-for flag, help_string, mhc_class in mhc_predictor_flags:
-    mhc_predictor_arg_group.add_argument(flag,
-        default=False,
-        action="store_true",
-        help=help_string)
-
 def mhc_binding_predictor_from_args(args):
-    mhc_class = None
-    for (flag, _, curr_mhc_class) in mhc_predictor_flags:
-        arg_name = flag[2:].replace("-", "_")
-        if getattr(args, arg_name):
-            mhc_class = curr_mhc_class
-            break
+    mhc_class = mhc_predictors.get(args.mhc_predictor)
     if mhc_class is None:
-        raise ValueError("No MHC prediction method specified")
+        raise ValueError(
+            "Invalid MHC prediction method: %s" % (args.mhc_predictor,))
     alleles = mhc_alleles_from_args(args)
     epitope_lengths = args.mhc_epitope_lengths
     logging.info(
@@ -217,7 +204,7 @@ def mhc_binding_predictor_from_args(args):
 #
 arg_parser.add_argument(
     "--padding-around-mutation",
-    default=0,
+    default=None,
     help="How many extra amino acids to include on either side of a mutation",
     type=int)
 
