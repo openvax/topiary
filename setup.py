@@ -37,7 +37,7 @@ except:
 if __name__ == '__main__':
     setup(
         name='topiary',
-        version="0.0.6",
+        version="0.0.8",
         description="Predict cancer epitopes from cancer sequence data",
         author="Alex Rubinsteyn, Tavi Nathanson",
         author_email="alex {dot} rubinsteyn {at} gmail {dot} com",

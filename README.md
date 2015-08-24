@@ -6,7 +6,7 @@ Predict mutation-derived cancer T-cell epitopes from (1) somatic variants (2) tu
 ```sh
 ./topiary \
   --vcf somatic.vcf \
-  --mhc-pan \
+  --mhc-predictor netmhcpan \
   --mhc-alleles HLA-A*02:01,HLA-B*07:02 \
   --ic50-cutoff 500 \
   --percentile-cutoff 2.0 \
@@ -27,10 +27,10 @@ pip install topiary
 ```
 
 You'll need to download the reference genome sequences and annotations for a
-recent Ensembl release (e.g. 79) by running:
+recent Ensembl release (e.g. 81) by running:
 
 ```
-pyensembl install --release 79
+pyensembl install --release 81 --species human
 ```
 
 If you want to work with variants which were aligned against the older reference
@@ -38,7 +38,7 @@ GRCh37, you will need to also download its annotation data, which is contained
 in Ensembl release 75:
 
 ```
-pyensembl install --release 75
+pyensembl install --release 75 --species human
 ```
 
 
@@ -76,17 +76,19 @@ for transcripts
 
 ### Choose an MHC Binding Predictor
 
-You *must* choose an MHC binding predictor using one of the following flags:
+You *must* choose an MHC binding predictor using one of the following values
+for the `--mhc-predictor` flag:
 
-* `--mhc-pan`: Local NetMHCpan
-* `--mhc-cons`: Local NetMHCcons
-* `--mhc-random`: Random IC50 values
-* `--mhc-smm`: Local SMM
-* `--mhc-smm-pmbec`: Local SMM-PMBEC
-* `--mhc-pan-iedb`: NetMHCpan via the IEDB web API
-* `--mhc-cons-iedb`: NetMHCcons via the IEDB web API
-* `--mhc-smm-iedb`: SMM via the IEDB web API
-* `--mhc-smm-pmbec-iedb`: SMM-PMBEC via the IEDB web API
+* `netmhc`: Local [NetMHC](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHC) predictor
+* `netmhcpan`: Local [NetMHCpan](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHCpan) predictor
+* `netmhccons`: Local [NetMHCcons](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHCcons)
+* `random`: Random IC50 values
+* `smm`: Local [SMM](http://www.mhc-pathway.net/smm) predictor
+* `smm-pmbec`: Local [SMM-PMBEC](http://www.mhc-pathway.net/smmpmbec) predictor
+* `netmhcpan-iedb`: Use NetMHCpan via the IEDB web API
+* `netmhccons-iedb`: Use NetMHCcons via the IEDB web API
+* `smm-iedb`: Use SMM via the IEDB web API
+* `smm-pmbec-iedb`: Use SMM-PMBEC via the IEDB web API
 
 ### MHC Alleles
 You must specify the alleles to perform binding prediction for using one of
