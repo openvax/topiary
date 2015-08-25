@@ -27,7 +27,10 @@ from pyensembl import genome_for_reference_name
 import varcode
 
 from .parsing_helpers import parse_int_list
-
+from .rna import (
+    load_cufflinks_gene_fpkm_dict,
+    load_cufflinks_fpkm_dict,
+)
 
 arg_parser = argparse.ArgumentParser()
 
@@ -249,6 +252,30 @@ rna_group.add_argument(
     help="Minimum FPKM for transcript expression",
     default=0.0,
     type=float)
+
+
+def rna_gene_expression_dict_from_args(args):
+    """
+    Returns a dictionary mapping Ensembl gene IDs to FPKM expression values
+    or None if no Cufflinks tracking file was specified in the commandline
+    arguments.
+    """
+    if not args.rna_gene_fpkm_file:
+        return None
+    return load_cufflinks_gene_fpkm_dict(
+        fpkm_filename=args.rna_gene_fpkm_file,
+        remap_novel_genes_onto_ensembl_ids=args.remap_novel_gene_expression_onto_ensembl_ids)
+
+
+def rna_transcript_expression_dict_from_args(args):
+    """
+    Returns a dictionary mapping Ensembl transcript IDs to FPKM expression
+    values or None if no Cufflinks tracking file was specified.
+    """
+    if not args.rna_transcript_fpkm_file:
+        return None
+    return load_cufflinks_fpkm_dict(args.rna_transcript_fpkm_file)
+
 
 # TODO:
 # --rna-read-evidence-bam flag for filtering by Varcode.read_evidence
