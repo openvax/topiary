@@ -76,6 +76,15 @@ def predict_epitopes(
         raise_on_variant_effect_error=raise_on_variant_effect_error)
 
 def predict_epitopes_from_args(args):
+    """
+    Returns an mhctools.EpitopeCollection of predictions based on the given
+    commandline arguments.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed commandline arguments for Topiary
+    """
     mhc_model = mhc_binding_predictor_from_args(args)
     variants = variant_collection_from_args(args)
     gene_expression_dict = rna_gene_expression_dict_from_args(args)
