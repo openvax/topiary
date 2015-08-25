@@ -20,8 +20,8 @@ and (optionally) tumor RNA-seq data.
 
 Example usage:
     topiary \
-        -mhc-pan
-        --mhc-alleles-file HLA.txt -
+        --mhc-predictor netmhcpan
+        --mhc-alleles-file HLA.txt
         --vcf somatic.vcf
         --rna-gene-fpkm-file genes.fpkm_tracking
         --rna-transcript-fpkm-file isoforms.fpkm_tracking
@@ -30,70 +30,35 @@ Example usage:
         --output results.csv
 """
 
-from topiary import (
+from topiary.commandline_args import (
     arg_parser,
-    mhc_binding_predictor_from_args,
-    variant_collection_from_args,
-    MutantEpitopePredictor,
-    epitopes_to_dataframe,
+    rna_gene_expression_dict_from_args,
+    rna_transcript_expression_dict_from_args
 )
-from topiary.rna import (
-    load_cufflinks_dataframe,
-    load_cufflinks_fpkm_dict,
-    remap_novel_gene_expression_onto_ensembl_ids,
-)
+from topiary import predict_epitopes_from_args, epitopes_to_dataframe
+
 
 args = arg_parser.parse_args()
 
 def main():
     print("Topiary commandline arguments:")
     print(args)
-
-    mhc_model = mhc_binding_predictor_from_args(args)
-    predictor = MutantEpitopePredictor(
-        mhc_model=mhc_model,
-        padding_around_mutation=args.padding_around_mutation,
-        ic50_cutoff=args.ic50_cutoff,
-        percentile_cutoff=args.percentile_cutoff,
-        keep_wildtype_epitopes=args.keep_wildtype_epitopes)
-    variants = variant_collection_from_args(args)
-    if args.rna_gene_fpkm_file:
-        gene_expression_df = load_cufflinks_dataframe(args.rna_gene_fpkm_file)
-        if args.rna_remap_novel_genes_onto_ensembl:
-            gene_expression_dict = remap_novel_gene_expression_onto_ensembl_ids(
-                gene_expression_df)
-        else:
-            gene_expression_dict = {
-                row.id: row.fpkm
-                for (_, row)
-                in gene_expression_df.iterrows()
-            }
-    else:
-        gene_expression_dict = None
-
-    if args.rna_transcript_fpkm_file:
-        transcript_expression_dict = load_cufflinks_fpkm_dict(
-            args.rna_transcript_fpkm_file)
-    else:
-        transcript_expression_dict = None
-
-    epitopes = predictor.epitopes_from_variants(
-        variants,
-        gene_expression_dict=gene_expression_dict,
-        gene_expression_threshold=args.rna_min_gene_expression,
-        transcript_expression_dict=transcript_expression_dict,
-        transcript_expression_threshold=args.rna_min_transcript_expression,
-        raise_on_variant_effect_error=not args.skip_variant_errors)
-
+    epitopes = predict_epitopes_from_args(args)
+    gene_expression_dict = rna_gene_expression_dict_from_args(args)
+    transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
     df = epitopes_to_dataframe(
         epitopes,
         gene_expression_dict=gene_expression_dict,
         transcript_expression_dict=transcript_expression_dict)
+    print("First 10 epitope predictions:")
+    print(df.ix[:10])
+    print("Total count: %d" % len(df))
     if args.output_csv:
+        print("Saving %s..." % args.output_csv)
         df.to_csv(args.output_csv, index=True, index_label="#")
     if args.output_html:
+        print("Saving %s..." % args.output_html)
         df.to_html(args.output_html, index=True)
-    print(df)
 
 if __name__ == "__main__":
     main()
