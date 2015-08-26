@@ -1,4 +1,4 @@
-import commandline_args
+import .commandline_args
 from .mutant_epitope_predictor import MutantEpitopePredictor
 from .epitope_helpers import (
     epitopes_to_dataframe,
