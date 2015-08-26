@@ -21,6 +21,9 @@ from pyensembl import ensembl_grch37 as ensembl
 from topiary import MutantEpitopePredictor, epitopes_to_dataframe
 from varcode import Variant, VariantCollection
 
+ensembl.download()
+ensembl.index()
+
 variants = VariantCollection([
     Variant(
       contig=10,

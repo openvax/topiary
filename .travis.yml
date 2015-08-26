@@ -29,7 +29,6 @@ install:
   - pip install -r requirements.txt
   - pip install .
 script:
-  - pyensembl install --release 75 --species human
   - nosetests test && ./lint.sh
 deploy:
   provider: pypi
