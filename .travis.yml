@@ -11,7 +11,7 @@ addons:
 env:
   global:
     # MHC_BUNDLE_PASS
-    - secure: "TIminZrp9m1kMXhemqz8Zx4BjojIoEYZJnNrDrL6T/pKMpP5FQ6sprj8meGfNse4ApRIPmp5lhqxbPOe7Cg7ooetIcORekjRueHwRkYXqgMbgffgZYuEJTAGLKFsBDEXFD1kWT7igmvXFsP1T0bb1TxRPK93Q5G+e1dEAm6Iqwo="
+    - secure: "bWJ1eCA19Qt8dHarlUC/5SfgkOk08VdASljeC7NVy7jAzNnhZna6My39BkBWHUxDGGN6PxeaNzb8COMo94dcfk5OoIQ8ZB8CXwtg/o5Unpi8S2uNC1+H6SvR06xYXPCNozqPwBO151HAK+8IhEpJidQ0Mj1qjrYC3BiWePrXwgs="
 # Setup anaconda for easily running scipy on Travis; see https://gist.github.com/dan-blanchard/7045057
 before_install:
   - wget http://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh
@@ -35,6 +35,6 @@ deploy:
   provider: pypi
   user: hammerlab
   password: # See http://docs.travis-ci.com/user/encryption-keys/
-    secure: "KTo/ea1UJ4fSjXrK7YxHZSBlpEtx6zONzwRgIX8Ec3DRQmlhskIky8YD6nrmH4yjm7pNJOx0DNF2x9kF1qAXLjlLNWBp1V6dk+nSEmyW0MfX08Kw2dEn9N1+P0O9EcVUqnMXO7I8JSG8GDkBYhngwMDUCsm1YDHWU9f7tx/se2k="
+    secure: "WmjH4aashVXAmW/0eKkmO3TwFL2eZpo1Dyb0+hZeJrKMPSfqyObvKjTANBfqgGvR3XoShy8egHaFuLvDMO3/Xh77tjOAq12KZVcYi0IsFADZrPOJzmUqU9Ck9j7fN0sly+mSwNNMHel3OOi77/EVOEm95LNLb1VncsPjwYoHTj8="
   on:
     branch: master
