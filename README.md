@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/hammerlab/topiary.svg?branch=master)](https://travis-ci.org/hammerlab/topiary)
+
 # Topiary
 Predict mutation-derived cancer T-cell epitopes from (1) somatic variants (2) tumor RNA expression data, and (3) patient HLA type.
 
@@ -66,9 +68,6 @@ arising from genes or transcripts that are not highly expressed.
 * `--rna-gene-fpkm-file RNA_GENE_FPKM_FILE`: Cufflinks FPKM tracking file
 containing gene expression estimates.
 * `--rna-min-gene-expression RNA_MIN_GENE_EXPRESSION`: Minimum FPKM for genes
-* `--rna-remap-novel-genes-onto-ensembl`: If a novel gene is fully contained
-within a known Ensembl gene, remap its FPKM expression value on the Ensembl
-gene ID.
 * `--rna-transcript-fpkm-file RNA_TRANSCRIPT_FPKM_FILE`: Cufflinks FPKM tracking
 file containing transcript expression estimates.
 * `--rna-min-transcript-expression RNA_MIN_TRANSCRIPT_EXPRESSION`: Minimum FPKM

@@ -284,6 +284,7 @@ class MutantEpitopePredictor(object):
                     gene_expression_threshold
                     for transcript_id in variant.gene_ids
                 ),
+                variants,
                 result_fn=variants.clone_with_new_elements,
                 filter_name="Gene expression")
         if transcript_expression_dict:
