@@ -28,7 +28,6 @@ import varcode
 
 from .parsing_helpers import parse_int_list
 from .rna import (
-    load_cufflinks_gene_fpkm_dict,
     load_cufflinks_fpkm_dict,
 )
 
@@ -262,9 +261,7 @@ def rna_gene_expression_dict_from_args(args):
     """
     if not args.rna_gene_fpkm_file:
         return None
-    return load_cufflinks_gene_fpkm_dict(
-        fpkm_filename=args.rna_gene_fpkm_file,
-        remap_novel_genes_onto_ensembl_ids=args.remap_novel_gene_expression_onto_ensembl_ids)
+    return load_cufflinks_fpkm_dict(args.rna_gene_fpkm_file)
 
 
 def rna_transcript_expression_dict_from_args(args):
