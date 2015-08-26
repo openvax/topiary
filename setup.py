@@ -37,7 +37,7 @@ except:
 if __name__ == '__main__':
     setup(
         name='topiary',
-        version="0.0.11",
+        version="0.0.12",
         description="Predict cancer epitopes from cancer sequence data",
         author="Alex Rubinsteyn, Tavi Nathanson",
         author_email="alex {dot} rubinsteyn {at} gmail {dot} com",
@@ -55,7 +55,7 @@ if __name__ == '__main__':
         install_requires=[
             'numpy >=1.7, <2.0',
             'pandas >=0.13.1, <0.17.0',
-            'mhctools >0.1.0',
+            'mhctools >=0.1.6',
             'varcode >=0.3.17',
             'nose >=1.3.6, <1.4'
         ],
