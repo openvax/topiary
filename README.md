@@ -80,6 +80,7 @@ for the `--mhc-predictor` flag:
 
 * `netmhc`: Local [NetMHC](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHC) predictor
 * `netmhcpan`: Local [NetMHCpan](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHCpan) predictor
+* `netmhciipan`: Local [NetMHCIIpan](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHCIIpan) predictor
 * `netmhccons`: Local [NetMHCcons](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHCcons)
 * `random`: Random IC50 values
 * `smm`: Local [SMM](http://www.mhc-pathway.net/smm) predictor

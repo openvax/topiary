@@ -161,6 +161,7 @@ def mhc_alleles_from_args(args):
 mhc_predictors = {
     "netmhc": mhctools.NetMHC,
     "netmhcpan": mhctools.NetMHCpan,
+    "netmhciipan": mhctools.NetMHCIIpan,
     "netmhccons": mhctools.NetMHCcons,
     "random": mhctools.RandomBindingPredictor,
     # TODO implement SMM predictors in mhctools
