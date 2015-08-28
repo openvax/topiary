@@ -60,7 +60,7 @@ variant_arg_group.add_argument("--variant",
     "and alt. Example: chr1 3848 C G. Use '.' to indicate empty alleles for "
     "insertions or deletions.")
 
-variant_arg_group.add_argument("--reference-name", type=int,
+variant_arg_group.add_argument("--reference-name", type=str,
     help="What reference assembly your variant coordinates are using. "
     "Examples: 'hg19', 'GRCh38', or 'mm9'. "
     "This argument is ignored for MAF files, since each row includes "
@@ -89,14 +89,19 @@ def variant_collection_from_args(args):
         if not args.reference_name:
             raise ValueError(
                 "--reference-name must be specified when using --variant")
-        variant_collections.append(varcode.VariantCollection([
+        genome = genome_for_reference_name(args.reference_name)
+        variants = [
             varcode.Variant(
-                chromosome, position,
+                chromosome,
+                start=position,
                 ref=ref,
                 alt=alt,
-                ensembl=genome_for_reference_name(args.reference_name))
-            for (chromosome, position, ref, alt) in args.variant
-        ]))
+                ensembl=genome)
+            for (chromosome, position, ref, alt)
+            in args.variant
+        ]
+        variant_collection = varcode.VariantCollection(variants)
+        variant_collections.append(variant_collection)
 
     if len(variant_collections) == 0:
         raise ValueError(
