@@ -76,20 +76,26 @@ variant_arg_group.add_argument("--json-variant-files",
 
 def variant_collection_from_args(args):
     variant_collections = []
+
+    if args.reference_name:
+        genome = genome_for_reference_name(args.reference_name)
+    else:
+        # no genome specified, assume it can be inferred from the file(s)
+        # we're loading
+        genome = None
+
     for vcf_path in args.vcf:
-        vcf_variants = varcode.load_vcf(
-            vcf_path,
-            reference_name=args.reference_name)
+        vcf_variants = varcode.load_vcf(vcf_path, genome=genome)
         variant_collections.append(vcf_variants)
     for maf_path in args.maf:
         maf_variants = varcode.load_maf(maf_path)
         variant_collections.append(maf_variants)
 
     if args.variant:
-        if not args.reference_name:
+        if not genome:
             raise ValueError(
                 "--reference-name must be specified when using --variant")
-        genome = genome_for_reference_name(args.reference_name)
+
         variants = [
             varcode.Variant(
                 chromosome,
