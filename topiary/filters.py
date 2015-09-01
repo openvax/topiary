@@ -19,8 +19,6 @@ Helper functions for filtering variants, effects, and epitope predictions
 from __future__ import print_function, division, absolute_import
 import logging
 
-from mhctools import EpitopeCollection
-
 def apply_filter(
         filter_fn,
         collection,
@@ -29,6 +27,9 @@ def apply_filter(
         collection_name=""):
     """
     Apply filter to effect collection and print number of dropped elements
+
+    Parameters
+    ----------
     """
     n_before = len(collection)
     filtered = [x for x in collection if filter_fn(x)]
@@ -41,7 +42,7 @@ def apply_filter(
         (n_before - n_after),
         n_before,
         collection_name)
-    return result_fn(filtered) if filtered else filtered
+    return result_fn(filtered) if result_fn else filtered
 
 def apply_variant_expression_filters(
         variants,
@@ -49,6 +50,21 @@ def apply_variant_expression_filters(
         gene_expression_threshold,
         transcript_expression_dict,
         transcript_expression_threshold):
+    """
+    Filter a collection of variants by gene and transcript expression thresholds
+
+    Parameters
+    ----------
+    variants : varcode.VariantCollection
+
+    gene_expression_dict : dict
+
+    gene_expression_threshold : float
+
+    transcript_expression_dict : dict
+
+    transcript_expression_threshold : float
+    """
     if gene_expression_dict:
         variants = apply_filter(
             lambda variant: any(
@@ -58,7 +74,7 @@ def apply_variant_expression_filters(
             ),
             variants,
             result_fn=variants.clone_with_new_elements,
-            filter_name="Gene expression")
+            filter_name="Variant gene expression")
     if transcript_expression_dict:
         variants = apply_filter(
             lambda variant: any(
@@ -68,7 +84,7 @@ def apply_variant_expression_filters(
             ),
             variants,
             result_fn=variants.clone_with_new_elements,
-            filter_name="Transcript expression")
+            filter_name="Variant transcript expression")
     return variants
 
 def apply_effect_expression_filters(
@@ -80,6 +96,18 @@ def apply_effect_expression_filters(
     """
     Filter collection of varcode effects by given gene
     and transcript expression thresholds.
+
+    Parameters
+    ----------
+    effects : varcode.EffectCollection
+
+    gene_expression_dict : dict
+
+    gene_expression_threshold : float
+
+    transcript_expression_dict : dict
+
+    transcript_expression_threshold : float
     """
     if gene_expression_dict:
         effects = apply_filter(
@@ -88,7 +116,7 @@ def apply_effect_expression_filters(
                 gene_expression_threshold),
             effects,
             result_fn=effects.clone_with_new_elements,
-            filter_name="Gene expression")
+            filter_name="Effect gene expression")
 
     if transcript_expression_dict:
         effects = apply_filter(
@@ -98,7 +126,7 @@ def apply_effect_expression_filters(
             ),
             effects,
             result_fn=effects.clone_with_new_elements,
-            filter_name="Transcript expression")
+            filter_name="Effect transcript expression")
     return effects
 
 def apply_epitope_filters(
@@ -112,7 +140,19 @@ def apply_epitope_filters(
 
     Parameters
     ----------
-    binding_predictions : list of mhctools.BindingPrediction objects
+    epitope_predictions : mhctools.EpitopeCollection
+
+    ic50_cutoff : float
+        Highest allowed IC50 value
+        (e.g. 25nM is a stronger binding value than 100nM)
+
+    percentile_cutoff : float
+        Highest allowed percentile of IC50 value
+        (e.g. 1st percentile is a strong binder than 10th)
+
+    keep_wildtype_epitopes : bool
+        If False, then drop epitope predictions that aren't neoepitopes
+        (mutated and don't appear elsewhere in the self-ligandome)
     """
     # filter out low binders
     if ic50_cutoff:
@@ -120,21 +160,21 @@ def apply_epitope_filters(
             filter_fn=lambda x: x.value <= ic50_cutoff,
             collection=epitope_predictions,
             filter_name="IC50 nM cutoff",
-            collection_name="binding predictions",
+            collection_name="epitope predictions",
         )
     if percentile_cutoff:
         epitope_predictions = apply_filter(
             filter_fn=lambda x: x.percentile_rank <= percentile_cutoff,
             collection=epitope_predictions,
             filter_name="IC50 percentile rank cutoff",
-            collection_name="binding predictions",
+            collection_name="epitope predictions",
         )
 
     if not keep_wildtype_epitopes:
-        binding_predictions = apply_filter(
+        epitope_predictions = apply_filter(
             filter_fn=lambda x: x.mutant,
             collection=epitope_predictions,
             filter_name="Wildtype epitope",
-            collection_name="binding predictions",
+            collection_name="epitope predictions",
         )
-    return EpitopeCollection(binding_predictions)
+    return epitope_predictions
