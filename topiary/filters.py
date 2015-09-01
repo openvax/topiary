@@ -19,8 +19,6 @@ Helper functions for filtering variants, effects, and epitope predictions
 from __future__ import print_function, division, absolute_import
 import logging
 
-from mhctools import EpitopeCollection
-
 def apply_filter(
         filter_fn,
         collection,
@@ -44,7 +42,7 @@ def apply_filter(
         (n_before - n_after),
         n_before,
         collection_name)
-    return result_fn(filtered) if filtered else filtered
+    return result_fn(filtered) if result_fn else filtered
 
 def apply_variant_expression_filters(
         variants,

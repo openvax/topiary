@@ -204,7 +204,6 @@ class MutantEpitopePredictor(object):
             for (effect, (source_sequence, start, end))
             in mutant_sequence_and_offset_dict.items()
         }
-        print(mutant_subsequence_dict)
 
         # adjust offsets and source sequences of peptides in binding
         # predictions to reflect the longer source sequence they come from
@@ -213,7 +212,7 @@ class MutantEpitopePredictor(object):
         for x in self.mhc_model.predict(mutant_subsequence_dict):
             effect = x.source_sequence_key
             # dict values are (source protein sequence, start pos, end pos)
-            (source_sequence, source_start, _) = mutant_sequence_and_offset_dict[effect]
+            (source_sequence, source_offset, _) = mutant_sequence_and_offset_dict[effect]
 
             # extracting the fields of the BindingPrediction to fix several
             # field values (see next several lines) and add extra field(s)
@@ -224,14 +223,14 @@ class MutantEpitopePredictor(object):
 
             # shift the offset of each peptide to account for the fact that the
             # predictions were made over a sub-sequence of the full protein
-            fields["offset"] = fields["offset"] + source_start
+            fields["offset"] = fields["offset"] + source_offset
 
             peptide_start = x.offset
             peptide_end = x.offset + x.length - 1
 
             fields["contains_mutant_residues"] = (
-                peptide_start < effect.aa_mutation_end_offset and
-                peptide_end >= effect.aa_mutation_start_offset
+                source_offset + peptide_start < effect.aa_mutation_end_offset and
+                source_offset + peptide_end >= effect.aa_mutation_start_offset
             )
             # tag predicted epitopes as non-mutant if they occur in any of the
             # wildtype "self" binding peptide sets for the given alleles
@@ -245,9 +244,10 @@ class MutantEpitopePredictor(object):
             )
             epitope_predictions.append(EpitopePrediction(**fields))
         epitope_predictions = EpitopeCollection(epitope_predictions)
-        logging.info(epitope_predictions)
+
         logging.info("MHC predictor returned %s peptide binding predictions" % (
             len(epitope_predictions)))
+
         return apply_epitope_filters(
             epitope_predictions,
             ic50_cutoff=self.ic50_cutoff,

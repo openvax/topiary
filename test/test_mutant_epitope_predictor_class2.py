@@ -53,4 +53,12 @@ def test_netmhcii_pan_epitopes():
         mhc_model=mhc_model,
         keep_wildtype_epitopes=False)
     epitopes = predictor.epitopes_from_variants(variants=variants)
-    eq_(len(epitopes), 60)
+
+    # expect (15 + 16 mutant peptides) * (2 alleles) * 2 variants =
+    # 124 total epitope predictions
+    eq_(len(epitopes), 124)
+    unique_alleles = {epitope.allele for epitope in epitopes}
+    assert len(unique_alleles) == 2, "Expected 2 unique alleles, got %s" % (unique_alleles,)
+    unique_lengths = {epitope.length for epitope in epitopes}
+    assert unique_lengths == {15, 16}, \
+      "Expected epitopes of length 15 and 16 but got lengths %s" % (unique_lengths,)
