@@ -60,7 +60,7 @@ class MutantEpitopePredictor(object):
             ic50_cutoff=None,
             percentile_cutoff=None,
             wildtype_ligandome_dict=None,
-            keep_wildtype_epitopes=False):
+            keep_wildtype_epitopes=True):
         """
         Parameters
         ----------
@@ -204,6 +204,7 @@ class MutantEpitopePredictor(object):
             for (effect, (source_sequence, start, end))
             in mutant_sequence_and_offset_dict.items()
         }
+        print(mutant_subsequence_dict)
 
         # adjust offsets and source sequences of peptides in binding
         # predictions to reflect the longer source sequence they come from
@@ -227,6 +228,7 @@ class MutantEpitopePredictor(object):
 
             peptide_start = x.offset
             peptide_end = x.offset + x.length - 1
+
             fields["contains_mutant_residues"] = (
                 peptide_start < effect.aa_mutation_end_offset and
                 peptide_end >= effect.aa_mutation_start_offset
@@ -242,8 +244,15 @@ class MutantEpitopePredictor(object):
                 not fields["occurs_in_self_ligandome"]
             )
             epitope_predictions.append(EpitopePrediction(**fields))
-
-        return apply_epitope_filters(epitope_predictions)
+        epitope_predictions = EpitopeCollection(epitope_predictions)
+        logging.info(epitope_predictions)
+        logging.info("MHC predictor returned %s peptide binding predictions" % (
+            len(epitope_predictions)))
+        return apply_epitope_filters(
+            epitope_predictions,
+            ic50_cutoff=self.ic50_cutoff,
+            percentile_cutoff=self.percentile_cutoff,
+            keep_wildtype_epitopes=self.keep_wildtype_epitopes)
 
     def epitopes_from_variants(
             self,
