@@ -1,11 +1,12 @@
-from . import commandline_args
-from .lazy_ligandome import LazyLigandomeDict, AlleleNotFound
+
+from .lazy_ligandome_dict import LazyLigandomeDict, AlleleNotFound
 from .mutant_epitope_predictor import MutantEpitopePredictor
 from .epitope_collection_helpers import (
     epitopes_to_dataframe,
     epitopes_to_csv
 )
 from .predict_epitopes import predict_epitopes, predict_epitopes_from_args
+from . import commandline_args
 
 __all__ = [
     "MutantEpitopePredictor",
