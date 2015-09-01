@@ -21,33 +21,6 @@ from collections import defaultdict
 
 import pandas as pd
 
-def extract_mutant_peptides(effects, padding_around_mutation):
-    """
-    Map each effect onto a source sequence, and start/end of an interval
-    from which the caller can construct a peptide subsequence containing
-    mutated residues
-    """
-    result = {}
-    for effect in effects:
-        seq = effect.mutant_protein_sequence
-        # some effects will lack a mutant protein sequence since
-        # they are either silent or unpredictable
-        if seq:
-            mutation_start = effect.aa_mutation_start_offset
-            mutation_end = effect.aa_mutation_end_offset
-            start = max(0, mutation_start - padding_around_mutation)
-            end = min(len(seq), mutation_end + padding_around_mutation)
-            result[effect] = (seq, start, end)
-    return result
-
-def contains_mutation(binding_prediction, effect):
-    peptide_start = binding_prediction.offset
-    peptide_end = binding_prediction.offset + binding_prediction.length - 1
-    return (
-        peptide_start < effect.aa_mutation_end_offset and
-        peptide_end >= effect.aa_mutation_start_offset
-    )
-
 def epitopes_to_dataframe(
         epitope_collection,
         gene_expression_dict=None,
@@ -123,9 +96,15 @@ def epitopes_to_dataframe(
         # the peptide was extracted from
         mut_start_in_source_seq = effect.aa_mutation_start_offset
         mut_end_in_source_seq = effect.aa_mutation_end_offset
-        # TODO: write unit tests for all interval logic,
-        # since it's easy to get wrong
-        if contains_mutation(x, effect):
+
+        # mutant means both that it contains mutant residues
+        # and that this pMHC does not occur in the self ligandome
+        column_dict["mutant"].append(x.mutant)
+        column_dict["contains_mutant_residues"].append(
+            x.contains_mutant_residues)
+        column_dict["occurs_in_self_ligandome"].append(
+            x.occurs_in_self_ligandome)
+        if x.contains_mutant_residues:
             # need a half-open start/end interval
             peptide_mut_start = min(
                 x.length,
@@ -133,17 +112,18 @@ def epitopes_to_dataframe(
             peptide_mut_end = min(
                 x.length,
                 max(0, mut_end_in_source_seq - x.offset))
-            mutated = True
         else:
             peptide_mut_start = peptide_mut_end = None
-            mutated = False
-        column_dict['peptide_mutation_start'].append(peptide_mut_start)
-        column_dict['peptide_mutation_end'].append(peptide_mut_end)
-        column_dict['peptide_contains_mutation'].append(mutated)
-    column_names = [pair[0] for pair in simple_column_extractors] + [
-        'peptide_mutation_start',
-        'peptide_mutation_end',
-        'peptide_contains_mutation']
+        column_dict["peptide_mutation_start"].append(peptide_mut_start)
+        column_dict["peptide_mutation_end"].append(peptide_mut_end)
+
+    column_names = [name for (name, _) in simple_column_extractors] + [
+        "mutant",
+        "contains_mutant_residues",
+        "occurs_in_self_ligandome",
+        "peptide_mutation_start",
+        "peptide_mutation_end",
+    ]
     return pd.DataFrame(
         column_dict,
         columns=column_names)

@@ -219,13 +219,12 @@ def mhc_binding_predictor_from_args(args):
 arg_parser.add_argument(
     "--padding-around-mutation",
     default=None,
-    help="How many extra amino acids to include on either side of a mutation",
+    help=(
+        "How many extra amino acids to include on either side of a mutation. ",
+        "Default is determined by epitope lengths but can be overridden to "
+        "predict wildtype epitopes in a larger context around a mutant residue."
+    ),
     type=int)
-
-arg_parser.add_argument(
-    "--self-filter-directory",
-    help="Directory with 'self' ligand peptide sets, in files named by allele")
-
 
 ###
 # RNA-Seq data
@@ -245,14 +244,6 @@ rna_group.add_argument(
     help="Minimum FPKM for gene expression",
     default=0.0,
     type=float)
-
-rna_group.add_argument(
-    "--rna-remap-novel-genes-onto-ensembl",
-    help=(
-        "If a novel gene is fully contained by known Ensembl gene, then "
-        "merge their expression values"),
-    default=False,
-    action="store_true")
 
 rna_group.add_argument(
     "--rna-transcript-fpkm-file",
@@ -314,6 +305,16 @@ filter_group.add_argument(
     help="Keep epitopes which do not contain mutated residues",
     default=False,
     action="store_true")
+
+
+filter_group.add_argument(
+    "--wildtype-ligandome-directory",
+    help=(
+        "Directory of 'self' ligand peptide sets, in files named "
+        "by allele (e.g. 'A0201'). Any predicted mutant epitope which "
+        "is in the files associated with the given alleles is treated as "
+        "wildtype (non-mutated)."))
+
 
 #
 # Misc

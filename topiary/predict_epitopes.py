@@ -5,6 +5,7 @@ from .commandline_args import (
     rna_transcript_expression_dict_from_args,
 )
 from .mutant_epitope_predictor import MutantEpitopePredictor
+from .lazy_ligandome_dict import LazyLigandomeDict
 
 def predict_epitopes(
         variant_collection,
@@ -17,6 +18,7 @@ def predict_epitopes(
         min_gene_expression=0,
         transcript_expression_dict=None,
         min_transcript_expression=0,
+        wildtype_ligandome_dict=None,
         raise_on_variant_effect_error=True):
     """
     Predict epitopes from a Variant collection, filtering options, and
@@ -57,6 +59,12 @@ def predict_epitopes(
         Don't include epitopes from transcripts with FPKM values lower than this
         parameter.
 
+    wildtype_ligandome_dict : dict-like, optional
+        Mapping from allele names to set of wildtype peptides predicted
+        to bind to that allele. If any predicted mutant epitope is found
+        in the peptide sets for the patient's alleles, it is marked as
+        wildtype (non-mutant).
+
     raise_on_variant_effect_error : bool, optional
         If False, then skip variants which raise exceptions during effect
         inference.
@@ -66,6 +74,7 @@ def predict_epitopes(
         padding_around_mutation=padding_around_mutation,
         ic50_cutoff=ic50_cutoff,
         percentile_cutoff=percentile_cutoff,
+        wildtype_ligandome_dict=wildtype_ligandome_dict,
         keep_wildtype_epitopes=keep_wildtype_epitopes)
     return predictor.epitopes_from_variants(
         variant_collection,
@@ -89,6 +98,11 @@ def predict_epitopes_from_args(args):
     variants = variant_collection_from_args(args)
     gene_expression_dict = rna_gene_expression_dict_from_args(args)
     transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
+    if args.wildtype_ligandome_directory:
+        wildtype_ligandome_dict = LazyLigandomeDict(
+            args.wildtype_ligandome_directory)
+    else:
+        wildtype_ligandome_dict = None
     return predict_epitopes(
         variant_collection=variants,
         mhc_model=mhc_model,
@@ -100,4 +114,5 @@ def predict_epitopes_from_args(args):
         min_gene_expression=args.rna_min_gene_expression,
         transcript_expression_dict=transcript_expression_dict,
         min_transcript_expression=args.rna_min_transcript_expression,
+        wildtype_ligandome_dict=wildtype_ligandome_dict,
         raise_on_variant_effect_error=not args.skip_variant_errors)
