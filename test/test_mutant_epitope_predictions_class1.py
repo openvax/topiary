@@ -56,32 +56,36 @@ def test_epitope_prediction_without_padding():
     predictor_without_padding = MutantEpitopePredictor(
         mhc_model=mhc_model)
     output_without_padding = predictor_without_padding.epitopes_from_variants(
-        variants=variants)
+        variants=variants,
+        transcript_expression_dict=None)
     # one prediction for each variant * number of alleles
     eq_(len(output_without_padding.strong_binders(500.0)), 4)
 
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_padding():
-    MutantEpitopePredictor(mhc_model=mhc_model, padding_around_mutation=7)
+    EpitopePredictor(mhc_model=mhc_model, padding_around_mutation=7)
 
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_zero_padding():
-    MutantEpitopePredictor(mhc_model=mhc_model, padding_around_mutation=0)
+    EpitopePredictor(mhc_model=mhc_model, padding_around_mutation=0)
 
 def test_epitope_prediction_with_valid_padding():
     predictor_with_padding = MutantEpitopePredictor(
         mhc_model=mhc_model,
         padding_around_mutation=8,
-        keep_wildtype_epitopes=True)
+        only_novel_epitopes=False)
     output_with_padding = predictor_with_padding.epitopes_from_variants(
-        variants=variants)
+        variants=variants,
+        transcript_expression_dict=None)
     eq_(len(output_with_padding), 108)
 
 def test_epitopes_to_dataframe():
     predictor = MutantEpitopePredictor(
         mhc_model=mhc_model,
-        keep_wildtype_epitopes=True)
-    epitopes = predictor.epitopes_from_variants(variants)
+        only_novel_epitopes=False)
+    epitopes = predictor.epitopes_from_variants(
+        variants,
+        transcript_expression_dict=None)
     df = epitopes_to_dataframe(epitopes)
     eq_(len(df), len(epitopes))
 

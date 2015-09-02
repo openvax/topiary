@@ -1,34 +1,29 @@
 
 from topiary.filters import apply_variant_expression_filters
 
-from .data import variants
+from .data import (
+    cancer_test_variants,
+    cancer_test_variant_gene_ids,
+    cancer_test_variant_transcript_ids
+)
 
 DEFAULT_FPKM = 1.0
+
 # associate every gene ID with 1.0 FPKM
-gene_ids = {
-    gene_id
-    for v in variants
-    for gene_id in v.gene_ids
-}
 gene_expression_dict = {
     gene_id: DEFAULT_FPKM
-    for gene_id in gene_ids
+    for gene_id in cancer_test_variant_gene_ids
 }
 
 # associate every transcript with 1.0 FPKM
-transcript_ids = {
-    transcript_id
-    for v in variants
-    for transcript_id in v.transcript_ids
-}
 transcript_expression_dict = {
     transcript_id: DEFAULT_FPKM
-    for transcript_id in transcript_ids
+    for transcript_id in cancer_test_variant_transcript_ids
 }
 
 def test_apply_variant_gene_expression_below_threshold():
     filtered = apply_variant_expression_filters(
-        variants,
+        cancer_test_variants,
         gene_expression_dict=gene_expression_dict,
         gene_expression_threshold=2 * DEFAULT_FPKM,
         transcript_expression_dict=None,
@@ -38,17 +33,17 @@ def test_apply_variant_gene_expression_below_threshold():
 
 def test_apply_variant_gene_expression_above_threshold():
     filtered = apply_variant_expression_filters(
-        variants,
+        cancer_test_variants,
         gene_expression_dict=gene_expression_dict,
         gene_expression_threshold=0.5 * DEFAULT_FPKM,
         transcript_expression_dict=None,
         transcript_expression_threshold=None)
-    assert len(filtered) == len(variants), \
-        "Expected %s variants but got %s" % (len(variants), len(filtered))
+    assert len(filtered) == len(cancer_test_variants), \
+        "Expected %s variants but got %s" % (len(cancer_test_variants), len(filtered))
 
 def test_apply_variant_transcript_expression_below_threshold():
     filtered = apply_variant_expression_filters(
-        variants,
+        cancer_test_variants,
         gene_expression_dict=None,
         gene_expression_threshold=None,
         transcript_expression_dict=transcript_expression_dict,
@@ -58,11 +53,10 @@ def test_apply_variant_transcript_expression_below_threshold():
 
 def test_apply_variant_transcript_expression_above_threshold():
     filtered = apply_variant_expression_filters(
-        variants,
+        cancer_test_variants,
         gene_expression_dict=None,
         gene_expression_threshold=None,
         transcript_expression_dict=transcript_expression_dict,
         transcript_expression_threshold=0.5 * DEFAULT_FPKM)
-    assert len(filtered) == len(variants), \
-        "Expected %s variants but got %s" % (len(variants), len(filtered))
-
+    assert len(filtered) == len(cancer_test_variants), \
+        "Expected %s variants but got %s" % (len(cancer_test_variants), len(filtered))

@@ -51,8 +51,10 @@ mhc_model = NetMHCIIpan(
 def test_netmhcii_pan_epitopes():
     predictor = MutantEpitopePredictor(
         mhc_model=mhc_model,
-        keep_wildtype_epitopes=False)
-    epitopes = predictor.epitopes_from_variants(variants=variants)
+        only_novel_epitopes=False)
+    epitopes = predictor.epitopes_from_variants(
+      variants=variants,
+      transcript_expression_dict=None)
 
     # expect (15 + 16 mutant peptides) * (2 alleles) * 2 variants =
     # 124 total epitope predictions
