@@ -26,31 +26,8 @@ from .filters import (
     apply_effect_expression_filters,
     apply_variant_expression_filters,
 )
+from .sequence_helpers import protein_sequences_and_offsets_around_mutations
 
-def protein_sequences_and_offsets_around_mutations(
-        effects,
-        padding_around_mutation):
-    """
-    From each effect get the mutant protein sequence and the start/end
-    offset in that sequence which contains all the mutant residues (along
-    with any additional desired padding).
-    """
-    result = {}
-    for effect in effects:
-        seq = effect.mutant_protein_sequence
-        # some effects will lack a mutant protein sequence since
-        # they are either silent or unpredictable
-        if seq:
-            mutation_start = effect.aa_mutation_start_offset
-            mutation_end = effect.aa_mutation_end_offset
-            seq_start_offset = max(
-                0,
-                mutation_start - padding_around_mutation)
-            seq_end_offset = min(
-                len(seq),
-                mutation_end + padding_around_mutation)
-            result[effect] = (seq, seq_start_offset, seq_end_offset)
-    return result
 
 class MutantEpitopePredictor(object):
     def __init__(
@@ -60,7 +37,7 @@ class MutantEpitopePredictor(object):
             ic50_cutoff=None,
             percentile_cutoff=None,
             wildtype_ligandome_dict=None,
-            keep_wildtype_epitopes=True):
+            only_novel_epitopes=False):
         """
         Parameters
         ----------
@@ -81,8 +58,9 @@ class MutantEpitopePredictor(object):
         percentile_cutoff : float, optional
             Drop any binding predictions with percentile rank below this cutoff.
 
-        keep_wildtype_epitopes : bool
-            Keep epitopes which don't contain mutated residues
+        only_novel_epitopes : bool, optional
+            Only keep epitopes which are mutated and don't occur in the
+            self-ligandome.
         """
         if padding_around_mutation is not None:
             require_integer(
@@ -115,15 +93,15 @@ class MutantEpitopePredictor(object):
         self.ic50_cutoff = ic50_cutoff
         self.percentile_cutoff = percentile_cutoff
         self.wildtype_ligandome_dict = wildtype_ligandome_dict
-        self.keep_wildtype_epitopes = keep_wildtype_epitopes
+        self.only_novel_epitopes = only_novel_epitopes
 
     def epitopes_from_mutation_effects(
             self,
             effects,
+            transcript_expression_dict,
+            transcript_expression_threshold=0.0,
             gene_expression_dict=None,
-            gene_expression_threshold=0.0,
-            transcript_expression_dict=None,
-            transcript_expression_threshold=0.0):
+            gene_expression_threshold=0.0,):
         """Given a Varcode.EffectCollection of predicted protein effects,
         return a DataFrame of the predicted epitopes around each
         mutation.
@@ -132,19 +110,25 @@ class MutantEpitopePredictor(object):
         ----------
         effects : Varcode.EffectCollection
 
-        gene_expression_dict : dict
+        transcript_expression_dict : dict
+            Dictionary mapping transcript IDs to RNA expression estimates. Used
+            both for transcript expression filtering and for selecting the
+            most abundant transcript for a particular variant. If omitted then
+            transcript selection is done using priority of variant effects and
+            transcript length.
+
+        transcript_expression_threshold : float, optional
+            If transcript_expression_dict is given, only keep effects on
+            transcripts above this threshold.
+
+        gene_expression_dict : dict, optional
             Dictionary mapping gene IDs to RNA expression estimates
 
-        gene_expression_threshold : float
+        gene_expression_threshold : float, optional
             If gene_expression_dict is given, only keep effects on genes
             expressed above this threshold.
 
-        transcript_expression_dict : dict
-            Dictionary mapping transcript IDs to RNA expression estimates
 
-        transcript_expression_threshold : float
-            If transcript_expression_dict is given, only keep effects on
-            transcripts above this threshold.
         """
 
         # we only care about effects which impact the coding sequence of a
@@ -192,7 +176,7 @@ class MutantEpitopePredictor(object):
         # dictionary mapping varcode effect objects to subsequences
         # around each mutation, along with their start/end offsets in
         # the full protein sequence.
-        mutant_sequence_and_offset_dict = protein_sequences_and_offsets_around_mutations(
+        mutant_protein_slices = protein_sequences_and_offsets_around_mutations(
             effects=top_effects,
             padding_around_mutation=self.padding_around_mutation)
 
@@ -200,43 +184,45 @@ class MutantEpitopePredictor(object):
         # containing mutant residues, used as argument to MHC binding
         # prediction model.
         mutant_subsequence_dict = {
-            effect: source_sequence[start:end]
-            for (effect, (source_sequence, start, end))
-            in mutant_sequence_and_offset_dict.items()
+            effect: protein_slice.protein_sequence[
+                protein_slice.start_offset:protein_slice.end_offset]
+            for (effect, protein_slice)
+            in mutant_protein_slices.items()
         }
 
         # adjust offsets and source sequences of peptides in binding
         # predictions to reflect the longer source sequence they come from
         epitope_predictions = []
 
-        for x in self.mhc_model.predict(mutant_subsequence_dict):
-            effect = x.source_sequence_key
-            # dict values are (source protein sequence, start pos, end pos)
-            (source_sequence, source_offset, _) = mutant_sequence_and_offset_dict[effect]
+        for binding_prediction in self.mhc_model.predict(mutant_subsequence_dict):
+            effect = binding_prediction.source_sequence_key
+            # dict values are ProteinSlice(protein_sequence, start_offset, end_offset)
+            protein_slice = mutant_protein_slices[effect]
 
-            # extracting the fields of the BindingPrediction to fix several
-            # field values (see next several lines) and add extra field(s)
-            # necessary to turn this into an EpitopePrediction
-            fields = x.__dict__
+            # extracting the fields of the BindingPrediction to add
+            # extra field necessary to turn this into an EpitopePrediction
+            fields = binding_prediction.__dict__
+
             # update source_sequence to be the full mutant protein
-            fields["source_sequence"] = source_sequence
+            fields["full_protein_sequence"] = protein_slice.protein_sequence
 
             # shift the offset of each peptide to account for the fact that the
             # predictions were made over a sub-sequence of the full protein
-            fields["offset"] = fields["offset"] + source_offset
+            fields["protein_offset"] = fields["offset"] + protein_slice.start_offset
 
-            peptide_start = x.offset
-            peptide_end = x.offset + x.length - 1
+            peptide_start = binding_prediction.offset
+            peptide_end = binding_prediction.offset + binding_prediction.length - 1
 
             fields["contains_mutant_residues"] = (
-                source_offset + peptide_start < effect.aa_mutation_end_offset and
-                source_offset + peptide_end >= effect.aa_mutation_start_offset
+                protein_slice.start_offset + peptide_start < effect.aa_mutation_end_offset and
+                protein_slice.start_offset + peptide_end >= effect.aa_mutation_start_offset
             )
             # tag predicted epitopes as non-mutant if they occur in any of the
             # wildtype "self" binding peptide sets for the given alleles
+            wildtype_peptides = self.wildtype_ligandome_dict[binding_prediction.allele]
             fields["occurs_in_self_ligandome"] = (
                 self.wildtype_ligandome_dict is not None and
-                x.peptide in self.wildtype_ligandome_dict[x.allele]
+                binding_prediction.peptide in wildtype_peptides
             )
             fields["mutant"] = (
                 fields["contains_mutant_residues"] and
@@ -252,36 +238,40 @@ class MutantEpitopePredictor(object):
             epitope_predictions,
             ic50_cutoff=self.ic50_cutoff,
             percentile_cutoff=self.percentile_cutoff,
-            keep_wildtype_epitopes=self.keep_wildtype_epitopes)
+            only_novel_epitopes=self.only_novel_epitopes)
 
     def epitopes_from_variants(
             self,
             variants,
+            transcript_expression_dict,
+            transcript_expression_threshold=0.0,
             gene_expression_dict=None,
             gene_expression_threshold=0.0,
-            transcript_expression_dict=None,
-            transcript_expression_threshold=0.0,
             raise_on_variant_effect_error=True):
         """
         Parameters
         ----------
         variants : varcode.VariantCollection
 
-        gene_expression_dict : dict
-            Dictionary mapping gene IDs to RNA expression estimates
-
-        gene_expression_threshold : float
-            If gene_expression_dict is given, only keep effects on genes
-            expressed above this threshold.
-
         transcript_expression_dict : dict
-            Dictionary mapping transcript IDs to RNA expression estimates
+            Dictionary mapping transcript IDs to RNA expression estimates. Used
+            both for transcript expression filtering and for selecting the
+            most abundant transcript for a particular variant. If omitted then
+            transcript selection is done using priority of variant effects and
+            transcript length.
 
-        transcript_expression_threshold : float
+        transcript_expression_threshold : float, optional
             If transcript_expression_dict is given, only keep effects on
             transcripts above this threshold.
 
-        raise_on_variant_effect_error : bool
+        gene_expression_dict : dict, optional
+            Dictionary mapping gene IDs to RNA expression estimates
+
+        gene_expression_threshold : float, optional
+            If gene_expression_dict is given, only keep effects on genes
+            expressed above this threshold.
+
+        raise_on_variant_effect_error : bool, optional
         """
         # pre-filter variants by checking if any of the genes or
         # transcripts they overlap have sufficient expression.

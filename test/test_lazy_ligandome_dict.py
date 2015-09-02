@@ -11,6 +11,9 @@ def test_lazy_ligandome_dict_allele_normalization():
     peptides_hla_0201 = ligandome["HLA-A*02:01"]
     eq_(peptides_a0201, peptides_hla_0201)
 
+    # tests that normalization works since name of file is different
+    peptides_hla_b0704 = ligandome["b*0704"]
+    eq_(peptides_hla_b0704, {"RRRRRRRRR"})
 
 def test_lazy_ligandome_dict_missing_allele():
     dirpath = data_path("tiny_test_ligandome_dir")
