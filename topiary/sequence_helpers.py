@@ -24,7 +24,7 @@ ProteinSlice = namedtuple(
         "end_offset"
     ])
 
-def protein_subsequences_around_mutations(effects, padding_around_mutation):
+def protein_slices_around_mutations(effects, padding_around_mutation):
     """
     From each effect get a mutant ProteinSlice (which contains
     the full mutant protein sequence and the start/end offset in that sequence)
