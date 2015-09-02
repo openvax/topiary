@@ -68,9 +68,9 @@ def apply_variant_expression_filters(
     if gene_expression_dict:
         variants = apply_filter(
             lambda variant: any(
-                gene_expression_dict.get(transcript_id, 0.0) >
+                gene_expression_dict.get(gene_id, 0.0) >
                 gene_expression_threshold
-                for transcript_id in variant.gene_ids
+                for gene_id in variant.gene_ids
             ),
             variants,
             result_fn=variants.clone_with_new_elements,

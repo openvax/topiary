@@ -21,6 +21,10 @@ from mhctools import BindingPrediction
 # notion of whether the peptide contains mutant residues
 
 epitope_fields = BindingPrediction._fields + (
+    # full protein sequence from which epitopes were taken
+    "full_protein_sequence",
+    # offset into the protein sequence of the first amino acid in the epitope
+    "protein_offset",
     # does the peptide sequence contain any mutated residues
     "contains_mutant_residues",
     # does this peptide occur elsewhere in the self ligandome for the
@@ -29,7 +33,7 @@ epitope_fields = BindingPrediction._fields + (
     # should we consider this as a mutant peptide?
     # Differs from 'contains_mutant_residues' in that it excludes
     # peptides that occur in the self-ligandome
-    "mutant",
+    "novel_epitope",
 )
 
 EpitopePrediction = namedtuple("EpitopePrediction", epitope_fields)

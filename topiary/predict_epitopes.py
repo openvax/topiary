@@ -1,3 +1,19 @@
+# Copyright (c) 2015. Mount Sinai School of Medicine
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import print_function, division, absolute_import
+
 from .commandline_args import (
     mhc_binding_predictor_from_args,
     variant_collection_from_args,
@@ -11,13 +27,13 @@ def predict_epitopes(
         variant_collection,
         mhc_model,
         padding_around_mutation,
-        ic50_cutoff=500.0,
-        percentile_cutoff=None,
-        keep_wildtype_epitopes=False,
+        transcript_expression_dict,
+        min_transcript_expression=0,
         gene_expression_dict=None,
         min_gene_expression=0,
-        transcript_expression_dict=None,
-        min_transcript_expression=0,
+        ic50_cutoff=500.0,
+        percentile_cutoff=None,
+        only_novel_epitopes=False,
         wildtype_ligandome_dict=None,
         raise_on_variant_effect_error=True):
     """
@@ -35,15 +51,12 @@ def predict_epitopes(
         How many residues surrounding a mutation to consider including in a
         candidate epitope.
 
-    ic50_cutoff : float, optional
-        Maximum predicted IC50 value for a peptide to be considered a binder.
+    transcript_expression_dict : dict
+        Maps from Ensembl transcript IDs to FPKM expression values.
 
-    percentile_cutoff : float, optional
-        Maximum percentile rank of IC50 values for a peptide to be considered
-        a binder.
-
-    keep_wildtype_epitopes : bool, optional
-        If True, then include peptides which do not contained mutated residues.
+    min_transcript_expression : float, optional
+        Don't include epitopes from transcripts with FPKM values lower than this
+        parameter.
 
     gene_expression_dict : dict, optional
         Maps from Ensembl gene IDs to FPKM expression values.
@@ -52,12 +65,16 @@ def predict_epitopes(
         Don't include epitopes from genes with FPKM values lower than this
         parameter.
 
-    transcript_expression_dict : dict, optional
-        Maps from Ensembl transcript IDs to FPKM expression values.
+    ic50_cutoff : float, optional
+        Maximum predicted IC50 value for a peptide to be considered a binder.
 
-    min_transcript_expression : float, optional
-        Don't include epitopes from transcripts with FPKM values lower than this
-        parameter.
+    percentile_cutoff : float, optional
+        Maximum percentile rank of IC50 values for a peptide to be considered
+        a binder.
+
+    only_novel_epitopes : bool, optional
+        If True, then drop peptides which either don't contain a mutation or
+        occur elsewhere in the self-ligandome.
 
     wildtype_ligandome_dict : dict-like, optional
         Mapping from allele names to set of wildtype peptides predicted
@@ -75,7 +92,7 @@ def predict_epitopes(
         ic50_cutoff=ic50_cutoff,
         percentile_cutoff=percentile_cutoff,
         wildtype_ligandome_dict=wildtype_ligandome_dict,
-        keep_wildtype_epitopes=keep_wildtype_epitopes)
+        only_novel_epitopes=only_novel_epitopes)
     return predictor.epitopes_from_variants(
         variant_collection,
         gene_expression_dict=gene_expression_dict,
@@ -109,10 +126,10 @@ def predict_epitopes_from_args(args):
         padding_around_mutation=args.padding_around_mutation,
         ic50_cutoff=args.ic50_cutoff,
         percentile_cutoff=args.percentile_cutoff,
-        keep_wildtype_epitopes=args.keep_wildtype_epitopes,
-        gene_expression_dict=gene_expression_dict,
-        min_gene_expression=args.rna_min_gene_expression,
         transcript_expression_dict=transcript_expression_dict,
         min_transcript_expression=args.rna_min_transcript_expression,
+        gene_expression_dict=gene_expression_dict,
+        min_gene_expression=args.rna_min_gene_expression,
+        only_novel_epitopes=args.only_novel_epitopes,
         wildtype_ligandome_dict=wildtype_ligandome_dict,
         raise_on_variant_effect_error=not args.skip_variant_errors)

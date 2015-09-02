@@ -87,10 +87,10 @@ def epitopes_to_dataframe(
         )
         simple_column_extractors.append(key_fn_pair)
 
-    for x in epitope_collection:
+    for epitope_prediction in epitope_collection:
         for column_name, fn in simple_column_extractors:
-            column_dict[column_name].append(fn(x))
-        effect = x.source_sequence_key
+            column_dict[column_name].append(fn(epitope_prediction))
+        effect = epitope_prediction.source_sequence_key
 
         # half-open interval of mutated residues in the source sequence
         # the peptide was extracted from
@@ -99,19 +99,19 @@ def epitopes_to_dataframe(
 
         # mutant means both that it contains mutant residues
         # and that this pMHC does not occur in the self ligandome
-        column_dict["mutant"].append(x.mutant)
+        column_dict["mutant"].append(epitope_prediction.mutant)
         column_dict["contains_mutant_residues"].append(
-            x.contains_mutant_residues)
+            epitope_prediction.contains_mutant_residues)
         column_dict["occurs_in_self_ligandome"].append(
-            x.occurs_in_self_ligandome)
-        if x.contains_mutant_residues:
+            epitope_prediction.occurs_in_self_ligandome)
+        if epitope_prediction.contains_mutant_residues:
             # need a half-open start/end interval
             peptide_mut_start = min(
-                x.length,
-                max(0, mut_start_in_source_seq - x.offset))
+                epitope_prediction.length,
+                max(0, mut_start_in_source_seq - epitope_prediction.offset))
             peptide_mut_end = min(
-                x.length,
-                max(0, mut_end_in_source_seq - x.offset))
+                epitope_prediction.length,
+                max(0, mut_end_in_source_seq - epitope_prediction.offset))
         else:
             peptide_mut_start = peptide_mut_end = None
         column_dict["peptide_mutation_start"].append(peptide_mut_start)

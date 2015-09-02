@@ -38,19 +38,19 @@ braf_V600E_variant = Variant(7, 140753336, "A", "T", ensembl_grch38)
 # http://cancer.sanger.ac.uk/cosmic/mutation/overview?id=10656
 tp53_R248W_variant = Variant(17, 7674221, "G", "A", ensembl_grch38)
 
-variants = VariantCollection([
+cancer_test_variants = VariantCollection([
     braf_V600E_variant,
     tp53_R248W_variant
 ])
 
-variant_gene_ids = {
+cancer_test_variant_gene_ids = {
     gene_id
-    for v in variants
+    for v in cancer_test_variants
     for gene_id in v.gene_ids
 }
 
-variant_transcript_ids = {
+cancer_test_variant_transcript_ids = {
     transcript_id
-    for v in variants
+    for v in cancer_test_variants
     for transcript_id in v.transcript_ids
 }
