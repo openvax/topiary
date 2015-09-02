@@ -16,7 +16,6 @@
 Common commandline arguments used by scripts
 """
 
-
 from __future__ import print_function, division, absolute_import
 import argparse
 import logging
@@ -219,11 +218,11 @@ def mhc_binding_predictor_from_args(args):
 arg_parser.add_argument(
     "--padding-around-mutation",
     default=None,
-    help=(
-        "How many extra amino acids to include on either side of a mutation. ",
-        "Default is determined by epitope lengths but can be overridden to "
-        "predict wildtype epitopes in a larger context around a mutant residue."
-    ),
+    help="".join([
+        "How many extra amino acids to include on either side of a mutation.",
+        "Default is determined by epitope lengths but can be overridden to ",
+        "predict wildtype epitopes in a larger context around a mutant residue.",
+    ]),
     type=int)
 
 ###
@@ -309,12 +308,11 @@ filter_group.add_argument(
 
 filter_group.add_argument(
     "--wildtype-ligandome-directory",
-    help=(
-        "Directory of 'self' ligand peptide sets, in files named "
-        "by allele (e.g. 'A0201'). Any predicted mutant epitope which "
-        "is in the files associated with the given alleles is treated as "
-        "wildtype (non-mutated)."))
-
+    help="".join([
+        "Directory of 'self' ligand peptide sets, in files named ",
+        "by allele (e.g. 'A0201'). Any predicted mutant epitope which ",
+        "is in the files associated with the given alleles is treated as ",
+        "wildtype (non-mutated)."]))
 
 #
 # Misc
@@ -342,3 +340,4 @@ output_group.add_argument(
     "--output-html",
     default=None,
     help="Path to output HTML file")
+
