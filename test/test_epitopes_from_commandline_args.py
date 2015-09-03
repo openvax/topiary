@@ -28,4 +28,3 @@ def test_cancer_epitopes_from_args():
     for epitope_length in epitope_lengths:
         expected_number_of_epitopes += epitope_length * len(cancer_test_variants) * len(alleles)
     eq_(len(epitope_predictions), expected_number_of_epitopes)
-
