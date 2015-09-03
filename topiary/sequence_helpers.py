@@ -14,23 +14,16 @@
 
 from __future__ import print_function, division, absolute_import
 
-from collections import namedtuple
+from typechecks import require_integer
 
-ProteinSlice = namedtuple(
-    "ProteinSlice",
-    [
-        "protein_sequence",
-        "start_offset",
-        "end_offset"
-    ])
-
-def protein_slices_around_mutations(effects, padding_around_mutation):
+def protein_subsequences_around_mutations(effects, padding_around_mutation):
     """
-    From each effect get a mutant ProteinSlice (which contains
-    the full mutant protein sequence and the start/end offset in that sequence)
-    around the mutation.
+    From each effect get a mutant protein sequence and pull out a subsequence
+    around the mutation (based on the given padding). Returns a dictionary
+    of subsequences and a dictionary of subsequence start offsets.
     """
-    result = {}
+    protein_subsequences = {}
+    protein_subsequence_start_offsets = {}
     for effect in effects:
         seq = effect.mutant_protein_sequence
         # some effects will lack a mutant protein sequence since
@@ -44,8 +37,28 @@ def protein_slices_around_mutations(effects, padding_around_mutation):
             seq_end_offset = min(
                 len(seq),
                 mutation_end + padding_around_mutation)
-            result[effect] = ProteinSlice(
-                seq,
-                seq_start_offset,
-                seq_end_offset)
-    return result
+            print(seq_start_offset, seq_end_offset)
+            protein_subsequences[effect] = seq[
+                seq_start_offset:seq_end_offset + 1]
+            protein_subsequence_start_offsets[effect] = seq_start_offset
+    return protein_subsequences, protein_subsequence_start_offsets
+
+def check_padding_around_mutation(given_padding, epitope_lengths):
+    """
+    If user doesn't provide any padding around the mutation we need
+    to at least include enough of the surrounding non-mutated
+    esidues to construct candidate epitopes of the specified lengths
+    """
+    min_required_padding = max(epitope_lengths) - 1
+    if not given_padding:
+        return min_required_padding
+    else:
+        require_integer(given_padding, "Padding around mutation")
+        if given_padding < min_required_padding:
+            raise ValueError("Padding around mutation %d cannot "
+                             "be less than %d for epitope lengths "
+                             "%s" % (
+                                given_padding,
+                                min_required_padding,
+                                epitope_lengths))
+        return given_padding

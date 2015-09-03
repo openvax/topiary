@@ -18,7 +18,7 @@ from __future__ import print_function, division, absolute_import
 from mhctools import NetMHCIIpan
 from nose.tools import eq_
 from pyensembl import ensembl_grch37
-from topiary import MutantEpitopePredictor
+from topiary import predict_epitopes_from_variants
 from varcode import Variant, VariantCollection
 
 # TODO: find out about these variants,
@@ -49,12 +49,11 @@ mhc_model = NetMHCIIpan(
     epitope_lengths=epitope_lengths)
 
 def test_netmhcii_pan_epitopes():
-    predictor = MutantEpitopePredictor(
+    epitopes = predict_epitopes_from_variants(
         mhc_model=mhc_model,
+        variants=variants,
+        transcript_expression_dict=None,
         only_novel_epitopes=False)
-    epitopes = predictor.epitopes_from_variants(
-      variants=variants,
-      transcript_expression_dict=None)
 
     # expect (15 + 16 mutant peptides) * (2 alleles) * 2 variants =
     # 124 total epitope predictions

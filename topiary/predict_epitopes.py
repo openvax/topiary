@@ -15,8 +15,6 @@
 from __future__ import print_function, division, absolute_import
 import logging
 
-from typechecks import require_integer
-from varcode import NonsilentCodingMutation
 from mhctools import EpitopeCollection
 
 from .commandline_args import (
@@ -26,43 +24,28 @@ from .commandline_args import (
     rna_transcript_expression_dict_from_args,
 )
 from .lazy_ligandome_dict import LazyLigandomeDict
-from .epitope_prediction import EpitopePrediction
 from .filters import (
-    apply_filter,
     apply_epitope_filters,
     apply_effect_expression_filters,
     apply_variant_expression_filters,
+    filter_silent_and_noncoding_effects,
 )
-from .sequence_helpers import protein_slices_around_mutations
+from .sequence_helpers import (
+    protein_subsequences_around_mutations,
+    check_padding_around_mutation
+)
+from .epitope_prediction import (
+    build_epitope_collection_from_binding_predictions,
+)
 
 DEFAULT_IC50_CUTOFF = 500.0
-DEFAULT_PERCENTILE_CUTOFF = 2.0
-
-def check_padding_around_mutation(given_padding, epitope_lengths):
-    """
-    If user doesn't provide any padding around the mutation we need
-    to at least include enough of the surrounding non-mutated
-    esidues to construct candidate epitopes of the specified lengths
-    """
-    min_required_padding = max(epitope_lengths) - 1
-    if not given_padding:
-        return min_required_padding
-    else:
-        require_integer(given_padding, "Padding around mutation")
-        if given_padding < min_required_padding:
-            raise ValueError("Padding around mutation %d cannot "
-                             "be less than %d for epitope lengths "
-                             "%s" % (
-                                given_padding,
-                                min_required_padding,
-                                epitope_lengths))
-        return given_padding
+DEFAULT_PERCENTILE_CUTOFF = None
 
 def predict_epitopes_from_mutation_effects(
             effects,
             mhc_model,
-            padding_around_mutation,
-            transcript_expression_dict,
+            padding_around_mutation=None,
+            transcript_expression_dict=None,
             transcript_expression_threshold=0.0,
             gene_expression_dict=None,
             gene_expression_threshold=0.0,
@@ -83,7 +66,8 @@ def predict_epitopes_from_mutation_effects(
 
         padding_around_mutation : int
             How many residues surrounding a mutation to consider including in a
-            candidate epitope.
+            candidate epitope. Default is the minimum size necessary for epitope
+            length of the mhc model.
 
         transcript_expression_dict : dict
             Dictionary mapping transcript IDs to RNA expression estimates. Used
@@ -126,18 +110,15 @@ def predict_epitopes_from_mutation_effects(
 
         # we only care about effects which impact the coding sequence of a
         # protein
-        effects = apply_filter(
-            lambda effect: isinstance(effect, NonsilentCodingMutation),
-            effects,
-            result_fn=effects.clone_with_new_elements,
-            filter_name="Silent mutation")
+        effects = filter_silent_and_noncoding_effects(effects)
 
         effects = apply_effect_expression_filters(
             effects,
-            gene_expression_dict,
-            gene_expression_threshold,
-            transcript_expression_dict,
-            transcript_expression_threshold)
+            transcript_expression_dict=transcript_expression_dict,
+            transcript_expression_threshold=transcript_expression_threshold,
+            gene_expression_dict=gene_expression_dict,
+            gene_expression_threshold=gene_expression_threshold,
+        )
 
         # group by variants, so that we end up with only one mutant
         # sequence per mutation
@@ -166,83 +147,39 @@ def predict_epitopes_from_mutation_effects(
                 for variant_effects in variant_effect_groups.values()
             ]
 
-        # dictionary mapping varcode effect objects to subsequences
-        # around each mutation, along with their start/end offsets in
-        # the full protein sequence.
-        mutant_protein_slices = protein_slices_around_mutations(
-            effects=top_effects,
-            padding_around_mutation=padding_around_mutation)
+        # 1) dictionary mapping varcode effect objects to subsequences
+        #    around each mutation
+        # 2) dictionary mapping varcode effect to start offset of subsequence
+        #    within the full mutant protein sequence
+        protein_subsequences, protein_subsequence_offsets = \
+            protein_subsequences_around_mutations(
+                effects=top_effects,
+                padding_around_mutation=padding_around_mutation)
 
-        # dictionary mapping varcode effects to subsequences of each protein
-        # containing mutant residues, used as argument to MHC binding
-        # prediction model.
-        mutant_subsequence_dict = {
-            effect: protein_slice.protein_sequence[
-                protein_slice.start_offset:protein_slice.end_offset]
-            for (effect, protein_slice)
-            in mutant_protein_slices.items()
-        }
-
-        # adjust offsets and source sequences of peptides in binding
-        # predictions to reflect the longer source sequence they come from
-        epitope_predictions = []
-
-        for binding_prediction in mhc_model.predict(mutant_subsequence_dict):
-            effect = binding_prediction.source_sequence_key
-            # dict values are ProteinSlice(protein_sequence, start_offset, end_offset)
-            protein_slice = mutant_protein_slices[effect]
-
-            # extracting the fields of the BindingPrediction to add
-            # extra field necessary to turn this into an EpitopePrediction
-            fields = binding_prediction.__dict__
-
-            # update source_sequence to be the full mutant protein
-            fields["full_protein_sequence"] = protein_slice.protein_sequence
-
-            # shift the offset of each peptide to account for the fact that the
-            # predictions were made over a sub-sequence of the full protein
-            fields["protein_offset"] = fields["offset"] + protein_slice.start_offset
-
-            peptide_start = binding_prediction.offset
-            peptide_end = binding_prediction.offset + binding_prediction.length - 1
-
-            fields["contains_mutant_residues"] = (
-                protein_slice.start_offset + peptide_start < effect.aa_mutation_end_offset and
-                protein_slice.start_offset + peptide_end >= effect.aa_mutation_start_offset
-            )
-            # tag predicted epitopes as non-mutant if they occur in any of the
-            # wildtype "self" binding peptide sets for the given alleles
-            wildtype_peptides = wildtype_ligandome_dict[binding_prediction.allele]
-            fields["occurs_in_self_ligandome"] = (
-                wildtype_ligandome_dict is not None and
-                binding_prediction.peptide in wildtype_peptides
-            )
-            fields["mutant"] = (
-                fields["contains_mutant_residues"] and
-                not fields["occurs_in_self_ligandome"]
-            )
-            epitope_predictions.append(EpitopePrediction(**fields))
-        epitope_predictions = EpitopeCollection(epitope_predictions)
-
+        binding_predictions = mhc_model.predict(protein_subsequences)
         logging.info("MHC predictor returned %s peptide binding predictions" % (
-            len(epitope_predictions)))
-
+            len(binding_predictions)))
+        epitopes = build_epitope_collection_from_binding_predictions(
+            binding_predictions=binding_predictions,
+            protein_subsequences=protein_subsequences,
+            protein_subsequence_start_offsets=protein_subsequence_offsets,
+            wildtype_ligandome_dict=wildtype_ligandome_dict)
         return apply_epitope_filters(
-            epitope_predictions,
+            epitopes,
             ic50_cutoff=ic50_cutoff,
             percentile_cutoff=percentile_cutoff,
             only_novel_epitopes=only_novel_epitopes)
 
 def predict_epitopes_from_variants(
-        variant_collection,
+        variants,
         mhc_model,
-        padding_around_mutation,
-        transcript_expression_dict,
+        padding_around_mutation=None,
+        transcript_expression_dict=None,
         min_transcript_expression=0,
         gene_expression_dict=None,
         min_gene_expression=0,
-        ic50_cutoff=500.0,
-        percentile_cutoff=None,
+        ic50_cutoff=DEFAULT_IC50_CUTOFF,
+        percentile_cutoff=DEFAULT_PERCENTILE_CUTOFF,
         only_novel_epitopes=False,
         wildtype_ligandome_dict=None,
         raise_on_variant_effect_error=True):
@@ -252,14 +189,15 @@ def predict_epitopes_from_variants(
 
     Parameters
     ----------
-    variant_collection : varcode.VariantCollection
+    variants : varcode.VariantCollection
 
     mhc_model : mhctools.BasePredictor
         Any instance of a peptide-MHC binding affinity predictor
 
-    padding_around_mutation : int
+    padding_around_mutation : int, optional
         How many residues surrounding a mutation to consider including in a
-        candidate epitope.
+        candidate epitope. Default is the minimum size necessary for epitope
+        length of the mhc model.
 
     transcript_expression_dict : dict
         Maps from Ensembl transcript IDs to FPKM expression values.
@@ -302,11 +240,11 @@ def predict_epitopes_from_variants(
     # to filter a variant *before* trying to predict its impact/effect
     # on the protein sequence.
     variants = apply_variant_expression_filters(
-        variant_collection,
-        gene_expression_dict,
-        min_gene_expression,
-        transcript_expression_dict,
-        min_transcript_expression)
+        variants,
+        transcript_expression_dict=transcript_expression_dict,
+        transcript_expression_threshold=min_transcript_expression,
+        gene_expression_dict=gene_expression_dict,
+        gene_expression_threshold=min_gene_expression)
 
     effects = variants.effects(
         raise_on_error=raise_on_variant_effect_error)

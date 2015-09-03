@@ -18,7 +18,10 @@ from __future__ import print_function, division, absolute_import
 from mhctools import NetMHCpan
 from nose.tools import eq_, raises
 from pyensembl import ensembl_grch37
-from topiary import MutantEpitopePredictor, epitopes_to_dataframe
+from topiary import (
+  epitopes_to_dataframe,
+  predict_epitopes_from_variants
+)
 from varcode import Variant, VariantCollection
 
 # TODO: find out about these variants,
@@ -53,39 +56,43 @@ mhc_model = NetMHCpan(
     epitope_lengths=epitope_lengths)
 
 def test_epitope_prediction_without_padding():
-    predictor_without_padding = MutantEpitopePredictor(
-        mhc_model=mhc_model)
-    output_without_padding = predictor_without_padding.epitopes_from_variants(
+    output_without_padding = predict_epitopes_from_variants(
         variants=variants,
+        mhc_model=mhc_model,
         transcript_expression_dict=None)
     # one prediction for each variant * number of alleles
     eq_(len(output_without_padding.strong_binders(500.0)), 4)
 
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_padding():
-    EpitopePredictor(mhc_model=mhc_model, padding_around_mutation=7)
+    predict_epitopes_from_variants(
+        variants=variants,
+        mhc_model=mhc_model,
+        transcript_expression_dict=None,
+        padding_around_mutation=7)
 
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_zero_padding():
-    EpitopePredictor(mhc_model=mhc_model, padding_around_mutation=0)
+    predict_epitopes_from_variants(
+        variants=variants,
+        mhc_model=mhc_model,
+        transcript_expression_dict=None,
+        padding_around_mutation=7)
 
 def test_epitope_prediction_with_valid_padding():
-    predictor_with_padding = MutantEpitopePredictor(
+    output_with_padding = predict_epitopes_from_variants(
+        variants=variants,
         mhc_model=mhc_model,
+        transcript_expression_dict=None,
         padding_around_mutation=8,
         only_novel_epitopes=False)
-    output_with_padding = predictor_with_padding.epitopes_from_variants(
-        variants=variants,
-        transcript_expression_dict=None)
     eq_(len(output_with_padding), 108)
 
 def test_epitopes_to_dataframe():
-    predictor = MutantEpitopePredictor(
+    epitopes = predict_epitopes_from_variants(
+        variants=variants,
         mhc_model=mhc_model,
+        transcript_expression_dict=None,
         only_novel_epitopes=False)
-    epitopes = predictor.epitopes_from_variants(
-        variants,
-        transcript_expression_dict=None)
     df = epitopes_to_dataframe(epitopes)
     eq_(len(df), len(epitopes))
-
