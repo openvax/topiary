@@ -59,9 +59,15 @@ def test_epitope_prediction_without_padding():
     output_without_padding = predict_epitopes_from_variants(
         variants=variants,
         mhc_model=mhc_model,
-        transcript_expression_dict=None)
+        transcript_expression_dict=None,
+        only_novel_epitopes=True)
     # one prediction for each variant * number of alleles
-    eq_(len(output_without_padding.strong_binders(500.0)), 4)
+    strong_binders = [
+      epitope_prediction
+      for epitope_prediction in output_without_padding
+      if epitope_prediction.value <= 500.0
+    ]
+    eq_(len(strong_binders), 4)
 
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_padding():
@@ -85,7 +91,8 @@ def test_epitope_prediction_with_valid_padding():
         mhc_model=mhc_model,
         transcript_expression_dict=None,
         padding_around_mutation=8,
-        only_novel_epitopes=False)
+        only_novel_epitopes=True)
+    # 6 alleles * 2 mutations * 9 distinct windows = 108
     eq_(len(output_with_padding), 108)
 
 def test_epitopes_to_dataframe():
@@ -93,6 +100,6 @@ def test_epitopes_to_dataframe():
         variants=variants,
         mhc_model=mhc_model,
         transcript_expression_dict=None,
-        only_novel_epitopes=False)
+        only_novel_epitopes=True)
     df = epitopes_to_dataframe(epitopes)
     eq_(len(df), len(epitopes))

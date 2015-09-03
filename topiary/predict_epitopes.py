@@ -38,7 +38,7 @@ from .epitope_prediction import (
     build_epitope_collection_from_binding_predictions,
 )
 
-DEFAULT_IC50_CUTOFF = 500.0
+DEFAULT_IC50_CUTOFF = None
 DEFAULT_PERCENTILE_CUTOFF = None
 
 def predict_epitopes_from_mutation_effects(
@@ -282,7 +282,7 @@ def predict_epitopes_from_args(args):
     else:
         wildtype_ligandome_dict = None
     return predict_epitopes_from_variants(
-        variant_collection=variants,
+        variants=variants,
         mhc_model=mhc_model,
         padding_around_mutation=args.padding_around_mutation,
         ic50_cutoff=args.ic50_cutoff,

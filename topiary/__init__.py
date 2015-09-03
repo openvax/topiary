@@ -1,6 +1,6 @@
 
 from .lazy_ligandome_dict import LazyLigandomeDict, AlleleNotFound
-from .epitope_collection_helpers import (
+from .converters import (
     epitopes_to_dataframe,
     epitopes_to_csv
 )
@@ -10,9 +10,14 @@ from .predict_epitopes import (
     predict_epitopes_from_mutation_effects,
 )
 from .epitope_prediction import (
-    contains_mutant_residues,
     build_epitope_collection_from_binding_predictions,
     MutantEpitopePrediction,
+)
+from .sequence_helpers import (
+    check_padding_around_mutation,
+    peptide_mutation_interval,
+    contains_mutant_residues,
+    protein_subsequences_around_mutations,
 )
 from . import commandline_args
 
@@ -27,5 +32,8 @@ __all__ = [
     "predict_epitopes_from_args",
     "build_epitope_collection_from_binding_predictions",
     "contains_mutant_residues",
+    "check_padding_around_mutation",
+    "peptide_mutation_interval",
+    "protein_subsequences_around_mutations",
     "MutantEpitopePrediction",
 ]

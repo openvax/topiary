@@ -45,7 +45,7 @@ def apply_filter(
         (n_before - n_after),
         n_before,
         collection_name)
-    return result_fn(filtered) if result_fn else filtered
+    return result_fn(filtered) if result_fn else collection.__class__(filtered)
 
 def filter_silent_and_noncoding_effects(effects):
     """
