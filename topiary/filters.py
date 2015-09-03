@@ -19,6 +19,9 @@ Helper functions for filtering variants, effects, and epitope predictions
 from __future__ import print_function, division, absolute_import
 import logging
 
+
+from varcode import NonsilentCodingMutation
+
 def apply_filter(
         filter_fn,
         collection,
@@ -42,7 +45,22 @@ def apply_filter(
         (n_before - n_after),
         n_before,
         collection_name)
-    return result_fn(filtered) if result_fn else filtered
+    return result_fn(filtered) if result_fn else collection.__class__(filtered)
+
+def filter_silent_and_noncoding_effects(effects):
+    """
+    Keep only variant effects which result in modified proteins.
+
+    Parameters
+    ----------
+    effects : varcode.EffectCollection
+    """
+    return apply_filter(
+        filter_fn=lambda effect: isinstance(effect, NonsilentCodingMutation),
+        collection=effects,
+        result_fn=effects.clone_with_new_elements,
+        filter_name="Silent mutation")
+
 
 def apply_variant_expression_filters(
         variants,
@@ -68,23 +86,23 @@ def apply_variant_expression_filters(
     if gene_expression_dict:
         variants = apply_filter(
             lambda variant: any(
-                gene_expression_dict.get(gene_id, 0.0) >
+                gene_expression_dict.get(gene_id, 0.0) >=
                 gene_expression_threshold
                 for gene_id in variant.gene_ids
             ),
             variants,
             result_fn=variants.clone_with_new_elements,
-            filter_name="Variant gene expression")
+            filter_name="Variant gene expression (min=%0.4f)" % gene_expression_threshold)
     if transcript_expression_dict:
         variants = apply_filter(
             lambda variant: any(
-                transcript_expression_dict.get(transcript_id, 0.0) >
+                transcript_expression_dict.get(transcript_id, 0.0) >=
                 transcript_expression_threshold
                 for transcript_id in variant.transcript_ids
             ),
             variants,
             result_fn=variants.clone_with_new_elements,
-            filter_name="Variant transcript expression")
+            filter_name="Variant transcript expression (min=%0.4f)" % transcript_expression_threshold)
     return variants
 
 def apply_effect_expression_filters(
@@ -112,28 +130,28 @@ def apply_effect_expression_filters(
     if gene_expression_dict:
         effects = apply_filter(
             lambda effect: (
-                gene_expression_dict.get(effect.gene_id, 0.0) >
+                gene_expression_dict.get(effect.gene_id, 0.0) >=
                 gene_expression_threshold),
             effects,
             result_fn=effects.clone_with_new_elements,
-            filter_name="Effect gene expression")
+            filter_name="Effect gene expression (min = %0.4f)" % gene_expression_threshold)
 
     if transcript_expression_dict:
         effects = apply_filter(
             lambda effect: (
-                transcript_expression_dict.get(effect.transcript_id, 0.0) >
+                transcript_expression_dict.get(effect.transcript_id, 0.0) >=
                 transcript_expression_threshold
             ),
             effects,
             result_fn=effects.clone_with_new_elements,
-            filter_name="Effect transcript expression")
+            filter_name="Effect transcript expression (min=%0.4f)" % transcript_expression_threshold)
     return effects
 
 def apply_epitope_filters(
         epitope_predictions,
         ic50_cutoff,
         percentile_cutoff,
-        keep_wildtype_epitopes):
+        only_novel_epitopes):
     """
     Apply affinity and wildtype filters and create an EpitopeCollection
     from the remaining binding predictions.
@@ -150,9 +168,9 @@ def apply_epitope_filters(
         Highest allowed percentile of IC50 value
         (e.g. 1st percentile is a strong binder than 10th)
 
-    keep_wildtype_epitopes : bool
-        If False, then drop epitope predictions that aren't neoepitopes
-        (mutated and don't appear elsewhere in the self-ligandome)
+    only_novel_epitopes : bool
+        If True, only keep epitopes that are mutated and don't appear elsewhere
+        in the self-ligandome
     """
     # filter out low binders
     if ic50_cutoff:
@@ -170,11 +188,11 @@ def apply_epitope_filters(
             collection_name="epitope predictions",
         )
 
-    if not keep_wildtype_epitopes:
+    if only_novel_epitopes:
         epitope_predictions = apply_filter(
-            filter_fn=lambda x: x.mutant,
+            filter_fn=lambda x: x.novel_epitope,
             collection=epitope_predictions,
-            filter_name="Wildtype epitope",
+            filter_name="Novel epitope",
             collection_name="epitope predictions",
         )
     return epitope_predictions
