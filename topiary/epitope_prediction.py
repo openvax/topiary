@@ -22,8 +22,10 @@ from .sequence_helpers import (
     peptide_mutation_interval,
 )
 
-# information about epitopes from any source, not restricted to mutant
-# proteins. Fields are similar to
+# information about epitopes from any protein, not restricted to mutant
+# proteins. Fields are similar to mhctools.BindingPrediction but augmented
+# with information about a source protein and the window within that protein
+# that epitope predictions were drawn from.
 EpitopePrediction = namedtuple("EpitopePrediction",
     (
         # either an Ensembl ID or custom ID from transcriptome assembly

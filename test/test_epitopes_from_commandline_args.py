@@ -7,7 +7,7 @@ from .data import cancer_test_variants
 
 def test_cancer_epitopes_from_args():
     epitope_lengths = [9, 10]
-    alleles = ["HLA-A*02:01"]
+    alleles = ["HLA-A*02:01", "C0701"]
     args_list = [
         "--mhc-predictor", "netmhc",
         "--mhc-epitope-lengths", ",".join(str(x) for x in epitope_lengths),

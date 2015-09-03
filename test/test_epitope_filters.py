@@ -1,23 +1,23 @@
 from nose.tools import eq_
 from topiary.filters import apply_epitope_filters
 
-class MockEpitopePredict(object):
+class MockEpitopePrediction(object):
     def __init__(self, value, percentile_rank, novel_epitope):
         self.value = value
         self.percentile_rank = percentile_rank
         self.novel_epitope = novel_epitope
 
-epitope_prediction_strong_mutant = MockEpitopePredict(
+epitope_prediction_strong_mutant = MockEpitopePrediction(
     value=50.0, percentile_rank=0.4, novel_epitope=True)
 
-epitope_prediction_strong_wildtype = MockEpitopePredict(
+epitope_prediction_strong_wildtype = MockEpitopePrediction(
     value=50.0, percentile_rank=0.4, novel_epitope=False)
 
-epitope_prediction_weak_mutant = MockEpitopePredict(
+epitope_prediction_weak_mutant = MockEpitopePrediction(
     value=20000.0, percentile_rank=30.0, novel_epitope=True)
 
 
-epitope_prediction_weak_wildtype = MockEpitopePredict(
+epitope_prediction_weak_wildtype = MockEpitopePrediction(
     value=20000, percentile_rank=30.0, novel_epitope=False)
 
 epitope_predictions = [
