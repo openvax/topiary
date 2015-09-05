@@ -18,10 +18,7 @@ from __future__ import print_function, division, absolute_import
 from mhctools import NetMHCpan
 from nose.tools import eq_, raises
 from pyensembl import ensembl_grch37
-from topiary import (
-  epitopes_to_dataframe,
-  predict_epitopes_from_variants
-)
+from topiary import predict_epitopes_from_variants
 from varcode import Variant, VariantCollection
 
 # TODO: find out about these variants,
@@ -94,12 +91,3 @@ def test_epitope_prediction_with_valid_padding():
         only_novel_epitopes=True)
     # 6 alleles * 2 mutations * 9 distinct windows = 108
     eq_(len(output_with_padding), 108)
-
-def test_epitopes_to_dataframe():
-    epitopes = predict_epitopes_from_variants(
-        variants=variants,
-        mhc_model=mhc_model,
-        transcript_expression_dict=None,
-        only_novel_epitopes=True)
-    df = epitopes_to_dataframe(epitopes)
-    eq_(len(df), len(epitopes))
