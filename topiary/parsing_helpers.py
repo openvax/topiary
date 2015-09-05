@@ -32,6 +32,3 @@ def parse_int_list(string):
         else:
             integers.append(int(substring.strip()))
     return integers
-
-def str2bool(value):
-    return value.lower() in ('yes', 'true', 't', '1')
