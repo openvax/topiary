@@ -106,9 +106,10 @@ specifying which peptide lengths to use for MHC binding prediction
 
 ### Binding Prediction Filtering
 
-* `--keep-wildtype-epitopes`: Topiary will normally discard predicted epitopes
-which don't overlap a mutated region of a protein. Use this flag to keep all
-predicted epitopes, even if all they lack any mutated residues.
+* `--only-novel-epitopes`: Topiary will normally keep all predicted epitopes,
+even those which occur in a given self-ligandome or don't overlap a mutated region
+of a protein. Use this flag to drop any epitopes which don't contain mutations
+or that occur elsewhere in the self-ligandome.
 * `--ic50-cutoff IC50_CUTOFF`: Drop peptides with predicted IC50 nM greater
 than this value (typical value is 500.0)
 * `--percentile-cutoff PERCENTILE_CUTOFF`: Drop peptides with percentile rank

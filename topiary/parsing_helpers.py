@@ -25,13 +25,10 @@ def parse_int_list(string):
     integers = []
     for substring in string.split(","):
         if "-" in substring:
-            left, right = string.split("-")
+            left, right = substring.split("-")
             left_val = int(left.strip())
             right_val = int(right.strip())
             integers.extend(range(left_val, right_val + 1))
         else:
             integers.append(int(substring.strip()))
     return integers
-
-def str2bool(value):
-    return value.lower() in ('yes', 'true', 't', '1')

@@ -16,7 +16,6 @@
 Common commandline arguments used by scripts
 """
 
-
 from __future__ import print_function, division, absolute_import
 import argparse
 import logging
@@ -219,13 +218,12 @@ def mhc_binding_predictor_from_args(args):
 arg_parser.add_argument(
     "--padding-around-mutation",
     default=None,
-    help="How many extra amino acids to include on either side of a mutation",
+    help="".join([
+        "How many extra amino acids to include on either side of a mutation.",
+        "Default is determined by epitope lengths but can be overridden to ",
+        "predict wildtype epitopes in a larger context around a mutant residue.",
+    ]),
     type=int)
-
-arg_parser.add_argument(
-    "--self-filter-directory",
-    help="Directory with 'self' ligand peptide sets, in files named by allele")
-
 
 ###
 # RNA-Seq data
@@ -236,6 +234,20 @@ rna_group = arg_parser.add_argument_group(
     description="Transcript and gene abundance quantification")
 
 rna_group.add_argument(
+    "--rna-transcript-fpkm-file",
+    help="".join([
+        "Cufflinks tracking file (FPKM measurements for Ensembl transcripts). ",
+        "Used both for expression filtering and selecting the most abundant ",
+        "transcript to use for determining a mutant protein sequence."]))
+
+rna_group.add_argument(
+    "--rna-min-transcript-expression",
+    help="Minimum FPKM for transcript expression",
+    default=0.0,
+    type=float)
+
+
+rna_group.add_argument(
     "--rna-gene-fpkm-file",
     help="Cufflinks tracking file (FPKM measurements for Ensembl genes)",
     required=False)
@@ -243,24 +255,6 @@ rna_group.add_argument(
 rna_group.add_argument(
     "--rna-min-gene-expression",
     help="Minimum FPKM for gene expression",
-    default=0.0,
-    type=float)
-
-rna_group.add_argument(
-    "--rna-remap-novel-genes-onto-ensembl",
-    help=(
-        "If a novel gene is fully contained by known Ensembl gene, then "
-        "merge their expression values"),
-    default=False,
-    action="store_true")
-
-rna_group.add_argument(
-    "--rna-transcript-fpkm-file",
-    help="Cufflinks tracking file (FPKM measurements for Ensembl transcripts)")
-
-rna_group.add_argument(
-    "--rna-min-transcript-expression",
-    help="Minimum FPKM for transcript expression",
     default=0.0,
     type=float)
 
@@ -310,10 +304,20 @@ filter_group.add_argument(
     type=float)
 
 filter_group.add_argument(
-    "--keep-wildtype-epitopes",
-    help="Keep epitopes which do not contain mutated residues",
+    "--only-novel-epitopes",
+    help="".join([
+        "Drop epitopes which do not contain mutated residues or occur ",
+        "in the self-ligandome."]),
     default=False,
     action="store_true")
+
+filter_group.add_argument(
+    "--wildtype-ligandome-directory",
+    help="".join([
+        "Directory of 'self' ligand peptide sets, in files named ",
+        "by allele (e.g. 'A0201'). Any predicted mutant epitope which ",
+        "is in the files associated with the given alleles is treated as ",
+        "wildtype (non-mutated)."]))
 
 #
 # Misc
