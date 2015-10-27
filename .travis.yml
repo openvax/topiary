@@ -7,7 +7,9 @@ addons:
   apt:
     packages:
       # Needed for NetMHC
-      tcsh
+      - tcsh
+      # add pandoc to properly generate README as reStructuredText
+      - pandoc
 env:
   global:
     # MHC_BUNDLE_PASS
