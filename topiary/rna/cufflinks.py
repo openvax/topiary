@@ -19,6 +19,33 @@ import logging
 import pandas as pd
 import numpy as np
 
+
+def _infer_separator(filename):
+    """
+    Given a file which contains data separated by one of the following:
+        - commas
+        - tabs
+        - spaces
+    Return the most likely separator by sniffing the first 1000 bytes
+    of the file's contents.
+    """
+    with open(filename, "r") as f:
+        # read first thousand bytes of the file which should contain at
+        # least one instance of the field separator
+        substring = f.read(1000)
+        comma_counts = substring.count(",")
+        tab_counts = substring.count("\t")
+        if comma_counts > 0 and comma_counts > tab_counts:
+            return ","
+        elif tab_counts > 0:
+            return "\t"
+        elif " " in substring:
+            return "\s+"
+        else:
+            raise ValueError(
+                "Unable to infer field separator for %s" % filename)
+
+
 # default column names from cufflinks tracking files
 # for gene and isoform expression levels
 STATUS_COLUMN = "FPKM_status"
@@ -105,22 +132,7 @@ def load_cufflinks_dataframe(
         gene_names : str list
     """
     if sep is None:
-        with open(filename, "r") as f:
-            # read first thousand bytes of the file which should contain at
-            # least one instance of the field separator
-            substring = f.read(1000)
-            comma_counts = substring.count(",")
-            tab_counts = substring.count("\t")
-            space_counts = substring.count(" ")
-            if comma_counts > 0 and comma_counts > tab_counts:
-                sep = ","
-            elif tab_counts > 0:
-                sep = "\t"
-            elif space_counts > 0:
-                sep = "\s+"
-            else:
-                raise ValueError(
-                    "Unable to infer field separator for %s" % filename)
+        sep = _infer_separator(filename)
 
     df = pd.read_csv(filename, sep=sep)
 
