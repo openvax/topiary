@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
+
 
 def infer_delimiter(filename, comment_char="#", n_lines=3):
     """
@@ -34,17 +36,12 @@ def infer_delimiter(filename, comment_char="#", n_lines=3):
     if len(lines) < n_lines:
         raise ValueError(
             "Not enough lines in %s to infer delimiter" % filename)
-    # the split function defaults to splitting on multiple spaces,
-    # which here corresponds to a candidate value of None
-    candidate_delimiters = ["\t", ",", None]
+    candidate_delimiters = ["\t", ",", "\s+"]
     for candidate_delimiter in candidate_delimiters:
-        counts = [len(line.split(candidate_delimiter)) for line in lines]
+        counts = [len(re.split(candidate_delimiter, line)) for line in lines]
         first_line_count = counts[0]
         if all(c == first_line_count for c in counts) and first_line_count > 1:
-            if candidate_delimiter is None:
-                return "\s+"
-            else:
-                return candidate_delimiter
+            return candidate_delimiter
     raise ValueError("Could not determine delimiter for %s" % filename)
 
 
