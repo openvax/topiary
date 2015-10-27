@@ -7,7 +7,9 @@ addons:
   apt:
     packages:
       # Needed for NetMHC
-      tcsh
+      - tcsh
+      # add pandoc to properly generate README as reStructuredText
+      - pandoc
 env:
   global:
     # MHC_BUNDLE_PASS
@@ -29,6 +31,7 @@ install:
   - pip install -r requirements.txt
   - pip install .
   - pip install coveralls
+  - pip install pypandoc
   - pyensembl install --release 75 --species human
   - pyensembl install --release 81 --species human
 script:

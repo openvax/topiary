@@ -19,6 +19,21 @@ import logging
 import pandas as pd
 import numpy as np
 
+from .common import infer_delimiter, check_required_columns
+
+
+def parse_locus_column(loci):
+    # capture all characters before ':' (drop 'chr' if present)
+    chromosomes = loci.str.extract("(?:chr)?([^:]*):.*")
+    # capture all characters after e.g. 'chr1:', which look like '132-394'
+    ranges = loci.str.extract("(?:chr)?[^:]*:(.*)")
+    # capture all numbers before the dash
+    starts = ranges.str.extract("(\d*)-\d*").astype(int)
+    # capture all numbers after the dash
+    ends = ranges.str.extract("\d*-(\d*)").astype(int)
+    return chromosomes, starts, ends
+
+
 # default column names from cufflinks tracking files
 # for gene and isoform expression levels
 STATUS_COLUMN = "FPKM_status"
@@ -26,6 +41,7 @@ ID_COLUMN = "tracking_id"
 FPKM_COLUMN = "FPKM"
 LOCUS_COLUMN = "locus"
 GENE_NAMES_COLUMN = "gene_short_name"
+
 
 def load_cufflinks_dataframe(
         filename,
@@ -38,8 +54,9 @@ def load_cufflinks_dataframe(
         drop_lowdata=False,
         drop_hidata=True,
         replace_hidata_fpkm_value=None,
-        drop_nonchromosomal_loci=True,
-        drop_novel=False):
+        drop_nonchromosomal_loci=False,
+        drop_novel=False,
+        sep=None):
     """
     Loads a Cufflinks tracking file, which contains expression levels
     (in FPKM: Fragments Per Kilobase of transcript per Million fragments)
@@ -84,10 +101,14 @@ def load_cufflinks_dataframe(
 
     drop_nonchromosomal_loci : bool, optional
         Drop rows whose location isn't on a canonical chromosome
-        i.e. doesn't start with "chr" (default=True)
+        i.e. doesn't start with "chr" (default=False)
 
     drop_novel : bool, optional
         Drop genes or isoforms that aren't found in Ensembl (default = False)
+
+    sep : str, optional
+        Separator between data fields in the FPKM tracking file
+        (default is to infer whether the file uses comma or whitespace)
 
     Returns DataFrame with columns:
         id : str
@@ -98,7 +119,19 @@ def load_cufflinks_dataframe(
         end : int
         gene_names : str list
     """
-    df = pd.read_csv(filename, sep="\s+")
+    if sep is None:
+        sep = infer_delimiter(filename)
+
+    df = pd.read_csv(filename, sep=sep, engine="c")
+
+    required_columns = {
+        status_column,
+        locus_column,
+        id_column,
+        gene_names_column,
+        fpkm_column
+    }
+    check_required_columns(df, filename, required_columns)
 
     for flag, status_value in [
             (drop_failed, "FAIL"),
@@ -151,21 +184,16 @@ def load_cufflinks_dataframe(
     if drop_novel:
         n_dropped = (~known).sum()
         if n_dropped > 0:
-            logging.info("Dropping %d/%d novel entries from %s",
-                n_dropped, len(df), filename)
+            logging.info(
+                "Dropping %d/%d novel entries from %s",
+                n_dropped,
+                len(df),
+                filename)
             df = df[known]
             known = np.ones(len(df), dtype='bool')
 
     loci = df[locus_column]
-
-    # capture all characters after 'chr' but before ':'
-    chromosomes = loci.str.extract("chr([^:]*):.*")
-    # capture all characters after e.g. 'chr1:', which look like '132-394'
-    ranges = loci.str.extract("chr[^:]*:(.*)")
-    # capture all numbers before the dash
-    starts = ranges.str.extract("(\d*)-\d*").astype(int)
-    # capture all numbers after the dash
-    ends = ranges.str.extract("\d*-(\d*)")
+    chromosomes, starts, ends = parse_locus_column(df[locus_column])
 
     # gene names are given either as "-" or a comma separated list
     # e.g. "BRAF1,PFAM2"
@@ -184,6 +212,7 @@ def load_cufflinks_dataframe(
         "gene_names": gene_names_lists
     })
 
+
 def load_cufflinks_dict(*args, **kwargs):
     """
     Returns dictionary mapping feature identifier (either transcript or gene ID)
@@ -201,6 +230,7 @@ def load_cufflinks_dict(*args, **kwargs):
         for (_, row)
         in load_cufflinks_dataframe(*args, **kwargs).iterrows()
     }
+
 
 def load_cufflinks_fpkm_dict(*args, **kwargs):
     """
