@@ -198,11 +198,10 @@ def load_cufflinks_dataframe(
             known = np.ones(len(df), dtype='bool')
 
     loci = df[locus_column]
-
     # capture all characters after 'chr' but before ':'
     chromosomes = loci.str.extract("chr([^:]*):.*")
     # capture all characters after e.g. 'chr1:', which look like '132-394'
-    ranges = loci.str.extract("chr[^:]*:(.*)")
+    ranges = loci.str.extract("(?:chr)?[^:]*:(.*)")
     # capture all numbers before the dash
     starts = ranges.str.extract("(\d*)-\d*").astype(int)
     # capture all numbers after the dash
