@@ -35,7 +35,7 @@ def _infer_separator(filename):
         substring = f.read(1000)
         comma_counts = substring.count(",")
         tab_counts = substring.count("\t")
-        if comma_counts > 0 and comma_counts > tab_counts:
+        if comma_counts > tab_counts:
             return ","
         elif tab_counts > 0:
             return "\t"
