@@ -27,6 +27,7 @@ FPKM_COLUMN = "FPKM"
 LOCUS_COLUMN = "locus"
 GENE_NAMES_COLUMN = "gene_short_name"
 
+
 def load_cufflinks_dataframe(
         filename,
         id_column=ID_COLUMN,
@@ -38,8 +39,9 @@ def load_cufflinks_dataframe(
         drop_lowdata=False,
         drop_hidata=True,
         replace_hidata_fpkm_value=None,
-        drop_nonchromosomal_loci=True,
-        drop_novel=False):
+        drop_nonchromosomal_loci=False,
+        drop_novel=False,
+        sep=None):
     """
     Loads a Cufflinks tracking file, which contains expression levels
     (in FPKM: Fragments Per Kilobase of transcript per Million fragments)
@@ -84,10 +86,14 @@ def load_cufflinks_dataframe(
 
     drop_nonchromosomal_loci : bool, optional
         Drop rows whose location isn't on a canonical chromosome
-        i.e. doesn't start with "chr" (default=True)
+        i.e. doesn't start with "chr" (default=False)
 
     drop_novel : bool, optional
         Drop genes or isoforms that aren't found in Ensembl (default = False)
+
+    sep : str, optional
+        Separator between data fields in the FPKM tracking file
+        (default is to infer whether the file uses comma or whitespace)
 
     Returns DataFrame with columns:
         id : str
@@ -98,7 +104,39 @@ def load_cufflinks_dataframe(
         end : int
         gene_names : str list
     """
-    df = pd.read_csv(filename, sep="\s+")
+    if sep is None:
+        with open(filename, "r") as f:
+            # read first thousand bytes of the file which should contain at
+            # least one instance of the field separator
+            substring = f.read(1000)
+            comma_counts = substring.count(",")
+            tab_counts = substring.count("\t")
+            space_counts = substring.count(" ")
+            if comma_counts > 0 and comma_counts > tab_counts:
+                sep = ","
+            elif tab_counts > 0:
+                sep = "\t"
+            elif space_counts > 0:
+                sep = "\s+"
+            else:
+                raise ValueError(
+                    "Unable to infer field separator for %s" % filename)
+
+    df = pd.read_csv(filename, sep=sep)
+
+    available_columns = set(df.columns)
+    required_columns = {
+        status_column,
+        locus_column,
+        id_column,
+        gene_names_column,
+        fpkm_column,
+    }
+    for column_name in required_columns:
+        if column_name not in available_columns:
+            raise ValueError("FPKM tracking file %s missing column '%s'" % (
+                filename,
+                column_name))
 
     for flag, status_value in [
             (drop_failed, "FAIL"),
@@ -151,8 +189,11 @@ def load_cufflinks_dataframe(
     if drop_novel:
         n_dropped = (~known).sum()
         if n_dropped > 0:
-            logging.info("Dropping %d/%d novel entries from %s",
-                n_dropped, len(df), filename)
+            logging.info(
+                "Dropping %d/%d novel entries from %s",
+                n_dropped,
+                len(df),
+                filename)
             df = df[known]
             known = np.ones(len(df), dtype='bool')
 
@@ -184,6 +225,7 @@ def load_cufflinks_dataframe(
         "gene_names": gene_names_lists
     })
 
+
 def load_cufflinks_dict(*args, **kwargs):
     """
     Returns dictionary mapping feature identifier (either transcript or gene ID)
@@ -201,6 +243,7 @@ def load_cufflinks_dict(*args, **kwargs):
         for (_, row)
         in load_cufflinks_dataframe(*args, **kwargs).iterrows()
     }
+
 
 def load_cufflinks_fpkm_dict(*args, **kwargs):
     """
