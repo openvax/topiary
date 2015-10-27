@@ -19,31 +19,19 @@ import logging
 import pandas as pd
 import numpy as np
 
+from .common import infer_separator, check_required_columns
 
-def _infer_separator(filename):
-    """
-    Given a file which contains data separated by one of the following:
-        - commas
-        - tabs
-        - spaces
-    Return the most likely separator by sniffing the first 1000 bytes
-    of the file's contents.
-    """
-    with open(filename, "r") as f:
-        # read first thousand bytes of the file which should contain at
-        # least one instance of the field separator
-        substring = f.read(1000)
-        comma_counts = substring.count(",")
-        tab_counts = substring.count("\t")
-        if comma_counts > tab_counts:
-            return ","
-        elif tab_counts > 0:
-            return "\t"
-        elif " " in substring:
-            return "\s+"
-        else:
-            raise ValueError(
-                "Unable to infer field separator for %s" % filename)
+
+def parse_locus_column(loci):
+    # capture all characters after 'chr' but before ':'
+    chromosomes = loci.str.extract("(?:chr)?([^:]*):.*")
+    # capture all characters after e.g. 'chr1:', which look like '132-394'
+    ranges = loci.str.extract("(?:chr)?[^:]*:(.*)")
+    # capture all numbers before the dash
+    starts = ranges.str.extract("(\d*)-\d*").astype(int)
+    # capture all numbers after the dash
+    ends = ranges.str.extract("\d*-(\d*)").astype(int)
+    return chromosomes, starts, ends
 
 
 # default column names from cufflinks tracking files
@@ -132,23 +120,18 @@ def load_cufflinks_dataframe(
         gene_names : str list
     """
     if sep is None:
-        sep = _infer_separator(filename)
+        sep = infer_separator(filename)
 
     df = pd.read_csv(filename, sep=sep)
 
-    available_columns = set(df.columns)
     required_columns = {
         status_column,
         locus_column,
         id_column,
         gene_names_column,
-        fpkm_column,
+        fpkm_column
     }
-    for column_name in required_columns:
-        if column_name not in available_columns:
-            raise ValueError("FPKM tracking file %s missing column '%s'" % (
-                filename,
-                column_name))
+    check_required_columns(df, filename, required_columns)
 
     for flag, status_value in [
             (drop_failed, "FAIL"),
@@ -210,14 +193,7 @@ def load_cufflinks_dataframe(
             known = np.ones(len(df), dtype='bool')
 
     loci = df[locus_column]
-    # capture all characters after 'chr' but before ':'
-    chromosomes = loci.str.extract("chr([^:]*):.*")
-    # capture all characters after e.g. 'chr1:', which look like '132-394'
-    ranges = loci.str.extract("(?:chr)?[^:]*:(.*)")
-    # capture all numbers before the dash
-    starts = ranges.str.extract("(\d*)-\d*").astype(int)
-    # capture all numbers after the dash
-    ends = ranges.str.extract("\d*-(\d*)")
+    chromosomes, starts, ends = parse_locus_column(df[locus_column])
 
     # gene names are given either as "-" or a comma separated list
     # e.g. "BRAF1,PFAM2"
