@@ -13,30 +13,39 @@
 # limitations under the License.
 
 
-def infer_separator(filename):
+def infer_delimiter(filename, comment_char="#", n_lines=3):
     """
     Given a file which contains data separated by one of the following:
         - commas
         - tabs
         - spaces
-    Return the most likely separator by sniffing the first 1000 bytes
+    Return the most likely separator by sniffing the first few lines
     of the file's contents.
     """
+    lines = []
     with open(filename, "r") as f:
-        # read first thousand bytes of the file which should contain at
-        # least one instance of the field separator
-        substring = f.read(1000)
-        comma_counts = substring.count(",")
-        tab_counts = substring.count("\t")
-        if comma_counts > tab_counts:
-            return ","
-        elif tab_counts > 0:
-            return "\t"
-        elif " " in substring:
-            return "\s+"
-        else:
-            raise ValueError(
-                "Unable to infer field separator for %s" % filename)
+        for line in f:
+            if line.startswith(comment_char):
+                continue
+            if len(lines) < n_lines:
+                lines.append(line)
+            else:
+                break
+    if len(lines) < n_lines:
+        raise ValueError(
+            "Not enough lines in %s to infer delimiter" % filename)
+    # the split function defaults to splitting on multiple spaces,
+    # which here corresponds to a candidate value of None
+    candidate_delimiters = ["\t", ",", None]
+    for candidate_delimiter in candidate_delimiters:
+        counts = [len(line.split(candidate_delimiter)) for line in lines]
+        first_line_count = counts[0]
+        if all(c == first_line_count for c in counts) and first_line_count > 1:
+            if candidate_delimiter is None:
+                return "\s+"
+            else:
+                return candidate_delimiter
+    raise ValueError("Could not determine delimiter for %s" % filename)
 
 
 def check_required_columns(df, filename, required_columns):

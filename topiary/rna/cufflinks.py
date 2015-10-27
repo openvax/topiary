@@ -19,11 +19,11 @@ import logging
 import pandas as pd
 import numpy as np
 
-from .common import infer_separator, check_required_columns
+from .common import infer_delimiter, check_required_columns
 
 
 def parse_locus_column(loci):
-    # capture all characters after 'chr' but before ':'
+    # capture all characters before ':' (drop 'chr' if present)
     chromosomes = loci.str.extract("(?:chr)?([^:]*):.*")
     # capture all characters after e.g. 'chr1:', which look like '132-394'
     ranges = loci.str.extract("(?:chr)?[^:]*:(.*)")
@@ -120,9 +120,9 @@ def load_cufflinks_dataframe(
         gene_names : str list
     """
     if sep is None:
-        sep = infer_separator(filename)
+        sep = infer_delimiter(filename)
 
-    df = pd.read_csv(filename, sep=sep)
+    df = pd.read_csv(filename, sep=sep, engine="c")
 
     required_columns = {
         status_column,
