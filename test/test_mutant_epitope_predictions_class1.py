@@ -25,17 +25,17 @@ from varcode import Variant, VariantCollection
 # what do we expect from them? Are they SNVs?
 variants = VariantCollection([
     Variant(
-      contig=10,
-      start=100018900,
-      ref='C',
-      alt='T',
-      ensembl=ensembl_grch37),
+        contig=10,
+        start=100018900,
+        ref='C',
+        alt='T',
+        ensembl=ensembl_grch37),
     Variant(
-      contig=11,
-      start=32861682,
-      ref='G',
-      alt='A',
-      ensembl=ensembl_grch37)])
+        contig=11,
+        start=32861682,
+        ref='G',
+        alt='A',
+        ensembl=ensembl_grch37)])
 
 alleles = [
     'A02:01',
@@ -52,6 +52,7 @@ mhc_model = NetMHCpan(
     alleles=alleles,
     epitope_lengths=epitope_lengths)
 
+
 def test_epitope_prediction_without_padding():
     output_without_padding = predict_epitopes_from_variants(
         variants=variants,
@@ -60,11 +61,12 @@ def test_epitope_prediction_without_padding():
         only_novel_epitopes=True)
     # one prediction for each variant * number of alleles
     strong_binders = [
-      epitope_prediction
-      for epitope_prediction in output_without_padding
-      if epitope_prediction.value <= 500.0
+        epitope_prediction
+        for epitope_prediction in output_without_padding
+        if epitope_prediction.value <= 500.0
     ]
     eq_(len(strong_binders), 4)
+
 
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_padding():
@@ -74,6 +76,7 @@ def test_epitope_prediction_with_invalid_padding():
         transcript_expression_dict=None,
         padding_around_mutation=7)
 
+
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_zero_padding():
     predict_epitopes_from_variants(
@@ -81,6 +84,7 @@ def test_epitope_prediction_with_invalid_zero_padding():
         mhc_model=mhc_model,
         transcript_expression_dict=None,
         padding_around_mutation=7)
+
 
 def test_epitope_prediction_with_valid_padding():
     output_with_padding = predict_epitopes_from_variants(

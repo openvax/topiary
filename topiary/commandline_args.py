@@ -28,6 +28,7 @@ import varcode
 from .parsing_helpers import parse_int_list
 from .rna import (
     load_cufflinks_fpkm_dict,
+    load_transcript_fpkm_dict_from_gtf
 )
 
 arg_parser = argparse.ArgumentParser()
@@ -39,18 +40,21 @@ variant_arg_group = arg_parser.add_argument_group(
     title="Variants",
     description="Genomic variant files")
 
-variant_arg_group.add_argument("--vcf",
+variant_arg_group.add_argument(
+    "--vcf",
     default=[],
     action="append",
     help="Genomic variants in VCF format")
 
-variant_arg_group.add_argument("--maf",
+variant_arg_group.add_argument(
+    "--maf",
     default=[],
     action="append",
     help="Genomic variants in TCGA's MAF format",)
 
 
-variant_arg_group.add_argument("--variant",
+variant_arg_group.add_argument(
+    "--variant",
     default=[],
     action="append",
     nargs=4,
@@ -59,19 +63,24 @@ variant_arg_group.add_argument("--variant",
     "and alt. Example: chr1 3848 C G. Use '.' to indicate empty alleles for "
     "insertions or deletions.")
 
-variant_arg_group.add_argument("--reference-name", type=str,
-    help="What reference assembly your variant coordinates are using. "
-    "Examples: 'hg19', 'GRCh38', or 'mm9'. "
-    "This argument is ignored for MAF files, since each row includes "
-    "the reference. "
-    "For VCF files, this is used if specified, and otherwise is guessed from "
-    "the header. For variants specfied on the commandline with --variant, "
-    "this option is required.")
+variant_arg_group.add_argument(
+    "--reference-name",
+    type=str,
+    help=(
+        "What reference assembly your variant coordinates are using. "
+        "Examples: 'hg19', 'GRCh38', or 'mm9'. "
+        "This argument is ignored for MAF files, since each row includes "
+        "the reference. "
+        "For VCF files, this is used if specified, and otherwise is guessed from "
+        "the header. For variants specfied on the commandline with --variant, "
+        "this option is required."))
 
-variant_arg_group.add_argument("--json-variant-files",
+variant_arg_group.add_argument(
+    "--json-variant-files",
     default=[],
     action="append",
     help="Path to Varcode.VariantCollection object serialized as a JSON file.")
+
 
 def variant_collection_from_args(args):
     variant_collections = []
@@ -135,17 +144,21 @@ mhc_options_arg_group = arg_parser.add_argument_group(
     title="MHC Prediction Options",
     description="MHC Binding Prediction Options")
 
-mhc_options_arg_group.add_argument("--mhc-epitope-lengths",
+mhc_options_arg_group.add_argument(
+    "--mhc-epitope-lengths",
     default=[8, 9, 10, 11],
     type=parse_int_list,
     help="Lengths of epitopes to consider for MHC binding prediction")
 
-arg_parser.add_argument("--mhc-alleles-file",
+arg_parser.add_argument(
+    "--mhc-alleles-file",
     help="File with one HLA allele per line")
 
-arg_parser.add_argument("--mhc-alleles",
+arg_parser.add_argument(
+    "--mhc-alleles",
     default="",
     help="Comma separated list of allele (default HLA-A*02:01)")
+
 
 def mhc_alleles_from_args(args):
     alleles = [
@@ -195,6 +208,7 @@ mhc_predictor_arg_group = arg_parser.add_argument(
     type=lambda s: s.lower().strip(),
     required=True)
 
+
 def mhc_binding_predictor_from_args(args):
     mhc_class = mhc_predictors.get(args.mhc_predictor)
     if mhc_class is None:
@@ -234,9 +248,16 @@ rna_group = arg_parser.add_argument_group(
     description="Transcript and gene abundance quantification")
 
 rna_group.add_argument(
-    "--rna-transcript-fpkm-file",
+    "--rna-transcript-fpkm-tracking-file",
     help="".join([
-        "Cufflinks tracking file (FPKM measurements for Ensembl transcripts). ",
+        "Cufflinks tracking file (FPKM estimates for Ensembl transcripts). ",
+        "Used both for expression filtering and selecting the most abundant ",
+        "transcript to use for determining a mutant protein sequence."]))
+
+rna_group.add_argument(
+    "--rna-transcript-fpkm-gtf-file",
+    help="".join([
+        "GTF file containing FPKM estimates for Ensembl transcripts.",
         "Used both for expression filtering and selecting the most abundant ",
         "transcript to use for determining a mutant protein sequence."]))
 
@@ -246,10 +267,9 @@ rna_group.add_argument(
     default=0.0,
     type=float)
 
-
 rna_group.add_argument(
-    "--rna-gene-fpkm-file",
-    help="Cufflinks tracking file (FPKM measurements for Ensembl genes)",
+    "--rna-gene-fpkm-tracking-file",
+    help="Cufflinks tracking file (FPKM estimates for Ensembl genes)",
     required=False)
 
 rna_group.add_argument(
@@ -262,22 +282,28 @@ rna_group.add_argument(
 def rna_gene_expression_dict_from_args(args):
     """
     Returns a dictionary mapping Ensembl gene IDs to FPKM expression values
-    or None if no Cufflinks tracking file was specified in the commandline
-    arguments.
+    or None if neither Cufflinks tracking file nor StringTie GTF file specified
+    in the commandline arguments.
     """
-    if not args.rna_gene_fpkm_file:
+    if args.rna_gene_fpkm_tracking_file:
+        return load_cufflinks_fpkm_dict(args.rna_gene_fpkm_file)
+    else:
         return None
-    return load_cufflinks_fpkm_dict(args.rna_gene_fpkm_file)
 
 
 def rna_transcript_expression_dict_from_args(args):
     """
     Returns a dictionary mapping Ensembl transcript IDs to FPKM expression
-    values or None if no Cufflinks tracking file was specified.
+    values or None if neither Cufflinks tracking file nor StringTie GTF file
+    were specified.
     """
-    if not args.rna_transcript_fpkm_file:
+    if args.rna_transcript_fpkm_tracking_file:
+        return load_cufflinks_fpkm_dict(args.rna_transcript_fpkm_tracking_file)
+    elif args.rna_transcript_fpkm_gtf_file:
+        return load_transcript_fpkm_dict_from_gtf(
+            args.rna_transcript_fpkm_tracking_file)
+    else:
         return None
-    return load_cufflinks_fpkm_dict(args.rna_transcript_fpkm_file)
 
 
 # TODO:
@@ -295,7 +321,6 @@ filter_group.add_argument(
     help="Drop epitopes with predicted IC50 nM affinity above this value",
     default=None,
     type=float)
-
 
 filter_group.add_argument(
     "--percentile-cutoff",

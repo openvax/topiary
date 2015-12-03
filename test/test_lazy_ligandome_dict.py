@@ -4,6 +4,7 @@ from nose.tools import eq_, assert_raises
 
 from .data import data_path
 
+
 def test_lazy_ligandome_dict_allele_normalization():
     dirpath = data_path("tiny_test_ligandome_dir")
     ligandome = LazyLigandomeDict(dirpath)
@@ -14,6 +15,7 @@ def test_lazy_ligandome_dict_allele_normalization():
     # tests that normalization works since name of file is different
     peptides_hla_b0704 = ligandome["b*0704"]
     eq_(peptides_hla_b0704, {"RRRRRRRRR"})
+
 
 def test_lazy_ligandome_dict_missing_allele():
     dirpath = data_path("tiny_test_ligandome_dir")
