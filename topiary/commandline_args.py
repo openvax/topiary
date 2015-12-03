@@ -301,7 +301,7 @@ def rna_transcript_expression_dict_from_args(args):
         return load_cufflinks_fpkm_dict(args.rna_transcript_fpkm_tracking_file)
     elif args.rna_transcript_fpkm_gtf_file:
         return load_transcript_fpkm_dict_from_gtf(
-            args.rna_transcript_fpkm_tracking_file)
+            args.rna_transcript_fpkm_gtf_file)
     else:
         return None
 
