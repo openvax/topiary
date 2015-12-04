@@ -14,7 +14,6 @@ env:
   global:
     # MHC_BUNDLE_PASS
     - secure: "bWJ1eCA19Qt8dHarlUC/5SfgkOk08VdASljeC7NVy7jAzNnhZna6My39BkBWHUxDGGN6PxeaNzb8COMo94dcfk5OoIQ8ZB8CXwtg/o5Unpi8S2uNC1+H6SvR06xYXPCNozqPwBO151HAK+8IhEpJidQ0Mj1qjrYC3BiWePrXwgs="
-# Setup anaconda for easily running scipy on Travis; see https://gist.github.com/dan-blanchard/7045057
 before_install:
   # Commands below copied from: http://conda.pydata.org/docs/travis.html
   # We do this conditionally because it saves us some downloading if the
@@ -43,10 +42,10 @@ install:
       conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION
       numpy scipy nose pandas matplotlib
   - source activate test-environment
+  - pip install pypandoc
   - pip install -r requirements.txt
   - pip install .
   - pip install coveralls
-  - pip install pypandoc
   - pyensembl install --release 75 --species human
   - pyensembl install --release 81 --species human
 script:
