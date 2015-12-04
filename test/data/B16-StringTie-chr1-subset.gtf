@@ -1,0 +1,8 @@
+# StringTie version 1.1.2
+1	StringTie	transcript	4492457	4493604	1000	-	.	gene_id "STRG.2"; transcript_id "STRG.2.2"; reference_id "ENSMUST00000192505"; ref_gene_id "ENSMUSG00000025902"; ref_gene_name "Sox17"; cov "1.168215"; FPKM "0.125126"; TPM "0.255858";
+1	StringTie	exon	4492457	4493604	1000	-	.	gene_id "STRG.2"; transcript_id "STRG.2.2"; exon_number "1"; reference_id "ENSMUST00000192505"; ref_gene_id "ENSMUSG00000025902"; ref_gene_name "Sox17"; cov "1.168215";
+1	StringTie	transcript	4492465	4493735	1000	-	.	gene_id "STRG.2"; transcript_id "STRG.2.1"; reference_id "ENSMUST00000191939"; ref_gene_id "ENSMUSG00000025902"; ref_gene_name "Sox17"; cov "6.349273"; FPKM "0.680062"; TPM "1.390592";
+1	StringTie	exon	4492465	4492668	1000	-	.	gene_id "STRG.2"; transcript_id "STRG.2.1"; exon_number "1"; reference_id "ENSMUST00000191939"; ref_gene_id "ENSMUSG00000025902"; ref_gene_name "Sox17"; cov "20.261032";
+1	StringTie	exon	4493100	4493735	1000	-	.	gene_id "STRG.2"; transcript_id "STRG.2.1"; exon_number "2"; reference_id "ENSMUST00000191939"; ref_gene_id "ENSMUSG00000025902"; ref_gene_name "Sox17"; cov "1.887011";
+1	StringTie	transcript	4687934	4689403	1000	-	.	gene_id "STRG.1"; transcript_id "STRG.1.1"; reference_id "ENSMUST00000182774"; ref_gene_id "ENSMUSG00000098104"; ref_gene_name "Gm6085"; cov "0.504422"; FPKM "0.054028"; TPM "0.110476";
+1	StringTie	exon	4687934	4689403	1000	-	.	gene_id "STRG.1"; transcript_id "STRG.1.1"; exon_number "1"; reference_id "ENSMUST00000182774"; ref_gene_id "ENSMUSG00000098104"; ref_gene_name "Gm6085"; cov "0.504422";

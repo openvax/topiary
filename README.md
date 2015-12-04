@@ -13,9 +13,9 @@ Predict mutation-derived cancer T-cell epitopes from (1) somatic variants (2) tu
   --ic50-cutoff 500 \
   --percentile-cutoff 2.0 \
   --mhc-epitope-lengths 8-11 \
-  --rna-gene-fpkm-file genes.fpkm_tracking \
+  --rna-gene-fpkm-tracking-file genes.fpkm_tracking \
   --rna-min-gene-expression 4.0 \
-  --rna-transcript-fpkm-file isoforms.fpkm_tracking \
+  --rna-transcript-fpkm-tracking-file isoforms.fpkm_tracking \
   --rna-min-transcript-expression 1.5 \
   --output-csv epitopes.csv \
   --output-html epitopes.html
@@ -65,13 +65,15 @@ be used in combination and repeated.
 Optional flags to use Cufflinks expression estimates for dropping epitopes
 arising from genes or transcripts that are not highly expressed.
 
-* `--rna-gene-fpkm-file RNA_GENE_FPKM_FILE`: Cufflinks FPKM tracking file
+* `--rna-gene-fpkm-tracking-file RNA_GENE_FPKM_TRACKING_FILE`: Cufflinks FPKM tracking file
 containing gene expression estimates.
 * `--rna-min-gene-expression RNA_MIN_GENE_EXPRESSION`: Minimum FPKM for genes
-* `--rna-transcript-fpkm-file RNA_TRANSCRIPT_FPKM_FILE`: Cufflinks FPKM tracking
+* `--rna-transcript-fpkm-tracking-file RNA_TRANSCRIPT_FPKM_TRACKING_FILE`: Cufflinks FPKM tracking
 file containing transcript expression estimates.
 * `--rna-min-transcript-expression RNA_MIN_TRANSCRIPT_EXPRESSION`: Minimum FPKM
 for transcripts
+* `--rna-transcript-fpkm-gtf-file RNA_TRANSCRIPT_FPKM_GTF_FILE`: StringTie GTF file
+file containing transcript expression estimates.
 
 ### Choose an MHC Binding Predictor
 
