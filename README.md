@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/hammerlab/topiary.svg?branch=master)](https://travis-ci.org/hammerlab/topiary) [![Coverage Status](https://coveralls.io/repos/hammerlab/topiary/badge.svg?branch=master&service=github)](https://coveralls.io/github/hammerlab/topiary?branch=master)
+[![Build Status](https://travis-ci.org/hammerlab/topiary.svg?branch=master)](https://travis-ci.org/hammerlab/topiary) [![Coverage Status](https://coveralls.io/repos/hammerlab/topiary/badge.svg?branch=master&service=github)](https://coveralls.io/github/hammerlab/topiary?branch=master) [![DOI](https://zenodo.org/badge/18834/hammerlab/topiary.svg)](https://zenodo.org/badge/latestdoi/18834/hammerlab/topiary)
 
 # Topiary
 Predict mutation-derived cancer T-cell epitopes from (1) somatic variants (2) tumor RNA expression data, and (3) patient HLA type.
