@@ -10,7 +10,7 @@ def test_cancer_epitopes_from_args():
     epitope_lengths = [9, 10]
     alleles = ["HLA-A*02:01", "C0701"]
     args_list = [
-        "--mhc-predictor", "netmhc",
+        "--mhc-predictor", "netmhc4",
         "--mhc-epitope-lengths", ",".join(str(x) for x in epitope_lengths),
         "--mhc-alleles", ",".join(alleles),
         "--reference-name", "GRCh38",

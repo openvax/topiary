@@ -1,5 +1,5 @@
 from nose.tools import eq_
-from mhctools import NetMHC
+from mhctools import NetMHC4
 from topiary import epitopes_to_dataframe, predict_epitopes_from_variants
 from .data import cancer_test_variants
 
@@ -11,7 +11,7 @@ alleles = [
 
 epitope_lengths = [8, 9, 10]
 
-mhc_model = NetMHC(
+mhc_model = NetMHC4(
     alleles=alleles,
     epitope_lengths=epitope_lengths)
 

@@ -182,7 +182,8 @@ def mhc_alleles_from_args(args):
 #
 
 mhc_predictors = {
-    "netmhc": mhctools.NetMHC,
+    "netmhc3": mhctools.NetMHC3,
+    "netmhc4": mhctools.NetMHC4,
     "netmhcpan": mhctools.NetMHCpan,
     "netmhciipan": mhctools.NetMHCIIpan,
     "netmhccons": mhctools.NetMHCcons,
