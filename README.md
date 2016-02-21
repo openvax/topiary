@@ -80,7 +80,7 @@ file containing transcript expression estimates.
 You *must* choose an MHC binding predictor using one of the following values
 for the `--mhc-predictor` flag:
 
-* `netmhc`: Local [NetMHC](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHC) predictor
+* `netmhc`: Local [NetMHC](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHC) predictor (Topiary will attempt to automatically detect whether NetMHC 3.x or 4.0 is available)
 * `netmhcpan`: Local [NetMHCpan](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHCpan) predictor
 * `netmhciipan`: Local [NetMHCIIpan](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHCIIpan) predictor
 * `netmhccons`: Local [NetMHCcons](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHCcons)
