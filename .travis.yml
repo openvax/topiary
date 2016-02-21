@@ -47,7 +47,7 @@ install:
   - pip install .
   - pip install coveralls
   - pyensembl install --release 75 --species human
-  - pyensembl install --release 81 --species human
+  - pyensembl install --release 83 --species human
 script:
   - nosetests test --with-coverage --cover-package=topiary && ./lint.sh
 after_success:
