@@ -121,9 +121,9 @@ this threshold (lower values are stricter filters, typical value is 2.0)
 ### Misc
 
 * `--padding-around-mutation PADDING_AROUND_MUTATION`: Include more unmutated residues
-around the mutation (useful when combined with `--keep-wildtype-epitopes`)
+around the mutation (useful when not using `--only-novel-epitopes`)
 * `--self-filter-directory SELF_FILTER_DIRECTORY`: Directory of files named by MHC allele
-containing a  self peptide ligandome (peptides which should be excluded from
+containing a self peptide ligandome (peptides which should be excluded from
 results)
 * `--skip-variant-errors`: If a particular mutation causes an exception to be raised
 during annotation, you can skip it using this flag.
