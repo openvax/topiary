@@ -21,6 +21,8 @@ from .sequence_helpers import (
 )
 from . import commandline_args
 
+__version__ = '0.0.16'
+
 __all__ = [
     "LazyLigandomeDict",
     "AlleleNotFound",

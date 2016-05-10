@@ -14,6 +14,7 @@
 
 from __future__ import print_function
 import os
+import re
 
 from setuptools import setup, find_packages
 
@@ -33,11 +34,19 @@ except:
     print(
         "Conversion of long_description from MD to reStructuredText failed...")
 
+with open('topiary/__init__.py', 'r') as f:
+    version = re.search(
+        r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]',
+        f.read(),
+        re.MULTILINE).group(1)
+
+if not version:
+    raise RuntimeError('Cannot find version information')
 
 if __name__ == '__main__':
     setup(
         name='topiary',
-        version="0.0.15",
+        version=version,
         description="Predict cancer epitopes from cancer sequence data",
         author="Alex Rubinsteyn, Tavi Nathanson",
         author_email="alex {dot} rubinsteyn {at} gmail {dot} com",
