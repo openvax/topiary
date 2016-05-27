@@ -24,6 +24,10 @@ readme_filename = os.path.join(readme_dir, 'README.md')
 try:
     with open(readme_filename, 'r') as f:
         readme = f.read()
+    # create README.rst for deploying on Travis
+    rst_readme_filename = readme_filename.replace(".md", ".rst")
+    with open(rst_readme_filename, "w"):
+        f.write(readme)
 except:
     readme = ""
 

@@ -34,11 +34,17 @@ def protein_subsequences_around_mutations(effects, padding_around_mutation):
             seq_start_offset = max(
                 0,
                 mutation_start - padding_around_mutation)
+            # some pseudogenes have stop codons in the reference sequence,
+            # if we try to use them for epitope prediction we should trim
+            # the sequence to not include the stop character '*'
+            first_stop_codon_index = protein_sequence.find("*")
+            if first_stop_codon_index < 0:
+                first_stop_codon_index = len(protein_sequence)
+
             seq_end_offset = min(
-                len(protein_sequence),
+                first_stop_codon_index,
                 mutation_end + padding_around_mutation)
             subsequence = protein_sequence[seq_start_offset:seq_end_offset]
-            print(effect, padding_around_mutation, subsequence, len(subsequence))
             protein_subsequences[effect] = subsequence
             protein_subsequence_start_offsets[effect] = seq_start_offset
     return protein_subsequences, protein_subsequence_start_offsets
@@ -55,12 +61,12 @@ def check_padding_around_mutation(given_padding, epitope_lengths):
     else:
         require_integer(given_padding, "Padding around mutation")
         if given_padding < min_required_padding:
-            raise ValueError("Padding around mutation %d cannot "
-                             "be less than %d for epitope lengths "
-                             "%s" % (
-                                given_padding,
-                                min_required_padding,
-                                epitope_lengths))
+            raise ValueError(
+                "Padding around mutation %d cannot be less than %d "
+                "for epitope lengths %s" % (
+                    given_padding,
+                    min_required_padding,
+                    epitope_lengths))
         return given_padding
 
 def contains_mutant_residues(
