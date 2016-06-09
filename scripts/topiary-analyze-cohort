@@ -54,65 +54,77 @@ from .mutation_report import print_mutation_report
 parser = argparse.ArgumentParser()
 
 input_group = parser.add_mutually_exclusive_group(required=True)
-input_group.add_argument("--variant-input-dir",
-   type=str,
-   help="Directory containing MAF or VCF input files")
+input_group.add_argument(
+    "--variant-input-dir",
+    type=str,
+    help="Directory containing MAF or VCF input files")
 
-input_group.add_argument("--variant-input-file",
-   type=str,
-   help="Single MAF or VCF input file")
+input_group.add_argument(
+    "--variant-input-file",
+    type=str,
+    help="Single MAF or VCF input file")
 
-parser.add_argument("--hla-dir",
+parser.add_argument(
+    "--hla-dir",
     type=str,
     default=None,
     help=("Directory containing HLA allele files (with suffix .hla)"))
 
-parser.add_argument("--output-counts-csv",
+parser.add_argument(
+    "--output-counts-csv",
     default="analyze_cohort_results.csv",
     help="Path to output file containing mutation/epitope counts")
 
-parser.add_argument("--quiet",
+parser.add_argument(
+    "--quiet",
     type=str,
     help="Suppress INFO log messages")
 
-parser.add_argument("--binding-threshold",
+parser.add_argument(
+    "--binding-threshold",
     type=int,
     default=500,
     help="Cutoff IC50 score for epitope MHC binding")
 
-parser.add_argument("--combined-maf",
+parser.add_argument(
+    "--combined-maf",
     default=False,
     action="store_true",
     help=("Rather than using filenames to identify patients, "
           "a single MAF file can have multiple tumor barcodes."))
 
-parser.add_argument("--rna-filter-dir",
+parser.add_argument(
+    "--rna-filter-dir",
     type=str,
     default=None,
     help=("Directory containing RNASeq gene expression "
           "levels (one file per patient). If provided, we "
           "filter mutations with no gene expression."))
 
-parser.add_argument("--debug-patient-id",
+parser.add_argument(
+    "--debug-patient-id",
     type=str,
     default=None,
     help=("If we have a directory or a file containing "
           "multiple patient IDs, limit that collection to "
           "one specific patient ID for debugging."))
 
-parser.add_argument("--debug-scored-epitopes-csv",
+parser.add_argument(
+    "--debug-scored-epitopes-csv",
     type=str,
     default=None,
     help=("If we have a CSV file representing scored "
           "epitopes, use that instead of running netMHCpan. "
           "If not, generate that CSV file."))
 
-parser.add_argument("--netmhc-cons",
+parser.add_argument(
+    "--netmhc-cons",
     default=False,
     action="store_true",
     help="Use local NetMHCcons binding predictor (otherwise use NetMHCpan)")
 
-parser.add_argument("--resume",
+parser.add_argument(
+    "--resume",
     default=False,
     action="store_true",
     help="Append to an existing output file")
@@ -168,12 +180,16 @@ def find_mutation_files(
 
 
 def collect_hla_files(input_dir_string):
-    return collect_files(input_dir_string, read_hla_file,
+    return collect_files(
+        input_dir_string,
+        read_hla_file,
         permissive_parsing=True)
 
 
 def collect_gene_exp_files(input_dir_string):
-    return collect_files(input_dir_string, read_gene_exp_file,
+    return collect_files(
+        input_dir_string,
+        read_gene_exp_file,
         permissive_parsing=True)
 
 
@@ -212,7 +228,7 @@ def read_gene_exp_file(path, permissive_parsing):
     count_col = gene_exp_df.columns[1]
     if permissive_parsing:
         gene_exp_df[gene_col] = gene_exp_df[gene_col].str.split('|').map(
-                lambda x: x[0])
+            lambda x: x[0])
     gene_exp_df = gene_exp_df[gene_exp_df[count_col] > 0]
     return set(gene_exp_df[gene_col].tolist())
 
@@ -286,13 +302,15 @@ def generate_mutation_counts(
                 scored_epitopes = pd.read_csv(csv_file)
             else:
                 mhc = make_mhc_predictor()
-                scored_epitopes = mhc.predict(transcripts_df,
-                        mutation_window_size=9)
+                scored_epitopes = mhc.predict(
+                    transcripts_df,
+                    mutation_window_size=9)
                 scored_epitopes.to_csv(csv_file)
         else:
             mhc = make_mhc_predictor()
-            scored_epitopes = mhc.predict(transcripts_df,
-                    mutation_window_size=9)
+            scored_epitopes = mhc.predict(
+                transcripts_df,
+                mutation_window_size=9)
 
         if not args.quiet:
             print scored_epitopes
@@ -331,12 +349,13 @@ def generate_mutation_counts(
             curr_immunogenic_epitopes = immunogenic_epitopes.groupby(['Epitope']).first()
             n_immunogenic_epitopes += len(curr_immunogenic_epitopes)
             n_immunogenic_mutations += len(curr_immunogenic_epitopes) > 0
-            logging.info(("%s %s: epitopes %s, ligands %d, imm %d"),
-                             gene,
-                             mut,
-                             n_curr_epitopes,
-                             n_curr_ligands,
-                             len(curr_immunogenic_epitopes))
+            logging.info(
+                ("%s %s: epitopes %s, ligands %d, imm %d") % (
+                    gene,
+                    mut,
+                    n_curr_epitopes,
+                    n_curr_ligands,
+                    len(curr_immunogenic_epitopes)))
         result_tuple = (
             n_coding_mutations,
             n_epitopes,

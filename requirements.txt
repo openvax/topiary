@@ -5,3 +5,4 @@ varcode>=0.3.17
 pylint>=1.4.4
 nose>=1.3.6
 gtfparse>=0.0.4
+mhcnames
