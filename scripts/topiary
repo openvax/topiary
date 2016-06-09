@@ -47,15 +47,12 @@ def main(args):
         epitopes,
         gene_expression_dict=gene_expression_dict,
         transcript_expression_dict=transcript_expression_dict)
-
-    print("First 10 epitope predictions:")
-    print(df.ix[:10])
-    print("Total count: %d" % len(df))
-
     write_outputs(df, args)
+    print("Total count: %d" % len(df))
 
 if __name__ == "__main__":
     args = arg_parser.parse_args()
     print("Topiary commandline arguments:")
     print(args)
+
     main(args)

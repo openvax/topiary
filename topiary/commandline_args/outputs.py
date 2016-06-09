@@ -35,14 +35,28 @@ def add_output_args(arg_parser):
         help="Path to output HTML file")
 
     output_group.add_argument(
-        "--keep-output-columns",
+        "--output-csv-sep",
+        default=",",
+        help="Separator for CSV file")
+
+    output_group.add_argument(
+        "--subset-output-columns",
         nargs="*")
 
     output_group.add_argument(
         "--rename-output-column",
         nargs=2,
-        default=[],
-        action="append")
+        action="append",
+        help=(
+            "Rename original column (first parameter) to new"
+            " name (second parameter)"))
+
+    output_group.add_argument(
+        "--print-columns",
+        default=False,
+        action="store_true",
+        help="Print columns before writing data to file(s)")
+
     return output_group
 
 def write_outputs(
@@ -53,26 +67,36 @@ def write_outputs(
     if print_df_before_filtering:
         print(df)
 
-    if args.keep_output_columns is not None and len(args.keep_output_columns) > 0:
-        for column in args.keep_output_columns:
+    if args.subset_output_columns:
+        for column in args.subset_output_columns:
             if column not in df.columns:
                 raise ValueError("Invalid column name '%s', available: %s" % (
                     column, list(df.columns)))
-        df = df[args.keep_output_columns]
+        df = df[args.subset_output_columns]
 
-    for (old_name, new_name) in args.rename_output_column:
-        if old_name not in df.columns:
-            raise ValueError(
-                "Can't rename column '%s' since it doesn't exist, available: %s" % (
-                    old_name, list(df.columns)))
-        df = df.rename({old_name: new_name})
+    if args.rename_output_column:
+        for (old_name, new_name) in args.rename_output_column:
+            if old_name not in df.columns:
+                raise ValueError(
+                    "Can't rename column '%s' since it doesn't exist, available: %s" % (
+                        old_name, list(df.columns)))
+            df = df.rename(columns={old_name: new_name})
 
     if print_df_after_filtering:
         print(df)
 
+    if args.print_columns:
+        print("Columns:")
+        for column in df.columns:
+            print("-- %s" % column)
+
     if args.output_csv:
         print("Saving %s..." % args.output_csv)
-        df.to_csv(args.output_csv, index=True, index_label="#")
+        df.to_csv(
+            args.output_csv,
+            index=True,
+            index_label="#",
+            sep=args.output_csv_sep)
 
     if args.output_html:
         print("Saving %s..." % args.output_html)
