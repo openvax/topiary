@@ -18,6 +18,7 @@ Common commandline arguments for output files
 
 from __future__ import print_function, division, absolute_import
 
+import logging
 
 def add_output_args(arg_parser):
     output_group = arg_parser.add_argument_group(
@@ -68,19 +69,24 @@ def write_outputs(
         print(df)
 
     if args.subset_output_columns:
+        subset_columns = []
         for column in args.subset_output_columns:
             if column not in df.columns:
-                raise ValueError("Invalid column name '%s', available: %s" % (
-                    column, list(df.columns)))
-        df = df[args.subset_output_columns]
+                logging.warn(
+                    "Invalid column name '%s', available: %s" % (
+                        column, list(df.columns)))
+            else:
+                subset_columns.append(column)
+        df = df[subset_columns]
 
     if args.rename_output_column:
         for (old_name, new_name) in args.rename_output_column:
             if old_name not in df.columns:
-                raise ValueError(
+                logging.warn(
                     "Can't rename column '%s' since it doesn't exist, available: %s" % (
                         old_name, list(df.columns)))
-            df = df.rename(columns={old_name: new_name})
+            else:
+                df.rename(columns={old_name: new_name}, inplace=True)
 
     if print_df_after_filtering:
         print(df)
