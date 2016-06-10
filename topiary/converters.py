@@ -45,6 +45,12 @@ def epitopes_to_dataframe(
     # candidate epitopes)
 
     simple_column_extractors = [
+        ("variant", lambda x: x.variant.short_description),
+        ("chr", lambda x: x.variant.contig),
+        ("start", lambda x: x.variant.start),
+        ("end", lambda x: x.variant.end),
+        ("ref", lambda x: x.variant.ref),
+        ("alt", lambda x: x.variant.alt),
         ("allele", lambda x: x.allele),
         ("peptide", lambda x: str(x.peptide)),
         ("length", lambda x: x.peptide_length),
@@ -54,7 +60,6 @@ def epitopes_to_dataframe(
         ("gene_id", lambda x: x.effect.gene_id),
         ("transcript", lambda x: x.effect.transcript_name),
         ("transcript_id", lambda x: x.effect.transcript_id),
-        ("variant", lambda x: x.variant.short_description),
         ("effect", lambda x: x.effect.short_description),
         ("effect_type", lambda x: x.effect.__class__.__name__),
         ("prediction_method", lambda x: x.prediction_method_name),

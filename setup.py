@@ -71,7 +71,8 @@ if __name__ == '__main__':
             'mhctools >=0.1.8',
             'varcode >=0.3.17',
             'nose >=1.3.6',
-            'gtfparse >=0.0.4'
+            'gtfparse >=0.0.4',
+            'mhcnames',
         ],
         long_description=readme,
         packages=find_packages(exclude="test"),

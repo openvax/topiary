@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2015. Mount Sinai School of Medicine
+# Copyright (c) 2015-2016. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,16 +33,13 @@ Example usage:
 from topiary.commandline_args import (
     arg_parser,
     rna_gene_expression_dict_from_args,
-    rna_transcript_expression_dict_from_args
+    rna_transcript_expression_dict_from_args,
+    write_outputs,
 )
 from topiary import predict_epitopes_from_args, epitopes_to_dataframe
 
 
-args = arg_parser.parse_args()
-
-def main():
-    print("Topiary commandline arguments:")
-    print(args)
+def main(args):
     epitopes = predict_epitopes_from_args(args)
     gene_expression_dict = rna_gene_expression_dict_from_args(args)
     transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
@@ -50,15 +47,12 @@ def main():
         epitopes,
         gene_expression_dict=gene_expression_dict,
         transcript_expression_dict=transcript_expression_dict)
-    print("First 10 epitope predictions:")
-    print(df.ix[:10])
+    write_outputs(df, args)
     print("Total count: %d" % len(df))
-    if args.output_csv:
-        print("Saving %s..." % args.output_csv)
-        df.to_csv(args.output_csv, index=True, index_label="#")
-    if args.output_html:
-        print("Saving %s..." % args.output_html)
-        df.to_html(args.output_html, index=True)
 
 if __name__ == "__main__":
-    main()
+    args = arg_parser.parse_args()
+    print("Topiary commandline arguments:")
+    print(args)
+
+    main(args)
