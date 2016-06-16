@@ -69,7 +69,7 @@ def rna_gene_expression_dict_from_args(args):
     in the commandline arguments.
     """
     if args.rna_gene_fpkm_tracking_file:
-        return load_cufflinks_fpkm_dict(args.rna_gene_fpkm_file)
+        return load_cufflinks_fpkm_dict(args.rna_gene_fpkm_tracking_file)
     else:
         return None
 
