@@ -42,17 +42,17 @@ DEFAULT_IC50_CUTOFF = None
 DEFAULT_PERCENTILE_CUTOFF = None
 
 def predict_epitopes_from_mutation_effects(
-            effects,
-            mhc_model,
-            padding_around_mutation=None,
-            transcript_expression_dict=None,
-            transcript_expression_threshold=0.0,
-            gene_expression_dict=None,
-            gene_expression_threshold=0.0,
-            ic50_cutoff=DEFAULT_IC50_CUTOFF,
-            percentile_cutoff=DEFAULT_PERCENTILE_CUTOFF,
-            only_novel_epitopes=False,
-            wildtype_ligandome_dict=None):
+        effects,
+        mhc_model,
+        padding_around_mutation=None,
+        transcript_expression_dict=None,
+        transcript_expression_threshold=0.0,
+        gene_expression_dict=None,
+        gene_expression_threshold=0.0,
+        ic50_cutoff=DEFAULT_IC50_CUTOFF,
+        percentile_cutoff=DEFAULT_PERCENTILE_CUTOFF,
+        only_novel_epitopes=False,
+        wildtype_ligandome_dict=None):
         """Given a Varcode.EffectCollection of predicted protein effects,
         return a DataFrame of the predicted epitopes around each
         mutation.
@@ -261,6 +261,7 @@ def predict_epitopes_from_variants(
         percentile_cutoff=percentile_cutoff,
         only_novel_epitopes=only_novel_epitopes,
         wildtype_ligandome_dict=wildtype_ligandome_dict)
+
 
 def predict_epitopes_from_args(args):
     """

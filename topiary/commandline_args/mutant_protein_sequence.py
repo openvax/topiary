@@ -20,7 +20,7 @@ Commandline arguments related to translated variant protein sequences.
 
 from __future__ import print_function, division, absolute_import
 
-def add_sequence_args(arg_parser):
+def add_protein_sequence_args(arg_parser):
     sequence_group = arg_parser.add_argument_group(
         title="Protein Sequence Options",
         description="Parameters related to the mutant protein sequence")
@@ -36,3 +36,15 @@ def add_sequence_args(arg_parser):
         type=int)
 
     return sequence_group
+
+def add_isovar_args(arg_parser):
+    """
+    Adds options related to determining coding sequences from RNA using
+    isovar.
+    """
+    pass
+
+def mutant_protein_sequences_from_args(arg_parser):
+    pass
+
+
