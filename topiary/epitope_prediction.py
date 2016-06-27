@@ -55,13 +55,7 @@ EpitopePrediction = namedtuple("EpitopePrediction",
 MutantEpitopePrediction = namedtuple(
     "MutantEpitopePrediction",
     EpitopePrediction._fields + (
-        # genomic variant that caused a mutant protein to be produced
-        "variant",
-        # varcode Effect associated with the variant/transcript combination
-        "effect",
-        # transcript we're choosing to use for this variant
-        "transcript_id",
-        "transcript_name",
+
         # half-open interval of mutant residues within the peptide sequence
         "mutation_start_in_peptide",
         "mutation_end_in_peptide",
