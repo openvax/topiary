@@ -1,12 +1,13 @@
-from topiary.commandline_args import arg_parser, write_outputs
+from topiary.cli.arg_parser import arg_parser
+from topiary.cli.outputs import write_outputs
 import tempfile
 import pandas as pd
 from nose.tools import eq_
+from os import remove
 
-
-def test_write_outputs():
-
+def test_write_outputs_from_args():
     with tempfile.NamedTemporaryFile(mode="r+", delete=False) as f:
+        filename = f.name
         df = pd.DataFrame({
             "x": [1, 2, 3],
             "y": [10, 20, 30]
@@ -32,3 +33,4 @@ def test_write_outputs():
         print(df_from_file)
         eq_(len(df_expected), len(df_from_file))
         assert (df_expected == df_from_file).all().all()
+    remove(filename)
