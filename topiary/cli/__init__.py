@@ -13,7 +13,8 @@
 # limitations under the License.
 
 
-from __future__ import print_function, division, absolute_import
-from argparse import ArgumentParser
+"""
+Common commandline arguments used by scripts and script entry points
+"""
 
-arg_parser = ArgumentParser()
+from __future__ import print_function, division, absolute_import

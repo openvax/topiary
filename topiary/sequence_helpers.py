@@ -1,4 +1,4 @@
-# Copyright (c) 2015. Mount Sinai School of Medicine
+# Copyright (c) 2015-2016. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,19 +15,6 @@
 from __future__ import print_function, division, absolute_import
 
 from typechecks import require_integer
-
-
-def protein_subsequences_around_mutations(effects, padding_around_mutation):
-    """
-    From each effect get a mutant protein sequence and pull out a subsequence
-    around the mutation (based on the given padding). Returns a dictionary
-    of subsequences and a dictionary of subsequence start offsets.
-    """
-    protein_subsequences = {}
-    protein_subsequence_start_offsets = {}
-    for effect in effects:
-
-    return protein_subsequences, protein_subsequence_start_offsets
 
 def check_padding_around_mutation(given_padding, epitope_lengths):
     """

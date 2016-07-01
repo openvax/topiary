@@ -76,7 +76,9 @@ if __name__ == '__main__':
         ],
         long_description=readme,
         packages=find_packages(exclude="test"),
-        scripts=[
-            'scripts/topiary'
-        ],
+        entry_points={
+            'console_scripts': [
+                'topiary = topiary.cli.console_scripts:topiary'
+            ]
+        }
     )
