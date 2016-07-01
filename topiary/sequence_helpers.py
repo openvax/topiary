@@ -16,6 +16,7 @@ from __future__ import print_function, division, absolute_import
 
 from typechecks import require_integer
 
+
 def protein_subsequences_around_mutations(effects, padding_around_mutation):
     """
     From each effect get a mutant protein sequence and pull out a subsequence
@@ -25,28 +26,7 @@ def protein_subsequences_around_mutations(effects, padding_around_mutation):
     protein_subsequences = {}
     protein_subsequence_start_offsets = {}
     for effect in effects:
-        protein_sequence = effect.mutant_protein_sequence
-        # some effects will lack a mutant protein sequence since
-        # they are either silent or unpredictable
-        if protein_sequence:
-            mutation_start = effect.aa_mutation_start_offset
-            mutation_end = effect.aa_mutation_end_offset
-            seq_start_offset = max(
-                0,
-                mutation_start - padding_around_mutation)
-            # some pseudogenes have stop codons in the reference sequence,
-            # if we try to use them for epitope prediction we should trim
-            # the sequence to not include the stop character '*'
-            first_stop_codon_index = protein_sequence.find("*")
-            if first_stop_codon_index < 0:
-                first_stop_codon_index = len(protein_sequence)
 
-            seq_end_offset = min(
-                first_stop_codon_index,
-                mutation_end + padding_around_mutation)
-            subsequence = protein_sequence[seq_start_offset:seq_end_offset]
-            protein_subsequences[effect] = subsequence
-            protein_subsequence_start_offsets[effect] = seq_start_offset
     return protein_subsequences, protein_subsequence_start_offsets
 
 def check_padding_around_mutation(given_padding, epitope_lengths):

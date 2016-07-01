@@ -26,42 +26,61 @@ from .sequence_helpers import (
 # proteins. Fields are similar to mhctools.BindingPrediction but augmented
 # with information about a source protein and the window within that protein
 # that epitope predictions were drawn from.
-EpitopePrediction = namedtuple("EpitopePrediction",
-    (
-        # either an Ensembl ID or custom ID from transcriptome assembly
-        "protein_id",
-        "protein_length",
-        # where in the protein sequence did our prediction window start?
-        "protein_subsequence",
-        "subsequence_start_in_protein",
-        # peptide for which the binding prediction was made
-        "peptide",
-        "peptide_length",
-        # offset of the peptide in the full protein
-        "peptide_start_in_protein",
-        # offset of the peptide in the subsequence we made predictions for
-        "peptide_start_in_subsequence",
-        "allele",
-        # TODO: allow for multiple sources of prediction?
-        # What if we want to have both stability and affinity measurements
-        # for a single pMHC complex?
-        "value",
-        "measure",
-        "percentile_rank",
-        "prediction_method_name",
-    ))
+EpitopePrediction = namedtuple("EpitopePrediction", (
+    # peptide for which the binding prediction was made
+    "peptide",
+    "peptide_length",
+    "mhc_allele",
+    # TODO: allow for multiple sources of prediction?
+    # What if we want to have both stability and affinity measurements
+    # for a single pMHC complex?
+    "value",
+    "measure",
+    "percentile_rank",
+    "prediction_method_name",
+))
 
-# epitopes arising from mutations (either cancer or germline)
+ProteinFragment = namedtuple("ProteinFragment", (
+    "gene_name",
+    "gene_id",
+    "transcript_name",
+    "transcript_id",
+    "full_protein_length",
+    # some or all of the amino acids in the protein which we'll be using
+    # for epitope prediction
+    "amino_acids",
+    # where in the protein sequence did our prediction window start?
+    "fragment_offset_in_protein",
+))
+
+# protein fragment containing a mutated amino acid sequence
+MutantProteinFragment = namedtuple("MutantProteinFragment",
+    ProteinSubsequence._fields + (
+    # genomic variant that caused a mutant protein to be produced
+    "variant",
+    # varcode Effect associated with the variant/transcript combination
+    "effect",
+    # half-open start/end indices of mutated amino acids in the fragment
+    "mutation_start_in_fragment",
+    "mutation_end_in_fragment",
+    # half-open start/end indices mutated amino acids relative to the
+    # full protein sequence
+    "mutation_start_in_full_protein",
+    "mutation_end_in_full_protein",
+    # what was the reference sequence before the mutation?
+    "reference_amino_acids",
+))
+
+
+# epitopes arising from mutations (either cancer or germline) but can also
+# be used for predicting epitopes *near* mutations which don't actually
+# overlap the mutant residuess\
 MutantEpitopePrediction = namedtuple(
     "MutantEpitopePrediction",
-    EpitopePrediction._fields + (
-
+    EpitopePrediction._fields + MutantProteinFragment._fields + (
         # half-open interval of mutant residues within the peptide sequence
         "mutation_start_in_peptide",
         "mutation_end_in_peptide",
-        # half-open interval of mutant residues within the full protein
-        "mutation_start_in_protein",
-        "mutation_end_in_protein",
         # does the peptide sequence contain any mutated residues
         "contains_mutant_residues",
         # does this peptide occur elsewhere in the self ligandome for the
