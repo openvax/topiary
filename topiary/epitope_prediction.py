@@ -15,12 +15,14 @@
 from __future__ import print_function, division, absolute_import
 from collections import namedtuple
 
-from mhctools import EpitopeCollection
+
+from mhctools import EpitopeCollection, BindingPrediction
 
 from .sequence_helpers import (
     contains_mutant_residues,
     peptide_mutation_interval,
 )
+from .mutant_protein_fragment import MutantProteinFragment
 
 # information about epitopes from any protein, not restricted to mutant
 # proteins. Fields are similar to mhctools.BindingPrediction but augmented
@@ -40,44 +42,13 @@ EpitopePrediction = namedtuple("EpitopePrediction", (
     "prediction_method_name",
 ))
 
-ProteinFragment = namedtuple("ProteinFragment", (
-    "gene_name",
-    "gene_id",
-    "transcript_name",
-    "transcript_id",
-    "full_protein_length",
-    # some or all of the amino acids in the protein which we'll be using
-    # for epitope prediction
-    "amino_acids",
-    # where in the protein sequence did our prediction window start?
-    "fragment_offset_in_protein",
-))
 
-# protein fragment containing a mutated amino acid sequence
-MutantProteinFragment = namedtuple("MutantProteinFragment",
-    ProteinSubsequence._fields + (
-    # genomic variant that caused a mutant protein to be produced
-    "variant",
-    # varcode Effect associated with the variant/transcript combination
-    "effect",
-    # half-open start/end indices of mutated amino acids in the fragment
-    "mutation_start_in_fragment",
-    "mutation_end_in_fragment",
-    # half-open start/end indices mutated amino acids relative to the
-    # full protein sequence
-    "mutation_start_in_full_protein",
-    "mutation_end_in_full_protein",
-    # what was the reference sequence before the mutation?
-    "reference_amino_acids",
-))
-
-
-# epitopes arising from mutations (either cancer or germline) but can also
-# be used for predicting epitopes *near* mutations which don't actually
-# overlap the mutant residuess\
 MutantEpitopePrediction = namedtuple(
     "MutantEpitopePrediction",
-    EpitopePrediction._fields + MutantProteinFragment._fields + (
+    BindingPrediction._fields + (
+        # instance of MutantProteinFragment with information about the
+        # protein this came from
+        "mutant_protein_fragment",
         # half-open interval of mutant residues within the peptide sequence
         "mutation_start_in_peptide",
         "mutation_end_in_peptide",
@@ -91,6 +62,62 @@ MutantEpitopePrediction = namedtuple(
         # peptides that occur in the self-ligandome
         "novel_epitope",
     ))
+
+
+def binding_prediction_to_mutant_epitope_prediction(binding_prediction):
+    effect = binding_prediction.source_sequence_key
+    full_protein_sequence = effect.mutant_protein_sequence
+    subsequence = protein_subsequences[effect]
+    subsequence_protein_offset = protein_subsequence_start_offsets[effect]
+    peptide_start_in_protein = subsequence_protein_offset + binding_prediction.offset
+    peptide = binding_prediction.peptide
+    allele = binding_prediction.allele
+    mutation_start_in_protein = effect.aa_mutation_start_offset
+    mutation_end_in_protein = effect.aa_mutation_end_offset
+    is_mutant = contains_mutant_residues(
+        peptide_start_in_protein=peptide_start_in_protein,
+        peptide_length=len(peptide),
+        mutation_start_in_protein=mutation_start_in_protein,
+        mutation_end_in_protein=mutation_end_in_protein)
+    if is_mutant:
+        mutation_start_in_peptide, mutation_end_in_peptide = peptide_mutation_interval(
+            peptide_start_in_protein=peptide_start_in_protein,
+            peptide_length=len(peptide),
+            mutation_start_in_protein=mutation_start_in_protein,
+            mutation_end_in_protein=mutation_end_in_protein)
+    else:
+        mutation_start_in_peptide = mutation_end_in_peptide = None
+    # tag predicted epitopes as non-mutant if they occur in any of the
+    # wildtype "self" binding peptide sets for the given alleles
+    self_ligand = (
+            wildtype_ligandome_dict is not None and
+            peptide in wildtype_ligandome_dict[allele]
+    )
+    return MutantEpitopePrediction(
+        protein_length=len(full_protein_sequence),
+        protein_subsequence=subsequence,
+        subsequence_start_in_protein=subsequence_protein_offset,
+        peptide=binding_prediction.peptide,
+        peptide_length=len(binding_prediction.peptide),
+        peptide_start_in_protein=peptide_start_in_protein,
+        peptide_start_in_subsequence=binding_prediction.offset,
+        mutation_start_in_peptide=mutation_start_in_peptide,
+        mutation_end_in_peptide=mutation_end_in_peptide,
+        mutation_start_in_protein=mutation_start_in_protein,
+        mutation_end_in_protein=mutation_end_in_protein,
+        allele=binding_prediction.allele,
+        value=binding_prediction.value,
+        measure=binding_prediction.measure,
+        percentile_rank=binding_prediction.percentile_rank,
+        prediction_method_name=binding_prediction.prediction_method_name,
+        variant=effect.variant,
+        effect=effect,
+        transcript_id=effect.transcript.id,
+        transcript_name=effect.transcript.name,
+        contains_mutant_residues=is_mutant,
+        occurs_in_self_ligandome=self_ligand,
+        novel_epitope=is_mutant and not self_ligand,
+    )
 
 def build_epitope_collection_from_binding_predictions(
         binding_predictions,
@@ -109,10 +136,12 @@ def build_epitope_collection_from_binding_predictions(
         Assumes that their `source_sequence_key` field is a Varcode effect
         object (e.g. Substitution, FrameShift, etc...)
 
-    mutant_protein_slices : dict
+    protein_subsequences : dict
         Mapping from a varcode effect object to a ProteinSlice which contains
         the full mutant protein sequence, as well as the start/end offsets
         of the subsequence from which epitope predictions were made.
+
+    protein_subsequence_start_offsets : dict
 
     wildtype_ligandome_dict : dict-like, optional
         Mapping from allele names to set of wildtype peptides predicted
@@ -122,61 +151,7 @@ def build_epitope_collection_from_binding_predictions(
     """
     epitope_predictions = []
     for binding_prediction in binding_predictions:
-        effect = binding_prediction.source_sequence_key
-        full_protein_sequence = effect.mutant_protein_sequence
-        subsequence = protein_subsequences[effect]
-        subsequence_protein_offset = protein_subsequence_start_offsets[effect]
-        peptide_start_in_protein = subsequence_protein_offset + binding_prediction.offset
-        peptide = binding_prediction.peptide
-        allele = binding_prediction.allele
-        mutation_start_in_protein = effect.aa_mutation_start_offset
-        mutation_end_in_protein = effect.aa_mutation_end_offset
-        is_mutant = contains_mutant_residues(
-            peptide_start_in_protein=peptide_start_in_protein,
-            peptide_length=len(peptide),
-            mutation_start_in_protein=mutation_start_in_protein,
-            mutation_end_in_protein=mutation_end_in_protein)
-        if is_mutant:
-            mutation_start_in_peptide, mutation_end_in_peptide = peptide_mutation_interval(
-                peptide_start_in_protein=peptide_start_in_protein,
-                peptide_length=len(peptide),
-                mutation_start_in_protein=mutation_start_in_protein,
-                mutation_end_in_protein=mutation_end_in_protein)
-        else:
-            mutation_start_in_peptide = mutation_end_in_peptide = None
-        # tag predicted epitopes as non-mutant if they occur in any of the
-        # wildtype "self" binding peptide sets for the given alleles
-        self_ligand = (
-                wildtype_ligandome_dict is not None and
-                peptide in wildtype_ligandome_dict[allele]
-        )
-        mutant_epitope_prediction = MutantEpitopePrediction(
-            # TODO: check that all transcripts with coding sequences
-            # have a protein ID
-            protein_id=effect.transcript.protein_id,
-            protein_length=len(full_protein_sequence),
-            protein_subsequence=subsequence,
-            subsequence_start_in_protein=subsequence_protein_offset,
-            peptide=binding_prediction.peptide,
-            peptide_length=len(binding_prediction.peptide),
-            peptide_start_in_protein=peptide_start_in_protein,
-            peptide_start_in_subsequence=binding_prediction.offset,
-            mutation_start_in_peptide=mutation_start_in_peptide,
-            mutation_end_in_peptide=mutation_end_in_peptide,
-            mutation_start_in_protein=mutation_start_in_protein,
-            mutation_end_in_protein=mutation_end_in_protein,
-            allele=binding_prediction.allele,
-            value=binding_prediction.value,
-            measure=binding_prediction.measure,
-            percentile_rank=binding_prediction.percentile_rank,
-            prediction_method_name=binding_prediction.prediction_method_name,
-            variant=effect.variant,
-            effect=effect,
-            transcript_id=effect.transcript.id,
-            transcript_name=effect.transcript.name,
-            contains_mutant_residues=is_mutant,
-            occurs_in_self_ligandome=self_ligand,
-            novel_epitope=is_mutant and not self_ligand,
-        )
+        mutant_epitope_prediction = binding_prediction_to_mutant_epitope_prediction(
+            binding_prediction=binding_prediction)
         epitope_predictions.append(mutant_epitope_prediction)
     return EpitopeCollection(epitope_predictions)

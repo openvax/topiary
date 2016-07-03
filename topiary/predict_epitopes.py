@@ -1,4 +1,4 @@
-# Copyright (c) 2015. Mount Sinai School of Medicine
+# Copyright (c) 2015-2016. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,13 +17,7 @@ import logging
 
 from mhctools import EpitopeCollection
 
-from .commandline_args import (
-    mhc_binding_predictor_from_args,
-    variant_collection_from_args,
-    rna_gene_expression_dict_from_args,
-    rna_transcript_expression_dict_from_args,
-)
-from .lazy_ligandome_dict import LazyLigandomeDict
+
 from .filters import (
     apply_epitope_filters,
     apply_effect_expression_filters,
@@ -146,7 +140,8 @@ def predict_epitopes_from_mutation_effects(
                 variant_effects.top_priority_effect()
                 for variant_effects in variant_effect_groups.values()
             ]
-
+        # TODO: change this to dictionaries from variants to protein slices?
+        #
         # 1) dictionary mapping varcode effect objects to subsequences
         #    around each mutation
         # 2) dictionary mapping varcode effect to start offset of subsequence
@@ -261,37 +256,3 @@ def predict_epitopes_from_variants(
         percentile_cutoff=percentile_cutoff,
         only_novel_epitopes=only_novel_epitopes,
         wildtype_ligandome_dict=wildtype_ligandome_dict)
-
-
-def predict_epitopes_from_args(args):
-    """
-    Returns an mhctools.EpitopeCollection of predictions based on the given
-    commandline arguments.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Parsed commandline arguments for Topiary
-    """
-    mhc_model = mhc_binding_predictor_from_args(args)
-    variants = variant_collection_from_args(args)
-    gene_expression_dict = rna_gene_expression_dict_from_args(args)
-    transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
-    if args.wildtype_ligandome_directory:
-        wildtype_ligandome_dict = LazyLigandomeDict(
-            args.wildtype_ligandome_directory)
-    else:
-        wildtype_ligandome_dict = None
-    return predict_epitopes_from_variants(
-        variants=variants,
-        mhc_model=mhc_model,
-        padding_around_mutation=args.padding_around_mutation,
-        ic50_cutoff=args.ic50_cutoff,
-        percentile_cutoff=args.percentile_cutoff,
-        transcript_expression_dict=transcript_expression_dict,
-        min_transcript_expression=args.rna_min_transcript_expression,
-        gene_expression_dict=gene_expression_dict,
-        min_gene_expression=args.rna_min_gene_expression,
-        only_novel_epitopes=args.only_novel_epitopes,
-        wildtype_ligandome_dict=wildtype_ligandome_dict,
-        raise_on_variant_effect_error=not args.skip_variant_errors)
