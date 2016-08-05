@@ -20,15 +20,13 @@ Common commandline arguments used by scripts
 from __future__ import print_function, division, absolute_import
 
 from argparse import ArgumentParser
-from .variants import (
-    add_variant_args,
-    variant_collection_from_args
-)
-from .mhc import (
+from mhctools.cli import (
     add_mhc_args,
     mhc_alleles_from_args,
     mhc_binding_predictor_from_args,
 )
+from varcode.cli import add_variant_args, variant_collection_from_args
+
 from .filtering import add_filter_args
 from .rna import (
     add_rna_args,

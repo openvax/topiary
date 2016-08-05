@@ -26,30 +26,29 @@ from .sequence_helpers import (
 # proteins. Fields are similar to mhctools.BindingPrediction but augmented
 # with information about a source protein and the window within that protein
 # that epitope predictions were drawn from.
-EpitopePrediction = namedtuple("EpitopePrediction",
-    (
-        # either an Ensembl ID or custom ID from transcriptome assembly
-        "protein_id",
-        "protein_length",
-        # where in the protein sequence did our prediction window start?
-        "protein_subsequence",
-        "subsequence_start_in_protein",
-        # peptide for which the binding prediction was made
-        "peptide",
-        "peptide_length",
-        # offset of the peptide in the full protein
-        "peptide_start_in_protein",
-        # offset of the peptide in the subsequence we made predictions for
-        "peptide_start_in_subsequence",
-        "allele",
-        # TODO: allow for multiple sources of prediction?
-        # What if we want to have both stability and affinity measurements
-        # for a single pMHC complex?
-        "value",
-        "measure",
-        "percentile_rank",
-        "prediction_method_name",
-    ))
+EpitopePrediction = namedtuple("EpitopePrediction", (
+    # either an Ensembl ID or custom ID from transcriptome assembly
+    "protein_id",
+    "protein_length",
+    # where in the protein sequence did our prediction window start?
+    "protein_subsequence",
+    "subsequence_start_in_protein",
+    # peptide for which the binding prediction was made
+    "peptide",
+    "peptide_length",
+    # offset of the peptide in the full protein
+    "peptide_start_in_protein",
+    # offset of the peptide in the subsequence we made predictions for
+    "peptide_start_in_subsequence",
+    "allele",
+    # TODO: allow for multiple sources of prediction?
+    # What if we want to have both stability and affinity measurements
+    # for a single pMHC complex?
+    "value",
+    "measure",
+    "percentile_rank",
+    "prediction_method_name",
+))
 
 # epitopes arising from mutations (either cancer or germline)
 MutantEpitopePrediction = namedtuple(
@@ -134,8 +133,8 @@ def build_epitope_collection_from_binding_predictions(
         # tag predicted epitopes as non-mutant if they occur in any of the
         # wildtype "self" binding peptide sets for the given alleles
         self_ligand = (
-                wildtype_ligandome_dict is not None and
-                peptide in wildtype_ligandome_dict[allele]
+            wildtype_ligandome_dict is not None and
+            peptide in wildtype_ligandome_dict[allele]
         )
         mutant_epitope_prediction = MutantEpitopePrediction(
             # TODO: check that all transcripts with coding sequences
