@@ -13,7 +13,7 @@ def test_cancer_epitopes_from_args():
         "--mhc-predictor", "netmhc",
         "--mhc-epitope-lengths", ",".join(str(x) for x in epitope_lengths),
         "--mhc-alleles", ",".join(alleles),
-        "--reference-name", "GRCh38",
+        "--genome", "GRCh38",
         "--only-novel-epitopes",
     ]
     for variant in cancer_test_variants:

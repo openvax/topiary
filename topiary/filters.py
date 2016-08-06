@@ -102,7 +102,9 @@ def apply_variant_expression_filters(
             ),
             variants,
             result_fn=variants.clone_with_new_elements,
-            filter_name="Variant transcript expression (min=%0.4f)" % transcript_expression_threshold)
+            filter_name=(
+                "Variant transcript expression (min=%0.4f)" % (
+                    transcript_expression_threshold,)))
     return variants
 
 def apply_effect_expression_filters(
@@ -144,7 +146,9 @@ def apply_effect_expression_filters(
             ),
             effects,
             result_fn=effects.clone_with_new_elements,
-            filter_name="Effect transcript expression (min=%0.4f)" % transcript_expression_threshold)
+            filter_name=(
+                "Effect transcript expression (min=%0.4f)" % (
+                    transcript_expression_threshold,)))
     return effects
 
 def apply_epitope_filters(
