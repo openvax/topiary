@@ -25,21 +25,21 @@ from varcode import Variant, VariantCollection
 # what do we expect from them? Are they SNVs?
 variants = VariantCollection([
     Variant(
-      contig=10,
-      start=100018900,
-      ref='C',
-      alt='T',
-      ensembl=ensembl_grch37),
+        contig=10,
+        start=100018900,
+        ref='C',
+        alt='T',
+        ensembl=ensembl_grch37),
     Variant(
-      contig=11,
-      start=32861682,
-      ref='G',
-      alt='A',
-      ensembl=ensembl_grch37)])
+        contig=11,
+        start=32861682,
+        ref='G',
+        alt='A',
+        ensembl=ensembl_grch37)])
 
 alleles = [
-  "HLA-DPA1*01:05/DPB1*100:01",
-  "DRB10102"
+    "HLA-DPA1*01:05/DPB1*100:01",
+    "DRB10102"
 ]
 
 epitope_lengths = [15, 16]
@@ -59,14 +59,14 @@ def test_netmhcii_pan_epitopes():
     # 124 total epitope predictions
     eq_(len(epitope_predictions), 124)
     unique_alleles = {
-      epitope_prediction.allele
-      for epitope_prediction in epitope_predictions
+        epitope_prediction.allele
+        for epitope_prediction in epitope_predictions
     }
     assert len(unique_alleles) == 2, \
-      "Expected 2 unique alleles, got %s" % (unique_alleles,)
+        "Expected 2 unique alleles, got %s" % (unique_alleles,)
     unique_lengths = {
-      epitope_prediction.peptide_length
-      for epitope_prediction in epitope_predictions
+        epitope_prediction.peptide_length
+        for epitope_prediction in epitope_predictions
     }
     assert unique_lengths == {15, 16}, \
-      "Expected epitopes of length 15 and 16 but got lengths %s" % (unique_lengths,)
+        "Expected epitopes of length 15 and 16 but got lengths %s" % (unique_lengths,)

@@ -42,133 +42,133 @@ DEFAULT_IC50_CUTOFF = None
 DEFAULT_PERCENTILE_CUTOFF = None
 
 def predict_epitopes_from_mutation_effects(
-            effects,
-            mhc_model,
-            padding_around_mutation=None,
-            transcript_expression_dict=None,
-            transcript_expression_threshold=0.0,
-            gene_expression_dict=None,
-            gene_expression_threshold=0.0,
-            ic50_cutoff=DEFAULT_IC50_CUTOFF,
-            percentile_cutoff=DEFAULT_PERCENTILE_CUTOFF,
-            only_novel_epitopes=False,
-            wildtype_ligandome_dict=None):
-        """Given a Varcode.EffectCollection of predicted protein effects,
-        return a DataFrame of the predicted epitopes around each
-        mutation.
+        effects,
+        mhc_model,
+        padding_around_mutation=None,
+        transcript_expression_dict=None,
+        transcript_expression_threshold=0.0,
+        gene_expression_dict=None,
+        gene_expression_threshold=0.0,
+        ic50_cutoff=DEFAULT_IC50_CUTOFF,
+        percentile_cutoff=DEFAULT_PERCENTILE_CUTOFF,
+        only_novel_epitopes=False,
+        wildtype_ligandome_dict=None):
+    """Given a Varcode.EffectCollection of predicted protein effects,
+    return a DataFrame of the predicted epitopes around each
+    mutation.
 
-        Parameters
-        ----------
-        effects : Varcode.EffectCollection
+    Parameters
+    ----------
+    effects : Varcode.EffectCollection
 
-        mhc_model : mhctools.BasePredictor
-            Any instance of a peptide-MHC binding affinity predictor
+    mhc_model : mhctools.BasePredictor
+        Any instance of a peptide-MHC binding affinity predictor
 
-        padding_around_mutation : int
-            How many residues surrounding a mutation to consider including in a
-            candidate epitope. Default is the minimum size necessary for epitope
-            length of the mhc model.
+    padding_around_mutation : int
+        How many residues surrounding a mutation to consider including in a
+        candidate epitope. Default is the minimum size necessary for epitope
+        length of the mhc model.
 
-        transcript_expression_dict : dict
-            Dictionary mapping transcript IDs to RNA expression estimates. Used
-            both for transcript expression filtering and for selecting the
-            most abundant transcript for a particular variant. If omitted then
-            transcript selection is done using priority of variant effects and
-            transcript length.
+    transcript_expression_dict : dict
+        Dictionary mapping transcript IDs to RNA expression estimates. Used
+        both for transcript expression filtering and for selecting the
+        most abundant transcript for a particular variant. If omitted then
+        transcript selection is done using priority of variant effects and
+        transcript length.
 
-        transcript_expression_threshold : float, optional
-            If transcript_expression_dict is given, only keep effects on
-            transcripts above this threshold.
+    transcript_expression_threshold : float, optional
+        If transcript_expression_dict is given, only keep effects on
+        transcripts above this threshold.
 
-        gene_expression_dict : dict, optional
-            Dictionary mapping gene IDs to RNA expression estimates
+    gene_expression_dict : dict, optional
+        Dictionary mapping gene IDs to RNA expression estimates
 
-        gene_expression_threshold : float, optional
-            If gene_expression_dict is given, only keep effects on genes
-            expressed above this threshold.
+    gene_expression_threshold : float, optional
+        If gene_expression_dict is given, only keep effects on genes
+        expressed above this threshold.
 
-        ic50_cutoff : float, optional
-            Maximum predicted IC50 value for a peptide to be considered a binder.
+    ic50_cutoff : float, optional
+        Maximum predicted IC50 value for a peptide to be considered a binder.
 
-        percentile_cutoff : float, optional
-            Maximum percentile rank of IC50 values for a peptide to be considered
-            a binder.
+    percentile_cutoff : float, optional
+        Maximum percentile rank of IC50 values for a peptide to be considered
+        a binder.
 
-        only_novel_epitopes : bool, optional
-            If True, then drop peptides which either don't contain a mutation or
-            occur elsewhere in the self-ligandome.
+    only_novel_epitopes : bool, optional
+        If True, then drop peptides which either don't contain a mutation or
+        occur elsewhere in the self-ligandome.
 
-        wildtype_ligandome_dict : dict-like, optional
-            Mapping from allele names to set of wildtype peptides predicted
-            to bind to that allele. If any predicted mutant epitope is found
-            in the peptide sets for the patient's alleles, it is marked as
-            wildtype (non-mutant).
-        """
-        padding_around_mutation = check_padding_around_mutation(
-            given_padding=padding_around_mutation,
-            epitope_lengths=mhc_model.epitope_lengths)
+    wildtype_ligandome_dict : dict-like, optional
+        Mapping from allele names to set of wildtype peptides predicted
+        to bind to that allele. If any predicted mutant epitope is found
+        in the peptide sets for the patient's alleles, it is marked as
+        wildtype (non-mutant).
+    """
+    padding_around_mutation = check_padding_around_mutation(
+        given_padding=padding_around_mutation,
+        epitope_lengths=mhc_model.epitope_lengths)
 
-        # we only care about effects which impact the coding sequence of a
-        # protein
-        effects = filter_silent_and_noncoding_effects(effects)
+    # we only care about effects which impact the coding sequence of a
+    # protein
+    effects = filter_silent_and_noncoding_effects(effects)
 
-        effects = apply_effect_expression_filters(
-            effects,
-            transcript_expression_dict=transcript_expression_dict,
-            transcript_expression_threshold=transcript_expression_threshold,
-            gene_expression_dict=gene_expression_dict,
-            gene_expression_threshold=gene_expression_threshold,
-        )
+    effects = apply_effect_expression_filters(
+        effects,
+        transcript_expression_dict=transcript_expression_dict,
+        transcript_expression_threshold=transcript_expression_threshold,
+        gene_expression_dict=gene_expression_dict,
+        gene_expression_threshold=gene_expression_threshold,
+    )
 
-        # group by variants, so that we end up with only one mutant
-        # sequence per mutation
-        variant_effect_groups = effects.groupby_variant()
+    # group by variants, so that we end up with only one mutant
+    # sequence per mutation
+    variant_effect_groups = effects.groupby_variant()
 
-        if len(variant_effect_groups) == 0:
-            logging.warn("No candidates for MHC binding prediction")
-            return EpitopeCollection([])
+    if len(variant_effect_groups) == 0:
+        logging.warn("No candidates for MHC binding prediction")
+        return EpitopeCollection([])
 
-        if transcript_expression_dict:
-            # if expression data is available, then for each variant
-            # keep the effect annotation for the most abundant transcript
-            top_effects = [
-                variant_effects.top_expression_effect(
-                    transcript_expression_dict)
-                for variant_effects in variant_effect_groups.values()
-            ]
-        else:
-            # if no transcript abundance data is available, then
-            # for each variant keep the effect with the most significant
-            # predicted effect on the protein sequence, along with using
-            # transcript/CDS length as a tie-breaker for effects with the same
-            # priority.
-            top_effects = [
-                variant_effects.top_priority_effect()
-                for variant_effects in variant_effect_groups.values()
-            ]
+    if transcript_expression_dict:
+        # if expression data is available, then for each variant
+        # keep the effect annotation for the most abundant transcript
+        top_effects = [
+            variant_effects.top_expression_effect(
+                transcript_expression_dict)
+            for variant_effects in variant_effect_groups.values()
+        ]
+    else:
+        # if no transcript abundance data is available, then
+        # for each variant keep the effect with the most significant
+        # predicted effect on the protein sequence, along with using
+        # transcript/CDS length as a tie-breaker for effects with the same
+        # priority.
+        top_effects = [
+            variant_effects.top_priority_effect()
+            for variant_effects in variant_effect_groups.values()
+        ]
 
-        # 1) dictionary mapping varcode effect objects to subsequences
-        #    around each mutation
-        # 2) dictionary mapping varcode effect to start offset of subsequence
-        #    within the full mutant protein sequence
-        protein_subsequences, protein_subsequence_offsets = \
-            protein_subsequences_around_mutations(
-                effects=top_effects,
-                padding_around_mutation=padding_around_mutation)
+    # 1) dictionary mapping varcode effect objects to subsequences
+    #    around each mutation
+    # 2) dictionary mapping varcode effect to start offset of subsequence
+    #    within the full mutant protein sequence
+    protein_subsequences, protein_subsequence_offsets = \
+        protein_subsequences_around_mutations(
+            effects=top_effects,
+            padding_around_mutation=padding_around_mutation)
 
-        binding_predictions = mhc_model.predict(protein_subsequences)
-        logging.info("MHC predictor returned %s peptide binding predictions" % (
-            len(binding_predictions)))
-        epitopes = build_epitope_collection_from_binding_predictions(
-            binding_predictions=binding_predictions,
-            protein_subsequences=protein_subsequences,
-            protein_subsequence_start_offsets=protein_subsequence_offsets,
-            wildtype_ligandome_dict=wildtype_ligandome_dict)
-        return apply_epitope_filters(
-            epitopes,
-            ic50_cutoff=ic50_cutoff,
-            percentile_cutoff=percentile_cutoff,
-            only_novel_epitopes=only_novel_epitopes)
+    binding_predictions = mhc_model.predict(protein_subsequences)
+    logging.info("MHC predictor returned %s peptide binding predictions" % (
+        len(binding_predictions)))
+    epitopes = build_epitope_collection_from_binding_predictions(
+        binding_predictions=binding_predictions,
+        protein_subsequences=protein_subsequences,
+        protein_subsequence_start_offsets=protein_subsequence_offsets,
+        wildtype_ligandome_dict=wildtype_ligandome_dict)
+    return apply_epitope_filters(
+        epitopes,
+        ic50_cutoff=ic50_cutoff,
+        percentile_cutoff=percentile_cutoff,
+        only_novel_epitopes=only_novel_epitopes)
 
 def predict_epitopes_from_variants(
         variants,
