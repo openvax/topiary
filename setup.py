@@ -68,7 +68,7 @@ if __name__ == '__main__':
         install_requires=[
             'numpy >=1.7, <2.0',
             'pandas >=0.13.1',
-            'mhctools >=0.1.8',
+            'mhctools >= 0.3.0',
             'varcode >=0.3.17',
             'nose >=1.3.6',
             'gtfparse >=0.0.4',
