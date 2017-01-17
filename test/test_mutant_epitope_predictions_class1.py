@@ -65,7 +65,7 @@ def test_epitope_prediction_without_padding():
         for epitope_prediction in output_without_padding
         if epitope_prediction.value <= 500.0
     ]
-    eq_(len(strong_binders), 4)
+    eq_(len(strong_binders), 5)
 
 
 @raises(ValueError)
