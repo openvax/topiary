@@ -24,13 +24,13 @@ from .common import infer_delimiter, check_required_columns
 
 def parse_locus_column(loci):
     # capture all characters before ':' (drop 'chr' if present)
-    chromosomes = loci.str.extract("(?:chr)?([^:]*):.*")
+    chromosomes = loci.str.extract("(?:chr)?([^:]*):.*", expand=False)
     # capture all characters after e.g. 'chr1:', which look like '132-394'
-    ranges = loci.str.extract("(?:chr)?[^:]*:(.*)")
+    ranges = loci.str.extract("(?:chr)?[^:]*:(.*)", expand=False)
     # capture all numbers before the dash
-    starts = ranges.str.extract("(\d*)-\d*").astype(int)
+    starts = ranges.str.extract("(\d*)-\d*", expand=False).astype(int)
     # capture all numbers after the dash
-    ends = ranges.str.extract("\d*-(\d*)").astype(int)
+    ends = ranges.str.extract("\d*-(\d*)", expand=False).astype(int)
     return chromosomes, starts, ends
 
 

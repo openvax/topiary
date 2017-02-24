@@ -1,4 +1,4 @@
-# Copyright (c) 2015. Mount Sinai School of Medicine
+# Copyright (c) 2015-2017. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,9 +45,7 @@ class LazyLigandomeDict(object):
         self.peptide_sets = {}
 
     def __getitem__(self, allele_name):
-        print("Got %s" % allele_name)
         allele_name = normalize_allele_name(allele_name)
-        print("Normalized to %s" % allele_name)
         if allele_name in self.peptide_sets:
             return self.peptide_sets[allele_name]
 
