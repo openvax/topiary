@@ -14,7 +14,7 @@
 
 from os import listdir
 from os.path import join
-from mhctools import normalize_allele_name
+from mhcnames import normalize_allele_name
 
 class AlleleNotFound(Exception):
     pass
