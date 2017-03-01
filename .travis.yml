@@ -49,6 +49,7 @@ install:
   - pyensembl install --release 75 --species human
   - pyensembl install --release 84 --species human
   - pyensembl install --release 85 --species human
+  - pyensembl install --release 87 --species human
 
 script:
   - nosetests test --with-coverage --cover-package=topiary && ./lint.sh
