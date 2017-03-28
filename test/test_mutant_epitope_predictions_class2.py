@@ -42,11 +42,9 @@ alleles = [
     "DRB10102"
 ]
 
-epitope_lengths = [15, 16]
-
 mhc_model = NetMHCIIpan(
     alleles=alleles,
-    epitope_lengths=epitope_lengths)
+    default_peptide_lengths=[15, 16])
 
 def test_netmhcii_pan_epitopes():
     epitope_predictions = predict_epitopes_from_variants(

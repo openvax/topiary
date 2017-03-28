@@ -9,11 +9,9 @@ alleles = [
     'HLA-C*07:02',
 ]
 
-epitope_lengths = [8, 9, 10]
-
 mhc_model = NetMHC(
     alleles=alleles,
-    epitope_lengths=epitope_lengths)
+    default_peptide_lengths=[8, 9, 10])
 
 def test_epitopes_to_dataframe_length():
     epitopes = predict_epitopes_from_variants(
@@ -59,4 +57,3 @@ def test_epitopes_to_dataframe_gene_expression():
         "gene_expression missing from %s" % (df.columns,)
     assert(df["gene_expression"] == DEFAULT_FPKM).all(), \
         "Invalid FPKM values in DataFrame gene_expression column"
-

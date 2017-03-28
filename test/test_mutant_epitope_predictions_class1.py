@@ -1,4 +1,4 @@
-# Copyright (c) 2015. Mount Sinai School of Medicine
+# Copyright (c) 2015-2017. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -46,11 +46,9 @@ alleles = [
     'hla-c07:01'
 ]
 
-epitope_lengths = [9]
-
 mhc_model = NetMHCpan(
     alleles=alleles,
-    epitope_lengths=epitope_lengths)
+    default_peptide_lengths=[9])
 
 
 def test_epitope_prediction_without_padding():
@@ -66,7 +64,6 @@ def test_epitope_prediction_without_padding():
         if epitope_prediction.value <= 500.0
     ]
     eq_(len(strong_binders), 5)
-
 
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_padding():

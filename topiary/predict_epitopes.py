@@ -15,8 +15,6 @@
 from __future__ import print_function, division, absolute_import
 import logging
 
-from mhctools import EpitopeCollection
-
 from .commandline_args import (
     mhc_binding_predictor_from_args,
     variant_collection_from_args,
@@ -106,7 +104,7 @@ def predict_epitopes_from_mutation_effects(
     """
     padding_around_mutation = check_padding_around_mutation(
         given_padding=padding_around_mutation,
-        epitope_lengths=mhc_model.epitope_lengths)
+        epitope_lengths=mhc_model.default_peptide_lengths)
 
     # we only care about effects which impact the coding sequence of a
     # protein
@@ -126,7 +124,7 @@ def predict_epitopes_from_mutation_effects(
 
     if len(variant_effect_groups) == 0:
         logging.warn("No candidates for MHC binding prediction")
-        return EpitopeCollection([])
+        return []
 
     if transcript_expression_dict:
         # if expression data is available, then for each variant
