@@ -73,7 +73,6 @@ if __name__ == '__main__':
             'nose >=1.3.6',
             'gtfparse >=0.0.4',
             'mhcnames',
-            'pypandoc'  # needs pandoc: brew install pandoc
         ],
         long_description=readme,
         packages=find_packages(exclude="test"),
