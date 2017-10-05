@@ -19,6 +19,7 @@ from .sequence_helpers import (
     protein_subsequences_around_mutations,
 )
 
+
 __version__ = '2.0.0'
 
 __all__ = [
