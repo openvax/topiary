@@ -1,7 +1,3 @@
-#!/usr/bin/env python
-
-# Copyright (c) 2015-2016. Mount Sinai School of Medicine
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -30,16 +26,32 @@ Example usage:
         --output results.csv
 """
 
-from topiary.commandline_args import (
-    arg_parser,
+from __future__ import print_function, division, absolute_import
+
+import sys
+
+from .args import arg_parser, predict_epitopes_from_args
+from .rna import (
     rna_gene_expression_dict_from_args,
-    rna_transcript_expression_dict_from_args,
-    write_outputs,
+    rna_transcript_expression_dict_from_args
 )
-from topiary import predict_epitopes_from_args, epitopes_to_dataframe
+from .outputs import write_outputs
+from .. import epitopes_to_dataframe
 
 
-def main(args):
+def parse_args(args_list=None):
+    if args_list is None:
+        args_list = sys.argv[1:]
+    return arg_parser.parse_args(args_list)
+
+def main(args_list=None):
+    """
+    Script entry-point to predict neo-epitopes from genomic variants using
+    Topiary.
+    """
+    args = parse_args(args_list)
+    print("Topiary commandline arguments:")
+    print(args)
     epitopes = predict_epitopes_from_args(args)
     gene_expression_dict = rna_gene_expression_dict_from_args(args)
     transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
@@ -49,10 +61,3 @@ def main(args):
         transcript_expression_dict=transcript_expression_dict)
     write_outputs(df, args)
     print("Total count: %d" % len(df))
-
-if __name__ == "__main__":
-    args = arg_parser.parse_args()
-    print("Topiary commandline arguments:")
-    print(args)
-
-    main(args)

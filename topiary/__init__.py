@@ -21,7 +21,7 @@ from .sequence_helpers import (
 )
 from . import commandline_args
 
-__version__ = '1.2.0'
+__version__ = '2.0.0'
 
 __all__ = [
     "LazyLigandomeDict",

@@ -1,7 +1,7 @@
 from nose.tools import eq_
 
 from topiary import predict_epitopes_from_args
-from topiary.commandline_args import arg_parser
+from topiary.cli.args import arg_parser
 
 from .data import cancer_test_variants
 
