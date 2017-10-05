@@ -2,7 +2,7 @@ sudo: false  # Use container-based infrastructure
 language: python
 python:
   - "2.7"
-  - "3.4"
+  - "3.5"
 addons:
   apt:
     packages:
@@ -47,12 +47,11 @@ install:
   - pip install .
   - pip install coveralls
   - pyensembl install --release 75 --species human
-  - pyensembl install --release 84 --species human
-  - pyensembl install --release 85 --species human
   - pyensembl install --release 87 --species human
 
 script:
-  - nosetests test --with-coverage --cover-package=topiary && ./lint.sh
+  - ./lint.sh
+  - nosetests test --with-coverage --cover-package=topiary
 after_success:
   coveralls
 deploy:
