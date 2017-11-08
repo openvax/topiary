@@ -1,4 +1,4 @@
-# Copyright (c) 2014. Mount Sinai School of Medicine
+# Copyright (c) 2017. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -76,7 +76,9 @@ if __name__ == '__main__':
         ],
         long_description=readme,
         packages=find_packages(exclude="test"),
-        scripts=[
-            'scripts/topiary'
-        ],
+        entry_points={
+            'console_scripts': [
+                'topiary = topiary.cli.script:main'
+            ]
+        }
     )

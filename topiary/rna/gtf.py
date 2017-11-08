@@ -1,4 +1,4 @@
-# Copyright (c) 2015. Mount Sinai School of Medicine
+# Copyright (c) 2017. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function, division, absolute_import
 import logging
-
 import gtfparse
 
 
@@ -55,9 +55,11 @@ def load_transcript_fpkm_dict_from_gtf(
         transcript_id: float(fpkm)
         for (transcript_id, fpkm, feature)
         in zip(transcript_ids, fpkm_values, features)
-        if transcript_id is not None
-        and len(transcript_id) > 0
-        and feature == "transcript"
+        if (
+            (transcript_id is not None) and
+            (len(transcript_id) > 0) and
+            (feature == "transcript")
+        )
     }
     logging.info("Keeping %d transcript rows with reference IDs" % (
         len(result),))

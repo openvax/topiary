@@ -1,4 +1,4 @@
-# Copyright (c) 2015. Mount Sinai School of Medicine
+# Copyright (c) 2017. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ import pandas as pd
 import numpy as np
 
 from .common import infer_delimiter, check_required_columns
-
 
 def parse_locus_column(loci):
     # capture all characters before ':' (drop 'chr' if present)

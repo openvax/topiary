@@ -1,4 +1,5 @@
-from topiary.commandline_args import arg_parser, write_outputs
+from topiary.cli.args import arg_parser
+from topiary.cli.outputs import write_outputs
 import tempfile
 import pandas as pd
 from nose.tools import eq_

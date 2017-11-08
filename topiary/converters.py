@@ -1,4 +1,4 @@
-# Copyright (c) 2015. Mount Sinai School of Medicine
+# Copyright (c) 2017. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ Helpers to convert between data representations
 """
 
 from __future__ import print_function, division, absolute_import
+
 from collections import defaultdict
 
 import pandas as pd

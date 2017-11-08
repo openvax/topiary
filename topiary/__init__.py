@@ -5,7 +5,6 @@ from .converters import (
     epitopes_to_csv
 )
 from .predict_epitopes import (
-    predict_epitopes_from_args,
     predict_epitopes_from_variants,
     predict_epitopes_from_mutation_effects,
 )
@@ -19,19 +18,17 @@ from .sequence_helpers import (
     contains_mutant_residues,
     protein_subsequences_around_mutations,
 )
-from . import commandline_args
 
-__version__ = '1.2.1'
+
+__version__ = '2.0.0'
 
 __all__ = [
     "LazyLigandomeDict",
     "AlleleNotFound",
-    "commandline_args",
     "epitopes_to_dataframe",
     "epitopes_to_csv",
     "predict_epitopes_from_variants",
     "predict_epitopes_from_mutation_effects",
-    "predict_epitopes_from_args",
     "build_epitope_collection_from_binding_predictions",
     "contains_mutant_residues",
     "check_padding_around_mutation",
