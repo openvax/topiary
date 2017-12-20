@@ -52,13 +52,13 @@ class TopiaryPredictor(object):
             candidate epitope. Default is the minimum size necessary for epitope
             length of the mhc model.
 
-        gene_expression_threshold : float, optional
-            If gene_expression_dict is given, only keep effects on genes
-            expressed above this threshold.
+        min_gene_expression : float, optional
+            If gene expression values are provided, only keep effects on
+            genes with expression above this threshold.
 
-        transcript_expression_threshold : float, optional
-            If transcript_expression_dict is given, only keep effects on
-            transcripts above this threshold.
+        min_transcript_expression : float, optional
+            If transcript expression values are provided, only keep effects on
+            transcripts with expression above this threshold.
 
         ic50_cutoff : float, optional
             Maximum predicted IC50 value for a peptide to be considered a binder.
@@ -82,7 +82,9 @@ class TopiaryPredictor(object):
             the variant or peptide which generated the error.
         """
         self.mhc_model = mhc_model
-        self.padding_around_mutation = padding_around_mutation
+        self.padding_around_mutation = check_padding_around_mutation(
+            given_padding=padding_around_mutation,
+            epitope_lengths=self.mhc_model.default_peptide_lengths)
         self.ic50_cutoff = ic50_cutoff
         self.percentile_cutoff = percentile_cutoff
         self.min_transcript_expression = min_transcript_expression
@@ -103,11 +105,6 @@ class TopiaryPredictor(object):
         ----------
         effects : Varcode.EffectCollection
 
-        padding_around_mutation : int
-            How many residues surrounding a mutation to consider including in a
-            candidate epitope. Default is the minimum size necessary for epitope
-            length of the mhc model.
-
         transcript_expression_dict : dict
             Dictionary mapping transcript IDs to RNA expression estimates. Used
             both for transcript expression filtering and for selecting the
@@ -118,9 +115,6 @@ class TopiaryPredictor(object):
         gene_expression_dict : dict, optional
             Dictionary mapping gene IDs to RNA expression estimates
         """
-        padding_around_mutation = check_padding_around_mutation(
-            given_padding=self.padding_around_mutation,
-            epitope_lengths=self.mhc_model.default_peptide_lengths)
 
         # we only care about effects which impact the coding sequence of a
         # protein
@@ -167,7 +161,7 @@ class TopiaryPredictor(object):
         protein_subsequences, protein_subsequence_offsets = \
             protein_subsequences_around_mutations(
                 effects=top_effects,
-                padding_around_mutation=padding_around_mutation)
+                padding_around_mutation=self.padding_around_mutation)
 
         binding_predictions = self.mhc_model.predict(protein_subsequences)
         logging.info("MHC predictor returned %s peptide binding predictions" % (
