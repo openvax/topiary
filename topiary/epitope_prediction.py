@@ -11,67 +11,146 @@
 # limitations under the License.
 
 from __future__ import print_function, division, absolute_import
-from collections import namedtuple, defaultdict
+from collections import defaultdict
 
 from .sequence_helpers import (
     contains_mutant_residues,
     peptide_mutation_interval,
 )
 
-# information about epitopes from any protein, not restricted to mutant
-# proteins. Fields are similar to mhctools.BindingPrediction but augmented
-# with information about a source protein and the window within that protein
-# that epitope predictions were drawn from.
-EpitopePrediction = namedtuple("EpitopePrediction", (
-    # either an Ensembl ID or custom ID from transcriptome assembly
-    "protein_id",
-    "protein_length",
-    # where in the protein sequence did our prediction window start?
-    "protein_subsequence",
-    "subsequence_start_in_protein",
-    # peptide for which the binding prediction was made
-    "peptide",
-    "peptide_length",
-    # offset of the peptide in the full protein
-    "peptide_start_in_protein",
-    # offset of the peptide in the subsequence we made predictions for
-    "peptide_start_in_subsequence",
-    "allele",
-    # TODO: allow for multiple sources of prediction?
-    # What if we want to have both stability and affinity measurements
-    # for a single pMHC complex?
-    "value",
-    "percentile_rank",
-    "prediction_method_name",
-))
+class EpitopePrediction(object):
+    """
+    Information about predicted epitopes from any protein, not restricted to
+    mutated proteins. Fields are similar to mhctools.BindingPrediction but
+    augmented with information about a source protein and the window within
+    that protein that epitope predictions were drawn from.
+    """
+    def __init__(
+            self,
+            protein_id,
+            protein_length,
+            protein_subsequence,
+            subsequence_start_in_protein,
+            peptide,
+            peptide_length,
+            peptide_start_in_protein,
+            peptide_start_in_subsequence,
+            allele,
+            # TODO: allow for multiple sources of prediction?
+            # What if we want to have both stability and affinity measurements
+            # for a single pMHC complex?
+            value,
+            percentile_rank,
+            prediction_method_name):
+        """
+        Parameters
+        ----------
+        protein_id : str
+            Ensembl ID of source protein
 
-# epitopes arising from mutations (either cancer or germline)
-MutantEpitopePrediction = namedtuple(
-    "MutantEpitopePrediction",
-    EpitopePrediction._fields + (
-        # genomic variant that caused a mutant protein to be produced
-        "variant",
-        # varcode Effect associated with the variant/transcript combination
-        "effect",
-        # transcript we're choosing to use for this variant
-        "transcript_id",
-        "transcript_name",
-        # half-open interval of mutant residues within the peptide sequence
-        "mutation_start_in_peptide",
-        "mutation_end_in_peptide",
-        # half-open interval of mutant residues within the full protein
-        "mutation_start_in_protein",
-        "mutation_end_in_protein",
-        # does the peptide sequence contain any mutated residues
-        "contains_mutant_residues",
-        # does this peptide occur elsewhere in the self ligandome for the
-        # predicted allele that it binds to?
-        "occurs_in_self_ligandome",
-        # should we consider this as a mutant peptide?
-        # Differs from 'contains_mutant_residues' in that it excludes
-        # peptides that occur in the self-ligandome
-        "novel_epitope",
-    ))
+        protein_subsequence: str
+
+        subsequence_start_in_protein : int
+            Where in the protein sequence did our prediction window start?
+
+        peptide_start_in_protein : int
+            Offset of the peptide in the full protein
+
+        peptide_start_in_subsequence : int
+            Offset of the peptide in the subsequence
+
+        allele : str
+            MHC allele of binding prediction
+
+        value : float
+            Predicted IC50 affinity between peptide and allele
+
+        percentile_rank : float
+
+        prediction_method_name : str
+            Name of peptide-MHC binding predictor
+        """
+        self.protein_id = protein_id
+        self.protein_length = protein_length
+        self.protein_subsequence = protein_subsequence
+        self.subsequence_start_in_protein = subsequence_start_in_protein
+        self.peptide = peptide
+        self.peptide_length = peptide_length
+        self.peptide_start_in_protein = peptide_start_in_protein
+        self.peptide_start_in_subsequence = peptide_start_in_subsequence
+        self.allele = allele
+        # TODO: allow for multiple sources of prediction?
+        # What if we want to have both stability and affinity measurements
+        # for a single pMHC complex?
+        self.value = value
+        self.percentile_rank = percentile_rank
+        self.prediction_method_name = prediction_method_name
+
+class MutantEpitopePrediction(EpitopePrediction):
+    """
+    Epitopes arising from mutations (either cancer or germline)
+    """
+    def __init__(
+            self,
+            variant,
+            effect,
+            transcript_id,
+            transcript_name,
+            mutation_start_in_peptide,
+            mutation_end_in_peptide,
+            mutation_start_in_protein,
+            mutation_end_in_protein,
+            contains_mutant_residues,
+            occurs_in_self_ligandome,
+            novel_epitope,
+            **kwargs):
+        """
+        variant : varcode.Variant
+            Genomic variant that caused a mutant protein to be produced
+
+        effect : varcode.Effect
+            Effect prediction associated with the variant/transcript combination
+
+        transcript_id : str
+            Ensembl ID of transcript we're choosing to use for this variant
+
+        transcript_name : str
+            Name of transcript associated with transcript_id
+
+        mutation_start_in_peptide : int
+            Half-open interval of mutant residues within the full protein
+
+        mutation_end_in_peptide : int
+
+        mutation_start_in_protein : int
+
+        mutation_end_in_protein : int
+
+        contains_mutant_residues : bool
+            Does the peptide sequence contain any mutated residues
+
+        occurs_in_self_ligandome : bool
+            Does this peptide occur elsewhere in the self ligandome for the
+            predicted allele that it binds to?
+
+        novel_epitope : bool
+            Should we consider this as a mutant peptide?
+            Differs from 'contains_mutant_residues' in that it excludes
+            peptides that occur in the self-ligandome
+        """
+        EpitopePrediction.__init__(self, **kwargs)
+        self.variant = variant
+        self.effect = effect
+        self.transcript_id = transcript_id
+        self.transcript_name = transcript_name
+        self.mutation_start_in_peptide = mutation_start_in_peptide
+        self.mutation_end_in_peptide = mutation_end_in_peptide
+        self.mutation_start_in_protein = mutation_start_in_protein
+        self.mutation_end_in_protein = mutation_end_in_protein
+        self.contains_mutant_residues = contains_mutant_residues
+        self.occurs_in_self_ligandome = occurs_in_self_ligandome
+        self.novel_epitope = novel_epitope
+
 
 def build_epitope_collection_from_binding_predictions(
         binding_predictions,
@@ -114,6 +193,9 @@ def build_epitope_collection_from_binding_predictions(
                 peptide_to_effect_dict[peptide].append((effect, seq))
 
     epitope_predictions = []
+    # TODO: group binding predictions by mutations
+    # and have one object per mutation, which inherits
+
     for binding_prediction in binding_predictions:
         for effect, subsequence in peptide_to_effect_dict[binding_prediction.peptide]:
             full_protein_sequence = effect.mutant_protein_sequence
@@ -167,7 +249,6 @@ def build_epitope_collection_from_binding_predictions(
                 transcript_name=effect.transcript.name,
                 contains_mutant_residues=is_mutant,
                 occurs_in_self_ligandome=self_ligand,
-                novel_epitope=is_mutant and not self_ligand,
-            )
+                novel_epitope=is_mutant and not self_ligand)
             epitope_predictions.append(mutant_epitope_prediction)
     return epitope_predictions
