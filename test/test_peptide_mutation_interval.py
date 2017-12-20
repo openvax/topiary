@@ -54,4 +54,3 @@ def test_peptide_mutation_interval_no_overlap_after():
             peptide_length=9,
             mutation_start_in_protein=25,
             mutation_end_in_protein=26)
-
