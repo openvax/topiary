@@ -36,8 +36,8 @@ class TopiaryPredictor(object):
             padding_around_mutation=None,
             ic50_cutoff=None,
             percentile_cutoff=None,
-            transcript_expression_threshold=0.0,
-            gene_expression_threshold=0.0,
+            min_gene_expression=0.0,
+            min_transcript_expression=0.0,
             only_novel_epitopes=False,
             wildtype_ligandome_dict=None,
             raise_on_error=True):
@@ -52,13 +52,13 @@ class TopiaryPredictor(object):
             candidate epitope. Default is the minimum size necessary for epitope
             length of the mhc model.
 
-        transcript_expression_threshold : float, optional
-            If transcript_expression_dict is given, only keep effects on
-            transcripts above this threshold.
-
         gene_expression_threshold : float, optional
             If gene_expression_dict is given, only keep effects on genes
             expressed above this threshold.
+
+        transcript_expression_threshold : float, optional
+            If transcript_expression_dict is given, only keep effects on
+            transcripts above this threshold.
 
         ic50_cutoff : float, optional
             Maximum predicted IC50 value for a peptide to be considered a binder.
@@ -85,8 +85,8 @@ class TopiaryPredictor(object):
         self.padding_around_mutation = padding_around_mutation
         self.ic50_cutoff = ic50_cutoff
         self.percentile_cutoff = percentile_cutoff
-        self.transcript_expression_threshold = transcript_expression_threshold
-        self.gene_expression_threshold = gene_expression_threshold
+        self.min_transcript_expression = min_transcript_expression
+        self.min_gene_expression = min_gene_expression
         self.only_novel_epitopes = only_novel_epitopes
         self.wildtype_ligandome_dict = wildtype_ligandome_dict
         self.raise_on_error = raise_on_error
@@ -103,9 +103,6 @@ class TopiaryPredictor(object):
         ----------
         effects : Varcode.EffectCollection
 
-        mhc_model : mhctools.BasePredictor
-            Any instance of a peptide-MHC binding affinity predictor
-
         padding_around_mutation : int
             How many residues surrounding a mutation to consider including in a
             candidate epitope. Default is the minimum size necessary for epitope
@@ -118,33 +115,8 @@ class TopiaryPredictor(object):
             transcript selection is done using priority of variant effects and
             transcript length.
 
-        transcript_expression_threshold : float, optional
-            If transcript_expression_dict is given, only keep effects on
-            transcripts above this threshold.
-
         gene_expression_dict : dict, optional
             Dictionary mapping gene IDs to RNA expression estimates
-
-        gene_expression_threshold : float, optional
-            If gene_expression_dict is given, only keep effects on genes
-            expressed above this threshold.
-
-        ic50_cutoff : float, optional
-            Maximum predicted IC50 value for a peptide to be considered a binder.
-
-        percentile_cutoff : float, optional
-            Maximum percentile rank of IC50 values for a peptide to be considered
-            a binder.
-
-        only_novel_epitopes : bool, optional
-            If True, then drop peptides which either don't contain a mutation or
-            occur elsewhere in the self-ligandome.
-
-        wildtype_ligandome_dict : dict-like, optional
-            Mapping from allele names to set of wildtype peptides predicted
-            to bind to that allele. If any predicted mutant epitope is found
-            in the peptide sets for the patient's alleles, it is marked as
-            wildtype (non-mutant).
         """
         padding_around_mutation = check_padding_around_mutation(
             given_padding=self.padding_around_mutation,
@@ -157,9 +129,9 @@ class TopiaryPredictor(object):
         effects = apply_effect_expression_filters(
             effects,
             transcript_expression_dict=transcript_expression_dict,
-            transcript_expression_threshold=self.transcript_expression_threshold,
+            transcript_expression_threshold=self.min_transcript_expression,
             gene_expression_dict=gene_expression_dict,
-            gene_expression_threshold=self.gene_expression_threshold)
+            gene_expression_threshold=self.min_gene_expression)
 
         # group by variants, so that we end up with only one mutant
         # sequence per mutation

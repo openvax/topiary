@@ -16,7 +16,7 @@ mhc_model = NetMHC(
 def test_epitopes_to_dataframe_length():
     predictor = TopiaryPredictor(
         mhc_model=mhc_model, only_novel_epitopes=False)
-    epitopes = predictor.predict_epitopes_from_variants(variants=cancer_test_variants,)
+    epitopes = predictor.epitopes_from_variants(variants=cancer_test_variants,)
     df = epitopes_to_dataframe(epitopes)
     eq_(len(df), len(epitopes))
 
