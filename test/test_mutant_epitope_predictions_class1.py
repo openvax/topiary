@@ -18,7 +18,7 @@ from __future__ import print_function, division, absolute_import
 from mhctools import NetMHCpan
 from nose.tools import eq_, raises
 from pyensembl import ensembl_grch37
-from topiary import predict_epitopes_from_variants
+from topiary import TopiaryPredictor
 from varcode import Variant, VariantCollection
 
 # TODO: find out about these variants,
@@ -52,11 +52,9 @@ mhc_model = NetMHCpan(
 
 
 def test_epitope_prediction_without_padding():
-    output_without_padding = predict_epitopes_from_variants(
-        variants=variants,
+    output_without_padding = TopiaryPredictor(
         mhc_model=mhc_model,
-        transcript_expression_dict=None,
-        only_novel_epitopes=True)
+        only_novel_epitopes=True).epitopes_from_variants(variants=variants)
     # one prediction for each variant * number of alleles
     strong_binders = [
         epitope_prediction
@@ -67,28 +65,23 @@ def test_epitope_prediction_without_padding():
 
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_padding():
-    predict_epitopes_from_variants(
-        variants=variants,
+    TopiaryPredictor(
         mhc_model=mhc_model,
-        transcript_expression_dict=None,
-        padding_around_mutation=7)
+        padding_around_mutation=7).epitopes_from_variants(variants=variants)
 
 
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_zero_padding():
-    predict_epitopes_from_variants(
-        variants=variants,
+    TopiaryPredictor(
         mhc_model=mhc_model,
-        transcript_expression_dict=None,
-        padding_around_mutation=7)
+        padding_around_mutation=7).epitopes_from_variants(variants=variants)
 
 
 def test_epitope_prediction_with_valid_padding():
-    output_with_padding = predict_epitopes_from_variants(
-        variants=variants,
+    predictor = TopiaryPredictor(
         mhc_model=mhc_model,
-        transcript_expression_dict=None,
         padding_around_mutation=8,
         only_novel_epitopes=True)
+    output_with_padding = predictor.epitopes_from_variants(variants=variants)
     # 6 alleles * 2 mutations * 9 distinct windows = 108
     eq_(len(output_with_padding), 108)

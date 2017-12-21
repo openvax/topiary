@@ -1,6 +1,6 @@
 from nose.tools import eq_
 from mhctools import NetMHC
-from topiary import epitopes_to_dataframe, predict_epitopes_from_variants
+from topiary import epitopes_to_dataframe, TopiaryPredictor
 from .data import cancer_test_variants
 
 alleles = [
@@ -14,21 +14,19 @@ mhc_model = NetMHC(
     default_peptide_lengths=[8, 9, 10])
 
 def test_epitopes_to_dataframe_length():
-    epitopes = predict_epitopes_from_variants(
-        variants=cancer_test_variants,
-        mhc_model=mhc_model,
-        transcript_expression_dict=None,
-        only_novel_epitopes=False)
+    predictor = TopiaryPredictor(
+        mhc_model=mhc_model, only_novel_epitopes=False)
+    epitopes = predictor.epitopes_from_variants(variants=cancer_test_variants,)
     df = epitopes_to_dataframe(epitopes)
     eq_(len(df), len(epitopes))
 
 DEFAULT_FPKM = 1.0
 
 def test_epitopes_to_dataframe_transcript_expression():
-    epitopes = predict_epitopes_from_variants(
-        variants=cancer_test_variants,
+    predictor = TopiaryPredictor(
         mhc_model=mhc_model,
         only_novel_epitopes=False)
+    epitopes = predictor.epitopes_from_variants(variants=cancer_test_variants)
     df = epitopes_to_dataframe(
         epitopes,
         transcript_expression_dict={
@@ -42,10 +40,11 @@ def test_epitopes_to_dataframe_transcript_expression():
         "Invalid FPKM values in DataFrame transcript_expression column"
 
 def test_epitopes_to_dataframe_gene_expression():
-    epitopes = predict_epitopes_from_variants(
-        variants=cancer_test_variants,
+    predictor = TopiaryPredictor(
         mhc_model=mhc_model,
         only_novel_epitopes=False)
+
+    epitopes = predictor.epitopes_from_variants(variants=cancer_test_variants)
     df = epitopes_to_dataframe(
         epitopes,
         gene_expression_dict={
