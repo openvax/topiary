@@ -32,8 +32,6 @@ class EpitopePrediction(object):
             protein_subsequence,
             subsequence_start_in_protein,
             peptide,
-            peptide_length,
-            peptide_start_in_protein,
             peptide_start_in_subsequence,
             allele,
             # TODO: allow for multiple sources of prediction?
@@ -53,8 +51,7 @@ class EpitopePrediction(object):
         subsequence_start_in_protein : int
             Where in the protein sequence did our prediction window start?
 
-        peptide_start_in_protein : int
-            Offset of the peptide in the full protein
+        peptide : str
 
         peptide_start_in_subsequence : int
             Offset of the peptide in the subsequence
@@ -75,8 +72,6 @@ class EpitopePrediction(object):
         self.protein_subsequence = protein_subsequence
         self.subsequence_start_in_protein = subsequence_start_in_protein
         self.peptide = peptide
-        self.peptide_length = peptide_length
-        self.peptide_start_in_protein = peptide_start_in_protein
         self.peptide_start_in_subsequence = peptide_start_in_subsequence
         self.allele = allele
         # TODO: allow for multiple sources of prediction?
@@ -86,45 +81,34 @@ class EpitopePrediction(object):
         self.percentile_rank = percentile_rank
         self.prediction_method_name = prediction_method_name
 
+    @property
+    def peptide_start_in_protein(self):
+        return self.subsequence_start_in_protein + self.peptide_start_in_subsequence
+
+    @property
+    def peptide_length(self):
+        return len(self.peptide)
+
 class MutantEpitopePrediction(EpitopePrediction):
     """
     Epitopes arising from mutations (either cancer or germline)
     """
     def __init__(
             self,
-            variant,
             effect,
-            transcript_id,
-            transcript_name,
             mutation_start_in_peptide,
             mutation_end_in_peptide,
-            mutation_start_in_protein,
-            mutation_end_in_protein,
             contains_mutant_residues,
             occurs_in_self_ligandome,
-            novel_epitope,
             **kwargs):
         """
-        variant : varcode.Variant
-            Genomic variant that caused a mutant protein to be produced
-
         effect : varcode.Effect
             Effect prediction associated with the variant/transcript combination
-
-        transcript_id : str
-            Ensembl ID of transcript we're choosing to use for this variant
-
-        transcript_name : str
-            Name of transcript associated with transcript_id
 
         mutation_start_in_peptide : int
             Half-open interval of mutant residues within the full protein
 
         mutation_end_in_peptide : int
-
-        mutation_start_in_protein : int
-
-        mutation_end_in_protein : int
 
         contains_mutant_residues : bool
             Does the peptide sequence contain any mutated residues
@@ -132,25 +116,42 @@ class MutantEpitopePrediction(EpitopePrediction):
         occurs_in_self_ligandome : bool
             Does this peptide occur elsewhere in the self ligandome for the
             predicted allele that it binds to?
-
-        novel_epitope : bool
-            Should we consider this as a mutant peptide?
-            Differs from 'contains_mutant_residues' in that it excludes
-            peptides that occur in the self-ligandome
         """
         EpitopePrediction.__init__(self, **kwargs)
-        self.variant = variant
         self.effect = effect
-        self.transcript_id = transcript_id
-        self.transcript_name = transcript_name
         self.mutation_start_in_peptide = mutation_start_in_peptide
         self.mutation_end_in_peptide = mutation_end_in_peptide
-        self.mutation_start_in_protein = mutation_start_in_protein
-        self.mutation_end_in_protein = mutation_end_in_protein
         self.contains_mutant_residues = contains_mutant_residues
         self.occurs_in_self_ligandome = occurs_in_self_ligandome
-        self.novel_epitope = novel_epitope
 
+    @property
+    def variant(self):
+        return self.effect.variant
+
+    @property
+    def mutation_start_in_protein(self):
+        return self.mutation_start_in_peptide + self.peptide_start_in_protein
+
+    @property
+    def mutation_end_in_protein(self):
+        return self.mutation_end_in_peptide + self.peptide_start_in_protein
+
+    @property
+    def transcript_id(self):
+        return self.effect.transcript_id
+
+    @property
+    def transcript_name(self):
+        return self.effect.transcript_name
+
+    @property
+    def novel_epitope(self):
+        """
+        Should we consider this as a mutant peptide?
+        Differs from 'contains_mutant_residues' in that it excludes
+        peptides that occur in the self-ligandome
+        """
+        return self.contains_mutant_residues and not self.occurs_in_self_ligandome
 
 def build_epitope_collection_from_binding_predictions(
         binding_predictions,
@@ -232,23 +233,15 @@ def build_epitope_collection_from_binding_predictions(
                 protein_subsequence=subsequence,
                 subsequence_start_in_protein=subsequence_protein_offset,
                 peptide=binding_prediction.peptide,
-                peptide_length=len(binding_prediction.peptide),
-                peptide_start_in_protein=peptide_start_in_protein,
                 peptide_start_in_subsequence=binding_prediction.offset,
                 mutation_start_in_peptide=mutation_start_in_peptide,
                 mutation_end_in_peptide=mutation_end_in_peptide,
-                mutation_start_in_protein=mutation_start_in_protein,
-                mutation_end_in_protein=mutation_end_in_protein,
                 allele=binding_prediction.allele,
                 value=binding_prediction.value,
                 percentile_rank=binding_prediction.percentile_rank,
                 prediction_method_name=binding_prediction.prediction_method_name,
-                variant=effect.variant,
                 effect=effect,
-                transcript_id=effect.transcript.id,
-                transcript_name=effect.transcript.name,
                 contains_mutant_residues=is_mutant,
-                occurs_in_self_ligandome=self_ligand,
-                novel_epitope=is_mutant and not self_ligand)
+                occurs_in_self_ligandome=self_ligand)
             epitope_predictions.append(mutant_epitope_prediction)
     return epitope_predictions
