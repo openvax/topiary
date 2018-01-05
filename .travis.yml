@@ -13,7 +13,7 @@ addons:
 env:
   global:
     # MHC_BUNDLE_PASS
-    - secure: "bWJ1eCA19Qt8dHarlUC/5SfgkOk08VdASljeC7NVy7jAzNnhZna6My39BkBWHUxDGGN6PxeaNzb8COMo94dcfk5OoIQ8ZB8CXwtg/o5Unpi8S2uNC1+H6SvR06xYXPCNozqPwBO151HAK+8IhEpJidQ0Mj1qjrYC3BiWePrXwgs="
+    - secure: "TLTzSIABO/iYke8C66c0PRaWDZ5lx90s8XimSfDONOTXaX74V25O65qxzIWPAihxcdfLYA+bE2YRsjYOtuK+6DB2vjXbmoCQAXIFT/QXz4+iZTxN3g/s5N4hIR8tf9MSQ3KdNHOw7lKzdgAWKsFDQ8vwrqzYUNJGVtvoQSWCmPw="
 before_install:
   # Commands below copied from: http://conda.pydata.org/docs/travis.html
   # We do this conditionally because it saves us some downloading if the
@@ -32,7 +32,7 @@ before_install:
   - conda info -a
 
   # install MHC predictors
-  - git clone https://mhcbundle:$MHC_BUNDLE_PASS@github.com/hammerlab/netmhc-bundle.git
+  - git clone https://mhcbundle:$MHC_BUNDLE_PASS@github.com/openvax/netmhc-bundle.git
   - export NETMHC_BUNDLE_HOME=$PWD/netmhc-bundle
   - mkdir tmp
   - export NETMHC_BUNDLE_TMPDIR=$PWD/tmp
@@ -56,8 +56,8 @@ after_success:
 deploy:
   provider: pypi
   distributions: sdist
-  user: hammerlab
+  user: openvax
   password: # See http://docs.travis-ci.com/user/encryption-keys/
-    secure: "WmjH4aashVXAmW/0eKkmO3TwFL2eZpo1Dyb0+hZeJrKMPSfqyObvKjTANBfqgGvR3XoShy8egHaFuLvDMO3/Xh77tjOAq12KZVcYi0IsFADZrPOJzmUqU9Ck9j7fN0sly+mSwNNMHel3OOi77/EVOEm95LNLb1VncsPjwYoHTj8="
+    secure: "S4KWAhJpKYx5F/cBc6cf9GCZ8Hd+WtMA6V6PP25PglLnVaXrxB5QxuAIWGAvr/jGuTHjfCSCNDwTptW3natLjJR9IfJdJPp3gNvM0RDjWY4FsziFz/nG/bZo9qnh4ZCDhK/Po1izxXM0u9z6gUc0U2iKK1ZSdfawyW4nZbAXQUU="
   on:
     branch: master
