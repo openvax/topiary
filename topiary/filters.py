@@ -19,7 +19,6 @@ Helper functions for filtering variants, effects, and epitope predictions
 from __future__ import print_function, division, absolute_import
 import logging
 
-
 from varcode import NonsilentCodingMutation
 
 def apply_filter(
@@ -150,53 +149,3 @@ def apply_effect_expression_filters(
                 "Effect transcript expression (min=%0.4f)" % (
                     transcript_expression_threshold,)))
     return effects
-
-def apply_epitope_filters(
-        epitope_predictions,
-        ic50_cutoff,
-        percentile_cutoff,
-        only_novel_epitopes):
-    """
-    Apply affinity and wildtype filters and create an EpitopeCollection
-    from the remaining binding predictions.
-
-    Parameters
-    ----------
-    epitope_predictions : mhctools.EpitopeCollection
-
-    ic50_cutoff : float
-        Highest allowed IC50 value
-        (e.g. 25nM is a stronger binding value than 100nM)
-
-    percentile_cutoff : float
-        Highest allowed percentile of IC50 value
-        (e.g. 1st percentile is a strong binder than 10th)
-
-    only_novel_epitopes : bool
-        If True, only keep epitopes that are mutated and don't appear elsewhere
-        in the self-ligandome
-    """
-    # filter out low binders
-    if ic50_cutoff:
-        epitope_predictions = apply_filter(
-            filter_fn=lambda x: x.value <= ic50_cutoff,
-            collection=epitope_predictions,
-            filter_name="IC50 nM cutoff",
-            collection_name="epitope predictions",
-        )
-    if percentile_cutoff:
-        epitope_predictions = apply_filter(
-            filter_fn=lambda x: x.percentile_rank <= percentile_cutoff,
-            collection=epitope_predictions,
-            filter_name="IC50 percentile rank cutoff",
-            collection_name="epitope predictions",
-        )
-
-    if only_novel_epitopes:
-        epitope_predictions = apply_filter(
-            filter_fn=lambda x: x.novel_epitope,
-            collection=epitope_predictions,
-            filter_name="Novel epitope",
-            collection_name="epitope predictions",
-        )
-    return epitope_predictions
