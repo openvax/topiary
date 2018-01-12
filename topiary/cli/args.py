@@ -32,7 +32,6 @@ from .sequence import add_sequence_args
 from .errors import add_error_args
 from .outputs import add_output_args
 
-from ..lazy_ligandome_dict import LazyLigandomeDict
 from ..predictor import TopiaryPredictor
 
 def create_arg_parser():
@@ -62,11 +61,7 @@ def predict_epitopes_from_args(args):
     variants = variant_collection_from_args(args)
     gene_expression_dict = rna_gene_expression_dict_from_args(args)
     transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
-    if args.wildtype_ligandome_directory:
-        wildtype_ligandome_dict = LazyLigandomeDict(
-            args.wildtype_ligandome_directory)
-    else:
-        wildtype_ligandome_dict = None
+
     predictor = TopiaryPredictor(
         mhc_model=mhc_model,
         padding_around_mutation=args.padding_around_mutation,
@@ -75,9 +70,8 @@ def predict_epitopes_from_args(args):
         min_transcript_expression=args.rna_min_transcript_expression,
         min_gene_expression=args.rna_min_gene_expression,
         only_novel_epitopes=args.only_novel_epitopes,
-        wildtype_ligandome_dict=wildtype_ligandome_dict,
         raise_on_error=not args.skip_variant_errors)
-    return predictor.epitopes_from_variants(
+    return predictor.predict_variants(
         variants=variants,
         transcript_expression_dict=transcript_expression_dict,
         gene_expression_dict=gene_expression_dict)

@@ -49,7 +49,7 @@ mhc_model = NetMHCIIpan(
 def test_netmhcii_pan_epitopes():
     epitope_predictions = TopiaryPredictor(
         mhc_model=mhc_model,
-        only_novel_epitopes=True).epitopes_from_variants(variants=variants)
+        only_novel_epitopes=True).predict_variants(variants=variants)
 
     # expect (15 + 16 mutant peptides) * (2 alleles) * 2 variants =
     # 124 total epitope predictions

@@ -160,9 +160,11 @@ class TopiaryPredictor(object):
         Returns DataFrame with the following columns:
             - variant
             - gene
+            - gene_id
             - transcript_id
             - transcript_name
             - effect
+            - effect_type
             - offset
             - peptide
             - length
@@ -173,6 +175,11 @@ class TopiaryPredictor(object):
             - contains_mutant_residues
             - mutation_start_in_peptide
             - mutation_end_in_peptide
+
+        Optionall will also include the following columns if corresponding
+        expression dictionary inputs are provided:
+            - gene_expression
+            - transcript_expression
         """
 
         # we only care about effects which impact the coding sequence of a
@@ -265,13 +272,21 @@ class TopiaryPredictor(object):
 
         extra_columns = OrderedDict([
             ('gene', []),
+            ('gene_id', []),
+            ('gene_expression', []),
             ('transcript_id', []),
             ('transcript_name', []),
+            ('transcript_expression', []),
             ('effect', []),
+            ('effect_type', []),
             ('contains_mutant_residues', []),
             ('mutation_start_in_peptide', []),
             ('mutation_end_in_peptide', []),
         ])
+        if gene_expression_dict is not None:
+            extra_columns.append(("gene_expression", []))
+        if transcript_expression_dict is not None:
+            extra_columns.append(("transcript_expression", []))
 
         for _, row in df.iterrows():
             variant_string = row.source_sequence_name
@@ -298,9 +313,22 @@ class TopiaryPredictor(object):
             # the reference proteome
             if is_mutant or not self.only_novel_epitopes:
                 extra_columns["gene"].append(effect.variant.gene_name)
-                extra_columns["transcript_id"].append(effect.transcript_id)
+                gene_id = effect.variant.gene_id
+                extra_columns["gene_id"].append(gene_id)
+                if gene_expression_dict is not None:
+                    extra_columns["gene_expression"].append(
+                        gene_expression_dict.get(gene_id, 0.0))
+
+                transcript_id = effect.transcript_id
+                extra_columns["transcript_id"].append()
                 extra_columns["transcript_name"].append(effect.transcript_name)
+                if transcript_expression_dict is not None:
+                    extra_columns["transcript_expression"].append(
+                        transcript_expression_dict.get(transcript_id, 0.0))
+
                 extra_columns["effect"].append(effect.short_description)
+                extra_columns["effect_type"].append(effect.__class__.__name__)
+
                 extra_columns["contains_mutant_residues"].append(is_mutant)
                 extra_columns["mutation_start_in_peptide"].append(mutation_start_in_peptide)
                 extra_columns["mutation_end_in_peptide"].append(mutation_end_in_peptide)
@@ -330,9 +358,11 @@ class TopiaryPredictor(object):
         Returns DataFrame with the following columns:
             - variant
             - gene
+            - gene_id
             - transcript_id
             - transcript_name
             - effect
+            - effect_type
             - offset
             - peptide
             - length
@@ -343,6 +373,11 @@ class TopiaryPredictor(object):
             - contains_mutant_residues
             - mutation_start_in_peptide
             - mutation_end_in_peptide
+
+        Optionall will also include the following columns if corresponding
+        expression dictionary inputs are provided:
+            - gene_expression
+            - transcript_expression
         """
         # pre-filter variants by checking if any of the genes or
         # transcripts they overlap have sufficient expression.
