@@ -56,11 +56,7 @@ def test_epitope_prediction_without_padding():
         mhc_model=mhc_model,
         only_novel_epitopes=True).predict_variants(variants=variants)
     # one prediction for each variant * number of alleles
-    strong_binders = [
-        epitope_prediction
-        for epitope_prediction in output_without_padding
-        if epitope_prediction.value <= 500.0
-    ]
+    strong_binders = output_without_padding[output_without_padding.affinity <= 500]
     eq_(len(strong_binders), 5)
 
 @raises(ValueError)

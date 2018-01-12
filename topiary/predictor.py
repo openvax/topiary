@@ -98,15 +98,19 @@ class TopiaryPredictor(object):
 
         Returns pandas.DataFrame with the following columns:
             - source_sequence_name
-            - offset
             - peptide
+            - peptide_offset
+            - peptide_length
             - allele
             - affinity
             - percentile_rank
             - prediction_method_name
-            - length
         """
-        return self.mhc_model.predict_subsequences_dataframe(name_to_sequence_dict)
+        df = self.mhc_model.predict_subsequences_dataframe(name_to_sequence_dict)
+        return df.rename(
+            columns={
+                "length": "peptide_length",
+                "offset": "peptide_offset"})
 
     def predict_sequences(self, sequences):
         """
@@ -119,9 +123,9 @@ class TopiaryPredictor(object):
 
         Returns DataFrame with the following fields:
             - source_sequence
-            - offset
             - peptide
-            - length
+            - peptide_offset
+            - peptide_length
             - allele
             - affinity
             - percentile_rank
@@ -165,9 +169,9 @@ class TopiaryPredictor(object):
             - transcript_name
             - effect
             - effect_type
-            - offset
             - peptide
-            - length
+            - peptide_offset
+            - peptide_length
             - allele
             - affinity
             - percentile_rank
@@ -233,7 +237,7 @@ class TopiaryPredictor(object):
         # reduced to a single 'top priority' effect, we can uniquely
         # identify each variant sequence by its original genomic variant
         variant_string_to_effect_dict = {
-            effect.variant.short_description
+            effect.variant.short_description: effect
             for effect in effect_to_subsequence_dict.keys()
         }
         variant_string_to_subsequence_dict = {
@@ -241,8 +245,8 @@ class TopiaryPredictor(object):
             for (effect, seq) in effect_to_subsequence_dict.items()
         }
         variant_string_to_offset_dict = {
-            effect.variant.short_description: offset
-            for (effect, offset) in effect_to_offset_dict.items()
+            effect.variant.short_description: subseq_offset
+            for (effect, subseq_offset) in effect_to_offset_dict.items()
         }
         df = self.predict_named_sequences(variant_string_to_subsequence_dict)
         logging.info("MHC predictor returned %d peptide binding predictions" % (
@@ -256,9 +260,11 @@ class TopiaryPredictor(object):
         # than whatever subsequence we used for prediction
         def compute_peptide_offset_relative_to_protein(row):
             subsequence_offset = variant_string_to_offset_dict[row.variant]
-            return row.offset + subsequence_offset
+            return row.peptide_offset + subsequence_offset
 
-        df["offset"] = df.apply(compute_peptide_offset_relative_to_protein)
+        df["peptide_offset"] = df.apply(
+            compute_peptide_offset_relative_to_protein,
+            axis=1)
 
         if self.ic50_cutoff:
             df = df[df.affinity <= self.ic50_cutoff]
@@ -273,10 +279,8 @@ class TopiaryPredictor(object):
         extra_columns = OrderedDict([
             ('gene', []),
             ('gene_id', []),
-            ('gene_expression', []),
             ('transcript_id', []),
             ('transcript_name', []),
-            ('transcript_expression', []),
             ('effect', []),
             ('effect_type', []),
             ('contains_mutant_residues', []),
@@ -284,56 +288,60 @@ class TopiaryPredictor(object):
             ('mutation_end_in_peptide', []),
         ])
         if gene_expression_dict is not None:
-            extra_columns.append(("gene_expression", []))
+            extra_columns["gene_expression"] = []
         if transcript_expression_dict is not None:
-            extra_columns.append(("transcript_expression", []))
+            extra_columns["transcript_expression"] = []
 
         for _, row in df.iterrows():
-            variant_string = row.source_sequence_name
-            effect = variant_string_to_effect_dict[variant_string]
+            effect = variant_string_to_effect_dict[row.variant]
             mutation_start_in_protein = effect.aa_mutation_start_offset
             mutation_end_in_protein = effect.aa_mutation_end_offset
             peptide_length = len(row.peptide)
             is_mutant = contains_mutant_residues(
-                peptide_start_in_protein=row.offset,
+                peptide_start_in_protein=row.peptide_offset,
                 peptide_length=peptide_length,
                 mutation_start_in_protein=mutation_start_in_protein,
                 mutation_end_in_protein=mutation_end_in_protein)
             if is_mutant:
                 mutation_start_in_peptide, mutation_end_in_peptide = peptide_mutation_interval(
-                    peptide_start_in_protein=row.offset,
+                    peptide_start_in_protein=row.peptide_offset,
                     peptide_length=peptide_length,
                     mutation_start_in_protein=mutation_start_in_protein,
                     mutation_end_in_protein=mutation_end_in_protein)
             else:
                 mutation_start_in_peptide = mutation_end_in_peptide = None
-            # TODO: add extra boolean field
-            #   novel = is_mutant | not_in_reference
-            # Requires keeping a quick lookup structure for all peptides in
-            # the reference proteome
-            if is_mutant or not self.only_novel_epitopes:
-                extra_columns["gene"].append(effect.variant.gene_name)
-                gene_id = effect.variant.gene_id
-                extra_columns["gene_id"].append(gene_id)
-                if gene_expression_dict is not None:
-                    extra_columns["gene_expression"].append(
-                        gene_expression_dict.get(gene_id, 0.0))
 
-                transcript_id = effect.transcript_id
-                extra_columns["transcript_id"].append()
-                extra_columns["transcript_name"].append(effect.transcript_name)
-                if transcript_expression_dict is not None:
-                    extra_columns["transcript_expression"].append(
-                        transcript_expression_dict.get(transcript_id, 0.0))
+            extra_columns["gene"].append(effect.gene_name)
+            gene_id = effect.gene_id
+            extra_columns["gene_id"].append(gene_id)
+            if gene_expression_dict is not None:
+                extra_columns["gene_expression"].append(
+                    gene_expression_dict.get(gene_id, 0.0))
 
-                extra_columns["effect"].append(effect.short_description)
-                extra_columns["effect_type"].append(effect.__class__.__name__)
+            transcript_id = effect.transcript_id
+            extra_columns["transcript_id"].append(transcript_id)
+            extra_columns["transcript_name"].append(effect.transcript_name)
+            if transcript_expression_dict is not None:
+                extra_columns["transcript_expression"].append(
+                    transcript_expression_dict.get(transcript_id, 0.0))
 
-                extra_columns["contains_mutant_residues"].append(is_mutant)
-                extra_columns["mutation_start_in_peptide"].append(mutation_start_in_peptide)
-                extra_columns["mutation_end_in_peptide"].append(mutation_end_in_peptide)
+            extra_columns["effect"].append(effect.short_description)
+            extra_columns["effect_type"].append(effect.__class__.__name__)
+
+            extra_columns["contains_mutant_residues"].append(is_mutant)
+            extra_columns["mutation_start_in_peptide"].append(mutation_start_in_peptide)
+            extra_columns["mutation_end_in_peptide"].append(mutation_end_in_peptide)
+
         for col, values in extra_columns.items():
             df[col] = values
+
+        # TODO: add extra boolean field
+        #   novel = is_mutant | not_in_reference
+        # Requires keeping a quick lookup structure for all peptides in
+        # the reference proteome
+        if self.only_novel_epitopes:
+            df = df[df.contains_mutant_residues]
+
         return df
 
     def predict_variants(
@@ -363,9 +371,9 @@ class TopiaryPredictor(object):
             - transcript_name
             - effect
             - effect_type
-            - offset
             - peptide
-            - length
+            - peptide_offset
+            - peptide_length
             - allele
             - affinity
             - percentile_rank
