@@ -33,12 +33,8 @@ from __future__ import print_function, division, absolute_import
 import sys
 
 from .args import arg_parser, predict_epitopes_from_args
-from .rna import (
-    rna_gene_expression_dict_from_args,
-    rna_transcript_expression_dict_from_args
-)
+
 from .outputs import write_outputs
-from .. import epitopes_to_dataframe
 
 
 def parse_args(args_list=None):
@@ -54,12 +50,6 @@ def main(args_list=None):
     args = parse_args(args_list)
     print("Topiary commandline arguments:")
     print(args)
-    epitopes = predict_epitopes_from_args(args)
-    gene_expression_dict = rna_gene_expression_dict_from_args(args)
-    transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
-    df = epitopes_to_dataframe(
-        epitopes,
-        gene_expression_dict=gene_expression_dict,
-        transcript_expression_dict=transcript_expression_dict)
+    df = predict_epitopes_from_args(args)
     write_outputs(df, args)
     print("Total count: %d" % len(df))

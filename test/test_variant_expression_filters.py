@@ -4,7 +4,7 @@ from topiary.filters import apply_variant_expression_filters
 from .data import (
     cancer_test_variants,
     cancer_test_variant_gene_ids,
-    cancer_test_variant_transcript_ids
+    cancer_test_variant_transcript_ids,
 )
 
 DEFAULT_FPKM = 1.0

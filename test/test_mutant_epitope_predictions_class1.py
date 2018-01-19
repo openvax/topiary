@@ -54,27 +54,23 @@ mhc_model = NetMHCpan(
 def test_epitope_prediction_without_padding():
     output_without_padding = TopiaryPredictor(
         mhc_model=mhc_model,
-        only_novel_epitopes=True).epitopes_from_variants(variants=variants)
+        only_novel_epitopes=True).predict_from_variants(variants=variants)
     # one prediction for each variant * number of alleles
-    strong_binders = [
-        epitope_prediction
-        for epitope_prediction in output_without_padding
-        if epitope_prediction.value <= 500.0
-    ]
+    strong_binders = output_without_padding[output_without_padding.affinity <= 500]
     eq_(len(strong_binders), 5)
 
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_padding():
     TopiaryPredictor(
         mhc_model=mhc_model,
-        padding_around_mutation=7).epitopes_from_variants(variants=variants)
+        padding_around_mutation=7).predict_from_variants(variants=variants)
 
 
 @raises(ValueError)
 def test_epitope_prediction_with_invalid_zero_padding():
     TopiaryPredictor(
         mhc_model=mhc_model,
-        padding_around_mutation=7).epitopes_from_variants(variants=variants)
+        padding_around_mutation=7).predict_from_variants(variants=variants)
 
 
 def test_epitope_prediction_with_valid_padding():
@@ -82,6 +78,6 @@ def test_epitope_prediction_with_valid_padding():
         mhc_model=mhc_model,
         padding_around_mutation=8,
         only_novel_epitopes=True)
-    output_with_padding = predictor.epitopes_from_variants(variants=variants)
+    output_with_padding = predictor.predict_from_variants(variants=variants)
     # 6 alleles * 2 mutations * 9 distinct windows = 108
     eq_(len(output_with_padding), 108)

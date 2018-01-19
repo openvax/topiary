@@ -16,18 +16,19 @@ from __future__ import print_function, division, absolute_import
 
 import logging
 
+from collections import OrderedDict
+
+
 from .filters import (
-    apply_epitope_filters,
     apply_effect_expression_filters,
     apply_variant_expression_filters,
     filter_silent_and_noncoding_effects,
 )
 from .sequence_helpers import (
     protein_subsequences_around_mutations,
-    check_padding_around_mutation
-)
-from .epitope_prediction import (
-    build_epitope_collection_from_binding_predictions,
+    check_padding_around_mutation,
+    contains_mutant_residues,
+    peptide_mutation_interval,
 )
 
 class TopiaryPredictor(object):
@@ -40,7 +41,6 @@ class TopiaryPredictor(object):
             min_gene_expression=0.0,
             min_transcript_expression=0.0,
             only_novel_epitopes=False,
-            wildtype_ligandome_dict=None,
             raise_on_error=True):
         """
         Parameters
@@ -69,14 +69,9 @@ class TopiaryPredictor(object):
             a binder.
 
         only_novel_epitopes : bool, optional
-            If True, then drop peptides which either don't contain a mutation or
-            occur elsewhere in the self-ligandome.
-
-        wildtype_ligandome_dict : dict-like, optional
-            Mapping from allele names to set of wildtype peptides predicted
-            to bind to that allele. If any predicted mutant epitope is found
-            in the peptide sets for the patient's alleles, it is marked as
-            wildtype (non-mutant).
+            If True, then drop peptides which either don't contain a mutation.
+            TODO: make this also check that peptide doesn't occur elsewhere in
+            the reference ligandome
 
         raise_on_error : bool
             Raise an exception if error is encountered or skip
@@ -91,10 +86,60 @@ class TopiaryPredictor(object):
         self.min_transcript_expression = min_transcript_expression
         self.min_gene_expression = min_gene_expression
         self.only_novel_epitopes = only_novel_epitopes
-        self.wildtype_ligandome_dict = wildtype_ligandome_dict
         self.raise_on_error = raise_on_error
 
-    def epitopes_from_mutation_effects(
+    def predict_from_named_sequences(
+            self, name_to_sequence_dict):
+        """
+        Parameters
+        ----------
+        name_to_sequence_dict : (str->str) dict
+            Dictionary mapping sequence names to amino acid sequences
+
+        Returns pandas.DataFrame with the following columns:
+            - source_sequence_name
+            - peptide
+            - peptide_offset
+            - peptide_length
+            - allele
+            - affinity
+            - percentile_rank
+            - prediction_method_name
+        """
+        df = self.mhc_model.predict_subsequences_dataframe(name_to_sequence_dict)
+        return df.rename(
+            columns={
+                "length": "peptide_length",
+                "offset": "peptide_offset"})
+
+    def predict_from_sequences(self, sequences):
+        """
+        Predict MHC ligands for sub-sequences of each input sequence.
+
+        Parameters
+        ----------
+        sequences : list of str
+            Multiple amino acid sequences (without any names or IDs)
+
+        Returns DataFrame with the following fields:
+            - source_sequence
+            - peptide
+            - peptide_offset
+            - peptide_length
+            - allele
+            - affinity
+            - percentile_rank
+            - prediction_method_name
+        """
+        # make each sequence its own unique ID
+        sequence_dict = {
+            seq: seq
+            for seq in sequences
+        }
+        df = self.predict_from_named_sequences(sequence_dict)
+        return df.rename(columns={"source_sequence_name": "source_sequence"})
+
+    def predict_from_mutation_effects(
             self,
             effects,
             transcript_expression_dict=None,
@@ -115,6 +160,30 @@ class TopiaryPredictor(object):
 
         gene_expression_dict : dict, optional
             Dictionary mapping gene IDs to RNA expression estimates
+
+        Returns DataFrame with the following columns:
+            - variant
+            - gene
+            - gene_id
+            - transcript_id
+            - transcript_name
+            - effect
+            - effect_type
+            - peptide
+            - peptide_offset
+            - peptide_length
+            - allele
+            - affinity
+            - percentile_rank
+            - prediction_method_name
+            - contains_mutant_residues
+            - mutation_start_in_peptide
+            - mutation_end_in_peptide
+
+        Optionall will also include the following columns if corresponding
+        expression dictionary inputs are provided:
+            - gene_expression
+            - transcript_expression
         """
 
         # we only care about effects which impact the coding sequence of a
@@ -159,26 +228,123 @@ class TopiaryPredictor(object):
         #    around each mutation
         # 2) dictionary mapping varcode effect to start offset of subsequence
         #    within the full mutant protein sequence
-        protein_subsequences, protein_subsequence_offsets = \
+        effect_to_subsequence_dict, effect_to_offset_dict = \
             protein_subsequences_around_mutations(
                 effects=top_effects,
                 padding_around_mutation=self.padding_around_mutation)
 
-        binding_predictions = self.mhc_model.predict(protein_subsequences)
-        logging.info("MHC predictor returned %s peptide binding predictions" % (
-            len(binding_predictions)))
-        epitopes = build_epitope_collection_from_binding_predictions(
-            binding_predictions=binding_predictions,
-            protein_subsequences=protein_subsequences,
-            protein_subsequence_start_offsets=protein_subsequence_offsets,
-            wildtype_ligandome_dict=self.wildtype_ligandome_dict)
-        return apply_epitope_filters(
-            epitopes,
-            ic50_cutoff=self.ic50_cutoff,
-            percentile_cutoff=self.percentile_cutoff,
-            only_novel_epitopes=self.only_novel_epitopes)
+        # since we know that each set of variant effects has been
+        # reduced to a single 'top priority' effect, we can uniquely
+        # identify each variant sequence by its original genomic variant
+        variant_string_to_effect_dict = {
+            effect.variant.short_description: effect
+            for effect in effect_to_subsequence_dict.keys()
+        }
+        variant_string_to_subsequence_dict = {
+            effect.variant.short_description: subseq
+            for (effect, subseq) in effect_to_subsequence_dict.items()
+        }
+        variant_string_to_offset_dict = {
+            effect.variant.short_description: subseq_offset
+            for (effect, subseq_offset) in effect_to_offset_dict.items()
+        }
+        df = self.predict_from_named_sequences(variant_string_to_subsequence_dict)
+        logging.info("MHC predictor returned %d peptide binding predictions" % (
+            len(df)))
 
-    def epitopes_from_variants(
+        # since we used variant descrptions as the name of each sequence
+        # let's rename that column to be more informative
+        df = df.rename(columns={"source_sequence_name": "variant"})
+
+        # adjust offset to be relative to start of protein, rather
+        # than whatever subsequence we used for prediction
+        def compute_peptide_offset_relative_to_protein(row):
+            subsequence_offset = variant_string_to_offset_dict[row.variant]
+            return row.peptide_offset + subsequence_offset
+
+        df["peptide_offset"] = df.apply(
+            compute_peptide_offset_relative_to_protein,
+            axis=1)
+
+        if self.ic50_cutoff:
+            df = df[df.affinity <= self.ic50_cutoff]
+            logging.info("Kept %d predictions after filtering affinity <= %f" % (
+                len(df), self.ic50_cutoff))
+
+        if self.percentile_cutoff:
+            df = df[df.percentile_rank <= self.percentile_cutoff]
+            logging.info("Kept %d predictions after filtering percentile <= %f" % (
+                len(df), self.percentile_cutoff))
+
+        extra_columns = OrderedDict([
+            ('gene', []),
+            ('gene_id', []),
+            ('transcript_id', []),
+            ('transcript_name', []),
+            ('effect', []),
+            ('effect_type', []),
+            ('contains_mutant_residues', []),
+            ('mutation_start_in_peptide', []),
+            ('mutation_end_in_peptide', []),
+        ])
+        if gene_expression_dict is not None:
+            extra_columns["gene_expression"] = []
+        if transcript_expression_dict is not None:
+            extra_columns["transcript_expression"] = []
+
+        for _, row in df.iterrows():
+            effect = variant_string_to_effect_dict[row.variant]
+            mutation_start_in_protein = effect.aa_mutation_start_offset
+            mutation_end_in_protein = effect.aa_mutation_end_offset
+            peptide_length = len(row.peptide)
+            is_mutant = contains_mutant_residues(
+                peptide_start_in_protein=row.peptide_offset,
+                peptide_length=peptide_length,
+                mutation_start_in_protein=mutation_start_in_protein,
+                mutation_end_in_protein=mutation_end_in_protein)
+            if is_mutant:
+                mutation_start_in_peptide, mutation_end_in_peptide = peptide_mutation_interval(
+                    peptide_start_in_protein=row.peptide_offset,
+                    peptide_length=peptide_length,
+                    mutation_start_in_protein=mutation_start_in_protein,
+                    mutation_end_in_protein=mutation_end_in_protein)
+            else:
+                mutation_start_in_peptide = mutation_end_in_peptide = None
+
+            extra_columns["gene"].append(effect.gene_name)
+            gene_id = effect.gene_id
+            extra_columns["gene_id"].append(gene_id)
+            if gene_expression_dict is not None:
+                extra_columns["gene_expression"].append(
+                    gene_expression_dict.get(gene_id, 0.0))
+
+            transcript_id = effect.transcript_id
+            extra_columns["transcript_id"].append(transcript_id)
+            extra_columns["transcript_name"].append(effect.transcript_name)
+            if transcript_expression_dict is not None:
+                extra_columns["transcript_expression"].append(
+                    transcript_expression_dict.get(transcript_id, 0.0))
+
+            extra_columns["effect"].append(effect.short_description)
+            extra_columns["effect_type"].append(effect.__class__.__name__)
+
+            extra_columns["contains_mutant_residues"].append(is_mutant)
+            extra_columns["mutation_start_in_peptide"].append(mutation_start_in_peptide)
+            extra_columns["mutation_end_in_peptide"].append(mutation_end_in_peptide)
+
+        for col, values in extra_columns.items():
+            df[col] = values
+
+        # TODO: add extra boolean field
+        #   novel = is_mutant | not_in_reference
+        # Requires keeping a quick lookup structure for all peptides in
+        # the reference proteome
+        if self.only_novel_epitopes:
+            df = df[df.contains_mutant_residues]
+
+        return df
+
+    def predict_from_variants(
             self,
             variants,
             transcript_expression_dict=None,
@@ -196,6 +362,30 @@ class TopiaryPredictor(object):
 
         gene_expression_dict : dict, optional
             Maps from Ensembl gene IDs to FPKM expression values.
+
+        Returns DataFrame with the following columns:
+            - variant
+            - gene
+            - gene_id
+            - transcript_id
+            - transcript_name
+            - effect
+            - effect_type
+            - peptide
+            - peptide_offset
+            - peptide_length
+            - allele
+            - affinity
+            - percentile_rank
+            - prediction_method_name
+            - contains_mutant_residues
+            - mutation_start_in_peptide
+            - mutation_end_in_peptide
+
+        Optionall will also include the following columns if corresponding
+        expression dictionary inputs are provided:
+            - gene_expression
+            - transcript_expression
         """
         # pre-filter variants by checking if any of the genes or
         # transcripts they overlap have sufficient expression.
@@ -211,7 +401,7 @@ class TopiaryPredictor(object):
 
         effects = variants.effects(raise_on_error=self.raise_on_error)
 
-        return self.epitopes_from_mutation_effects(
+        return self.predict_from_mutation_effects(
             effects=effects,
             transcript_expression_dict=transcript_expression_dict,
             gene_expression_dict=gene_expression_dict)

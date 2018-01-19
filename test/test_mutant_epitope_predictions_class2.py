@@ -49,20 +49,14 @@ mhc_model = NetMHCIIpan(
 def test_netmhcii_pan_epitopes():
     epitope_predictions = TopiaryPredictor(
         mhc_model=mhc_model,
-        only_novel_epitopes=True).epitopes_from_variants(variants=variants)
+        only_novel_epitopes=True).predict_from_variants(variants=variants)
 
     # expect (15 + 16 mutant peptides) * (2 alleles) * 2 variants =
     # 124 total epitope predictions
     eq_(len(epitope_predictions), 124)
-    unique_alleles = {
-        epitope_prediction.allele
-        for epitope_prediction in epitope_predictions
-    }
+    unique_alleles = set(epitope_predictions.allele)
     assert len(unique_alleles) == 2, \
         "Expected 2 unique alleles, got %s" % (unique_alleles,)
-    unique_lengths = {
-        epitope_prediction.peptide_length
-        for epitope_prediction in epitope_predictions
-    }
+    unique_lengths = set(epitope_predictions.peptide_length)
     assert unique_lengths == {15, 16}, \
         "Expected epitopes of length 15 and 16 but got lengths %s" % (unique_lengths,)
