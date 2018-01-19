@@ -88,7 +88,7 @@ class TopiaryPredictor(object):
         self.only_novel_epitopes = only_novel_epitopes
         self.raise_on_error = raise_on_error
 
-    def predict_named_sequences(
+    def predict_from_named_sequences(
             self, name_to_sequence_dict):
         """
         Parameters
@@ -106,13 +106,13 @@ class TopiaryPredictor(object):
             - percentile_rank
             - prediction_method_name
         """
-        df = self.mhc_model.predict_subsequences_dataframe(name_to_sequence_dict)
+        df = self.mhc_model.predict_from_subsequences_dataframe(name_to_sequence_dict)
         return df.rename(
             columns={
                 "length": "peptide_length",
                 "offset": "peptide_offset"})
 
-    def predict_sequences(self, sequences):
+    def predict_from_sequences(self, sequences):
         """
         Predict MHC ligands for sub-sequences of each input sequence.
 
@@ -136,10 +136,10 @@ class TopiaryPredictor(object):
             seq: seq
             for seq in sequences
         }
-        df = self.predict_named_sequences(sequence_dict)
+        df = self.predict_from_named_sequences(sequence_dict)
         return df.rename(columns={"source_sequence_name": "source_sequence"})
 
-    def predict_mutation_effects(
+    def predict_from_mutation_effects(
             self,
             effects,
             transcript_expression_dict=None,
@@ -241,14 +241,14 @@ class TopiaryPredictor(object):
             for effect in effect_to_subsequence_dict.keys()
         }
         variant_string_to_subsequence_dict = {
-            effect.variant.short_description: seq
-            for (effect, seq) in effect_to_subsequence_dict.items()
+            effect.variant.short_description: subseq
+            for (effect, subseq) in effect_to_subsequence_dict.items()
         }
         variant_string_to_offset_dict = {
             effect.variant.short_description: subseq_offset
             for (effect, subseq_offset) in effect_to_offset_dict.items()
         }
-        df = self.predict_named_sequences(variant_string_to_subsequence_dict)
+        df = self.predict_from_named_sequences(variant_string_to_subsequence_dict)
         logging.info("MHC predictor returned %d peptide binding predictions" % (
             len(df)))
 
@@ -274,7 +274,7 @@ class TopiaryPredictor(object):
         if self.percentile_cutoff:
             df = df[df.percentile_rank <= self.percentile_cutoff]
             logging.info("Kept %d predictions after filtering percentile <= %f" % (
-                len(df), self.percentile_rank))
+                len(df), self.percentile_cutoff))
 
         extra_columns = OrderedDict([
             ('gene', []),
@@ -344,7 +344,7 @@ class TopiaryPredictor(object):
 
         return df
 
-    def predict_variants(
+    def predict_from_variants(
             self,
             variants,
             transcript_expression_dict=None,
@@ -401,7 +401,7 @@ class TopiaryPredictor(object):
 
         effects = variants.effects(raise_on_error=self.raise_on_error)
 
-        return self.predict_mutation_effects(
+        return self.predict_from_mutation_effects(
             effects=effects,
             transcript_expression_dict=transcript_expression_dict,
             gene_expression_dict=gene_expression_dict)

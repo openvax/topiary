@@ -71,7 +71,7 @@ def predict_epitopes_from_args(args):
         min_gene_expression=args.rna_min_gene_expression,
         only_novel_epitopes=args.only_novel_epitopes,
         raise_on_error=not args.skip_variant_errors)
-    return predictor.predict_variants(
+    return predictor.predict_from_variants(
         variants=variants,
         transcript_expression_dict=transcript_expression_dict,
         gene_expression_dict=gene_expression_dict)

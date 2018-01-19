@@ -19,7 +19,7 @@ def test_epitopes_to_dataframe_transcript_expression():
     predictor = TopiaryPredictor(
         mhc_model=mhc_model,
         only_novel_epitopes=False)
-    df = predictor.predict_variants(
+    df = predictor.predict_from_variants(
         variants=cancer_test_variants,
         transcript_expression_dict={
             transcript_id: DEFAULT_FPKM
@@ -37,7 +37,7 @@ def test_epitopes_to_dataframe_gene_expression():
         mhc_model=mhc_model,
         only_novel_epitopes=False)
 
-    df = predictor.predict_variants(
+    df = predictor.predict_from_variants(
         variants=cancer_test_variants,
         gene_expression_dict={
             gene_id: DEFAULT_FPKM
