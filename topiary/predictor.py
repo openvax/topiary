@@ -106,7 +106,7 @@ class TopiaryPredictor(object):
             - percentile_rank
             - prediction_method_name
         """
-        df = self.mhc_model.predict_from_subsequences_dataframe(name_to_sequence_dict)
+        df = self.mhc_model.predict_subsequences_dataframe(name_to_sequence_dict)
         return df.rename(
             columns={
                 "length": "peptide_length",
