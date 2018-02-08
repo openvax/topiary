@@ -31,18 +31,35 @@ from .rna import (
 from .sequence import add_sequence_args
 from .errors import add_error_args
 from .outputs import add_output_args
-
+from .protein_changes import add_protein_change_args
 from ..predictor import TopiaryPredictor
 
-def create_arg_parser():
+def create_arg_parser(
+        rna=True,
+        mhc=True,
+        variants=True,
+        protein_changes=True,
+        filters=True,
+        sequence_options=True,
+        error_options=True,
+        output=True):
     arg_parser = ArgumentParser()
-    add_rna_args(arg_parser)
-    add_mhc_args(arg_parser)
-    add_variant_args(arg_parser)
-    add_filter_args(arg_parser)
-    add_sequence_args(arg_parser)
-    add_error_args(arg_parser)
-    add_output_args(arg_parser)
+    if rna:
+        add_rna_args(arg_parser)
+    if mhc:
+        add_mhc_args(arg_parser)
+    if variants:
+        add_variant_args(arg_parser)
+    if protein_changes:
+        add_protein_change_args(arg_parser)
+    if filters:
+        add_filter_args(arg_parser)
+    if sequence_options:
+        add_sequence_args(arg_parser)
+    if error_options:
+        add_error_args(arg_parser)
+    if output:
+        add_output_args(arg_parser)
     return arg_parser
 
 # keeping global instance for backwards compatibility with existing code
