@@ -3,14 +3,12 @@ language: minimal
 dist: trusty
 python:
   - "2.7"
-  - "3.5"
+  - "3.6"
 addons:
   apt:
     packages:
       # Needed for NetMHC
       - tcsh
-      # add pandoc to properly generate README as reStructuredText
-      - pandoc
 env:
   global:
     # MHC_BUNDLE_PASS
@@ -41,7 +39,7 @@ before_install:
 install:
   - >
       conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION
-      numpy nose pandas
+      numpy nose pandas pandoc
   - source activate test-environment
   - pip install pypandoc
   - pip install -r requirements.txt
