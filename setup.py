@@ -19,21 +19,22 @@ import re
 from setuptools import setup, find_packages
 
 readme_dir = os.path.dirname(__file__)
-readme_filename = os.path.join(readme_dir, 'README.md')
+readme_path = os.path.join(readme_dir, 'README.md')
 
 try:
-    with open(readme_filename, 'r') as f:
-        readme = f.read()
-    # create README.rst for deploying on Travis
-    rst_readme_filename = readme_filename.replace(".md", ".rst")
-    with open(rst_readme_filename, "w"):
-        f.write(readme)
+    with open(readme_path, 'r') as f:
+        readme_markdown = f.read()
 except:
-    readme = ""
+    readme_markdown = ""
 
 try:
     import pypandoc
-    readme = pypandoc.convert(readme, to='rst', format='md')
+    readme_restructured = pypandoc.convert(readme_markdown, to='rst', format='md')
+
+    # create README.rst for deploying on Travis
+    rst_readme_filename = readme_path.replace(".md", ".rst")
+    with open(rst_readme_filename, "w"):
+        f.write(readme_restructured)
 except:
     print(
         "Conversion of long_description from MD to reStructuredText failed...")
@@ -74,7 +75,7 @@ if __name__ == '__main__':
             'gtfparse >=0.0.4',
             'mhcnames',
         ],
-        long_description=readme,
+        long_description=readme_restructured,
         packages=find_packages(exclude="test"),
         entry_points={
             'console_scripts': [

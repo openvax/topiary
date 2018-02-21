@@ -1,6 +1,15 @@
-[![Build Status](https://travis-ci.org/openvax/topiary.svg?branch=master)](https://travis-ci.org/openvax/topiary) [![Coverage Status](https://coveralls.io/repos/openvax/topiary/badge.svg?branch=master&service=github)](https://coveralls.io/github/openvax/topiary?branch=master) [![DOI](https://zenodo.org/badge/18834/hammerlab/topiary.svg)](https://zenodo.org/badge/latestdoi/18834/hammerlab/topiary)
+<a href="https://travis-ci.org/openvax/topiary">
+    <img src="https://travis-ci.org/openvax/topiary.svg?branch=master" alt="Build Status" />
+</a>
+<a href="https://coveralls.io/github/openvax/topiary?branch=master">
+    <img src="https://coveralls.io/repos/openvax/topiary/badge.svg?branch=master&service=github" alt="Coverage Status" />
+</a>
+<a href="https://pypi.python.org/pypi/topiary/">
+    <img src="https://img.shields.io/pypi/v/topiary.svg?maxAge=1000" alt="PyPI" />
+</a>
 
 # Topiary
+
 Predict mutation-derived cancer T-cell epitopes from (1) somatic variants (2) tumor RNA expression data, and (3) patient HLA type.
 
 ## Example
