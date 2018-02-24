@@ -1,4 +1,4 @@
-# Copyright (c) 2017. Mount Sinai School of Medicine
+# Copyright (c) 2017-2018. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,12 +30,8 @@ except:
 try:
     import pypandoc
     readme_restructured = pypandoc.convert(readme_markdown, to='rst', format='md')
-
-    # create README.rst for deploying on Travis
-    rst_readme_filename = readme_path.replace(".md", ".rst")
-    with open(rst_readme_filename, "w"):
-        f.write(readme_restructured)
 except:
+    readme_restructured = readme_markdown
     print(
         "Conversion of long_description from MD to reStructuredText failed...")
 
