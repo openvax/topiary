@@ -1,5 +1,5 @@
 sudo: false  # Use container-based infrastructure
-language: minimal
+language: python
 dist: trusty
 python:
   - "2.7"
@@ -12,7 +12,6 @@ cache:
   directories:
     - $HOME/.cache/pyensembl/
     - $HOME/.cache/pyensembl/GRCh37/ensembl75/
-    - $HOME/.cache/pyensembl/GRCh38/ensembl77/
     - $HOME/.cache/pyensembl/GRCh38/ensembl87/
     - $HOME/miniconda
 addons:
@@ -46,7 +45,7 @@ before_install:
   - conda update -q conda
   # Useful for debugging any issues with conda
   - conda info -a
-
+  - python --version
   # install MHC predictors
   - git clone https://mhcbundle:$MHC_BUNDLE_PASS@github.com/openvax/netmhc-bundle.git
   - export NETMHC_BUNDLE_HOME=$PWD/netmhc-bundle
