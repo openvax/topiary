@@ -17,8 +17,6 @@ cache:
   # of sequence dictionaries. Also, pip
   directories:
     - $HOME/.cache/pyensembl/
-    - $HOME/.cache/pyensembl/GRCh37/ensembl75/
-    - $HOME/.cache/pyensembl/GRCh38/ensembl87/
     - $HOME/miniconda
 addons:
   apt:
@@ -29,6 +27,7 @@ env:
   global:
     # MHC_BUNDLE_PASS
     - secure: "TLTzSIABO/iYke8C66c0PRaWDZ5lx90s8XimSfDONOTXaX74V25O65qxzIWPAihxcdfLYA+bE2YRsjYOtuK+6DB2vjXbmoCQAXIFT/QXz4+iZTxN3g/s5N4hIR8tf9MSQ3KdNHOw7lKzdgAWKsFDQ8vwrqzYUNJGVtvoQSWCmPw="
+    - CONDA_ENV="test-environment-$TRAVIS_PYTHON_VERSION"
 before_install:
   # don't install miniconda if it's already cached
   # if not yet installed, use different versions for py2 vs. py3
@@ -60,9 +59,9 @@ before_install:
   - export PATH=$PATH:$NETMHC_BUNDLE_HOME/bin
 install:
   - >
-      conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION
+      conda create -q -n $CONDA_ENV python=$TRAVIS_PYTHON_VERSION
       numpy nose pandas pandoc
-  - source activate test-environment
+  - source activate $CONDA_ENV
   - pip install pypandoc
   - pip install -r requirements.txt
   - pip install .
@@ -74,6 +73,9 @@ script:
   - nosetests test --with-coverage --cover-package=topiary
 after_success:
   coveralls
+before_cache:
+  # Remove conda environments
+  - rm -rf $HOME/miniconda/envs/*
 deploy:
   provider: pypi
   distributions: sdist
