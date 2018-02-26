@@ -1,4 +1,4 @@
-# Copyright (c) 2017. Mount Sinai School of Medicine
+# Copyright (c) 2017-2018. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,9 @@
 # limitations under the License.
 
 from __future__ import print_function, division, absolute_import
+
 import logging
+
 import gtfparse
 
 
@@ -42,12 +44,12 @@ def load_transcript_fpkm_dict_from_gtf(
     quantification of abundance. Returns a dictionary mapping Ensembl
     IDs of transcripts to FPKM values.
     """
-    columns = gtfparse.read_gtf_as_dict(
+    df = gtfparse.read_gtf(
         gtf_path,
         column_converters={fpkm_column_name: float})
-    transcript_ids = _get_gtf_column(transcript_id_column_name, gtf_path, columns)
-    fpkm_values = _get_gtf_column(fpkm_column_name, gtf_path, columns)
-    features = _get_gtf_column(feature_column_name, gtf_path, columns)
+    transcript_ids = _get_gtf_column(transcript_id_column_name, gtf_path, df)
+    fpkm_values = _get_gtf_column(fpkm_column_name, gtf_path, df)
+    features = _get_gtf_column(feature_column_name, gtf_path, df)
     logging.info("Loaded %d rows from %s" % (len(transcript_ids), gtf_path))
     logging.info("Found %s transcript entries" % sum(
         feature == "transcript" for feature in features))
