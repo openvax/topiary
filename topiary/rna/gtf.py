@@ -19,20 +19,20 @@ import logging
 import gtfparse
 
 
-def _get_gtf_column(column_name, gtf_path, dictionary):
+def _get_gtf_column(column_name, gtf_path, df):
     """
     Helper function which returns a dictionary column or raises an ValueError
     abou the absence of that column in a GTF file.
     """
-    values = dictionary.get(column_name)
-    if not values:
+    if column_name in df.columns:
+        return list(df[column_name])
+
+    else:
         raise ValueError(
             "Missing '%s' in columns of %s, available: %s" % (
                 column_name,
                 gtf_path,
-                list(dictionary.keys())))
-    return values
-
+                list(df.columns)))
 
 def load_transcript_fpkm_dict_from_gtf(
         gtf_path,
