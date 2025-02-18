@@ -1,6 +1,4 @@
-<a href="https://travis-ci.org/openvax/topiary">
-    <img src="https://travis-ci.org/openvax/topiary.svg?branch=master" alt="Build Status" />
-</a>
+[![Tests](https://github.com/openvax/topiary/actions/workflows/tests.yml/badge.svg)](https://github.com/openvax/topiary/actions/workflows/tests.yml)
 <a href="https://coveralls.io/github/openvax/topiary?branch=master">
     <img src="https://coveralls.io/repos/openvax/topiary/badge.svg?branch=master&service=github" alt="Coverage Status" />
 </a>
