@@ -1,5 +1,3 @@
-# Copyright (c) 2017. Mount Sinai School of Medicine
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -15,8 +13,6 @@
 """
 Common commandline arguments used by scripts
 """
-
-from __future__ import print_function, division, absolute_import
 
 from argparse import ArgumentParser
 from mhctools.cli import add_mhc_args, mhc_binding_predictor_from_args
@@ -34,15 +30,17 @@ from .outputs import add_output_args
 from .protein_changes import add_protein_change_args
 from ..predictor import TopiaryPredictor
 
+
 def create_arg_parser(
-        rna=True,
-        mhc=True,
-        variants=True,
-        protein_changes=True,
-        filters=True,
-        sequence_options=True,
-        error_options=True,
-        output=True):
+    rna=True,
+    mhc=True,
+    variants=True,
+    protein_changes=True,
+    filters=True,
+    sequence_options=True,
+    error_options=True,
+    output=True,
+):
     arg_parser = ArgumentParser()
     if rna:
         add_rna_args(arg_parser)
@@ -62,8 +60,10 @@ def create_arg_parser(
         add_output_args(arg_parser)
     return arg_parser
 
+
 # keeping global instance for backwards compatibility with existing code
 arg_parser = create_arg_parser()
+
 
 def predict_epitopes_from_args(args):
     """
@@ -87,8 +87,10 @@ def predict_epitopes_from_args(args):
         min_transcript_expression=args.rna_min_transcript_expression,
         min_gene_expression=args.rna_min_gene_expression,
         only_novel_epitopes=args.only_novel_epitopes,
-        raise_on_error=not args.skip_variant_errors)
+        raise_on_error=not args.skip_variant_errors,
+    )
     return predictor.predict_from_variants(
         variants=variants,
         transcript_expression_dict=transcript_expression_dict,
-        gene_expression_dict=gene_expression_dict)
+        gene_expression_dict=gene_expression_dict,
+    )

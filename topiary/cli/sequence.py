@@ -1,5 +1,3 @@
-# Copyright (c) 2017. Mount Sinai School of Medicine
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -17,21 +15,24 @@
 Commandline arguments related to translated variant protein sequences.
 """
 
-from __future__ import print_function, division, absolute_import
 
 def add_sequence_args(arg_parser):
     sequence_group = arg_parser.add_argument_group(
         title="Protein Sequence Options",
-        description="Parameters related to the mutant protein sequence")
+        description="Parameters related to the mutant protein sequence",
+    )
 
     sequence_group.add_argument(
         "--padding-around-mutation",
         default=None,
-        help="".join([
-            "How many extra amino acids to include on either side of a mutation.",
-            "Default is determined by epitope lengths but can be overridden to ",
-            "predict wildtype epitopes in a larger context around a mutant residue.",
-        ]),
-        type=int)
+        help="".join(
+            [
+                "How many extra amino acids to include on either side of a mutation.",
+                "Default is determined by epitope lengths but can be overridden to ",
+                "predict wildtype epitopes in a larger context around a mutant residue.",
+            ]
+        ),
+        type=int,
+    )
 
     return sequence_group

@@ -1,5 +1,3 @@
-# Copyright (c) 2017. Mount Sinai School of Medicine
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -28,8 +26,6 @@ Example usage:
         --output results.csv
 """
 
-from __future__ import print_function, division, absolute_import
-
 import sys
 
 from .args import arg_parser, predict_epitopes_from_args
@@ -41,6 +37,7 @@ def parse_args(args_list=None):
     if args_list is None:
         args_list = sys.argv[1:]
     return arg_parser.parse_args(args_list)
+
 
 def main(args_list=None):
     """

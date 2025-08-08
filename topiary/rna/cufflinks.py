@@ -1,4 +1,3 @@
-# Copyright (c) 2017. Mount Sinai School of Medicine
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +11,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function, division, absolute_import
-
 import logging
 
 import pandas as pd
@@ -21,15 +18,16 @@ import numpy as np
 
 from .common import infer_delimiter, check_required_columns
 
+
 def parse_locus_column(loci):
     # capture all characters before ':' (drop 'chr' if present)
     chromosomes = loci.str.extract("(?:chr)?([^:]*):.*", expand=False)
     # capture all characters after e.g. 'chr1:', which look like '132-394'
     ranges = loci.str.extract("(?:chr)?[^:]*:(.*)", expand=False)
     # capture all numbers before the dash
-    starts = ranges.str.extract("(\d*)-\d*", expand=False).astype(int)
+    starts = ranges.str.extract("([0-9]*)-[0-9]*", expand=False).astype(int)
     # capture all numbers after the dash
-    ends = ranges.str.extract("\d*-(\d*)", expand=False).astype(int)
+    ends = ranges.str.extract("[0-9]*-([0-9]*)", expand=False).astype(int)
     return chromosomes, starts, ends
 
 
@@ -43,19 +41,20 @@ GENE_NAMES_COLUMN = "gene_short_name"
 
 
 def load_cufflinks_dataframe(
-        filename,
-        id_column=ID_COLUMN,
-        fpkm_column=FPKM_COLUMN,
-        status_column=STATUS_COLUMN,
-        locus_column=LOCUS_COLUMN,
-        gene_names_column=GENE_NAMES_COLUMN,
-        drop_failed=True,
-        drop_lowdata=False,
-        drop_hidata=True,
-        replace_hidata_fpkm_value=None,
-        drop_nonchromosomal_loci=False,
-        drop_novel=False,
-        sep=None):
+    filename,
+    id_column=ID_COLUMN,
+    fpkm_column=FPKM_COLUMN,
+    status_column=STATUS_COLUMN,
+    locus_column=LOCUS_COLUMN,
+    gene_names_column=GENE_NAMES_COLUMN,
+    drop_failed=True,
+    drop_lowdata=False,
+    drop_hidata=True,
+    replace_hidata_fpkm_value=None,
+    drop_nonchromosomal_loci=False,
+    drop_novel=False,
+    sep=None,
+):
     """
     Loads a Cufflinks tracking file, which contains expression levels
     (in FPKM: Fragments Per Kilobase of transcript per Million fragments)
@@ -128,14 +127,15 @@ def load_cufflinks_dataframe(
         locus_column,
         id_column,
         gene_names_column,
-        fpkm_column
+        fpkm_column,
     }
     check_required_columns(df, filename, required_columns)
 
     for flag, status_value in [
-            (drop_failed, "FAIL"),
-            (drop_lowdata, "LOWDATA"),
-            (drop_hidata, "HIDATA")]:
+        (drop_failed, "FAIL"),
+        (drop_lowdata, "LOWDATA"),
+        (drop_hidata, "HIDATA"),
+    ]:
         mask = df[status_column] == status_value
         mask_count = mask.sum()
         total_count = len(df)
@@ -150,15 +150,18 @@ def load_cufflinks_dataframe(
             mask_count,
             total_count,
             filename,
-            status_value)
+            status_value,
+        )
 
     if drop_nonchromosomal_loci:
         loci = df[locus_column]
         chromosomal_loci = loci.str.startswith("chr")
         n_dropped = (~chromosomal_loci).sum()
         if n_dropped > 0:
-            logging.info("Dropping %d/%d non-chromosomal loci from %s" % (
-                n_dropped, len(df), filename))
+            logging.info(
+                "Dropping %d/%d non-chromosomal loci from %s"
+                % (n_dropped, len(df), filename)
+            )
             df = df[chromosomal_loci]
 
     if replace_hidata_fpkm_value:
@@ -168,7 +171,8 @@ def load_cufflinks_dataframe(
             "Setting FPKM=%s for %d/%d entries with status=HIDATA",
             replace_hidata_fpkm_value,
             n_hidata,
-            len(df))
+            len(df),
+        )
         df[fpkm_column][hidata_mask] = replace_hidata_fpkm_value
 
     if len(df) == 0:
@@ -184,12 +188,10 @@ def load_cufflinks_dataframe(
         n_dropped = (~known).sum()
         if n_dropped > 0:
             logging.info(
-                "Dropping %d/%d novel entries from %s",
-                n_dropped,
-                len(df),
-                filename)
+                "Dropping %d/%d novel entries from %s", n_dropped, len(df), filename
+            )
             df = df[known]
-            known = np.ones(len(df), dtype='bool')
+            known = np.ones(len(df), dtype="bool")
 
     loci = df[locus_column]
     chromosomes, starts, ends = parse_locus_column(df[locus_column])
@@ -201,15 +203,17 @@ def load_cufflinks_dataframe(
     # split each entry into a list of zero or more strings
     gene_names_lists = gene_names_strings.str.split(",")
 
-    return pd.DataFrame({
-        "id": df[id_column],
-        "novel": ~known,
-        "fpkm": df[fpkm_column],
-        "chr": chromosomes,
-        "start": starts,
-        "end": ends,
-        "gene_names": gene_names_lists
-    })
+    return pd.DataFrame(
+        {
+            "id": df[id_column],
+            "novel": ~known,
+            "fpkm": df[fpkm_column],
+            "chr": chromosomes,
+            "start": starts,
+            "end": ends,
+            "gene_names": gene_names_lists,
+        }
+    )
 
 
 def load_cufflinks_dict(*args, **kwargs):
@@ -225,9 +229,7 @@ def load_cufflinks_dict(*args, **kwargs):
         gene_names : str list
     """
     return {
-        row.id: row
-        for (_, row)
-        in load_cufflinks_dataframe(*args, **kwargs).iterrows()
+        row.id: row for (_, row) in load_cufflinks_dataframe(*args, **kwargs).iterrows()
     }
 
 
@@ -238,6 +240,5 @@ def load_cufflinks_fpkm_dict(*args, **kwargs):
     """
     return {
         row.id: row.fpkm
-        for (_, row)
-        in load_cufflinks_dataframe(*args, **kwargs).iterrows()
+        for (_, row) in load_cufflinks_dataframe(*args, **kwargs).iterrows()
     }

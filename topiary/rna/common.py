@@ -1,5 +1,3 @@
-# Copyright (c) 2017. Mount Sinai School of Medicine
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -15,6 +13,7 @@
 from __future__ import print_function, division, absolute_import
 
 import re
+
 
 def infer_delimiter(filename, comment_char="#", n_lines=3):
     """
@@ -35,9 +34,8 @@ def infer_delimiter(filename, comment_char="#", n_lines=3):
             else:
                 break
     if len(lines) < n_lines:
-        raise ValueError(
-            "Not enough lines in %s to infer delimiter" % filename)
-    candidate_delimiters = ["\t", ",", "\s+"]
+        raise ValueError("Not enough lines in %s to infer delimiter" % filename)
+    candidate_delimiters = [r"\t", ",", r"\s+"]
     for candidate_delimiter in candidate_delimiters:
         counts = [len(re.split(candidate_delimiter, line)) for line in lines]
         first_line_count = counts[0]
@@ -54,6 +52,6 @@ def check_required_columns(df, filename, required_columns):
     available_columns = set(df.columns)
     for column_name in required_columns:
         if column_name not in available_columns:
-            raise ValueError("FPKM tracking file %s missing column '%s'" % (
-                filename,
-                column_name))
+            raise ValueError(
+                "FPKM tracking file %s missing column '%s'" % (filename, column_name)
+            )

@@ -1,5 +1,3 @@
-# Copyright (c) 2017. Mount Sinai School of Medicine
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -16,17 +14,17 @@
 Commandline arguments related to error handling
 """
 
-from __future__ import print_function, division, absolute_import
 
 def add_error_args(arg_parser):
     error_group = arg_parser.add_argument_group(
-        title="Errors",
-        description="Options for error handling")
+        title="Errors", description="Options for error handling"
+    )
 
     error_group.add_argument(
         "--skip-variant-errors",
         default=False,
         action="store_true",
-        help="Skip variants which cause runtime errors of any kind")
+        help="Skip variants which cause runtime errors of any kind",
+    )
 
     return error_group

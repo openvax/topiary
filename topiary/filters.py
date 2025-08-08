@@ -1,5 +1,3 @@
-# Copyright (c) 2017. Mount Sinai School of Medicine
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -16,17 +14,14 @@
 Helper functions for filtering variants, effects, and epitope predictions
 """
 
-from __future__ import print_function, division, absolute_import
 import logging
 
 from varcode import NonsilentCodingMutation
 
+
 def apply_filter(
-        filter_fn,
-        collection,
-        result_fn=None,
-        filter_name="",
-        collection_name=""):
+    filter_fn, collection, result_fn=None, filter_name="", collection_name=""
+):
     """
     Apply filter to effect collection and print number of dropped elements
 
@@ -43,8 +38,10 @@ def apply_filter(
         filter_name,
         (n_before - n_after),
         n_before,
-        collection_name)
+        collection_name,
+    )
     return result_fn(filtered) if result_fn else collection.__class__(filtered)
+
 
 def filter_silent_and_noncoding_effects(effects):
     """
@@ -58,15 +55,17 @@ def filter_silent_and_noncoding_effects(effects):
         filter_fn=lambda effect: isinstance(effect, NonsilentCodingMutation),
         collection=effects,
         result_fn=effects.clone_with_new_elements,
-        filter_name="Silent mutation")
+        filter_name="Silent mutation",
+    )
 
 
 def apply_variant_expression_filters(
-        variants,
-        gene_expression_dict,
-        gene_expression_threshold,
-        transcript_expression_dict,
-        transcript_expression_threshold):
+    variants,
+    gene_expression_dict,
+    gene_expression_threshold,
+    transcript_expression_dict,
+    transcript_expression_threshold,
+):
     """
     Filter a collection of variants by gene and transcript expression thresholds
 
@@ -85,33 +84,38 @@ def apply_variant_expression_filters(
     if gene_expression_dict:
         variants = apply_filter(
             lambda variant: any(
-                gene_expression_dict.get(gene_id, 0.0) >=
-                gene_expression_threshold
+                gene_expression_dict.get(gene_id, 0.0) >= gene_expression_threshold
                 for gene_id in variant.gene_ids
             ),
             variants,
             result_fn=variants.clone_with_new_elements,
-            filter_name="Variant gene expression (min=%0.4f)" % gene_expression_threshold)
+            filter_name="Variant gene expression (min=%0.4f)"
+            % gene_expression_threshold,
+        )
     if transcript_expression_dict:
         variants = apply_filter(
             lambda variant: any(
-                transcript_expression_dict.get(transcript_id, 0.0) >=
-                transcript_expression_threshold
+                transcript_expression_dict.get(transcript_id, 0.0)
+                >= transcript_expression_threshold
                 for transcript_id in variant.transcript_ids
             ),
             variants,
             result_fn=variants.clone_with_new_elements,
             filter_name=(
-                "Variant transcript expression (min=%0.4f)" % (
-                    transcript_expression_threshold,)))
+                "Variant transcript expression (min=%0.4f)"
+                % (transcript_expression_threshold,)
+            ),
+        )
     return variants
 
+
 def apply_effect_expression_filters(
-        effects,
-        gene_expression_dict,
-        gene_expression_threshold,
-        transcript_expression_dict,
-        transcript_expression_threshold):
+    effects,
+    gene_expression_dict,
+    gene_expression_threshold,
+    transcript_expression_dict,
+    transcript_expression_threshold,
+):
     """
     Filter collection of varcode effects by given gene
     and transcript expression thresholds.
@@ -131,21 +135,26 @@ def apply_effect_expression_filters(
     if gene_expression_dict:
         effects = apply_filter(
             lambda effect: (
-                gene_expression_dict.get(effect.gene_id, 0.0) >=
-                gene_expression_threshold),
+                gene_expression_dict.get(effect.gene_id, 0.0)
+                >= gene_expression_threshold
+            ),
             effects,
             result_fn=effects.clone_with_new_elements,
-            filter_name="Effect gene expression (min = %0.4f)" % gene_expression_threshold)
+            filter_name="Effect gene expression (min = %0.4f)"
+            % gene_expression_threshold,
+        )
 
     if transcript_expression_dict:
         effects = apply_filter(
             lambda effect: (
-                transcript_expression_dict.get(effect.transcript_id, 0.0) >=
-                transcript_expression_threshold
+                transcript_expression_dict.get(effect.transcript_id, 0.0)
+                >= transcript_expression_threshold
             ),
             effects,
             result_fn=effects.clone_with_new_elements,
             filter_name=(
-                "Effect transcript expression (min=%0.4f)" % (
-                    transcript_expression_threshold,)))
+                "Effect transcript expression (min=%0.4f)"
+                % (transcript_expression_threshold,)
+            ),
+        )
     return effects
