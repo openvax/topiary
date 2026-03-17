@@ -1,2 +1,2 @@
-pytest --cov=topiary/ --cov-report=term-missing tests
+pytest --cov=topiary/ --cov-report=term-missing test
 
