@@ -70,7 +70,7 @@ jobs:
           # configure netmhc-bundle paths
           export NETMHC_BUNDLE_HOME=$PWD/netmhc-bundle
           echo "NetMHC-bundle dir:" && ls -l $NETMHC_BUNDLE_HOME
-          mkdir $PWD/netmhc-bundle-tmp
+          mkdir -p $PWD/netmhc-bundle-tmp
           export NETMHC_BUNDLE_TMPDIR=$PWD/netmhc-bundle-tmp
           export PATH=$PATH:$NETMHC_BUNDLE_HOME/bin
           ./test.sh
