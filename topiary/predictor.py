@@ -1,5 +1,3 @@
-# Copyright (c) 2017. Mount Sinai School of Medicine
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -11,8 +9,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from __future__ import print_function, division, absolute_import
 
 import logging
 
@@ -31,17 +27,19 @@ from .sequence_helpers import (
     peptide_mutation_interval,
 )
 
+
 class TopiaryPredictor(object):
     def __init__(
-            self,
-            mhc_model,
-            padding_around_mutation=None,
-            ic50_cutoff=None,
-            percentile_cutoff=None,
-            min_gene_expression=0.0,
-            min_transcript_expression=0.0,
-            only_novel_epitopes=False,
-            raise_on_error=True):
+        self,
+        mhc_model,
+        padding_around_mutation=None,
+        ic50_cutoff=None,
+        percentile_cutoff=None,
+        min_gene_expression=0.0,
+        min_transcript_expression=0.0,
+        only_novel_epitopes=False,
+        raise_on_error=True,
+    ):
         """
         Parameters
         ----------
@@ -80,7 +78,8 @@ class TopiaryPredictor(object):
         self.mhc_model = mhc_model
         self.padding_around_mutation = check_padding_around_mutation(
             given_padding=padding_around_mutation,
-            epitope_lengths=self.mhc_model.default_peptide_lengths)
+            epitope_lengths=self.mhc_model.default_peptide_lengths,
+        )
         self.ic50_cutoff = ic50_cutoff
         self.percentile_cutoff = percentile_cutoff
         self.min_transcript_expression = min_transcript_expression
@@ -88,8 +87,7 @@ class TopiaryPredictor(object):
         self.only_novel_epitopes = only_novel_epitopes
         self.raise_on_error = raise_on_error
 
-    def predict_from_named_sequences(
-            self, name_to_sequence_dict):
+    def predict_from_named_sequences(self, name_to_sequence_dict):
         """
         Parameters
         ----------
@@ -108,9 +106,8 @@ class TopiaryPredictor(object):
         """
         df = self.mhc_model.predict_subsequences_dataframe(name_to_sequence_dict)
         return df.rename(
-            columns={
-                "length": "peptide_length",
-                "offset": "peptide_offset"})
+            columns={"length": "peptide_length", "offset": "peptide_offset"}
+        )
 
     def predict_from_sequences(self, sequences):
         """
@@ -132,18 +129,13 @@ class TopiaryPredictor(object):
             - prediction_method_name
         """
         # make each sequence its own unique ID
-        sequence_dict = {
-            seq: seq
-            for seq in sequences
-        }
+        sequence_dict = {seq: seq for seq in sequences}
         df = self.predict_from_named_sequences(sequence_dict)
         return df.rename(columns={"source_sequence_name": "source_sequence"})
 
     def predict_from_mutation_effects(
-            self,
-            effects,
-            transcript_expression_dict=None,
-            gene_expression_dict=None):
+        self, effects, transcript_expression_dict=None, gene_expression_dict=None
+    ):
         """Given a Varcode.EffectCollection of predicted protein effects,
         return predicted epitopes around each mutation.
 
@@ -195,7 +187,8 @@ class TopiaryPredictor(object):
             transcript_expression_dict=transcript_expression_dict,
             transcript_expression_threshold=self.min_transcript_expression,
             gene_expression_dict=gene_expression_dict,
-            gene_expression_threshold=self.min_gene_expression)
+            gene_expression_threshold=self.min_gene_expression,
+        )
 
         # group by variants, so that we end up with only one mutant
         # sequence per mutation
@@ -209,8 +202,7 @@ class TopiaryPredictor(object):
             # if expression data is available, then for each variant
             # keep the effect annotation for the most abundant transcript
             top_effects = [
-                variant_effects.top_expression_effect(
-                    transcript_expression_dict)
+                variant_effects.top_expression_effect(transcript_expression_dict)
                 for variant_effects in variant_effect_groups.values()
             ]
         else:
@@ -228,10 +220,12 @@ class TopiaryPredictor(object):
         #    around each mutation
         # 2) dictionary mapping varcode effect to start offset of subsequence
         #    within the full mutant protein sequence
-        effect_to_subsequence_dict, effect_to_offset_dict = \
+        effect_to_subsequence_dict, effect_to_offset_dict = (
             protein_subsequences_around_mutations(
                 effects=top_effects,
-                padding_around_mutation=self.padding_around_mutation)
+                padding_around_mutation=self.padding_around_mutation,
+            )
+        )
 
         # since we know that each set of variant effects has been
         # reduced to a single 'top priority' effect, we can uniquely
@@ -249,8 +243,9 @@ class TopiaryPredictor(object):
             for (effect, subseq_offset) in effect_to_offset_dict.items()
         }
         df = self.predict_from_named_sequences(variant_string_to_subsequence_dict)
-        logging.info("MHC predictor returned %d peptide binding predictions" % (
-            len(df)))
+        logging.info(
+            "MHC predictor returned %d peptide binding predictions" % (len(df))
+        )
 
         # since we used variant descrptions as the name of each sequence
         # let's rename that column to be more informative
@@ -263,30 +258,36 @@ class TopiaryPredictor(object):
             return row.peptide_offset + subsequence_offset
 
         df["peptide_offset"] = df.apply(
-            compute_peptide_offset_relative_to_protein,
-            axis=1)
+            compute_peptide_offset_relative_to_protein, axis=1
+        )
 
         if self.ic50_cutoff:
             df = df[df.affinity <= self.ic50_cutoff]
-            logging.info("Kept %d predictions after filtering affinity <= %f" % (
-                len(df), self.ic50_cutoff))
+            logging.info(
+                "Kept %d predictions after filtering affinity <= %f"
+                % (len(df), self.ic50_cutoff)
+            )
 
         if self.percentile_cutoff:
             df = df[df.percentile_rank <= self.percentile_cutoff]
-            logging.info("Kept %d predictions after filtering percentile <= %f" % (
-                len(df), self.percentile_cutoff))
+            logging.info(
+                "Kept %d predictions after filtering percentile <= %f"
+                % (len(df), self.percentile_cutoff)
+            )
 
-        extra_columns = OrderedDict([
-            ('gene', []),
-            ('gene_id', []),
-            ('transcript_id', []),
-            ('transcript_name', []),
-            ('effect', []),
-            ('effect_type', []),
-            ('contains_mutant_residues', []),
-            ('mutation_start_in_peptide', []),
-            ('mutation_end_in_peptide', []),
-        ])
+        extra_columns = OrderedDict(
+            [
+                ("gene", []),
+                ("gene_id", []),
+                ("transcript_id", []),
+                ("transcript_name", []),
+                ("effect", []),
+                ("effect_type", []),
+                ("contains_mutant_residues", []),
+                ("mutation_start_in_peptide", []),
+                ("mutation_end_in_peptide", []),
+            ]
+        )
         if gene_expression_dict is not None:
             extra_columns["gene_expression"] = []
         if transcript_expression_dict is not None:
@@ -301,13 +302,17 @@ class TopiaryPredictor(object):
                 peptide_start_in_protein=row.peptide_offset,
                 peptide_length=peptide_length,
                 mutation_start_in_protein=mutation_start_in_protein,
-                mutation_end_in_protein=mutation_end_in_protein)
+                mutation_end_in_protein=mutation_end_in_protein,
+            )
             if is_mutant:
-                mutation_start_in_peptide, mutation_end_in_peptide = peptide_mutation_interval(
-                    peptide_start_in_protein=row.peptide_offset,
-                    peptide_length=peptide_length,
-                    mutation_start_in_protein=mutation_start_in_protein,
-                    mutation_end_in_protein=mutation_end_in_protein)
+                mutation_start_in_peptide, mutation_end_in_peptide = (
+                    peptide_mutation_interval(
+                        peptide_start_in_protein=row.peptide_offset,
+                        peptide_length=peptide_length,
+                        mutation_start_in_protein=mutation_start_in_protein,
+                        mutation_end_in_protein=mutation_end_in_protein,
+                    )
+                )
             else:
                 mutation_start_in_peptide = mutation_end_in_peptide = None
 
@@ -316,14 +321,16 @@ class TopiaryPredictor(object):
             extra_columns["gene_id"].append(gene_id)
             if gene_expression_dict is not None:
                 extra_columns["gene_expression"].append(
-                    gene_expression_dict.get(gene_id, 0.0))
+                    gene_expression_dict.get(gene_id, 0.0)
+                )
 
             transcript_id = effect.transcript_id
             extra_columns["transcript_id"].append(transcript_id)
             extra_columns["transcript_name"].append(effect.transcript_name)
             if transcript_expression_dict is not None:
                 extra_columns["transcript_expression"].append(
-                    transcript_expression_dict.get(transcript_id, 0.0))
+                    transcript_expression_dict.get(transcript_id, 0.0)
+                )
 
             extra_columns["effect"].append(effect.short_description)
             extra_columns["effect_type"].append(effect.__class__.__name__)
@@ -345,10 +352,8 @@ class TopiaryPredictor(object):
         return df
 
     def predict_from_variants(
-            self,
-            variants,
-            transcript_expression_dict=None,
-            gene_expression_dict=None):
+        self, variants, transcript_expression_dict=None, gene_expression_dict=None
+    ):
         """
         Predict epitopes from a Variant collection, filtering options, and
         optional gene and transcript expression data.
@@ -397,11 +402,13 @@ class TopiaryPredictor(object):
             transcript_expression_dict=transcript_expression_dict,
             transcript_expression_threshold=self.min_transcript_expression,
             gene_expression_dict=gene_expression_dict,
-            gene_expression_threshold=self.min_gene_expression)
+            gene_expression_threshold=self.min_gene_expression,
+        )
 
         effects = variants.effects(raise_on_error=self.raise_on_error)
 
         return self.predict_from_mutation_effects(
             effects=effects,
             transcript_expression_dict=transcript_expression_dict,
-            gene_expression_dict=gene_expression_dict)
+            gene_expression_dict=gene_expression_dict,
+        )

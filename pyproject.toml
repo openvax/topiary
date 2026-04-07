@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "topiary"
+requires-python = ">=3.9"
+authors = [{name = "Alex Rubinsteyn"}, {name = "Tavi Nathanson"}]
+description = "Predict cancer epitopes from cancer sequence data"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+readme = "README.md"
+dynamic = ["version", "dependencies"]
+
+[tool.setuptools.dynamic]
+version = {attr = "topiary.__version__"}
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages.find]
+exclude = ["test", "test.*"]
+
+[project.urls]
+"Homepage" = "https://github.com/openvax/topiary"
+"Bug Tracker" = "https://github.com/openvax/topiary/issues"
+
+[project.scripts]
+topiary = "topiary.cli.script:main"
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["F821", "E501", "F841", "E731", "E741", "E722", "E721"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"test*/*" = ["F401"]

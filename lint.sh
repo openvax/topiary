@@ -1,15 +1,6 @@
 #!/bin/bash
 set -o errexit
 
+ruff check topiary/ tests/
 
-# disabling several categories of errors due to false positives in pylint,
-# see these issues:
-# - https://bitbucket.org/logilab/pylint/issues/701/false-positives-with-not-an-iterable-and
-# - https://bitbucket.org/logilab/pylint/issues/58
-
-find topiary/ -name '*.py' \
-  | xargs pylint \
-  --errors-only \
-  --disable=unsubscriptable-object,not-an-iterable,no-member,invalid-unary-operand-type
-
-echo 'Passes pylint check'
+echo 'Passes ruff check'

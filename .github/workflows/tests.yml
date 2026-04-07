@@ -12,9 +12,9 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Checkout private netmhc-bundle repo
@@ -27,19 +27,14 @@ jobs:
       - name: Install netmhc-bundle dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: tcsh gawk python2-minimal
+          packages: tcsh gawk
           version: 1.0
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest pytest-cov pylint 
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-      - name: Install wkthtmltopdf
-        run: |
-          sudo apt-get install -y xfonts-base xfonts-75dpi
-          wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.bionic_amd64.deb
-          sudo dpkg -i wkhtmltox_0.12.6-1.bionic_amd64.deb
-      - name: Lint with PyLint
+          python -m pip install pytest pytest-cov ruff
+          pip install -e .
+      - name: Lint with ruff
         run: |
           ./lint.sh
       - name: Download Ensembl data

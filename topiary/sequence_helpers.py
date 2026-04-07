@@ -1,5 +1,3 @@
-# Copyright (c) 2017. Mount Sinai School of Medicine
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -12,9 +10,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function, division, absolute_import
-
 from typechecks import require_integer
+
 
 def protein_subsequences_around_mutations(effects, padding_around_mutation):
     """
@@ -31,9 +28,7 @@ def protein_subsequences_around_mutations(effects, padding_around_mutation):
         if protein_sequence:
             mutation_start = effect.aa_mutation_start_offset
             mutation_end = effect.aa_mutation_end_offset
-            seq_start_offset = max(
-                0,
-                mutation_start - padding_around_mutation)
+            seq_start_offset = max(0, mutation_start - padding_around_mutation)
             # some pseudogenes have stop codons in the reference sequence,
             # if we try to use them for epitope prediction we should trim
             # the sequence to not include the stop character '*'
@@ -42,12 +37,13 @@ def protein_subsequences_around_mutations(effects, padding_around_mutation):
                 first_stop_codon_index = len(protein_sequence)
 
             seq_end_offset = min(
-                first_stop_codon_index,
-                mutation_end + padding_around_mutation)
+                first_stop_codon_index, mutation_end + padding_around_mutation
+            )
             subsequence = protein_sequence[seq_start_offset:seq_end_offset]
             protein_subsequences[effect] = subsequence
             protein_subsequence_start_offsets[effect] = seq_start_offset
     return protein_subsequences, protein_subsequence_start_offsets
+
 
 def check_padding_around_mutation(given_padding, epitope_lengths):
     """
@@ -63,28 +59,31 @@ def check_padding_around_mutation(given_padding, epitope_lengths):
         if given_padding < min_required_padding:
             raise ValueError(
                 "Padding around mutation %d cannot be less than %d "
-                "for epitope lengths %s" % (
-                    given_padding,
-                    min_required_padding,
-                    epitope_lengths))
+                "for epitope lengths %s"
+                % (given_padding, min_required_padding, epitope_lengths)
+            )
         return given_padding
 
+
 def contains_mutant_residues(
-        peptide_start_in_protein,
-        peptide_length,
-        mutation_start_in_protein,
-        mutation_end_in_protein):
+    peptide_start_in_protein,
+    peptide_length,
+    mutation_start_in_protein,
+    mutation_end_in_protein,
+):
     peptide_end_in_protein = peptide_start_in_protein + peptide_length - 1
     return (
-        peptide_start_in_protein < mutation_end_in_protein and
-        peptide_end_in_protein >= mutation_start_in_protein
+        peptide_start_in_protein < mutation_end_in_protein
+        and peptide_end_in_protein >= mutation_start_in_protein
     )
 
+
 def peptide_mutation_interval(
-        peptide_start_in_protein,
-        peptide_length,
-        mutation_start_in_protein,
-        mutation_end_in_protein):
+    peptide_start_in_protein,
+    peptide_length,
+    mutation_start_in_protein,
+    mutation_end_in_protein,
+):
     """
     Half-open interval of mutated residues in the peptide, determined
     from the mutation interval in the original protein sequence.
@@ -113,9 +112,9 @@ def peptide_mutation_interval(
 
     # need a half-open start/end interval
     peptide_mutation_start_offset = min(
-        peptide_length,
-        max(0, mutation_start_in_protein - peptide_start_in_protein))
+        peptide_length, max(0, mutation_start_in_protein - peptide_start_in_protein)
+    )
     peptide_mutation_end_offset = min(
-        peptide_length,
-        max(0, mutation_end_in_protein - peptide_start_in_protein))
+        peptide_length, max(0, mutation_end_in_protein - peptide_start_in_protein)
+    )
     return (peptide_mutation_start_offset, peptide_mutation_end_offset)

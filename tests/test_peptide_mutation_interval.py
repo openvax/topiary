@@ -1,5 +1,6 @@
-from nose.tools import eq_, assert_raises
 from topiary import peptide_mutation_interval
+
+from .common import assert_raises, eq_
 
 def test_peptide_mutation_interval_middle():
     start, end = peptide_mutation_interval(
