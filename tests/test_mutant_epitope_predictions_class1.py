@@ -11,25 +11,12 @@
 # limitations under the License.
 
 import pytest
+from mhctools import NetMHCpan
 from pyensembl import ensembl_grch37
 from topiary import TopiaryPredictor
 from varcode import Variant, VariantCollection
 
 from .common import eq_
-
-try:
-    from mhctools import NetMHCpan
-
-    mhc_model = NetMHCpan(
-        alleles=["A02:01", "a0204", "B*07:02", "HLA-B14:02", "HLA-C*07:02", "hla-c07:01"],
-        default_peptide_lengths=[9],
-    )
-    HAS_NETMHC = True
-except Exception:
-    mhc_model = None
-    HAS_NETMHC = False
-
-pytestmark = pytest.mark.skipif(not HAS_NETMHC, reason="NetMHCpan not installed")
 
 # TODO: find out about these variants,
 # what do we expect from them?
@@ -39,6 +26,10 @@ variants = VariantCollection(
         Variant(contig=11, start=32861682, ref="G", alt="A", ensembl=ensembl_grch37),
     ]
 )
+
+alleles = ["A02:01", "a0204", "B*07:02", "HLA-B14:02", "HLA-C*07:02", "hla-c07:01"]
+
+mhc_model = NetMHCpan(alleles=alleles, default_peptide_lengths=[9])
 
 
 def test_epitope_prediction_without_padding():
