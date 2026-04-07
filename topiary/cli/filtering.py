@@ -15,9 +15,6 @@
 Commandline arguments related to epitope filtering
 """
 
-from __future__ import print_function, division, absolute_import
-
-
 def add_filter_args(arg_parser):
     filter_group = arg_parser.add_argument_group(
         title="Filtering Options",
@@ -61,4 +58,34 @@ def add_filter_args(arg_parser):
             ]
         ),
     )
+
+    filter_group.add_argument(
+        "--presentation-cutoff",
+        help=(
+            "Drop epitopes with presentation (EL) percentile rank above "
+            "this value. Only applies to predictors that produce "
+            "pMHC_presentation scores (e.g. NetMHCpan 4.1+)."
+        ),
+        default=None,
+        type=float,
+    )
+
+    filter_group.add_argument(
+        "--filter-logic",
+        help="How to combine multiple filter criteria: 'any' (OR) or 'all' (AND)",
+        choices=["any", "all"],
+        default="any",
+    )
+
+    filter_group.add_argument(
+        "--rank-by",
+        help=(
+            "Comma-separated prediction kinds to rank by, in priority order. "
+            "E.g. 'pMHC_presentation,pMHC_affinity' ranks by presentation "
+            "score when available, falling back to affinity."
+        ),
+        default=None,
+        type=str,
+    )
+
     return filter_group

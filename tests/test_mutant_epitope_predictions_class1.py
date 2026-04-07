@@ -39,6 +39,9 @@ def test_epitope_prediction_without_padding():
     # one prediction for each variant * number of alleles
     strong_binders = output_without_padding[output_without_padding.affinity <= 500]
     eq_(len(strong_binders), 5)
+    # new API: verify kind column exists and has expected values
+    assert "kind" in output_without_padding.columns
+    assert "pMHC_affinity" in output_without_padding["kind"].values
 
 
 def test_epitope_prediction_with_invalid_padding():
@@ -60,5 +63,7 @@ def test_epitope_prediction_with_valid_padding():
         mhc_model=mhc_model, padding_around_mutation=8, only_novel_epitopes=True
     )
     output_with_padding = predictor.predict_from_variants(variants=variants)
-    # 6 alleles * 2 mutations * 9 distinct windows = 108
-    eq_(len(output_with_padding), 108)
+    # 6 alleles * 2 mutations * 9 distinct windows = 108 affinity predictions
+    # NetMHCpan 4.1+ also emits presentation rows, so total is 2x
+    affinity_preds = output_with_padding[output_with_padding.kind == "pMHC_affinity"]
+    eq_(len(affinity_preds), 108)

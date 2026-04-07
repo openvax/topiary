@@ -18,6 +18,8 @@ from argparse import ArgumentParser
 from mhctools.cli import add_mhc_args, mhc_binding_predictor_from_args
 from varcode.cli import add_variant_args, variant_collection_from_args
 
+from mhctools import Kind
+
 from .filtering import add_filter_args
 from .rna import (
     add_rna_args,
@@ -29,6 +31,11 @@ from .errors import add_error_args
 from .outputs import add_output_args
 from .protein_changes import add_protein_change_args
 from ..predictor import TopiaryPredictor
+from ..ranking import (
+    RankingStrategy,
+    affinity_filter,
+    presentation_filter,
+)
 
 
 def create_arg_parser(
@@ -65,6 +72,36 @@ def create_arg_parser(
 arg_parser = create_arg_parser()
 
 
+def _build_ranking_strategy(args):
+    """Build a RankingStrategy from CLI args, or return None."""
+    has_presentation = getattr(args, "presentation_cutoff", None) is not None
+    has_rank_by = getattr(args, "rank_by", None) is not None
+    filter_logic = getattr(args, "filter_logic", "any")
+
+    if not (has_presentation or has_rank_by):
+        return None
+
+    filters = []
+    if args.ic50_cutoff or args.percentile_cutoff:
+        filters.append(affinity_filter(
+            ic50_cutoff=args.ic50_cutoff,
+            percentile_cutoff=args.percentile_cutoff,
+        ))
+    if has_presentation:
+        filters.append(presentation_filter(max_rank=args.presentation_cutoff))
+
+    sort_by = []
+    if has_rank_by:
+        kind_names = [s.strip() for s in args.rank_by.split(",")]
+        sort_by = [(Kind(k), "score") for k in kind_names]
+
+    return RankingStrategy(
+        filters=filters,
+        require_all=(filter_logic == "all"),
+        sort_by=sort_by,
+    )
+
+
 def predict_epitopes_from_args(args):
     """
     Returns an epitope collection from the given commandline arguments.
@@ -79,11 +116,14 @@ def predict_epitopes_from_args(args):
     gene_expression_dict = rna_gene_expression_dict_from_args(args)
     transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
 
+    ranking_strategy = _build_ranking_strategy(args)
+
     predictor = TopiaryPredictor(
         mhc_model=mhc_model,
         padding_around_mutation=args.padding_around_mutation,
         ic50_cutoff=args.ic50_cutoff,
         percentile_cutoff=args.percentile_cutoff,
+        ranking_strategy=ranking_strategy,
         min_transcript_expression=args.rna_min_transcript_expression,
         min_gene_expression=args.rna_min_gene_expression,
         only_novel_epitopes=args.only_novel_epitopes,
