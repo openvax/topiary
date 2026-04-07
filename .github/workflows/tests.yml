@@ -33,12 +33,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install pytest pytest-cov ruff
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-      - name: Install wkthtmltopdf
-        run: |
-          sudo apt-get install -y xfonts-base xfonts-75dpi
-          wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.bionic_amd64.deb
-          sudo dpkg -i wkhtmltox_0.12.6-1.bionic_amd64.deb
+          pip install -e .
       - name: Lint with ruff
         run: |
           ./lint.sh
