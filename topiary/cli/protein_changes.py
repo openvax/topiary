@@ -37,7 +37,8 @@ def add_protein_change_args(arg_parser):
 
 def genome_from_args(args):
     if args.genome:
-        return infer_genome(args.genome)
+        genome, _ = infer_genome(args.genome)
+        return genome
     else:
         # no genome specified, assume it can be inferred from the file(s)
         # we're loading
@@ -80,7 +81,7 @@ def protein_change_effects_from_args(args):
     for gene_name, protein_change_string in args.protein_change:
         match_obj = substitution_regex.match(protein_change_string)
         if match_obj is None:
-            logging.warn(
+            logging.warning(
                 "Unable to parse protein modification: '%s'" % protein_change_string
             )
             continue
@@ -90,7 +91,7 @@ def protein_change_effects_from_args(args):
         base1_pos = int(base1_pos)
 
         if gene_name not in valid_gene_names:
-            logging.warn(
+            logging.warning(
                 "Invalid gene name '%s' in protein modification: '%s'"
                 % (gene_name, protein_change_string)
             )

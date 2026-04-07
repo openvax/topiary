@@ -1,24 +1,6 @@
 #!/bin/bash
 set -o errexit
 
-RUFF=0
-PYLINT=1
+ruff check topiary/ tests/
 
-if [ $RUFF == 1 ]; then 
-  ruff check tcrsift/ \
-  && \
-  echo "Passes ruff check" 
-fi 
-
-if [ $PYLINT == 1 ]; then 
-# disabling several categories of errors due to false positives in pylint,
-# see these issues:
-# - https://bitbucket.org/logilab/pylint/issues/701/false-positives-with-not-an-iterable-and
-# - https://bitbucket.org/logilab/pylint/issues/58
-
-  find topiary/ -name '*.py' \
-    | xargs pylint \
-    --errors-only \
-    --disable=unsubscriptable-object,not-an-iterable,no-member,invalid-unary-operand-type \
-  && echo 'Passes pylint check'
-fi
+echo 'Passes ruff check'

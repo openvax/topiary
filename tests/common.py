@@ -1,17 +1,13 @@
-from functools import wraps
+from contextlib import contextmanager
+
+import pytest
 
 
 def eq_(x, y):
-    if x != y:
-        raise ValueError("Expected %s = %s" % (x, y))
+    assert x == y, "Expected %s == %s" % (x, y)
 
 
-def raises(e_expected):
-    def outer_fn(fn):
-        try:
-            fn()
-        except Exception as e:
-            return type(e) == e_expected
-        return False
-
-    return wraps(outer_fn)
+@contextmanager
+def assert_raises(e_expected):
+    with pytest.raises(e_expected):
+        yield

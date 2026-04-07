@@ -32,3 +32,11 @@ exclude = ["test", "test.*"]
 
 [project.scripts]
 topiary = "topiary.cli.script:main"
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["F821", "E501", "F841", "E731", "E741"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"test*/*" = ["F401"]

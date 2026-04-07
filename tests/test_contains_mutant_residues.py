@@ -1,5 +1,7 @@
-from nose.tools import eq_
 from topiary import contains_mutant_residues
+
+from .common import eq_
+
 
 def test_contains_mutant_residues_before():
     eq_(
@@ -7,8 +9,10 @@ def test_contains_mutant_residues_before():
             peptide_start_in_protein=10,
             peptide_length=9,
             mutation_start_in_protein=5,
-            mutation_end_in_protein=6),
-        False)
+            mutation_end_in_protein=6,
+        ),
+        False,
+    )
 
 
 def test_contains_mutant_residues_after():
@@ -17,8 +21,11 @@ def test_contains_mutant_residues_after():
             peptide_start_in_protein=10,
             peptide_length=9,
             mutation_start_in_protein=25,
-            mutation_end_in_protein=26),
-        False)
+            mutation_end_in_protein=26,
+        ),
+        False,
+    )
+
 
 def test_contains_mutant_residues_inside():
     eq_(
@@ -26,8 +33,11 @@ def test_contains_mutant_residues_inside():
             peptide_start_in_protein=10,
             peptide_length=9,
             mutation_start_in_protein=12,
-            mutation_end_in_protein=13),
-        True)
+            mutation_end_in_protein=13,
+        ),
+        True,
+    )
+
 
 def test_contains_mutant_residues_deletion_before_beginning():
     # peptide only contains the residue *after* the mutation
@@ -37,8 +47,10 @@ def test_contains_mutant_residues_deletion_before_beginning():
             peptide_start_in_protein=10,
             peptide_length=9,
             mutation_start_in_protein=10,
-            mutation_end_in_protein=10),
-        False)
+            mutation_end_in_protein=10,
+        ),
+        False,
+    )
 
 
 def test_contains_mutant_residues_deletion_at_beginning():
@@ -49,8 +61,11 @@ def test_contains_mutant_residues_deletion_at_beginning():
             peptide_start_in_protein=10,
             peptide_length=9,
             mutation_start_in_protein=11,
-            mutation_end_in_protein=11),
-        True)
+            mutation_end_in_protein=11,
+        ),
+        True,
+    )
+
 
 def test_contains_mutant_residues_deletion_after_end():
     # peptide only contains the residue *before* the mutation
@@ -60,8 +75,11 @@ def test_contains_mutant_residues_deletion_after_end():
             peptide_start_in_protein=10,
             peptide_length=9,
             mutation_start_in_protein=19,
-            mutation_end_in_protein=19),
-        False)
+            mutation_end_in_protein=19,
+        ),
+        False,
+    )
+
 
 def test_contains_mutant_residues_deletion_at_end():
     # peptide contains mutation before *and* after mutation so
@@ -71,5 +89,7 @@ def test_contains_mutant_residues_deletion_at_end():
             peptide_start_in_protein=10,
             peptide_length=9,
             mutation_start_in_protein=18,
-            mutation_end_in_protein=18),
-        True)
+            mutation_end_in_protein=18,
+        ),
+        True,
+    )

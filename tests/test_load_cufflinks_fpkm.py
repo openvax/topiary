@@ -1,5 +1,3 @@
-# Copyright (c) 2015. Mount Sinai School of Medicine
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -23,9 +21,9 @@ from __future__ import print_function, division, absolute_import
 
 from topiary.rna import load_cufflinks_dataframe
 
-from nose.tools import eq_
-
+from .common import eq_
 from .data import data_path
+
 
 def test_load_cufflinks_genes():
     genes_df = load_cufflinks_dataframe(
@@ -33,7 +31,8 @@ def test_load_cufflinks_genes():
         drop_lowdata=True,
         drop_hidata=True,
         drop_failed=True,
-        drop_novel=False)
+        drop_novel=False,
+    )
     gene_ids = set(genes_df.id)
     expected_gene_ids = {
         "ENSG00000240361",
@@ -44,9 +43,10 @@ def test_load_cufflinks_genes():
         "CUFF.2",
         "CUFF.3",
         "CUFF.4",
-        "CUFF.5"
+        "CUFF.5",
     }
     eq_(gene_ids, expected_gene_ids)
+
 
 def test_load_cufflinks_genes_drop_novel():
     genes_df = load_cufflinks_dataframe(
@@ -54,7 +54,8 @@ def test_load_cufflinks_genes_drop_novel():
         drop_lowdata=True,
         drop_hidata=True,
         drop_failed=True,
-        drop_novel=True)
+        drop_novel=True,
+    )
     gene_ids = set(genes_df.id)
     expected_gene_ids = {
         "ENSG00000240361",
@@ -71,7 +72,8 @@ def test_load_cufflinks_isoforms():
         drop_lowdata=True,
         drop_hidata=True,
         drop_failed=True,
-        drop_novel=False)
+        drop_novel=False,
+    )
     transcript_ids = set(transcripts_df.id)
     expected_transcript_ids = {
         "ENST00000492842",
@@ -84,13 +86,15 @@ def test_load_cufflinks_isoforms():
     }
     eq_(transcript_ids, expected_transcript_ids)
 
+
 def test_load_cufflinks_isoforms_drop_novel():
     transcripts_df = load_cufflinks_dataframe(
         data_path("isoforms.fpkm_tracking"),
         drop_lowdata=True,
         drop_hidata=True,
         drop_failed=True,
-        drop_novel=True)
+        drop_novel=True,
+    )
     transcript_ids = set(transcripts_df.id)
     expected_transcript_ids = {
         "ENST00000492842",

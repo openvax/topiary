@@ -1,6 +1,6 @@
 import pandas as pd
 from topiary.rna.cufflinks import parse_locus_column
-from nose.tools import eq_
+from .common import eq_
 
 
 def test_parse_locus_column_with_chr():
