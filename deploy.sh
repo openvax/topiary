@@ -6,6 +6,6 @@ rm -rf dist && \
 python3 -m build && \
 git --version && \
 python3 -m twine upload dist/* && \
-git tag "$(python3 topiary/version.py)" &&  \
+git tag "v$(python3 -c 'import topiary; print(topiary.__version__)')" && \
 git push --tags
 
