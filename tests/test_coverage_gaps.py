@@ -167,6 +167,7 @@ def test_sequences_from_transcript_ids_unknown():
 
 
 def test_available_tissues_has_testis():
+    pytest.importorskip("pirlygenes")
     from topiary.sources import available_tissues
     tissues = available_tissues()
     assert "testis" in tissues

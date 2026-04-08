@@ -1,5 +1,6 @@
 """Integration tests exercising the full topiary workflow end-to-end."""
 
+import pytest
 from mhctools import RandomBindingPredictor
 
 from topiary import Affinity, TopiaryPredictor
@@ -54,6 +55,7 @@ def test_gene_names_to_predictions():
 
 def test_tissue_restricted_predict():
     """Can predict from tissue-restricted sequences."""
+    pytest.importorskip("pirlygenes")
     seqs = tissue_expressed_sequences(["testis"], min_ntpm=100.0)
     small = dict(list(seqs.items())[:3])
     predictor = _small_predictor()
@@ -68,6 +70,7 @@ def test_tissue_restricted_predict():
 
 def test_tissue_exclusion_reduces_predictions():
     """Excluding vital-organ peptides should reduce prediction count."""
+    pytest.importorskip("pirlygenes")
     seqs = sequences_from_gene_names(["BRAF"])
     predictor = _small_predictor()
     df = predictor.predict_from_named_sequences(seqs)
@@ -91,6 +94,7 @@ def test_first_principles_workflow():
       2. Exclude peptides that appear in vital organ proteins
          (substring match — 8-mer from heart in 9-mer from testis → excluded)
     """
+    pytest.importorskip("pirlygenes")
     # 1. Targets: genes expressed in reproductive tissues
     target_seqs = tissue_expressed_sequences(
         ["testis", "placenta", "ovary"], min_ntpm=1.0,
