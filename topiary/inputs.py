@@ -1,39 +1,36 @@
 """
 Parse peptide and protein sequence inputs from CSV and FASTA files.
 
-Supports regions of interest, exclusion filtering against reference
-proteomes, and two FASTA modes (protein scanning vs. peptide list).
+Supports regions of interest, exclusion filtering, and two FASTA modes
+(protein scanning vs. peptide list).
 
-Example with a viral proteome::
+Example — CTA-like targets with vital-organ exclusion::
 
     from topiary import TopiaryPredictor, Affinity, Presentation
-    from topiary.inputs import read_fasta, slice_regions, build_exclusion_set
+    from topiary.sources import tissue_expressed_sequences
+    from topiary.inputs import build_exclusion_set, peptides_contained_in
     from mhctools import NetMHCpan
 
-    # Load SARS-CoV-2 proteome
-    proteins = read_fasta("sars_cov2.fasta")
+    # Targets: genes expressed in reproductive tissues
+    target_seqs = tissue_expressed_sequences(["testis", "placenta", "ovary"])
 
-    # Focus on regions of interest (half-open intervals)
-    regions = slice_regions(proteins, {
-        "spike": [(319, 541)],           # RBD
-        "nucleocapsid": [(0, 50), (350, 419)],
-    })
-
-    # Build exclusion set — combine multiple sources
-    excluded = (
-        build_exclusion_set(read_fasta("non_cta.fasta"), lengths=[8, 9, 10, 11])
-        | build_exclusion_set(read_fasta("germline.fasta"), lengths=[8, 9, 10, 11])
-    )
+    # Exclusion: 8-mers from vital organ proteome
+    vital_seqs = tissue_expressed_sequences(["heart_muscle", "lung", "liver"])
+    excluded = build_exclusion_set(vital_seqs)  # 8-mers by default
 
     # Predict
     predictor = TopiaryPredictor(
-        models=NetMHCpan(alleles=["A0201", "A0301", "B0702"]),
-        ranking=(Affinity <= 500) | (Presentation.rank <= 2.0),
+        models=NetMHCpan, alleles=["A0201", "A0301"],
+        filter=Affinity <= 500,
+        rank_by=Presentation.score,
     )
-    df = predictor.predict_from_named_sequences(regions)
+    df = predictor.predict_from_named_sequences(target_seqs)
 
-    # Remove peptides containing any excluded substring
+    # Substring exclusion: heart 8-mer inside CTA 9-mer → excluded
     df = df[~peptides_contained_in(df, excluded)]
+
+    # Or exact match only (same exclusion set, different mode):
+    df = df[~peptides_contained_in(df, excluded, substring=False)]
 """
 
 import logging

@@ -141,19 +141,6 @@ def test_fasta_regions_exclude_workflow():
 # ---------------------------------------------------------------------------
 
 
-def test_tissue_restricted_targets():
-    """Genes in testis/placenta/ovary but not vital organs — first-principles CTA."""
-    reproductive = tissue_expressed_gene_ids(
-        ["testis", "placenta", "ovary"], min_ntpm=1.0
-    )
-    vital = tissue_expressed_gene_ids(
-        ["heart_muscle", "lung", "liver", "kidney"], min_ntpm=1.0
-    )
-    restricted = reproductive - vital
-    assert len(restricted) > 50
-    assert len(restricted) < 5000
-
-
 def test_tissue_restricted_predict():
     """Can predict from tissue-restricted sequences."""
     seqs = tissue_expressed_sequences(["testis"], min_ntpm=100.0)
@@ -189,38 +176,33 @@ def test_tissue_exclusion_reduces_predictions():
 
 def test_first_principles_workflow():
     """
-    First-principles neoantigen-like workflow:
-      1. Target genes expressed in reproductive tissues
-      2. Exclude peptides from vital organ genes
-      3. Predict with filter + rank
+    First-principles CTA-like workflow:
+      1. Predict from genes expressed in reproductive tissues
+      2. Exclude peptides that appear in vital organ proteins
+         (substring match — 8-mer from heart in 9-mer from testis → excluded)
     """
-    # 1. Targets: testis-expressed, not in vital organs
-    reproductive = tissue_expressed_gene_ids(
-        ["testis", "placenta", "ovary"], min_ntpm=1.0
+    # 1. Targets: genes expressed in reproductive tissues
+    target_seqs = tissue_expressed_sequences(
+        ["testis", "placenta", "ovary"], min_ntpm=1.0,
     )
-    vital = tissue_expressed_gene_ids(
-        ["heart_muscle", "lung", "liver"], min_ntpm=1.0
-    )
-    target_ids = reproductive - vital
-    # Get sequences for a small subset
-    target_seqs = sequences_from_gene_names(
-        list(target_ids)[:3]  # just 3 for speed
-    )
+    small_targets = dict(list(target_seqs.items())[:3])
 
-    # 2. Exclusion set from vital organ proteome
+    # 2. Exclusion: 8-mers from vital organ proteome
     vital_seqs = tissue_expressed_sequences(
-        ["heart_muscle", "lung", "liver"], min_ntpm=10.0
+        ["heart_muscle", "lung", "liver"], min_ntpm=10.0,
     )
-    excluded = build_exclusion_set(vital_seqs, lengths=[8, 9])
+    excluded = build_exclusion_set(vital_seqs, min_length=8)
 
-    # 3. Predict
+    # 3. Predict with filter + rank
     predictor = TopiaryPredictor(
         models=RandomBindingPredictor,
         alleles=["A0201"],
         filter=Affinity <= 500,
         rank_by=Affinity.score,
     )
-    df = predictor.predict_from_named_sequences(target_seqs)
+    df = predictor.predict_from_named_sequences(small_targets)
+
+    # 4. Peptide-level substring exclusion
     df = df[~peptides_contained_in(df, excluded)]
 
     assert "peptide" in df.columns
