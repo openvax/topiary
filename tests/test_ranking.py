@@ -4,8 +4,11 @@ import pandas as pd
 from mhctools import Kind
 
 from topiary.ranking import (
+    Affinity,
     EpitopeFilter,
+    Presentation,
     RankingStrategy,
+    Stability,
     affinity_filter,
     apply_ranking_strategy,
     presentation_filter,
@@ -277,3 +280,83 @@ def test_variant_column_grouping():
     )
     result = apply_ranking_strategy(df, strategy)
     assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: operator syntax (Affinity.value <= 500, etc.)
+# ---------------------------------------------------------------------------
+
+
+def test_operator_affinity_value_le():
+    filt = Affinity.value <= 500
+    assert isinstance(filt, EpitopeFilter)
+    assert filt.kind == Kind.pMHC_affinity
+    assert filt.max_value == 500
+
+
+def test_operator_affinity_rank_le():
+    filt = Affinity.rank <= 2.0
+    assert isinstance(filt, EpitopeFilter)
+    assert filt.max_percentile_rank == 2.0
+
+
+def test_operator_presentation_score_ge():
+    filt = Presentation.score >= 0.5
+    assert isinstance(filt, EpitopeFilter)
+    assert filt.kind == Kind.pMHC_presentation
+    assert filt.min_score == 0.5
+
+
+def test_operator_or_produces_strategy():
+    strategy = (Affinity.value <= 500) | (Presentation.rank <= 2.0)
+    assert isinstance(strategy, RankingStrategy)
+    assert len(strategy.filters) == 2
+    assert strategy.require_all is False
+
+
+def test_operator_and_produces_strategy():
+    strategy = (Affinity.value <= 500) & (Presentation.rank <= 2.0)
+    assert isinstance(strategy, RankingStrategy)
+    assert len(strategy.filters) == 2
+    assert strategy.require_all is True
+
+
+def test_operator_or_applied_to_df():
+    df = _two_peptide_df()
+    strategy = (Affinity.value <= 500) | (Presentation.score >= 0.01)
+    result = apply_ranking_strategy(df, strategy)
+    assert set(result["peptide"]) == {"SIINFEKL", "ELAGIGIL"}
+
+
+def test_operator_and_applied_to_df():
+    df = _two_peptide_df()
+    strategy = (Affinity.value <= 500) & (Presentation.score >= 0.5)
+    result = apply_ranking_strategy(df, strategy)
+    assert set(result["peptide"]) == {"SIINFEKL"}
+
+
+def test_operator_rank_by():
+    df = _two_peptide_df()
+    strategy = (Affinity.value <= 50000).rank_by(Presentation.score, Affinity.score)
+    result = apply_ranking_strategy(df, strategy)
+    assert result.iloc[0]["peptide"] == "SIINFEKL"
+
+
+def test_operator_chained_or():
+    """Three-way OR via chaining."""
+    strategy = (Affinity.value <= 500) | (Presentation.rank <= 2.0) | (Stability.score >= 0.5)
+    assert isinstance(strategy, RankingStrategy)
+    assert len(strategy.filters) == 3
+
+
+def test_single_filter_as_ranking_param():
+    """A bare EpitopeFilter can be passed as the ranking= param."""
+    from topiary import TopiaryPredictor
+    from mhctools import RandomBindingPredictor
+
+    predictor = TopiaryPredictor(
+        models=RandomBindingPredictor(alleles=["A0201"], default_peptide_lengths=[9]),
+        ranking=Affinity.value <= 500,
+    )
+    assert predictor.ranking_strategy is not None
+    assert len(predictor.ranking_strategy.filters) == 1

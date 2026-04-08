@@ -22,6 +22,7 @@ from .filters import (
     filter_silent_and_noncoding_effects,
 )
 from .ranking import (
+    EpitopeFilter,
     RankingStrategy,
     affinity_filter,
     apply_ranking_strategy,
@@ -37,44 +38,38 @@ from .sequence_helpers import (
 class TopiaryPredictor(object):
     def __init__(
         self,
+        models=None,
+        ranking=None,
+        padding_around_mutation=None,
+        only_novel_epitopes=False,
+        min_gene_expression=0.0,
+        min_transcript_expression=0.0,
+        raise_on_error=True,
+        # backward-compat aliases
         mhc_model=None,
         mhc_models=None,
-        padding_around_mutation=None,
         ic50_cutoff=None,
         percentile_cutoff=None,
         ranking_strategy=None,
-        min_gene_expression=0.0,
-        min_transcript_expression=0.0,
-        only_novel_epitopes=False,
-        raise_on_error=True,
     ):
         """
         Parameters
         ----------
-        mhc_model : mhctools.BasePredictor, optional
-            A single MHC binding predictor. Mutually exclusive with
-            ``mhc_models``.
+        models : BasePredictor or list of BasePredictor
+            One or more prediction models (binding, processing, stability,
+            etc.) whose results are concatenated.
 
-        mhc_models : list of mhctools.BasePredictor, optional
-            Multiple MHC binding predictors whose results will be
-            concatenated. Useful for combining e.g. NetMHCpan + MHCflurry.
+        ranking : EpitopeFilter, RankingStrategy, or None
+            Filter/rank specification built with operator expressions::
+
+                from topiary import Affinity, Presentation
+                ranking = (Affinity.value <= 500) | (Presentation.rank <= 2.0)
 
         padding_around_mutation : int, optional
-            How many residues surrounding a mutation to consider including
-            in a candidate epitope. Default is the minimum size necessary
-            for the epitope lengths of the model(s).
+            Residues around a mutation to include in candidate epitopes.
 
-        ic50_cutoff : float, optional
-            Maximum predicted IC50 value (nM) for a peptide to be kept.
-            Ignored when ``ranking_strategy`` is provided.
-
-        percentile_cutoff : float, optional
-            Maximum percentile rank for a peptide to be kept.
-            Ignored when ``ranking_strategy`` is provided.
-
-        ranking_strategy : RankingStrategy, optional
-            Rich filtering/ranking specification. When provided,
-            ``ic50_cutoff`` and ``percentile_cutoff`` are ignored.
+        only_novel_epitopes : bool
+            Drop peptides that do not contain mutated residues.
 
         min_gene_expression : float
             Minimum gene FPKM to keep a variant effect.
@@ -82,23 +77,28 @@ class TopiaryPredictor(object):
         min_transcript_expression : float
             Minimum transcript FPKM to keep a variant effect.
 
-        only_novel_epitopes : bool
-            If True, drop peptides that do not contain mutated residues.
-
         raise_on_error : bool
             Raise on variant-effect errors vs. skip.
+
+        mhc_model : deprecated alias for ``models`` (single predictor)
+        mhc_models : deprecated alias for ``models`` (list)
+        ic50_cutoff : deprecated, use ``ranking=Affinity.value <= X``
+        percentile_cutoff : deprecated, use ``ranking=Affinity.rank <= X``
+        ranking_strategy : deprecated alias for ``ranking``
         """
         # --- model setup ---
-        if mhc_models is not None:
-            self.mhc_models = list(mhc_models)
+        if models is not None:
+            self.models = [models] if not isinstance(models, (list, tuple)) else list(models)
+        elif mhc_models is not None:
+            self.models = list(mhc_models)
         elif mhc_model is not None:
-            self.mhc_models = [mhc_model]
+            self.models = [mhc_model]
         else:
-            raise ValueError("Must provide mhc_model or mhc_models")
+            raise ValueError("Must provide models (or mhc_model/mhc_models)")
 
         # Padding uses the union of all models' peptide lengths
         all_lengths = set()
-        for m in self.mhc_models:
+        for m in self.models:
             all_lengths.update(m.default_peptide_lengths)
         self.padding_around_mutation = check_padding_around_mutation(
             given_padding=padding_around_mutation,
@@ -106,8 +106,11 @@ class TopiaryPredictor(object):
         )
 
         # --- ranking / filtering ---
-        if ranking_strategy is not None:
-            self.ranking_strategy = ranking_strategy
+        effective_ranking = ranking or ranking_strategy
+        if isinstance(effective_ranking, EpitopeFilter):
+            effective_ranking = RankingStrategy(filters=[effective_ranking])
+        if effective_ranking is not None:
+            self.ranking_strategy = effective_ranking
         elif ic50_cutoff or percentile_cutoff:
             self.ranking_strategy = RankingStrategy(
                 filters=[affinity_filter(ic50_cutoff, percentile_cutoff)],
@@ -125,7 +128,12 @@ class TopiaryPredictor(object):
     @property
     def mhc_model(self):
         """Backward-compatible access to the first (or only) model."""
-        return self.mhc_models[0]
+        return self.models[0]
+
+    @property
+    def mhc_models(self):
+        """Backward-compatible alias for ``models``."""
+        return self.models
 
     # ------------------------------------------------------------------
     # Prediction entry-points
@@ -146,7 +154,7 @@ class TopiaryPredictor(object):
             prediction_method_name, predictor_version, n_flank, c_flank
         """
         dfs = []
-        for model in self.mhc_models:
+        for model in self.models:
             model_df = model.predict_proteins_dataframe(name_to_sequence_dict)
             dfs.append(model_df)
         if not dfs:
