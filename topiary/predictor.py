@@ -39,7 +39,9 @@ class TopiaryPredictor(object):
     def __init__(
         self,
         models=None,
-        ranking=None,
+        alleles=None,
+        filter=None,
+        rank_by=None,
         padding_around_mutation=None,
         only_novel_epitopes=False,
         min_gene_expression=0.0,
@@ -50,20 +52,40 @@ class TopiaryPredictor(object):
         mhc_models=None,
         ic50_cutoff=None,
         percentile_cutoff=None,
+        ranking=None,
         ranking_strategy=None,
     ):
         """
         Parameters
         ----------
-        models : BasePredictor or list of BasePredictor
-            One or more prediction models (binding, processing, stability,
-            etc.) whose results are concatenated.
+        models : class, instance, or list
+            Predictor model(s). Can be:
 
-        ranking : EpitopeFilter, RankingStrategy, or None
-            Filter/rank specification built with operator expressions::
+            - A model class or list of classes (requires ``alleles``)::
 
-                from topiary import Affinity, Presentation
-                ranking = (Affinity.value <= 500) | (Presentation.rank <= 2.0)
+                  TopiaryPredictor(models=[NetMHCpan, MHCflurry], alleles=["A0201"])
+
+            - A model instance or list of instances::
+
+                  TopiaryPredictor(models=NetMHCpan(alleles=["A0201"]))
+
+        alleles : list of str, optional
+            HLA alleles. When provided, model classes in ``models`` are
+            instantiated with these alleles.
+
+        filter : EpitopeFilter or RankingStrategy
+            Which peptide-allele groups to keep::
+
+                filter = (Affinity <= 500) | (Presentation.rank <= 2.0)
+
+        rank_by : Expr or list of Expr, optional
+            How to sort surviving groups. First non-NaN wins::
+
+                rank_by = [Presentation.score, Affinity.score]
+
+            Or a composite expression::
+
+                rank_by = 0.5 * Affinity.score + 0.5 * Presentation.score
 
         padding_around_mutation : int, optional
             Residues around a mutation to include in candidate epitopes.
@@ -80,21 +102,31 @@ class TopiaryPredictor(object):
         raise_on_error : bool
             Raise on variant-effect errors vs. skip.
 
-        mhc_model : deprecated alias for ``models`` (single predictor)
-        mhc_models : deprecated alias for ``models`` (list)
-        ic50_cutoff : deprecated, use ``ranking=Affinity.value <= X``
-        percentile_cutoff : deprecated, use ``ranking=Affinity.rank <= X``
-        ranking_strategy : deprecated alias for ``ranking``
+        mhc_model : deprecated alias for ``models``
+        mhc_models : deprecated alias for ``models``
+        ic50_cutoff : deprecated, use ``filter=Affinity <= X``
+        percentile_cutoff : deprecated, use ``filter=Affinity.rank <= X``
+        ranking : deprecated alias for ``filter``
+        ranking_strategy : deprecated alias for ``filter``
         """
         # --- model setup ---
-        if models is not None:
-            self.models = [models] if not isinstance(models, (list, tuple)) else list(models)
-        elif mhc_models is not None:
-            self.models = list(mhc_models)
-        elif mhc_model is not None:
-            self.models = [mhc_model]
-        else:
-            raise ValueError("Must provide models (or mhc_model/mhc_models)")
+        raw_models = models or mhc_models or (mhc_model and [mhc_model])
+        if raw_models is None:
+            raise ValueError("Must provide models")
+        if not isinstance(raw_models, (list, tuple)):
+            raw_models = [raw_models]
+
+        self.models = []
+        for m in raw_models:
+            if isinstance(m, type):
+                # It's a class — instantiate with alleles
+                if alleles is None:
+                    raise ValueError(
+                        f"alleles required when passing model class {m.__name__}"
+                    )
+                self.models.append(m(alleles=alleles))
+            else:
+                self.models.append(m)
 
         # Padding uses the union of all models' peptide lengths
         all_lengths = set()
@@ -105,18 +137,31 @@ class TopiaryPredictor(object):
             epitope_lengths=sorted(all_lengths),
         )
 
-        # --- ranking / filtering ---
-        effective_ranking = ranking or ranking_strategy
-        if isinstance(effective_ranking, EpitopeFilter):
-            effective_ranking = RankingStrategy(filters=[effective_ranking])
-        if effective_ranking is not None:
-            self.ranking_strategy = effective_ranking
+        # --- filter / ranking ---
+        effective_filter = filter or ranking or ranking_strategy
+        if isinstance(effective_filter, EpitopeFilter):
+            effective_filter = RankingStrategy(filters=[effective_filter])
+        if effective_filter is not None:
+            self.ranking_strategy = effective_filter
         elif ic50_cutoff or percentile_cutoff:
             self.ranking_strategy = RankingStrategy(
                 filters=[affinity_filter(ic50_cutoff, percentile_cutoff)],
             )
         else:
             self.ranking_strategy = None
+
+        # Attach rank_by to strategy if provided separately
+        if rank_by is not None:
+            if not isinstance(rank_by, (list, tuple)):
+                rank_by = [rank_by]
+            if self.ranking_strategy is None:
+                self.ranking_strategy = RankingStrategy(sort_by=list(rank_by))
+            else:
+                self.ranking_strategy = RankingStrategy(
+                    filters=list(self.ranking_strategy.filters),
+                    require_all=self.ranking_strategy.require_all,
+                    sort_by=list(rank_by),
+                )
 
         self.ic50_cutoff = ic50_cutoff
         self.percentile_cutoff = percentile_cutoff
@@ -153,24 +198,99 @@ class TopiaryPredictor(object):
             allele, kind, score, value, affinity, percentile_rank,
             prediction_method_name, predictor_version, n_flank, c_flank
         """
+        df = self._predict_raw(name_to_sequence_dict)
+        return self._apply_filter(df)
+
+    def predict_from_named_peptides(self, name_to_peptide_dict):
+        """
+        Parameters
+        ----------
+        name_to_peptide_dict : dict (str -> str)
+            Mapping of peptide names to amino acid sequences.
+
+        Returns
+        -------
+        pandas.DataFrame with columns:
+            source_sequence_name, peptide, peptide_offset, peptide_length,
+            allele, kind, score, value, affinity, percentile_rank,
+            prediction_method_name, predictor_version, n_flank, c_flank
+        """
+        df = self._predict_raw_peptides(name_to_peptide_dict)
+        return self._apply_filter(df)
+
+    def _predict_raw(self, name_to_sequence_dict):
+        """Run models and format output, without applying filter/ranking."""
         dfs = []
         for model in self.models:
             model_df = model.predict_proteins_dataframe(name_to_sequence_dict)
-            dfs.append(model_df)
+            dfs.append(self._format_prediction_df(model_df))
         if not dfs:
             return pd.DataFrame()
-        df = pd.concat(dfs, ignore_index=True)
+        return pd.concat(dfs, ignore_index=True)
 
-        # Backward-compatible column renames / additions
+    def _predict_raw_peptides(self, name_to_peptide_dict):
+        """Run models on peptides as-is, without sliding-window scanning."""
+        peptide_names_df = pd.DataFrame(
+            {
+                "source_sequence_name": list(name_to_peptide_dict.keys()),
+                "peptide": list(name_to_peptide_dict.values()),
+            }
+        )
+        if peptide_names_df.empty:
+            return pd.DataFrame()
+
+        peptide_list = peptide_names_df["peptide"].drop_duplicates().tolist()
+        dfs = []
+        for model in self.models:
+            if hasattr(model, "predict_dataframe"):
+                model_df = model.predict_dataframe(peptide_list)
+            else:
+                model_df = model.predict_peptides_dataframe(peptide_list)
+            expanded_df = self._expand_named_peptide_predictions(
+                model_df, peptide_names_df
+            )
+            dfs.append(self._format_prediction_df(expanded_df))
+        if not dfs:
+            return pd.DataFrame()
+        return pd.concat(dfs, ignore_index=True)
+
+    def _expand_named_peptide_predictions(self, model_df, peptide_names_df):
+        """Attach the original peptide names to model predictions."""
+        if model_df.empty:
+            return model_df.copy()
+
+        expanded_df = model_df.drop(
+            columns=["source_sequence_name"], errors="ignore"
+        ).merge(peptide_names_df, on="peptide", how="inner")
+
+        if "offset" in expanded_df.columns:
+            expanded_df["offset"] = 0
+        return expanded_df
+
+    def _format_prediction_df(self, df):
+        """Normalize mhctools prediction output to Topiary's schema."""
+        if df.empty:
+            return df.copy()
+
         df = df.rename(columns={
             "offset": "peptide_offset",
             "predictor_name": "prediction_method_name",
-        })
+        }).copy()
+        if "source_sequence_name" not in df.columns:
+            df["source_sequence_name"] = None
+        if "peptide_offset" not in df.columns:
+            df["peptide_offset"] = 0
         df["peptide_length"] = df["peptide"].str.len()
-        # "affinity" = IC50 value for pMHC_affinity rows, NaN otherwise
-        df["affinity"] = np.where(
-            df["kind"] == "pMHC_affinity", df["value"], np.nan
-        )
+        if "affinity" not in df.columns:
+            df["affinity"] = np.where(
+                df["kind"] == "pMHC_affinity", df["value"], np.nan
+            )
+        return df
+
+    def _apply_filter(self, df):
+        """Apply ranking strategy filter/sort if configured."""
+        if self.ranking_strategy and not df.empty:
+            df = apply_ranking_strategy(df, self.ranking_strategy)
         return df
 
     def predict_from_sequences(self, sequences):
@@ -219,7 +339,7 @@ class TopiaryPredictor(object):
 
         if len(variant_effect_groups) == 0:
             logging.warning("No candidates for MHC binding prediction")
-            return []
+            return pd.DataFrame()
 
         if transcript_expression_dict:
             top_effects = [
@@ -251,7 +371,7 @@ class TopiaryPredictor(object):
             effect.variant.short_description: subseq_offset
             for (effect, subseq_offset) in effect_to_offset_dict.items()
         }
-        df = self.predict_from_named_sequences(variant_string_to_subsequence_dict)
+        df = self._predict_raw(variant_string_to_subsequence_dict)
         logging.info(
             "MHC predictor returned %d peptide binding predictions" % (len(df))
         )

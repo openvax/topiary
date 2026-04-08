@@ -1,0 +1,208 @@
+"""Tests for topiary.inputs — CSV, FASTA, regions, exclusion."""
+
+import os
+import tempfile
+
+import pytest
+
+from topiary.inputs import (
+    exclude_by,
+    read_fasta,
+    read_peptide_csv,
+    read_peptide_fasta,
+    read_sequence_csv,
+    slice_regions,
+)
+
+
+def _tmpfile(content, suffix=".csv"):
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False)
+    f.write(content)
+    f.flush()
+    f.close()
+    return f.name
+
+
+# ---------------------------------------------------------------------------
+# Peptide CSV
+# ---------------------------------------------------------------------------
+
+
+def test_peptide_csv_basic():
+    path = _tmpfile("peptide\nSIINFEKL\nELAGIGIL\n")
+    result = read_peptide_csv(path)
+    os.unlink(path)
+    assert result == {"SIINFEKL": "SIINFEKL", "ELAGIGIL": "ELAGIGIL"}
+
+
+def test_peptide_csv_with_names():
+    path = _tmpfile("name,peptide\npep1,SIINFEKL\npep2,ELAGIGIL\n")
+    result = read_peptide_csv(path)
+    os.unlink(path)
+    assert result == {"pep1": "SIINFEKL", "pep2": "ELAGIGIL"}
+
+
+def test_peptide_csv_missing_column():
+    path = _tmpfile("sequence\nSIINFEKL\n")
+    with pytest.raises(ValueError, match="Missing required column"):
+        read_peptide_csv(path)
+    os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Sequence CSV
+# ---------------------------------------------------------------------------
+
+
+def test_sequence_csv_basic():
+    path = _tmpfile("sequence\nMASIINFEKLGGG\n")
+    result = read_sequence_csv(path)
+    os.unlink(path)
+    assert len(result) == 1
+    assert list(result.values())[0] == "MASIINFEKLGGG"
+
+
+def test_sequence_csv_with_names():
+    path = _tmpfile("name,sequence\nBRAF,MASIINFEKLGGG\nTP53,MRKKLLLQQQ\n")
+    result = read_sequence_csv(path)
+    os.unlink(path)
+    assert result == {"BRAF": "MASIINFEKLGGG", "TP53": "MRKKLLLQQQ"}
+
+
+def test_sequence_csv_missing_column():
+    path = _tmpfile("peptide\nSIINFEKL\n")
+    with pytest.raises(ValueError, match="Missing required column"):
+        read_sequence_csv(path)
+    os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# FASTA (protein sequences)
+# ---------------------------------------------------------------------------
+
+
+def test_fasta_basic():
+    path = _tmpfile(">protein1\nMASIINFEKL\nGGGLLL\n>protein2\nMRKKLLL\n", ".fasta")
+    result = read_fasta(path)
+    os.unlink(path)
+    assert result == {"protein1": "MASIINFEKLGGGLLL", "protein2": "MRKKLLL"}
+
+
+def test_fasta_with_description():
+    path = _tmpfile(">sp|P12345|BRAF_HUMAN some description\nMASIINFEKL\n", ".fasta")
+    result = read_fasta(path)
+    os.unlink(path)
+    assert "sp|P12345|BRAF_HUMAN" in result
+
+
+def test_fasta_empty():
+    path = _tmpfile("", ".fasta")
+    result = read_fasta(path)
+    os.unlink(path)
+    assert result == {}
+
+
+def test_fasta_blank_lines():
+    path = _tmpfile(">prot\n\nMASII\n\nNFEKL\n\n", ".fasta")
+    result = read_fasta(path)
+    os.unlink(path)
+    assert result == {"prot": "MASIINFEKL"}
+
+
+# ---------------------------------------------------------------------------
+# Peptide FASTA (each entry is one peptide)
+# ---------------------------------------------------------------------------
+
+
+def test_peptide_fasta():
+    path = _tmpfile(">pep1\nSIINFEKL\n>pep2\nELAGIGIL\n", ".fasta")
+    result = read_peptide_fasta(path)
+    os.unlink(path)
+    assert result == {"pep1": "SIINFEKL", "pep2": "ELAGIGIL"}
+
+
+# ---------------------------------------------------------------------------
+# Region slicing
+# ---------------------------------------------------------------------------
+
+
+def test_slice_regions_single():
+    seqs = {"spike": "A" * 100, "orf1a": "B" * 200}
+    result = slice_regions(seqs, {"spike": [(10, 20)]})
+    assert "spike:10-20" in result
+    assert len(result["spike:10-20"]) == 10
+    # orf1a has no regions specified → included in full
+    assert "orf1a" in result
+    assert len(result["orf1a"]) == 200
+
+
+def test_slice_regions_multiple():
+    seqs = {"nuc": "ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
+    result = slice_regions(seqs, {"nuc": [(0, 5), (20, 26)]})
+    assert "nuc:0-5" in result
+    assert result["nuc:0-5"] == "ABCDE"
+    assert "nuc:20-26" in result
+    assert result["nuc:20-26"] == "UVWXYZ"
+
+
+def test_slice_regions_exclude():
+    seqs = {"keep": "AAA", "drop": "BBB"}
+    result = slice_regions(seqs, {"drop": []})
+    assert "keep" in result
+    assert "drop" not in result
+
+
+def test_slice_regions_no_regions_dict():
+    seqs = {"a": "AAA", "b": "BBB"}
+    result = slice_regions(seqs, {})
+    assert result == seqs
+
+
+# ---------------------------------------------------------------------------
+# Exclusion set
+# ---------------------------------------------------------------------------
+
+
+def test_exclude_by_substring():
+    """Substring mode: 8-mer from reference inside 9-mer prediction → excluded."""
+    import pandas as pd
+    ref = {"prot": "ABCDEFGHIJ"}  # contains 8-mers ABCDEFGH, BCDEFGHI, CDEFGHIJ
+    df = pd.DataFrame({"peptide": ["XABCDEFGH", "ABCDEFGHI", "ZZZZZZZZZ"]})
+    result = exclude_by(df, ref, mode="substring", min_kmer=8)
+    assert "ZZZZZZZZZ" in result["peptide"].values
+    assert "XABCDEFGH" not in result["peptide"].values
+    assert "ABCDEFGHI" not in result["peptide"].values
+
+
+def test_exclude_by_exact():
+    """Exact mode: only full peptide matches are excluded."""
+    import pandas as pd
+    ref = {"prot": "ABCDEFGHIJ"}
+    df = pd.DataFrame({"peptide": ["XABCDEFGH", "ABCDEFGH", "ZZZZZZZZ"]})
+    result = exclude_by(df, ref, mode="exact")
+    assert "XABCDEFGH" in result["peptide"].values  # not exact match
+    assert "ABCDEFGH" not in result["peptide"].values  # exact match
+    assert "ZZZZZZZZ" in result["peptide"].values
+
+
+def test_exclude_by_substring_shorter_kmer():
+    """8-mer from heart in a 10-mer CTA peptide → excluded."""
+    import pandas as pd
+    ref = {"heart_gene": "XXHEARTPEPXX"}
+    df = pd.DataFrame({"peptide": [
+        "XHEARTPEPX",  # 10-mer containing HEARTPEP → excluded
+        "HEARTPEP",    # exact 8-mer → excluded
+        "HEARPEPXX",   # doesn't contain any ref 8-mer → kept
+    ]})
+    result = exclude_by(df, ref, mode="substring", min_kmer=8)
+    assert len(result) == 1
+    assert result.iloc[0]["peptide"] == "HEARPEPXX"
+
+
+def test_exclude_by_empty_ref():
+    import pandas as pd
+    df = pd.DataFrame({"peptide": ["AAA", "BBB"]})
+    result = exclude_by(df, {}, mode="substring")
+    assert len(result) == 2
+
+
