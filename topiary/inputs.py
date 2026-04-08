@@ -9,7 +9,7 @@ Example with a viral proteome::
     from topiary import TopiaryPredictor, Affinity, Presentation
     from topiary.inputs import (
         read_fasta, slice_regions, build_exclusion_set,
-        exclude_self_peptides,
+        exclude_peptides,
     )
     from mhctools import NetMHCpan
 
@@ -22,9 +22,11 @@ Example with a viral proteome::
         "nucleocapsid": [(0, 50), (350, 419)],
     })
 
-    # Build exclusion set from human proteome
-    human = read_fasta("human_proteome.fasta")
-    self_peptides = build_exclusion_set(human, lengths=[8, 9, 10, 11])
+    # Build exclusion set — combine multiple sources
+    excluded = (
+        build_exclusion_set(read_fasta("non_cta.fasta"), lengths=[8, 9, 10, 11])
+        | build_exclusion_set(read_fasta("germline.fasta"), lengths=[8, 9, 10, 11])
+    )
 
     # Predict
     predictor = TopiaryPredictor(
@@ -33,8 +35,8 @@ Example with a viral proteome::
     )
     df = predictor.predict_from_named_sequences(regions)
 
-    # Remove self-peptides
-    df = exclude_self_peptides(df, self_peptides)
+    # Remove excluded peptides
+    df = exclude_peptides(df, excluded)
 """
 
 import logging
@@ -205,9 +207,14 @@ def slice_regions(sequences, regions):
 def build_exclusion_set(sequences, lengths):
     """Build a set of all k-mer peptides from reference sequences.
 
-    Use this to construct a self-peptide set from e.g. the human proteome,
-    then pass to :func:`exclude_self_peptides` to remove them from
-    predictions.
+    The exclusion source can be anything you consider "background" —
+    the full human proteome, non-CTA proteins from Tsarina, a patient's
+    germline, etc.  Combine multiple sources by taking the union::
+
+        excluded = (
+            build_exclusion_set(read_fasta("non_cta.fasta"), lengths)
+            | build_exclusion_set(read_fasta("germline.fasta"), lengths)
+        )
 
     Parameters
     ----------
@@ -229,7 +236,7 @@ def build_exclusion_set(sequences, lengths):
     return peptides
 
 
-def exclude_self_peptides(df, exclusion_set, peptide_column="peptide"):
+def exclude_peptides(df, exclusion_set, peptide_column="peptide"):
     """Remove predictions whose peptide appears in the exclusion set.
 
     Parameters
@@ -246,7 +253,7 @@ def exclude_self_peptides(df, exclusion_set, peptide_column="peptide"):
     Returns
     -------
     pandas.DataFrame
-        Filtered copy with self-peptides removed.
+        Filtered copy with excluded peptides removed.
     """
     mask = ~df[peptide_column].isin(exclusion_set)
     n_removed = (~mask).sum()

@@ -8,7 +8,7 @@ import pytest
 
 from topiary.inputs import (
     build_exclusion_set,
-    exclude_self_peptides,
+    exclude_peptides,
     read_fasta,
     read_peptide_csv,
     read_peptide_fasta,
@@ -182,14 +182,14 @@ def test_build_exclusion_set_multiple_lengths():
     assert len(excl) == 7
 
 
-def test_exclude_self_peptides():
+def test_exclude_peptides():
     import pandas as pd
     df = pd.DataFrame({
         "peptide": ["SIINFEKL", "SELF_PEP", "ELAGIGIL"],
         "score": [0.9, 0.5, 0.1],
     })
     exclusion = {"SELF_PEP"}
-    result = exclude_self_peptides(df, exclusion)
+    result = exclude_peptides(df, exclusion)
     assert len(result) == 2
     assert "SELF_PEP" not in result["peptide"].values
 
@@ -197,7 +197,7 @@ def test_exclude_self_peptides():
 def test_exclude_empty_set():
     import pandas as pd
     df = pd.DataFrame({"peptide": ["AAA", "BBB"], "score": [1, 2]})
-    result = exclude_self_peptides(df, set())
+    result = exclude_peptides(df, set())
     assert len(result) == 2
 
 
@@ -261,5 +261,5 @@ def test_predict_fasta_with_regions_and_exclusion():
 
     # Exclude: pretend SIINFEKL is a self-peptide
     exclusion = {"SIINFEKL"}
-    df_filtered = exclude_self_peptides(df, exclusion)
+    df_filtered = exclude_peptides(df, exclusion)
     assert "SIINFEKL" not in df_filtered["peptide"].values

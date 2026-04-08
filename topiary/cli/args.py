@@ -32,7 +32,7 @@ from .outputs import add_output_args
 from .protein_changes import add_protein_change_args
 from ..inputs import (
     build_exclusion_set,
-    exclude_self_peptides,
+    exclude_peptides,
     read_fasta,
     read_peptide_csv,
     read_peptide_fasta,
@@ -87,8 +87,10 @@ def _add_input_args(arg_parser):
     input_group.add_argument(
         "--exclude-fasta",
         default=None,
-        help="FASTA of reference sequences (e.g. human proteome). "
-             "Any predicted peptide that occurs as a substring is excluded.",
+        nargs="*",
+        help="FASTA file(s) of sequences to exclude against (e.g. non-CTA "
+             "proteome from Tsarina, germline, human reference). Predicted "
+             "peptides matching any subsequence are removed.",
     )
     return input_group
 
@@ -274,11 +276,12 @@ def predict_epitopes_from_args(args):
 
 def _apply_exclusion(df, args):
     """If --exclude-fasta was given, remove matching peptides."""
-    exclude_path = getattr(args, "exclude_fasta", None)
-    if not exclude_path or not isinstance(df, pd.DataFrame) or df.empty:
+    exclude_paths = getattr(args, "exclude_fasta", None)
+    if not exclude_paths or not isinstance(df, pd.DataFrame) or df.empty:
         return df
-    ref_sequences = read_fasta(exclude_path)
-    # Determine peptide lengths from the predictions
     lengths = sorted(df["peptide"].str.len().unique())
-    exclusion_set = build_exclusion_set(ref_sequences, lengths=lengths)
-    return exclude_self_peptides(df, exclusion_set)
+    exclusion_set = set()
+    for path in exclude_paths:
+        ref_sequences = read_fasta(path)
+        exclusion_set |= build_exclusion_set(ref_sequences, lengths=lengths)
+    return exclude_peptides(df, exclusion_set)
