@@ -66,7 +66,7 @@ def write_outputs(
         subset_columns = []
         for column in args.subset_output_columns:
             if column not in df.columns:
-                logging.warn(
+                logging.warning(
                     "Invalid column name '%s', available: %s"
                     % (column, list(df.columns))
                 )
@@ -77,7 +77,7 @@ def write_outputs(
     if args.rename_output_column:
         for old_name, new_name in args.rename_output_column:
             if old_name not in df.columns:
-                logging.warn(
+                logging.warning(
                     "Can't rename column '%s' since it doesn't exist, available: %s"
                     % (old_name, list(df.columns))
                 )

@@ -603,3 +603,55 @@ def test_parse_filter_rank_ge():
     from topiary.ranking import parse_filter
     f = parse_filter("presentation.rank >= 5")
     assert f.min_percentile_rank == 5.0
+
+
+# ---------------------------------------------------------------------------
+# Tests: bug fixes from audit
+# ---------------------------------------------------------------------------
+
+
+def test_combine_mixed_operators_nesting():
+    """(A | B) & C must be AND( OR(A, B), C ), not AND(A, B, C)."""
+    df = _two_peptide_df()
+    # A: affinity <= 500 (only peptide A passes)
+    # B: affinity >= 1000 (only peptide B passes)
+    # A | B: both pass
+    # C: presentation.score >= 0.5 (only peptide A passes)
+    # (A | B) & C: only peptide A should pass
+    strategy = ((Affinity.value <= 500) | (Affinity.value >= 1000)) & (Presentation.score >= 0.5)
+    result = apply_ranking_strategy(df, strategy)
+    assert set(result["peptide"]) == {"SIINFEKL"}
+
+
+def test_combine_same_operator_flattens():
+    """A | B | C should flatten to OR(A, B, C), not OR(OR(A, B), C)."""
+    strategy = (Affinity.value <= 500) | (Presentation.rank <= 2.0) | (Stability.score >= 0.5)
+    assert len(strategy.filters) == 3
+    assert all(isinstance(f, EpitopeFilter) for f in strategy.filters)
+
+
+def test_norm_std_zero_returns_nan():
+    expr = Affinity.value.norm(mean=500, std=0)
+    df = _make_df(PEPTIDE_A_ROWS)
+    assert math.isnan(expr.evaluate(df))
+
+
+def test_field_evaluate_missing_column():
+    from topiary.ranking import Field
+    expr = Field(Kind.pMHC_affinity, "nonexistent_column")
+    df = _make_df(PEPTIDE_A_ROWS)
+    assert math.isnan(expr.evaluate(df))
+
+
+def test_parse_filter_with_parentheses():
+    from topiary.ranking import parse_filter
+    f = parse_filter("(affinity <= 500)")
+    assert f.kind == Kind.pMHC_affinity
+    assert f.max_value == 500
+
+
+def test_parse_ranking_mixed_operators_raises():
+    import pytest
+    from topiary.ranking import parse_ranking
+    with pytest.raises(ValueError, match="Cannot mix"):
+        parse_ranking("affinity <= 500 | presentation.rank <= 2 & stability.score >= 0.5")

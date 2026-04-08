@@ -185,6 +185,8 @@ class _NormExpr(Expr):
         val = self.inner.evaluate(group_df)
         if val is None or (isinstance(val, float) and math.isnan(val)):
             return float("nan")
+        if self.std == 0:
+            return float("nan")
         return _gauss_cdf((val - self.mean) / self.std)
 
 
@@ -259,8 +261,11 @@ class Field(Expr):
         kind_rows = group_df[group_df["kind"] == self.kind.value]
         if kind_rows.empty:
             return float("nan")
-        val = kind_rows.iloc[0][self.field]
-        if val is None:
+        try:
+            val = kind_rows.iloc[0][self.field]
+        except KeyError:
+            return float("nan")
+        if val is None or (isinstance(val, float) and math.isnan(val)):
             return float("nan")
         return float(val)
 
@@ -408,13 +413,19 @@ class RankingStrategy:
 
 
 def _combine(left, right, require_all):
-    def _as_filters(obj):
+    """Merge two filters/strategies. Only flatten children whose operator
+    matches; otherwise nest to preserve semantics of (A | B) & C."""
+    def _as_items(obj, parent_require_all):
         if isinstance(obj, EpitopeFilter):
             return [obj]
-        return list(obj.filters)
+        # Only flatten if child uses the same logic as parent
+        if isinstance(obj, RankingStrategy) and obj.require_all == parent_require_all:
+            return list(obj.filters)
+        # Different logic → keep as nested sub-strategy
+        return [obj]
 
     return RankingStrategy(
-        filters=_as_filters(left) + _as_filters(right),
+        filters=_as_items(left, require_all) + _as_items(right, require_all),
         require_all=require_all,
     )
 
@@ -482,15 +493,21 @@ def _group_passes(group_df, strategy):
         return True
 
     results = []
-    for filt in strategy.filters:
-        kind_rows = group_df[group_df["kind"] == filt.kind.value]
-        if kind_rows.empty:
-            results.append(False)
-            continue
-        passed = any(
-            _row_passes_filter(row, filt) for _, row in kind_rows.iterrows()
-        )
-        results.append(passed)
+    for item in strategy.filters:
+        if isinstance(item, RankingStrategy):
+            # Nested sub-strategy — recurse
+            results.append(_group_passes(group_df, item))
+        else:
+            # EpitopeFilter
+            kind_rows = group_df[group_df["kind"] == item.kind.value]
+            if kind_rows.empty:
+                results.append(False)
+                continue
+            passed = any(
+                _row_passes_filter(row, item)
+                for _, row in kind_rows.iterrows()
+            )
+            results.append(passed)
 
     if strategy.require_all:
         return all(results)
@@ -597,7 +614,8 @@ def parse_filter(text):
 
     Returns an :class:`EpitopeFilter`.
     """
-    text = text.strip()
+    # Strip parentheses and whitespace
+    text = text.strip().strip("()")
     for op_str, op_name in [("<=", "le"), (">=", "ge"), ("<", "lt"), (">", "gt")]:
         if op_str in text:
             lhs, rhs = text.split(op_str, 1)
@@ -640,15 +658,26 @@ def parse_ranking(text):
         "affinity <= 500 | presentation.rank <= 2"
         "affinity <= 500 & presentation.score >= 0.5"
 
+    Mixing ``|`` and ``&`` in one expression is not supported; use the
+    Python operator API for complex nesting.
+
     Returns a :class:`RankingStrategy` (or :class:`EpitopeFilter` for a
     single filter).
     """
     text = text.strip()
-    if "&" in text:
+    has_and = "&" in text
+    has_or = "|" in text
+    if has_and and has_or:
+        raise ValueError(
+            "Cannot mix '|' and '&' in a single ranking string. "
+            "Use the Python API for complex nesting: "
+            "(Affinity <= 500 | Presentation.rank <= 2) & Stability.score >= 0.5"
+        )
+    if has_and:
         parts = text.split("&")
         filters = [parse_filter(p) for p in parts]
         return RankingStrategy(filters=filters, require_all=True)
-    elif "|" in text:
+    elif has_or:
         parts = text.split("|")
         filters = [parse_filter(p) for p in parts]
         return RankingStrategy(filters=filters, require_all=False)
