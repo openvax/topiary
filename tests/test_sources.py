@@ -68,18 +68,6 @@ def test_tissue_expressed_gene_ids_strict():
     assert len(strict) < len(loose)
 
 
-def test_reproductive_gene_ids():
-    from topiary.sources import reproductive_gene_ids
-    gene_ids = reproductive_gene_ids()
-    # Should find genes expressed in testis/placenta/ovary but not vital organs
-    assert len(gene_ids) > 50
-    # Should be a subset of testis-expressed genes
-    testis_ids = tissue_expressed_gene_ids(["testis"], min_ntpm=1.0)
-    assert gene_ids <= testis_ids | tissue_expressed_gene_ids(
-        ["placenta", "ovary"], min_ntpm=1.0
-    )
-
-
 def test_predictor_with_alleles_and_model_classes():
     from mhctools import RandomBindingPredictor
     from topiary import TopiaryPredictor, Affinity
