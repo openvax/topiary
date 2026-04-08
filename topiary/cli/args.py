@@ -39,6 +39,15 @@ from ..inputs import (
     read_sequence_csv,
     slice_regions,
 )
+from ..sources import (
+    cta_sequences,
+    ensembl_proteome,
+    non_cta_sequences,
+    sequences_from_gene_names,
+    sequences_from_gene_ids,
+    sequences_from_transcript_ids,
+    tissue_expressed_sequences,
+)
 from ..predictor import TopiaryPredictor
 from ..ranking import (
     EpitopeFilter,
@@ -88,10 +97,71 @@ def _add_input_args(arg_parser):
         "--exclude-fasta",
         default=None,
         nargs="*",
-        help="FASTA file(s) of sequences to exclude against (e.g. non-CTA "
-             "proteome from Tsarina, germline, human reference). Predicted "
+        help="FASTA file(s) of sequences to exclude against. Predicted "
              "peptides matching any subsequence are removed.",
     )
+    input_group.add_argument(
+        "--exclude-ensembl",
+        default=False,
+        action="store_true",
+        help="Exclude peptides found in the Ensembl proteome "
+             "(default: human GRCh38).",
+    )
+    input_group.add_argument(
+        "--exclude-non-cta",
+        default=False,
+        action="store_true",
+        help="Exclude peptides from non-CTA (cancer-testis antigen) proteins. "
+             "Human only. Requires pirlygenes.",
+    )
+    input_group.add_argument(
+        "--exclude-tissues",
+        default=None,
+        nargs="*",
+        help="Exclude peptides from genes expressed in these tissues "
+             "(e.g. heart_muscle lung brain). Requires pirlygenes.",
+    )
+
+    # -- built-in sequence sources --
+    input_group.add_argument(
+        "--ensembl-proteome",
+        default=False,
+        action="store_true",
+        help="Predict across all Ensembl protein sequences.",
+    )
+    input_group.add_argument(
+        "--gene-names",
+        default=None,
+        nargs="*",
+        help="Gene names to predict (e.g. BRAF TP53 EGFR). "
+             "Uses longest protein-coding transcript.",
+    )
+    input_group.add_argument(
+        "--gene-ids",
+        default=None,
+        nargs="*",
+        help="Ensembl gene IDs to predict.",
+    )
+    input_group.add_argument(
+        "--transcript-ids",
+        default=None,
+        nargs="*",
+        help="Ensembl transcript IDs to predict.",
+    )
+    input_group.add_argument(
+        "--cta",
+        default=False,
+        action="store_true",
+        help="Predict across CTA (cancer-testis antigen) proteins. "
+             "Human only. Requires pirlygenes.",
+    )
+    input_group.add_argument(
+        "--ensembl-release",
+        default=None,
+        type=int,
+        help="Ensembl release number (default: latest installed).",
+    )
+
     return input_group
 
 
@@ -193,16 +263,28 @@ def _parse_regions(region_strings):
 
 def _get_direct_input(args):
     """Check for direct peptide/sequence inputs. Returns (dict, is_peptides) or (None, None)."""
+    release = getattr(args, "ensembl_release", None)
+
+    # File-based sources
     peptide_csv = getattr(args, "peptide_csv", None)
     sequence_csv = getattr(args, "sequence_csv", None)
     fasta = getattr(args, "fasta", None)
     peptide_fasta = getattr(args, "peptide_fasta", None)
 
-    sources = [s for s in [peptide_csv, sequence_csv, fasta, peptide_fasta] if s is not None]
-    if len(sources) > 1:
+    # Built-in sources
+    use_ensembl = getattr(args, "ensembl_proteome", False)
+    gene_names = getattr(args, "gene_names", None)
+    gene_id_list = getattr(args, "gene_ids", None)
+    transcript_id_list = getattr(args, "transcript_ids", None)
+    use_cta = getattr(args, "cta", False)
+
+    file_sources = [s for s in [peptide_csv, sequence_csv, fasta, peptide_fasta] if s]
+    builtin_sources = [s for s in [use_ensembl, gene_names, gene_id_list,
+                                   transcript_id_list, use_cta] if s]
+
+    if len(file_sources) + len(builtin_sources) > 1:
         raise ValueError(
-            "Only one of --peptide-csv, --sequence-csv, --fasta, "
-            "--peptide-fasta may be specified"
+            "Only one sequence source may be specified (file or built-in)"
         )
 
     is_peptides = False
@@ -218,6 +300,16 @@ def _get_direct_input(args):
         sequences = read_sequence_csv(sequence_csv)
     elif fasta:
         sequences = read_fasta(fasta)
+    elif use_ensembl:
+        sequences = ensembl_proteome(release=release)
+    elif gene_names:
+        sequences = sequences_from_gene_names(gene_names, release=release)
+    elif gene_id_list:
+        sequences = sequences_from_gene_ids(gene_id_list, release=release)
+    elif transcript_id_list:
+        sequences = sequences_from_transcript_ids(transcript_id_list, release=release)
+    elif use_cta:
+        sequences = cta_sequences(release=release)
 
     if sequences is None:
         return None, None
@@ -275,13 +367,40 @@ def predict_epitopes_from_args(args):
 
 
 def _apply_exclusion(df, args):
-    """If --exclude-fasta was given, remove matching peptides."""
-    exclude_paths = getattr(args, "exclude_fasta", None)
-    if not exclude_paths or not isinstance(df, pd.DataFrame) or df.empty:
+    """Apply all exclusion sources to the predictions."""
+    if not isinstance(df, pd.DataFrame) or df.empty:
         return df
+
     lengths = sorted(df["peptide"].str.len().unique())
     exclusion_set = set()
-    for path in exclude_paths:
-        ref_sequences = read_fasta(path)
-        exclusion_set |= build_exclusion_set(ref_sequences, lengths=lengths)
-    return exclude_peptides(df, exclusion_set)
+    release = getattr(args, "ensembl_release", None)
+
+    # --exclude-fasta
+    exclude_paths = getattr(args, "exclude_fasta", None)
+    if exclude_paths:
+        for path in exclude_paths:
+            exclusion_set |= build_exclusion_set(read_fasta(path), lengths=lengths)
+
+    # --exclude-ensembl
+    if getattr(args, "exclude_ensembl", False):
+        exclusion_set |= build_exclusion_set(
+            ensembl_proteome(release=release), lengths=lengths
+        )
+
+    # --exclude-non-cta
+    if getattr(args, "exclude_non_cta", False):
+        exclusion_set |= build_exclusion_set(
+            non_cta_sequences(release=release), lengths=lengths
+        )
+
+    # --exclude-tissues
+    exclude_tissues = getattr(args, "exclude_tissues", None)
+    if exclude_tissues:
+        exclusion_set |= build_exclusion_set(
+            tissue_expressed_sequences(exclude_tissues, release=release),
+            lengths=lengths,
+        )
+
+    if exclusion_set:
+        return exclude_peptides(df, exclusion_set)
+    return df
