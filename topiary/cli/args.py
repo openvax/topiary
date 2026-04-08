@@ -28,6 +28,7 @@ from .sequence import add_sequence_args
 from .errors import add_error_args
 from .outputs import add_output_args
 from .protein_changes import add_protein_change_args
+from ..inputs import read_fasta, read_peptide_csv, read_sequence_csv
 from ..predictor import TopiaryPredictor
 from ..ranking import (
     EpitopeFilter,
@@ -36,6 +37,31 @@ from ..ranking import (
     parse_ranking,
     presentation_filter,
 )
+
+
+def _add_input_args(arg_parser):
+    input_group = arg_parser.add_argument_group(
+        title="Direct Inputs",
+        description="Peptide/sequence inputs (bypass variant pipeline)",
+    )
+    input_group.add_argument(
+        "--peptide-csv",
+        default=None,
+        help="CSV with 'peptide' column (optional: 'name'). "
+             "Peptides are predicted across all specified alleles.",
+    )
+    input_group.add_argument(
+        "--sequence-csv",
+        default=None,
+        help="CSV with 'sequence' column (optional: 'name'). "
+             "Sequences are scanned with sliding window.",
+    )
+    input_group.add_argument(
+        "--fasta",
+        default=None,
+        help="FASTA file of protein sequences to scan.",
+    )
+    return input_group
 
 
 def create_arg_parser(
@@ -47,6 +73,7 @@ def create_arg_parser(
     sequence_options=True,
     error_options=True,
     output=True,
+    direct_inputs=True,
 ):
     arg_parser = ArgumentParser()
     if rna:
@@ -65,6 +92,8 @@ def create_arg_parser(
         add_error_args(arg_parser)
     if output:
         add_output_args(arg_parser)
+    if direct_inputs:
+        _add_input_args(arg_parser)
     return arg_parser
 
 
@@ -111,6 +140,26 @@ def _build_ranking_strategy(args):
     )
 
 
+def _get_direct_input(args):
+    """Check for direct peptide/sequence inputs. Returns (dict, mode) or (None, None)."""
+    peptide_csv = getattr(args, "peptide_csv", None)
+    sequence_csv = getattr(args, "sequence_csv", None)
+    fasta = getattr(args, "fasta", None)
+
+    sources = [s for s in [peptide_csv, sequence_csv, fasta] if s is not None]
+    if len(sources) > 1:
+        raise ValueError(
+            "Only one of --peptide-csv, --sequence-csv, --fasta may be specified"
+        )
+    if peptide_csv:
+        return read_peptide_csv(peptide_csv), "peptides"
+    if sequence_csv:
+        return read_sequence_csv(sequence_csv), "sequences"
+    if fasta:
+        return read_fasta(fasta), "sequences"
+    return None, None
+
+
 def predict_epitopes_from_args(args):
     """
     Returns an epitope collection from the given commandline arguments.
@@ -121,10 +170,6 @@ def predict_epitopes_from_args(args):
         Parsed commandline arguments for Topiary
     """
     mhc_model = mhc_binding_predictor_from_args(args)
-    variants = variant_collection_from_args(args)
-    gene_expression_dict = rna_gene_expression_dict_from_args(args)
-    transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
-
     ranking_strategy = _build_ranking_strategy(args)
 
     predictor = TopiaryPredictor(
@@ -138,6 +183,17 @@ def predict_epitopes_from_args(args):
         only_novel_epitopes=args.only_novel_epitopes,
         raise_on_error=not args.skip_variant_errors,
     )
+
+    # Check for direct peptide/sequence inputs first
+    direct_input, mode = _get_direct_input(args)
+    if direct_input is not None:
+        return predictor.predict_from_named_sequences(direct_input)
+
+    # Otherwise, use variant pipeline
+    variants = variant_collection_from_args(args)
+    gene_expression_dict = rna_gene_expression_dict_from_args(args)
+    transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
+
     return predictor.predict_from_variants(
         variants=variants,
         transcript_expression_dict=transcript_expression_dict,
