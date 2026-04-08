@@ -6,7 +6,7 @@ import tempfile
 from mhctools import RandomBindingPredictor
 
 from topiary import Affinity, Presentation, TopiaryPredictor
-from topiary.inputs import build_exclusion_set, peptides_contained_in, read_fasta, slice_regions
+from topiary.inputs import exclude_by, read_fasta, slice_regions
 from topiary.sources import (
     available_tissues,
     cta_sequences,
@@ -130,9 +130,8 @@ def test_fasta_regions_exclude_workflow():
     df = predictor.predict_from_named_sequences(sliced)
     assert len(df) > 0
 
-    # Exclude — just pandas
-    exclusion = build_exclusion_set({"ref": "SIINFEKL"}, lengths=[8])
-    df_filtered = df[~df.peptide.isin(exclusion)]
+    # Exclude: reference contains SIINFEKL
+    df_filtered = exclude_by(df, {"ref": "SIINFEKL"}, mode="substring")
     assert "SIINFEKL" not in df_filtered["peptide"].values
 
 
@@ -163,8 +162,7 @@ def test_tissue_exclusion_reduces_predictions():
     n_before = len(df)
 
     vital_seqs = tissue_expressed_sequences(["heart_muscle"], min_ntpm=1.0)
-    excluded = build_exclusion_set(vital_seqs, lengths=[8, 9])
-    df_filtered = df[~peptides_contained_in(df, excluded)]
+    df_filtered = exclude_by(df, vital_seqs, mode="substring")
 
     assert len(df_filtered) < n_before
 
@@ -187,11 +185,10 @@ def test_first_principles_workflow():
     )
     small_targets = dict(list(target_seqs.items())[:3])
 
-    # 2. Exclusion: 8-mers from vital organ proteome
+    # 2. Vital organ proteome (for exclusion)
     vital_seqs = tissue_expressed_sequences(
         ["heart_muscle", "lung", "liver"], min_ntpm=10.0,
     )
-    excluded = build_exclusion_set(vital_seqs, min_length=8)
 
     # 3. Predict with filter + rank
     predictor = TopiaryPredictor(
@@ -202,8 +199,8 @@ def test_first_principles_workflow():
     )
     df = predictor.predict_from_named_sequences(small_targets)
 
-    # 4. Peptide-level substring exclusion
-    df = df[~peptides_contained_in(df, excluded)]
+    # 4. Exclude peptides found in vital organs (substring match)
+    df = exclude_by(df, vital_seqs, mode="substring")
 
     assert "peptide" in df.columns
     assert "kind" in df.columns

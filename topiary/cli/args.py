@@ -14,7 +14,6 @@
 Common commandline arguments used by scripts
 """
 
-import logging
 from argparse import ArgumentParser
 
 import pandas as pd
@@ -32,8 +31,7 @@ from .errors import add_error_args
 from .outputs import add_output_args
 from .protein_changes import add_protein_change_args
 from ..inputs import (
-    build_exclusion_set,
-    peptides_contained_in,
+    exclude_by,
     read_fasta,
     read_peptide_csv,
     read_peptide_fasta,
@@ -380,41 +378,29 @@ def _apply_exclusion(df, args):
     if not isinstance(df, pd.DataFrame) or df.empty:
         return df
 
-    lengths = sorted(df["peptide"].str.len().unique())
-    exclusion_set = set()
     release = getattr(args, "ensembl_release", None)
+    mode = getattr(args, "exclude_mode", "substring")
 
-    # --exclude-fasta
+    # Collect all reference sequences into one dict
+    ref_sequences = {}
+
     exclude_paths = getattr(args, "exclude_fasta", None)
     if exclude_paths:
         for path in exclude_paths:
-            exclusion_set |= build_exclusion_set(read_fasta(path), lengths=lengths)
+            ref_sequences.update(read_fasta(path))
 
-    # --exclude-ensembl
     if getattr(args, "exclude_ensembl", False):
-        exclusion_set |= build_exclusion_set(
-            ensembl_proteome(release=release), lengths=lengths
-        )
+        ref_sequences.update(ensembl_proteome(release=release))
 
-    # --exclude-non-cta
     if getattr(args, "exclude_non_cta", False):
-        exclusion_set |= build_exclusion_set(
-            non_cta_sequences(release=release), lengths=lengths
-        )
+        ref_sequences.update(non_cta_sequences(release=release))
 
-    # --exclude-tissues
     exclude_tissues = getattr(args, "exclude_tissues", None)
     if exclude_tissues:
-        exclusion_set |= build_exclusion_set(
-            tissue_expressed_sequences(exclude_tissues, release=release),
-            lengths=lengths,
+        ref_sequences.update(
+            tissue_expressed_sequences(exclude_tissues, release=release)
         )
 
-    if exclusion_set:
-        n_before = len(df)
-        mode = getattr(args, "exclude_mode", "substring")
-        df = df[~peptides_contained_in(
-            df, exclusion_set, substring=(mode == "substring"),
-        )].reset_index(drop=True)
-        logging.info("Excluded %d/%d predictions via exclusion set", n_before - len(df), n_before)
+    if ref_sequences:
+        df = exclude_by(df, ref_sequences, mode=mode)
     return df

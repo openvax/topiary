@@ -7,8 +7,7 @@ import tempfile
 import pytest
 
 from topiary.inputs import (
-    build_exclusion_set,
-    peptides_contained_in,
+    exclude_by,
     read_fasta,
     read_peptide_csv,
     read_peptide_fasta,
@@ -165,73 +164,47 @@ def test_slice_regions_no_regions_dict():
 # ---------------------------------------------------------------------------
 
 
-def test_build_exclusion_set():
-    seqs = {"prot1": "ABCDEFGH"}
-    excl = build_exclusion_set(seqs, lengths=[3])
-    assert "ABC" in excl
-    assert "BCD" in excl
-    assert "FGH" in excl
-    assert len(excl) == 6  # 8 - 3 + 1 = 6 trimers
-
-
-def test_build_exclusion_set_multiple_lengths():
-    seqs = {"p": "ABCDE"}
-    excl = build_exclusion_set(seqs, lengths=[2, 3])
-    # 2-mers: AB, BC, CD, DE = 4
-    # 3-mers: ABC, BCD, CDE = 3
-    assert len(excl) == 7
-
-
-def test_exact_exclusion():
+def test_exclude_by_substring():
+    """Substring mode: 8-mer from reference inside 9-mer prediction → excluded."""
     import pandas as pd
-    df = pd.DataFrame({"peptide": ["SIINFEKL", "SELF_PEP", "ELAGIGIL"]})
-    exclusion = {"SELF_PEP"}
-    result = df[~peptides_contained_in(df, exclusion)]
-    assert len(result) == 2
-    assert "SELF_PEP" not in result["peptide"].values
-
-
-def test_substring_exclusion():
-    """An 8-mer from vital organs should exclude a 9-mer containing it."""
-    import pandas as pd
-    # Exclusion set has 8-mers
-    exclusion = build_exclusion_set({"prot": "ABCDEFGHIJ"}, min_length=8)
-    # 8-mers: ABCDEFGH, BCDEFGHI, CDEFGHIJ
-    assert "ABCDEFGH" in exclusion
-
-    # A 9-mer containing the 8-mer should be excluded
+    ref = {"prot": "ABCDEFGHIJ"}  # contains 8-mers ABCDEFGH, BCDEFGHI, CDEFGHIJ
     df = pd.DataFrame({"peptide": ["XABCDEFGH", "ABCDEFGHI", "ZZZZZZZZZ"]})
-    mask = peptides_contained_in(df, exclusion)
-    assert mask.iloc[0]  # XABCDEFGH contains ABCDEFGH
-    assert mask.iloc[1]  # ABCDEFGHI contains ABCDEFGH and BCDEFGHI
-    assert not mask.iloc[2]  # ZZZZZZZZZ doesn't match
+    result = exclude_by(df, ref, mode="substring", min_kmer=8)
+    assert "ZZZZZZZZZ" in result["peptide"].values
+    assert "XABCDEFGH" not in result["peptide"].values
+    assert "ABCDEFGHI" not in result["peptide"].values
 
 
-def test_exact_mode_no_substring():
-    """substring=False only excludes exact matches."""
+def test_exclude_by_exact():
+    """Exact mode: only full peptide matches are excluded."""
     import pandas as pd
-    exclusion = {"ABCDEFGH"}
+    ref = {"prot": "ABCDEFGHIJ"}
     df = pd.DataFrame({"peptide": ["XABCDEFGH", "ABCDEFGH", "ZZZZZZZZ"]})
-    mask = peptides_contained_in(df, exclusion, substring=False)
-    assert not mask.iloc[0]  # substring not matched in exact mode
-    assert mask.iloc[1]      # exact match
-    assert not mask.iloc[2]
+    result = exclude_by(df, ref, mode="exact")
+    assert "XABCDEFGH" in result["peptide"].values  # not exact match
+    assert "ABCDEFGH" not in result["peptide"].values  # exact match
+    assert "ZZZZZZZZ" in result["peptide"].values
 
 
-def test_shorter_exclusion_in_longer_peptide():
-    """8-mer from heart in a 10-mer from CTA → excluded."""
+def test_exclude_by_substring_shorter_kmer():
+    """8-mer from heart in a 10-mer CTA peptide → excluded."""
     import pandas as pd
-    heart_8mer = "HEARTPEP"
-    exclusion = {heart_8mer}
+    ref = {"heart_gene": "XXHEARTPEPXX"}
     df = pd.DataFrame({"peptide": [
-        "XHEARTPEPX",  # 10-mer containing the 8-mer → excluded
-        "HEARTPEP",    # exact match → excluded
-        "HEARPEPXX",   # doesn't contain it → kept
+        "XHEARTPEPX",  # 10-mer containing HEARTPEP → excluded
+        "HEARTPEP",    # exact 8-mer → excluded
+        "HEARPEPXX",   # doesn't contain any ref 8-mer → kept
     ]})
-    mask = peptides_contained_in(df, exclusion)
-    assert mask.iloc[0]
-    assert mask.iloc[1]
-    assert not mask.iloc[2]
+    result = exclude_by(df, ref, mode="substring", min_kmer=8)
+    assert len(result) == 1
+    assert result.iloc[0]["peptide"] == "HEARPEPXX"
+
+
+def test_exclude_by_empty_ref():
+    import pandas as pd
+    df = pd.DataFrame({"peptide": ["AAA", "BBB"]})
+    result = exclude_by(df, {}, mode="substring")
+    assert len(result) == 2
 
 
 # ---------------------------------------------------------------------------

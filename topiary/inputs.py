@@ -8,15 +8,14 @@ Example — CTA-like targets with vital-organ exclusion::
 
     from topiary import TopiaryPredictor, Affinity, Presentation
     from topiary.sources import tissue_expressed_sequences
-    from topiary.inputs import build_exclusion_set, peptides_contained_in
+    from topiary.inputs import exclude_by
     from mhctools import NetMHCpan
 
     # Targets: genes expressed in reproductive tissues
     target_seqs = tissue_expressed_sequences(["testis", "placenta", "ovary"])
 
-    # Exclusion: 8-mers from vital organ proteome
+    # Vital organ proteome (for exclusion)
     vital_seqs = tissue_expressed_sequences(["heart_muscle", "lung", "liver"])
-    excluded = build_exclusion_set(vital_seqs)  # 8-mers by default
 
     # Predict
     predictor = TopiaryPredictor(
@@ -27,10 +26,10 @@ Example — CTA-like targets with vital-organ exclusion::
     df = predictor.predict_from_named_sequences(target_seqs)
 
     # Substring exclusion: heart 8-mer inside CTA 9-mer → excluded
-    df = df[~peptides_contained_in(df, excluded)]
+    df = exclude_by(df, vital_seqs, mode="substring")
 
-    # Or exact match only (same exclusion set, different mode):
-    df = df[~peptides_contained_in(df, excluded, substring=False)]
+    # Or exact match only:
+    df = exclude_by(df, vital_seqs, mode="exact")
 """
 
 import logging
@@ -198,90 +197,77 @@ def slice_regions(sequences, regions):
 # ---------------------------------------------------------------------------
 
 
-def build_exclusion_set(sequences, lengths=None, min_length=8):
-    """Build a set of all k-mer peptides from reference sequences.
-
-    The exclusion source can be anything you consider "background" —
-    non-CTA proteins, vital-organ proteomes, a patient's germline, etc.
-    Combine multiple sources by taking the union::
-
-        excluded = (
-            build_exclusion_set(read_fasta("vital_organs.fasta"))
-            | build_exclusion_set(read_fasta("germline.fasta"))
-        )
-
-    When used with :func:`peptide_is_excluded`, even shorter k-mers from
-    the exclusion set that appear as *substrings* of a longer predicted
-    peptide will cause exclusion.  For example, an 8-mer from heart
-    tissue contained within a 9-mer from a CTA gene will exclude that
-    9-mer.
-
-    Parameters
-    ----------
-    sequences : dict
-        name -> amino acid sequence (e.g. from :func:`read_fasta`)
-
-    lengths : list of int, optional
-        Peptide lengths to enumerate. If None, uses ``[min_length]``.
-
-    min_length : int
-        Shortest k-mer to enumerate (default 8). Shorter k-mers enable
-        substring containment checking against longer peptides.
-
-    Returns
-    -------
-    set of str
-    """
-    if lengths is None:
-        lengths = [min_length]
-    peptides = set()
-    for seq in sequences.values():
-        for length in lengths:
-            for i in range(len(seq) - length + 1):
-                peptides.add(seq[i:i + length])
-    return peptides
-
-
-def peptides_contained_in(df, exclusion_set, peptide_column="peptide",
-                          substring=True):
-    """Boolean mask: True for peptides matching the exclusion set.
+def exclude_by(df, reference_sequences, mode="substring", min_kmer=8):
+    """Remove predicted peptides found in reference protein sequences.
 
     Parameters
     ----------
     df : pandas.DataFrame
-    exclusion_set : set of str
-    peptide_column : str
-    substring : bool
-        If True (default), a peptide is excluded when *any* k-mer from
-        the exclusion set appears as a contiguous substring.  An 8-mer
-        from heart tissue inside a 9-mer CTA peptide → excluded.
+        Predictions DataFrame (must have a ``peptide`` column).
 
-        If False, only exact whole-peptide matches are excluded
-        (equivalent to ``df[peptide_column].isin(exclusion_set)``).
+    reference_sequences : dict
+        name -> amino acid sequence.  Any source: vital-organ proteome,
+        germline, non-CTA proteins, etc.  Combine multiple sources
+        before calling::
+
+            ref = {**vital_organ_seqs, **germline_seqs}
+
+    mode : ``"substring"`` or ``"exact"``
+        **substring** (default): exclude a predicted peptide if *any*
+        ``min_kmer``-length window from the reference appears as a
+        contiguous substring.  Example: an 8-mer from heart tissue
+        inside a 9-mer CTA peptide → excluded.
+
+        **exact**: exclude only when the full predicted peptide appears
+        as a k-mer in the reference (at matching length).
+
+    min_kmer : int
+        k-mer length for the reference index (default 8).  In substring
+        mode, shorter k-mers catch more containment.  In exact mode,
+        the reference is indexed at the predicted peptide lengths instead.
 
     Returns
     -------
-    pandas.Series of bool
-        True = peptide is excluded.
+    pandas.DataFrame
+        Filtered copy with excluded peptides removed.
     """
-    if not exclusion_set:
-        return pd.Series(False, index=df.index)
+    if df.empty or not reference_sequences:
+        return df
 
-    if not substring:
-        return df[peptide_column].isin(exclusion_set)
+    if mode == "exact":
+        lengths = sorted(df["peptide"].str.len().unique())
+        ref_kmers = _build_kmer_set(reference_sequences, lengths)
+        mask = df["peptide"].isin(ref_kmers)
+    elif mode == "substring":
+        ref_kmers = _build_kmer_set(reference_sequences, [min_kmer])
+        mask = df["peptide"].apply(lambda p: _contains_any(p, ref_kmers, min_kmer))
+    else:
+        raise ValueError(f"mode must be 'substring' or 'exact', got {mode!r}")
 
-    excl_lengths = {len(s) for s in exclusion_set}
+    n_removed = mask.sum()
+    if n_removed:
+        logging.info("Excluded %d/%d predictions (%s mode)", n_removed, len(df), mode)
+    return df[~mask].reset_index(drop=True)
 
-    def _is_excluded(peptide):
-        for k in excl_lengths:
-            if k > len(peptide):
-                continue
-            for i in range(len(peptide) - k + 1):
-                if peptide[i:i + k] in exclusion_set:
-                    return True
+
+def _build_kmer_set(sequences, lengths):
+    """Enumerate all k-mers at specified lengths from a dict of sequences."""
+    kmers = set()
+    for seq in sequences.values():
+        for k in lengths:
+            for i in range(len(seq) - k + 1):
+                kmers.add(seq[i:i + k])
+    return kmers
+
+
+def _contains_any(peptide, kmer_set, k):
+    """Check if any k-length window of peptide is in kmer_set."""
+    if len(peptide) < k:
         return False
-
-    return df[peptide_column].apply(_is_excluded)
+    for i in range(len(peptide) - k + 1):
+        if peptide[i:i + k] in kmer_set:
+            return True
+    return False
 
 
 
