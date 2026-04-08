@@ -1,5 +1,7 @@
 """Tests for topiary.sources — Ensembl and PirlyGenes sequence sources."""
 
+import pytest
+
 from topiary.sources import (
     available_tissues,
     cta_sequences,
@@ -42,6 +44,7 @@ def test_sequences_from_transcript_ids():
 
 
 def test_cta_sequences():
+    pytest.importorskip("pirlygenes")
     seqs = cta_sequences()
     assert len(seqs) > 100  # ~257 CTA genes, some may lack protein
     # All should be non-empty protein sequences
@@ -50,6 +53,7 @@ def test_cta_sequences():
 
 
 def test_available_tissues():
+    pytest.importorskip("pirlygenes")
     tissues = available_tissues()
     assert "heart_muscle" in tissues
     assert "lung" in tissues
@@ -58,11 +62,13 @@ def test_available_tissues():
 
 
 def test_tissue_expressed_gene_ids():
+    pytest.importorskip("pirlygenes")
     gene_ids = tissue_expressed_gene_ids(["testis"], min_ntpm=1.0)
     assert len(gene_ids) > 1000  # many genes expressed in testis
 
 
 def test_tissue_expressed_gene_ids_strict():
+    pytest.importorskip("pirlygenes")
     loose = tissue_expressed_gene_ids(["heart_muscle"], min_ntpm=1.0)
     strict = tissue_expressed_gene_ids(["heart_muscle"], min_ntpm=100.0)
     assert len(strict) < len(loose)

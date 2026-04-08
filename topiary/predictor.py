@@ -201,24 +201,90 @@ class TopiaryPredictor(object):
         df = self._predict_raw(name_to_sequence_dict)
         return self._apply_filter(df)
 
+    def predict_from_named_peptides(self, name_to_peptide_dict):
+        """
+        Parameters
+        ----------
+        name_to_peptide_dict : dict (str -> str)
+            Mapping of peptide names to amino acid sequences.
+
+        Returns
+        -------
+        pandas.DataFrame with columns:
+            source_sequence_name, peptide, peptide_offset, peptide_length,
+            allele, kind, score, value, affinity, percentile_rank,
+            prediction_method_name, predictor_version, n_flank, c_flank
+        """
+        df = self._predict_raw_peptides(name_to_peptide_dict)
+        return self._apply_filter(df)
+
     def _predict_raw(self, name_to_sequence_dict):
         """Run models and format output, without applying filter/ranking."""
         dfs = []
         for model in self.models:
             model_df = model.predict_proteins_dataframe(name_to_sequence_dict)
-            dfs.append(model_df)
+            dfs.append(self._format_prediction_df(model_df))
         if not dfs:
             return pd.DataFrame()
-        df = pd.concat(dfs, ignore_index=True)
+        return pd.concat(dfs, ignore_index=True)
+
+    def _predict_raw_peptides(self, name_to_peptide_dict):
+        """Run models on peptides as-is, without sliding-window scanning."""
+        peptide_names_df = pd.DataFrame(
+            {
+                "source_sequence_name": list(name_to_peptide_dict.keys()),
+                "peptide": list(name_to_peptide_dict.values()),
+            }
+        )
+        if peptide_names_df.empty:
+            return pd.DataFrame()
+
+        peptide_list = peptide_names_df["peptide"].drop_duplicates().tolist()
+        dfs = []
+        for model in self.models:
+            if hasattr(model, "predict_dataframe"):
+                model_df = model.predict_dataframe(peptide_list)
+            else:
+                model_df = model.predict_peptides_dataframe(peptide_list)
+            expanded_df = self._expand_named_peptide_predictions(
+                model_df, peptide_names_df
+            )
+            dfs.append(self._format_prediction_df(expanded_df))
+        if not dfs:
+            return pd.DataFrame()
+        return pd.concat(dfs, ignore_index=True)
+
+    def _expand_named_peptide_predictions(self, model_df, peptide_names_df):
+        """Attach the original peptide names to model predictions."""
+        if model_df.empty:
+            return model_df.copy()
+
+        expanded_df = model_df.drop(
+            columns=["source_sequence_name"], errors="ignore"
+        ).merge(peptide_names_df, on="peptide", how="inner")
+
+        if "offset" in expanded_df.columns:
+            expanded_df["offset"] = 0
+        return expanded_df
+
+    def _format_prediction_df(self, df):
+        """Normalize mhctools prediction output to Topiary's schema."""
+        if df.empty:
+            return df.copy()
 
         df = df.rename(columns={
             "offset": "peptide_offset",
             "predictor_name": "prediction_method_name",
-        })
+        }).copy()
+        if "source_sequence_name" not in df.columns:
+            df["source_sequence_name"] = None
+        if "peptide_offset" not in df.columns:
+            df["peptide_offset"] = 0
         df["peptide_length"] = df["peptide"].str.len()
-        df["affinity"] = np.where(
-            df["kind"] == "pMHC_affinity", df["value"], np.nan
-        )
+        if "affinity" not in df.columns:
+            df["affinity"] = np.where(
+                df["kind"] == "pMHC_affinity", df["value"], np.nan
+            )
         return df
 
     def _apply_filter(self, df):

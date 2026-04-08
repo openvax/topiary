@@ -330,6 +330,47 @@ def _get_direct_input(args):
     return sequences, is_peptides
 
 
+def _validate_input_modes(args):
+    """Reject incompatible combinations of direct and variant-style inputs."""
+    direct_input_flags = [
+        getattr(args, "peptide_csv", None),
+        getattr(args, "sequence_csv", None),
+        getattr(args, "fasta", None),
+        getattr(args, "peptide_fasta", None),
+        getattr(args, "ensembl_proteome", False),
+        getattr(args, "gene_names", None),
+        getattr(args, "gene_ids", None),
+        getattr(args, "transcript_ids", None),
+        getattr(args, "cta", False),
+    ]
+    if not any(direct_input_flags):
+        return
+
+    incompatible_flags = []
+    if getattr(args, "vcf", None):
+        incompatible_flags.append("--vcf")
+    if getattr(args, "maf", None):
+        incompatible_flags.append("--maf")
+    if getattr(args, "variant", None):
+        incompatible_flags.append("--variant")
+    if getattr(args, "json_variants", None):
+        incompatible_flags.append("--json-variants")
+    if getattr(args, "protein_change", None):
+        incompatible_flags.append("--protein-change")
+    if getattr(args, "rna_gene_fpkm_tracking_file", None):
+        incompatible_flags.append("--rna-gene-fpkm-tracking-file")
+    if getattr(args, "rna_transcript_fpkm_tracking_file", None):
+        incompatible_flags.append("--rna-transcript-fpkm-tracking-file")
+    if getattr(args, "rna_transcript_fpkm_gtf_file", None):
+        incompatible_flags.append("--rna-transcript-fpkm-gtf-file")
+
+    if incompatible_flags:
+        raise ValueError(
+            "Direct sequence inputs can't be combined with variant/RNA inputs: %s"
+            % ", ".join(incompatible_flags)
+        )
+
+
 def predict_epitopes_from_args(args):
     """
     Returns an epitope collection from the given commandline arguments.
@@ -354,10 +395,15 @@ def predict_epitopes_from_args(args):
         raise_on_error=not args.skip_variant_errors,
     )
 
+    _validate_input_modes(args)
+
     # Check for direct peptide/sequence inputs first
     direct_input, is_peptides = _get_direct_input(args)
     if direct_input is not None:
-        df = predictor.predict_from_named_sequences(direct_input)
+        if is_peptides:
+            df = predictor.predict_from_named_peptides(direct_input)
+        else:
+            df = predictor.predict_from_named_sequences(direct_input)
         return _apply_exclusion(df, args)
 
     # Otherwise, use variant pipeline
