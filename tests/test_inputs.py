@@ -8,6 +8,7 @@ import pytest
 
 from topiary.inputs import (
     build_exclusion_set,
+    peptides_contained_in,
     read_fasta,
     read_peptide_csv,
     read_peptide_fasta,
@@ -181,16 +182,56 @@ def test_build_exclusion_set_multiple_lengths():
     assert len(excl) == 7
 
 
-def test_exclude_peptides_with_pandas():
+def test_exact_exclusion():
     import pandas as pd
-    df = pd.DataFrame({
-        "peptide": ["SIINFEKL", "SELF_PEP", "ELAGIGIL"],
-        "score": [0.9, 0.5, 0.1],
-    })
+    df = pd.DataFrame({"peptide": ["SIINFEKL", "SELF_PEP", "ELAGIGIL"]})
     exclusion = {"SELF_PEP"}
-    result = df[~df.peptide.isin(exclusion)]
+    result = df[~peptides_contained_in(df, exclusion)]
     assert len(result) == 2
     assert "SELF_PEP" not in result["peptide"].values
+
+
+def test_substring_exclusion():
+    """An 8-mer from vital organs should exclude a 9-mer containing it."""
+    import pandas as pd
+    # Exclusion set has 8-mers
+    exclusion = build_exclusion_set({"prot": "ABCDEFGHIJ"}, min_length=8)
+    # 8-mers: ABCDEFGH, BCDEFGHI, CDEFGHIJ
+    assert "ABCDEFGH" in exclusion
+
+    # A 9-mer containing the 8-mer should be excluded
+    df = pd.DataFrame({"peptide": ["XABCDEFGH", "ABCDEFGHI", "ZZZZZZZZZ"]})
+    mask = peptides_contained_in(df, exclusion)
+    assert mask.iloc[0]  # XABCDEFGH contains ABCDEFGH
+    assert mask.iloc[1]  # ABCDEFGHI contains ABCDEFGH and BCDEFGHI
+    assert not mask.iloc[2]  # ZZZZZZZZZ doesn't match
+
+
+def test_exact_mode_no_substring():
+    """substring=False only excludes exact matches."""
+    import pandas as pd
+    exclusion = {"ABCDEFGH"}
+    df = pd.DataFrame({"peptide": ["XABCDEFGH", "ABCDEFGH", "ZZZZZZZZ"]})
+    mask = peptides_contained_in(df, exclusion, substring=False)
+    assert not mask.iloc[0]  # substring not matched in exact mode
+    assert mask.iloc[1]      # exact match
+    assert not mask.iloc[2]
+
+
+def test_shorter_exclusion_in_longer_peptide():
+    """8-mer from heart in a 10-mer from CTA → excluded."""
+    import pandas as pd
+    heart_8mer = "HEARTPEP"
+    exclusion = {heart_8mer}
+    df = pd.DataFrame({"peptide": [
+        "XHEARTPEPX",  # 10-mer containing the 8-mer → excluded
+        "HEARTPEP",    # exact match → excluded
+        "HEARPEPXX",   # doesn't contain it → kept
+    ]})
+    mask = peptides_contained_in(df, exclusion)
+    assert mask.iloc[0]
+    assert mask.iloc[1]
+    assert not mask.iloc[2]
 
 
 # ---------------------------------------------------------------------------

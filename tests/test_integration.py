@@ -6,7 +6,7 @@ import tempfile
 from mhctools import RandomBindingPredictor
 
 from topiary import Affinity, Presentation, TopiaryPredictor
-from topiary.inputs import build_exclusion_set, read_fasta, slice_regions
+from topiary.inputs import build_exclusion_set, peptides_contained_in, read_fasta, slice_regions
 from topiary.sources import (
     available_tissues,
     cta_sequences,
@@ -177,7 +177,7 @@ def test_tissue_exclusion_reduces_predictions():
 
     vital_seqs = tissue_expressed_sequences(["heart_muscle"], min_ntpm=1.0)
     excluded = build_exclusion_set(vital_seqs, lengths=[8, 9])
-    df_filtered = df[~df.peptide.isin(excluded)]
+    df_filtered = df[~peptides_contained_in(df, excluded)]
 
     assert len(df_filtered) < n_before
 
@@ -221,7 +221,7 @@ def test_first_principles_workflow():
         rank_by=Affinity.score,
     )
     df = predictor.predict_from_named_sequences(target_seqs)
-    df = df[~df.peptide.isin(excluded)]
+    df = df[~peptides_contained_in(df, excluded)]
 
     assert "peptide" in df.columns
     assert "kind" in df.columns

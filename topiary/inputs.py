@@ -32,8 +32,8 @@ Example with a viral proteome::
     )
     df = predictor.predict_from_named_sequences(regions)
 
-    # Remove excluded peptides — just pandas
-    df = df[~df.peptide.isin(excluded)]
+    # Remove peptides containing any excluded substring
+    df = df[~peptides_contained_in(df, excluded)]
 """
 
 import logging
@@ -201,36 +201,90 @@ def slice_regions(sequences, regions):
 # ---------------------------------------------------------------------------
 
 
-def build_exclusion_set(sequences, lengths):
+def build_exclusion_set(sequences, lengths=None, min_length=8):
     """Build a set of all k-mer peptides from reference sequences.
 
     The exclusion source can be anything you consider "background" —
-    the full human proteome, non-CTA proteins from Tsarina, a patient's
-    germline, etc.  Combine multiple sources by taking the union::
+    non-CTA proteins, vital-organ proteomes, a patient's germline, etc.
+    Combine multiple sources by taking the union::
 
         excluded = (
-            build_exclusion_set(read_fasta("non_cta.fasta"), lengths)
-            | build_exclusion_set(read_fasta("germline.fasta"), lengths)
+            build_exclusion_set(read_fasta("vital_organs.fasta"))
+            | build_exclusion_set(read_fasta("germline.fasta"))
         )
+
+    When used with :func:`peptide_is_excluded`, even shorter k-mers from
+    the exclusion set that appear as *substrings* of a longer predicted
+    peptide will cause exclusion.  For example, an 8-mer from heart
+    tissue contained within a 9-mer from a CTA gene will exclude that
+    9-mer.
 
     Parameters
     ----------
     sequences : dict
         name -> amino acid sequence (e.g. from :func:`read_fasta`)
 
-    lengths : list of int
-        Peptide lengths to enumerate (e.g. [8, 9, 10, 11])
+    lengths : list of int, optional
+        Peptide lengths to enumerate. If None, uses ``[min_length]``.
+
+    min_length : int
+        Shortest k-mer to enumerate (default 8). Shorter k-mers enable
+        substring containment checking against longer peptides.
 
     Returns
     -------
     set of str
     """
+    if lengths is None:
+        lengths = [min_length]
     peptides = set()
     for seq in sequences.values():
         for length in lengths:
             for i in range(len(seq) - length + 1):
                 peptides.add(seq[i:i + length])
     return peptides
+
+
+def peptides_contained_in(df, exclusion_set, peptide_column="peptide",
+                          substring=True):
+    """Boolean mask: True for peptides matching the exclusion set.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    exclusion_set : set of str
+    peptide_column : str
+    substring : bool
+        If True (default), a peptide is excluded when *any* k-mer from
+        the exclusion set appears as a contiguous substring.  An 8-mer
+        from heart tissue inside a 9-mer CTA peptide → excluded.
+
+        If False, only exact whole-peptide matches are excluded
+        (equivalent to ``df[peptide_column].isin(exclusion_set)``).
+
+    Returns
+    -------
+    pandas.Series of bool
+        True = peptide is excluded.
+    """
+    if not exclusion_set:
+        return pd.Series(False, index=df.index)
+
+    if not substring:
+        return df[peptide_column].isin(exclusion_set)
+
+    excl_lengths = {len(s) for s in exclusion_set}
+
+    def _is_excluded(peptide):
+        for k in excl_lengths:
+            if k > len(peptide):
+                continue
+            for i in range(len(peptide) - k + 1):
+                if peptide[i:i + k] in exclusion_set:
+                    return True
+        return False
+
+    return df[peptide_column].apply(_is_excluded)
 
 
 

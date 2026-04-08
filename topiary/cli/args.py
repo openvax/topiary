@@ -33,6 +33,7 @@ from .outputs import add_output_args
 from .protein_changes import add_protein_change_args
 from ..inputs import (
     build_exclusion_set,
+    peptides_contained_in,
     read_fasta,
     read_peptide_csv,
     read_peptide_fasta,
@@ -99,6 +100,14 @@ def _add_input_args(arg_parser):
         nargs="*",
         help="FASTA file(s) of sequences to exclude against. Predicted "
              "peptides matching any subsequence are removed.",
+    )
+    input_group.add_argument(
+        "--exclude-mode",
+        choices=["substring", "exact"],
+        default="substring",
+        help="How to match against the exclusion set: 'substring' (default) "
+             "excludes peptides containing any excluded k-mer as a substring; "
+             "'exact' requires whole-peptide match.",
     )
     input_group.add_argument(
         "--exclude-ensembl",
@@ -403,6 +412,9 @@ def _apply_exclusion(df, args):
 
     if exclusion_set:
         n_before = len(df)
-        df = df[~df["peptide"].isin(exclusion_set)].reset_index(drop=True)
+        mode = getattr(args, "exclude_mode", "substring")
+        df = df[~peptides_contained_in(
+            df, exclusion_set, substring=(mode == "substring"),
+        )].reset_index(drop=True)
         logging.info("Excluded %d/%d predictions via exclusion set", n_before - len(df), n_before)
     return df
