@@ -1,22 +1,22 @@
 """
 Filtering and ranking of epitope predictions across prediction kinds.
 
-Express filter/rank heuristics concisely via operator overloading::
+Express filter/rank heuristics via operator overloading on ``K``::
 
-    from topiary import Affinity, Presentation
+    from topiary import K
 
     # IC50 < 500 nM
-    Affinity.value <= 500
+    K.pMHC_affinity.value <= 500
 
     # OR: keep if affinity OR presentation passes
-    (Affinity.value <= 500) | (Presentation.rank <= 2.0)
+    (K.pMHC_affinity.value <= 500) | (K.pMHC_presentation.rank <= 2.0)
 
     # AND: must pass both
-    (Affinity.value <= 500) & (Presentation.rank <= 2.0)
+    (K.pMHC_affinity.value <= 500) & (K.pMHC_presentation.rank <= 2.0)
 
     # With ranking priority
-    ((Affinity.value <= 500) | (Presentation.rank <= 2.0)).rank_by(
-        Presentation.score, Affinity.score
+    ((K.pMHC_affinity.value <= 500) | (K.pMHC_presentation.rank <= 2.0)).rank_by(
+        K.pMHC_presentation.score, K.pMHC_affinity.score
     )
 """
 
@@ -72,12 +72,11 @@ class _Field:
 class KindAccessor:
     """Proxy for a prediction :class:`Kind` that provides typed field access.
 
-    Usage::
+    Typically used via the :data:`K` proxy rather than constructed directly::
 
-        Affinity = KindAccessor(Kind.pMHC_affinity)
-        Affinity.value   # -> _Field for IC50 / value
-        Affinity.rank    # -> _Field for percentile_rank
-        Affinity.score   # -> _Field for score
+        K.pMHC_affinity.value   # -> _Field for IC50 / value
+        K.pMHC_affinity.rank    # -> _Field for percentile_rank
+        K.pMHC_affinity.score   # -> _Field for score
     """
 
     __slots__ = ("kind",)
@@ -101,11 +100,27 @@ class KindAccessor:
         return _Field(self.kind, "score")
 
 
-# Convenient top-level accessors
-Affinity = KindAccessor(Kind.pMHC_affinity)
-Presentation = KindAccessor(Kind.pMHC_presentation)
-Stability = KindAccessor(Kind.pMHC_stability)
-Processing = KindAccessor(Kind.antigen_processing)
+class _KindProxy:
+    """Attribute proxy that maps mhctools Kind names to KindAccessors.
+
+    Usage::
+
+        from topiary import K
+        K.pMHC_affinity.value <= 500
+        K.pMHC_presentation.rank <= 2.0
+    """
+
+    def __getattr__(self, name: str) -> KindAccessor:
+        try:
+            return KindAccessor(Kind[name])
+        except KeyError:
+            raise AttributeError(
+                f"No prediction kind {name!r}. "
+                f"Available: {[k.name for k in Kind]}"
+            ) from None
+
+
+K = _KindProxy()
 
 
 # ---------------------------------------------------------------------------

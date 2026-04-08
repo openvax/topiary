@@ -1,11 +1,8 @@
 from .predictor import TopiaryPredictor
 from .ranking import (
-    Affinity,
     EpitopeFilter,
-    Presentation,
-    Processing,
+    K,
     RankingStrategy,
-    Stability,
     affinity_filter,
     apply_ranking_strategy,
     presentation_filter,
@@ -21,12 +18,9 @@ __version__ = "4.1.0"
 
 __all__ = [
     "TopiaryPredictor",
-    "Affinity",
     "EpitopeFilter",
-    "Presentation",
-    "Processing",
+    "K",
     "RankingStrategy",
-    "Stability",
     "affinity_filter",
     "apply_ranking_strategy",
     "presentation_filter",
