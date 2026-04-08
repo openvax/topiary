@@ -70,6 +70,8 @@ def sequences_from_gene_names(gene_names, release=None, species="human"):
     -------
     dict : "GENE_NAME|TRANSCRIPT_ID" -> amino acid sequence
     """
+    if not gene_names:
+        raise ValueError("gene_names must be a non-empty list")
     genome = _get_genome(release, species)
     return _sequences_for_genes(genome, gene_names, by="name")
 
@@ -82,6 +84,8 @@ def sequences_from_gene_ids(gene_ids, release=None, species="human"):
     gene_ids : list of str
         e.g. ["ENSG00000157764", "ENSG00000141510"]
     """
+    if not gene_ids:
+        raise ValueError("gene_ids must be a non-empty list")
     genome = _get_genome(release, species)
     return _sequences_for_genes(genome, gene_ids, by="id")
 
@@ -94,6 +98,8 @@ def sequences_from_transcript_ids(transcript_ids, release=None, species="human")
     transcript_ids : list of str
         e.g. ["ENST00000288602", "ENST00000269305"]
     """
+    if not transcript_ids:
+        raise ValueError("transcript_ids must be a non-empty list")
     genome = _get_genome(release, species)
     sequences = {}
     for tid in transcript_ids:
@@ -116,6 +122,8 @@ def sequences_from_transcript_names(transcript_names, release=None, species="hum
     transcript_names : list of str
         e.g. ["BRAF-001", "TP53-001"]
     """
+    if not transcript_names:
+        raise ValueError("transcript_names must be a non-empty list")
     genome = _get_genome(release, species)
     sequences = {}
     for tname in transcript_names:
@@ -201,6 +209,8 @@ def tissue_expressed_gene_ids(tissues, min_ntpm=1.0):
     -------
     set of str : Ensembl gene IDs
     """
+    if not tissues:
+        raise ValueError("tissues must be a non-empty list")
     _check_pirlygenes()
     from pirlygenes import load_all_dataframes_dict
     pce = load_all_dataframes_dict()["pan-cancer-expression.csv"]

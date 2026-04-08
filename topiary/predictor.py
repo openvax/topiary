@@ -339,7 +339,7 @@ class TopiaryPredictor(object):
 
         if len(variant_effect_groups) == 0:
             logging.warning("No candidates for MHC binding prediction")
-            return []
+            return pd.DataFrame()
 
         if transcript_expression_dict:
             top_effects = [

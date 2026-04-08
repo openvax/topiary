@@ -126,9 +126,18 @@ def _parse_fasta(path):
             if line.startswith(">"):
                 if current_name is not None:
                     sequences[current_name] = "".join(current_seq)
-                current_name = line[1:].split()[0]
+                header = line[1:].strip()
+                if not header:
+                    raise ValueError(
+                        "Empty FASTA header in %s (line is just '>')" % path
+                    )
+                current_name = header.split()[0]
                 current_seq = []
             else:
+                if current_name is None:
+                    raise ValueError(
+                        "Sequence data before first header in %s" % path
+                    )
                 current_seq.append(line)
     if current_name is not None:
         sequences[current_name] = "".join(current_seq)
@@ -182,12 +191,8 @@ def slice_regions(sequences, regions):
             # Explicitly empty → exclude this sequence
             continue
 
-        if len(intervals) == 1:
-            start, end = intervals[0]
+        for start, end in intervals:
             result[f"{name}:{start}-{end}"] = seq[start:end]
-        else:
-            for start, end in intervals:
-                result[f"{name}:{start}-{end}"] = seq[start:end]
 
     return result
 

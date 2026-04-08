@@ -1,6 +1,5 @@
 """Tests for topiary.inputs — CSV, FASTA, regions, exclusion."""
 
-import math
 import os
 import tempfile
 
@@ -207,65 +206,3 @@ def test_exclude_by_empty_ref():
     assert len(result) == 2
 
 
-# ---------------------------------------------------------------------------
-# Integration: predict from various inputs
-# ---------------------------------------------------------------------------
-
-
-def test_predict_from_peptide_csv():
-    from mhctools import RandomBindingPredictor
-    from topiary import TopiaryPredictor
-
-    path = _tmpfile("name,peptide\npep1,SIINFEKL\npep2,ELAGIGILT\n")
-    sequences = read_peptide_csv(path)
-    os.unlink(path)
-
-    predictor = TopiaryPredictor(
-        models=RandomBindingPredictor(alleles=["A0201"], default_peptide_lengths=[8, 9]),
-    )
-    df = predictor.predict_from_named_sequences(sequences)
-    assert len(df) > 0
-    assert "peptide" in df.columns
-    assert "kind" in df.columns
-
-
-def test_predict_from_fasta():
-    from mhctools import RandomBindingPredictor
-    from topiary import TopiaryPredictor
-
-    path = _tmpfile(">test_protein\nMASIINFEKLGGGLLLAAA\n", ".fasta")
-    sequences = read_fasta(path)
-    os.unlink(path)
-
-    predictor = TopiaryPredictor(
-        models=RandomBindingPredictor(alleles=["A0201"], default_peptide_lengths=[9]),
-    )
-    df = predictor.predict_from_named_sequences(sequences)
-    assert len(df) > 0
-    assert "test_protein" in df["source_sequence_name"].values
-
-
-def test_predict_fasta_with_regions_and_exclusion():
-    """End-to-end: FASTA → region slice → predict → exclude self."""
-    from mhctools import RandomBindingPredictor
-    from topiary import TopiaryPredictor
-
-    path = _tmpfile(">prot\nAAAAAAAAASIINFEKLAAAAAAAAA\n", ".fasta")
-    sequences = read_fasta(path)
-    os.unlink(path)
-
-    # Slice to the interesting region
-    sliced = slice_regions(sequences, {"prot": [(9, 17)]})
-    assert "prot:9-17" in sliced
-    assert sliced["prot:9-17"] == "SIINFEKL"
-
-    predictor = TopiaryPredictor(
-        models=RandomBindingPredictor(alleles=["A0201"], default_peptide_lengths=[8]),
-    )
-    df = predictor.predict_from_named_sequences(sliced)
-    assert len(df) > 0
-
-    # Exclude: pretend SIINFEKL is a self-peptide — just pandas
-    exclusion = {"SIINFEKL"}
-    df_filtered = df[~df.peptide.isin(exclusion)]
-    assert "SIINFEKL" not in df_filtered["peptide"].values

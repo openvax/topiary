@@ -36,33 +36,29 @@ def test_peptide_csv_full_pipeline():
     seqs = read_peptide_csv(path)
     os.unlink(path)
 
+    # No filter — this test checks schema, not filtering
     predictor = TopiaryPredictor(
         models=[RandomBindingPredictor, RandomBindingPredictor],
         alleles=ALLELES,
-        filter=Affinity <= 500,
-        rank_by=Affinity.score,
     )
     df = predictor.predict_from_named_sequences(seqs)
 
     # Verify output schema
-    assert "peptide" in df.columns
-    assert "kind" in df.columns
-    assert "score" in df.columns
-    assert "value" in df.columns
-    assert "affinity" in df.columns
-    assert "prediction_method_name" in df.columns
-    assert "source_sequence_name" in df.columns
-    assert "peptide_length" in df.columns
-    assert "peptide_offset" in df.columns
+    for col in [
+        "peptide", "kind", "score", "value", "affinity",
+        "prediction_method_name", "source_sequence_name",
+        "peptide_length", "peptide_offset",
+    ]:
+        assert col in df.columns, f"Missing column: {col}"
 
-    # Two models → results from both (same predictor name since both RandomBinding)
+    # Two models → results from both
     assert len(df) > 0
 
-    # Affinity column only populated for pMHC_affinity rows
+    # Affinity column: non-NaN for pMHC_affinity rows, NaN otherwise
     aff_rows = df[df.kind == "pMHC_affinity"]
     non_aff_rows = df[df.kind != "pMHC_affinity"]
     if len(aff_rows) > 0:
-        assert not aff_rows["affinity"].isna().all()
+        assert not aff_rows["affinity"].isna().any()
     if len(non_aff_rows) > 0:
         assert non_aff_rows["affinity"].isna().all()
 
@@ -183,26 +179,25 @@ def test_exclude_by_with_unrelated_ref():
 # ---------------------------------------------------------------------------
 
 
-def test_filter_reduces_output():
+def test_filter_removes_non_matching_rows():
+    """Contradictory filter must drop all rows; no filter keeps them."""
     predictor_unfiltered = TopiaryPredictor(
         models=RandomBindingPredictor, alleles=["A0201"],
     )
-    predictor_filtered = TopiaryPredictor(
+    predictor_impossible = TopiaryPredictor(
         models=RandomBindingPredictor, alleles=["A0201"],
-        filter=Affinity <= 100,  # very strict
+        filter=(Affinity <= 0) & (Affinity.value >= 99999),
     )
     seqs = {"prot": "MASIINFEKLGGGLLLAAA"}
     df_all = predictor_unfiltered.predict_from_named_sequences(seqs)
-    df_filt = predictor_filtered.predict_from_named_sequences(seqs)
+    df_impossible = predictor_impossible.predict_from_named_sequences(seqs)
 
-    # Filtered should have fewer or equal rows
-    # (RandomBindingPredictor is random so we can't guarantee fewer,
-    # but the filter code path is exercised)
-    assert len(df_filt) <= len(df_all)
+    assert len(df_all) > 0
+    assert len(df_impossible) == 0
 
 
-def test_rank_by_exercises_sort_path():
-    """Verify rank_by creates a ranking strategy with sort_by."""
+def test_rank_by_sorts_output():
+    """rank_by=Affinity.score should sort affinity rows by descending score."""
     predictor = TopiaryPredictor(
         models=RandomBindingPredictor, alleles=["A0201"],
         rank_by=Affinity.score,
@@ -211,6 +206,12 @@ def test_rank_by_exercises_sort_path():
     assert len(predictor.ranking_strategy.sort_by) == 1
     df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGGLLLAAA"})
     assert len(df) > 0
+    # Affinity rows should be sorted by score descending (best first)
+    aff_rows = df[df.kind == "pMHC_affinity"]
+    if len(aff_rows) > 1:
+        scores = aff_rows["score"].tolist()
+        assert scores == sorted(scores, reverse=True), \
+            "Affinity rows should be sorted by score descending"
 
 
 def test_compound_filter_or():
@@ -220,17 +221,6 @@ def test_compound_filter_or():
     )
     df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
     assert len(df) > 0
-
-
-def test_compound_filter_and():
-    """AND filter with contradictory criteria should drop everything."""
-    predictor = TopiaryPredictor(
-        models=RandomBindingPredictor, alleles=["A0201"],
-        # value <= 1 AND value >= 99999 — impossible for same row
-        filter=(Affinity <= 1) & (Affinity.value >= 99999),
-    )
-    df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
-    assert len(df) == 0
 
 
 # ---------------------------------------------------------------------------

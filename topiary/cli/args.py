@@ -66,46 +66,57 @@ def _add_input_args(arg_parser):
         "--peptide-csv",
         default=None,
         help="CSV with 'peptide' column (optional: 'name'). "
-             "Peptides are predicted across all specified alleles.",
+             "Each peptide is scored as-is (no sliding window).",
     )
     input_group.add_argument(
         "--sequence-csv",
         default=None,
         help="CSV with 'sequence' column (optional: 'name'). "
-             "Sequences are scanned with sliding window.",
+             "Full-length proteins scanned with a sliding window.",
     )
     input_group.add_argument(
         "--fasta",
         default=None,
-        help="FASTA of protein sequences to scan with sliding window.",
+        help="FASTA of full-length protein sequences scanned with a "
+             "sliding window. (For pre-defined peptide lists, use "
+             "--peptide-fasta instead.)",
     )
     input_group.add_argument(
         "--peptide-fasta",
         default=None,
-        help="FASTA where each entry is a single peptide (no scanning).",
+        help="FASTA where each entry is a single peptide scored as-is "
+             "(no sliding window). (For full-length proteins, use "
+             "--fasta instead.)",
     )
     input_group.add_argument(
         "--regions",
         default=None,
-        nargs="*",
-        help="Restrict prediction to regions of named sequences. "
-             "Format: NAME:START-END (half-open, 0-indexed). "
+        nargs="+",
+        help="Restrict prediction to regions of named protein sequences. "
+             "Only applies to sequence inputs (--fasta, --sequence-csv, "
+             "--gene-names, etc.), not peptide inputs. Sequences not "
+             "listed are scanned in full. "
+             "Format: NAME:START-END (0-indexed, half-open: START is "
+             "included, END is excluded). "
              "E.g. --regions spike:319-541 nucleocapsid:0-50",
     )
     input_group.add_argument(
         "--exclude-fasta",
         default=None,
         nargs="*",
-        help="FASTA file(s) of sequences to exclude against. Predicted "
-             "peptides matching any subsequence are removed.",
+        help="FASTA file(s) of reference sequences to exclude against. "
+             "Predicted peptides matching the reference are removed.",
     )
     input_group.add_argument(
         "--exclude-mode",
         choices=["substring", "exact"],
         default="substring",
-        help="How to match against the exclusion set: 'substring' (default) "
-             "excludes peptides containing any excluded k-mer as a substring; "
-             "'exact' requires whole-peptide match.",
+        help="How to match against the exclusion set. "
+             "'substring' (default): exclude if any reference k-mer "
+             "appears inside the predicted peptide (e.g. an 8-mer from "
+             "heart tissue inside a 9-mer CTA peptide → excluded). "
+             "'exact': exclude only if the entire predicted peptide "
+             "matches a reference k-mer at the same length.",
     )
     input_group.add_argument(
         "--exclude-ensembl",
@@ -264,7 +275,21 @@ def _parse_regions(region_strings):
                 "Region interval must be START-END, got %r" % interval
             )
         start_str, end_str = interval.split("-", 1)
-        regions.setdefault(name, []).append((int(start_str), int(end_str)))
+        if not start_str or not end_str:
+            raise ValueError(
+                "Region coordinates cannot be empty, got %r" % s
+            )
+        try:
+            start, end = int(start_str), int(end_str)
+        except ValueError:
+            raise ValueError(
+                "Region coordinates must be integers, got %r" % s
+            )
+        if start >= end:
+            raise ValueError(
+                "Region start must be less than end, got %r" % s
+            )
+        regions.setdefault(name, []).append((start, end))
     return regions
 
 
@@ -323,7 +348,12 @@ def _get_direct_input(args):
 
     # Apply region slicing (only meaningful for protein sequences, not peptides)
     region_strings = getattr(args, "regions", None)
-    if region_strings and not is_peptides:
+    if region_strings and is_peptides:
+        raise ValueError(
+            "--regions cannot be used with peptide inputs "
+            "(--peptide-csv, --peptide-fasta)"
+        )
+    if region_strings:
         regions = _parse_regions(region_strings)
         sequences = slice_regions(sequences, regions)
 
@@ -406,7 +436,23 @@ def predict_epitopes_from_args(args):
             df = predictor.predict_from_named_sequences(direct_input)
         return _apply_exclusion(df, args)
 
-    # Otherwise, use variant pipeline
+    # Check that at least some variant input is present
+    has_variant_input = any([
+        getattr(args, "vcf", None),
+        getattr(args, "maf", None),
+        getattr(args, "variant", None),
+        getattr(args, "json_variants", None),
+        getattr(args, "protein_change", None),
+    ])
+    if not has_variant_input:
+        raise ValueError(
+            "No input specified. Use one of: "
+            "--peptide-csv, --sequence-csv, --fasta, --peptide-fasta, "
+            "--gene-names, --gene-ids, --transcript-ids, --cta, "
+            "--ensembl-proteome, --vcf, --maf, --variant, --json-variants"
+        )
+
+    # Use variant pipeline
     variants = variant_collection_from_args(args)
     gene_expression_dict = rna_gene_expression_dict_from_args(args)
     transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
