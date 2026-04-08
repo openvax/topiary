@@ -553,6 +553,7 @@ for _k in Kind:
 # Extra convenience aliases
 _KIND_ALIASES["el"] = Kind.pMHC_presentation
 _KIND_ALIASES["ba"] = Kind.pMHC_affinity
+_KIND_ALIASES["aff"] = Kind.pMHC_affinity
 _KIND_ALIASES["ic50"] = Kind.pMHC_affinity
 
 _FIELD_ALIASES = {
