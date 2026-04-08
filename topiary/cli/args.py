@@ -15,6 +15,8 @@ Common commandline arguments used by scripts
 """
 
 from argparse import ArgumentParser
+
+import pandas as pd
 from mhctools.cli import add_mhc_args, mhc_binding_predictor_from_args
 from varcode.cli import add_variant_args, variant_collection_from_args
 
@@ -28,7 +30,15 @@ from .sequence import add_sequence_args
 from .errors import add_error_args
 from .outputs import add_output_args
 from .protein_changes import add_protein_change_args
-from ..inputs import read_fasta, read_peptide_csv, read_sequence_csv
+from ..inputs import (
+    build_exclusion_set,
+    exclude_self_peptides,
+    read_fasta,
+    read_peptide_csv,
+    read_peptide_fasta,
+    read_sequence_csv,
+    slice_regions,
+)
 from ..predictor import TopiaryPredictor
 from ..ranking import (
     EpitopeFilter,
@@ -59,7 +69,26 @@ def _add_input_args(arg_parser):
     input_group.add_argument(
         "--fasta",
         default=None,
-        help="FASTA file of protein sequences to scan.",
+        help="FASTA of protein sequences to scan with sliding window.",
+    )
+    input_group.add_argument(
+        "--peptide-fasta",
+        default=None,
+        help="FASTA where each entry is a single peptide (no scanning).",
+    )
+    input_group.add_argument(
+        "--regions",
+        default=None,
+        nargs="*",
+        help="Restrict prediction to regions of named sequences. "
+             "Format: NAME:START-END (half-open, 0-indexed). "
+             "E.g. --regions spike:319-541 nucleocapsid:0-50",
+    )
+    input_group.add_argument(
+        "--exclude-fasta",
+        default=None,
+        help="FASTA of reference sequences (e.g. human proteome). "
+             "Any predicted peptide that occurs as a substring is excluded.",
     )
     return input_group
 
@@ -140,24 +169,64 @@ def _build_ranking_strategy(args):
     )
 
 
+def _parse_regions(region_strings):
+    """Parse --regions args like 'spike:319-541' into {name: [(start, end)]}."""
+    if not region_strings:
+        return None
+    regions = {}
+    for s in region_strings:
+        if ":" not in s:
+            raise ValueError(
+                "Region must be NAME:START-END, got %r" % s
+            )
+        name, interval = s.rsplit(":", 1)
+        if "-" not in interval:
+            raise ValueError(
+                "Region interval must be START-END, got %r" % interval
+            )
+        start_str, end_str = interval.split("-", 1)
+        regions.setdefault(name, []).append((int(start_str), int(end_str)))
+    return regions
+
+
 def _get_direct_input(args):
-    """Check for direct peptide/sequence inputs. Returns (dict, mode) or (None, None)."""
+    """Check for direct peptide/sequence inputs. Returns (dict, is_peptides) or (None, None)."""
     peptide_csv = getattr(args, "peptide_csv", None)
     sequence_csv = getattr(args, "sequence_csv", None)
     fasta = getattr(args, "fasta", None)
+    peptide_fasta = getattr(args, "peptide_fasta", None)
 
-    sources = [s for s in [peptide_csv, sequence_csv, fasta] if s is not None]
+    sources = [s for s in [peptide_csv, sequence_csv, fasta, peptide_fasta] if s is not None]
     if len(sources) > 1:
         raise ValueError(
-            "Only one of --peptide-csv, --sequence-csv, --fasta may be specified"
+            "Only one of --peptide-csv, --sequence-csv, --fasta, "
+            "--peptide-fasta may be specified"
         )
+
+    is_peptides = False
+    sequences = None
+
     if peptide_csv:
-        return read_peptide_csv(peptide_csv), "peptides"
-    if sequence_csv:
-        return read_sequence_csv(sequence_csv), "sequences"
-    if fasta:
-        return read_fasta(fasta), "sequences"
-    return None, None
+        sequences = read_peptide_csv(peptide_csv)
+        is_peptides = True
+    elif peptide_fasta:
+        sequences = read_peptide_fasta(peptide_fasta)
+        is_peptides = True
+    elif sequence_csv:
+        sequences = read_sequence_csv(sequence_csv)
+    elif fasta:
+        sequences = read_fasta(fasta)
+
+    if sequences is None:
+        return None, None
+
+    # Apply region slicing (only meaningful for protein sequences, not peptides)
+    region_strings = getattr(args, "regions", None)
+    if region_strings and not is_peptides:
+        regions = _parse_regions(region_strings)
+        sequences = slice_regions(sequences, regions)
+
+    return sequences, is_peptides
 
 
 def predict_epitopes_from_args(args):
@@ -185,17 +254,31 @@ def predict_epitopes_from_args(args):
     )
 
     # Check for direct peptide/sequence inputs first
-    direct_input, mode = _get_direct_input(args)
+    direct_input, is_peptides = _get_direct_input(args)
     if direct_input is not None:
-        return predictor.predict_from_named_sequences(direct_input)
+        df = predictor.predict_from_named_sequences(direct_input)
+        return _apply_exclusion(df, args)
 
     # Otherwise, use variant pipeline
     variants = variant_collection_from_args(args)
     gene_expression_dict = rna_gene_expression_dict_from_args(args)
     transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
 
-    return predictor.predict_from_variants(
+    df = predictor.predict_from_variants(
         variants=variants,
         transcript_expression_dict=transcript_expression_dict,
         gene_expression_dict=gene_expression_dict,
     )
+    return _apply_exclusion(df, args)
+
+
+def _apply_exclusion(df, args):
+    """If --exclude-fasta was given, remove matching peptides."""
+    exclude_path = getattr(args, "exclude_fasta", None)
+    if not exclude_path or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    ref_sequences = read_fasta(exclude_path)
+    # Determine peptide lengths from the predictions
+    lengths = sorted(df["peptide"].str.len().unique())
+    exclusion_set = build_exclusion_set(ref_sequences, lengths=lengths)
+    return exclude_self_peptides(df, exclusion_set)
