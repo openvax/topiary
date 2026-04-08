@@ -14,6 +14,7 @@
 Common commandline arguments used by scripts
 """
 
+import logging
 from argparse import ArgumentParser
 
 import pandas as pd
@@ -32,7 +33,6 @@ from .outputs import add_output_args
 from .protein_changes import add_protein_change_args
 from ..inputs import (
     build_exclusion_set,
-    exclude_peptides,
     read_fasta,
     read_peptide_csv,
     read_peptide_fasta,
@@ -402,5 +402,7 @@ def _apply_exclusion(df, args):
         )
 
     if exclusion_set:
-        return exclude_peptides(df, exclusion_set)
+        n_before = len(df)
+        df = df[~df["peptide"].isin(exclusion_set)].reset_index(drop=True)
+        logging.info("Excluded %d/%d predictions via exclusion set", n_before - len(df), n_before)
     return df

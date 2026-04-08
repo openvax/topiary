@@ -285,7 +285,7 @@ def test_single_filter_as_ranking_param():
 
     predictor = TopiaryPredictor(
         models=RandomBindingPredictor(alleles=["A0201"], default_peptide_lengths=[9]),
-        ranking=Affinity.value <= 500,
+        filter=Affinity.value <= 500,
     )
     assert predictor.ranking_strategy is not None
     assert len(predictor.ranking_strategy.filters) == 1

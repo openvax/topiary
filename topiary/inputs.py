@@ -7,10 +7,7 @@ proteomes, and two FASTA modes (protein scanning vs. peptide list).
 Example with a viral proteome::
 
     from topiary import TopiaryPredictor, Affinity, Presentation
-    from topiary.inputs import (
-        read_fasta, slice_regions, build_exclusion_set,
-        exclude_peptides,
-    )
+    from topiary.inputs import read_fasta, slice_regions, build_exclusion_set
     from mhctools import NetMHCpan
 
     # Load SARS-CoV-2 proteome
@@ -35,8 +32,8 @@ Example with a viral proteome::
     )
     df = predictor.predict_from_named_sequences(regions)
 
-    # Remove excluded peptides
-    df = exclude_peptides(df, excluded)
+    # Remove excluded peptides — just pandas
+    df = df[~df.peptide.isin(excluded)]
 """
 
 import logging
@@ -236,33 +233,6 @@ def build_exclusion_set(sequences, lengths):
     return peptides
 
 
-def exclude_peptides(df, exclusion_set, peptide_column="peptide"):
-    """Remove predictions whose peptide appears in the exclusion set.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Predictions DataFrame with a peptide column.
-
-    exclusion_set : set of str
-        Peptides to exclude (e.g. from :func:`build_exclusion_set`).
-
-    peptide_column : str
-        Column name containing peptide sequences.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Filtered copy with excluded peptides removed.
-    """
-    mask = ~df[peptide_column].isin(exclusion_set)
-    n_removed = (~mask).sum()
-    if n_removed > 0:
-        logging.info(
-            "Excluded %d predictions matching %d-peptide exclusion set",
-            n_removed, len(exclusion_set),
-        )
-    return df[mask].reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------

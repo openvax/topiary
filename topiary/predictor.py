@@ -39,7 +39,9 @@ class TopiaryPredictor(object):
     def __init__(
         self,
         models=None,
-        ranking=None,
+        alleles=None,
+        filter=None,
+        rank_by=None,
         padding_around_mutation=None,
         only_novel_epitopes=False,
         min_gene_expression=0.0,
@@ -50,20 +52,40 @@ class TopiaryPredictor(object):
         mhc_models=None,
         ic50_cutoff=None,
         percentile_cutoff=None,
+        ranking=None,
         ranking_strategy=None,
     ):
         """
         Parameters
         ----------
-        models : BasePredictor or list of BasePredictor
-            One or more prediction models (binding, processing, stability,
-            etc.) whose results are concatenated.
+        models : class, instance, or list
+            Predictor model(s). Can be:
 
-        ranking : EpitopeFilter, RankingStrategy, or None
-            Filter/rank specification built with operator expressions::
+            - A model class or list of classes (requires ``alleles``)::
 
-                from topiary import Affinity, Presentation
-                ranking = (Affinity.value <= 500) | (Presentation.rank <= 2.0)
+                  TopiaryPredictor(models=[NetMHCpan, MHCflurry], alleles=["A0201"])
+
+            - A model instance or list of instances::
+
+                  TopiaryPredictor(models=NetMHCpan(alleles=["A0201"]))
+
+        alleles : list of str, optional
+            HLA alleles. When provided, model classes in ``models`` are
+            instantiated with these alleles.
+
+        filter : EpitopeFilter or RankingStrategy
+            Which peptide-allele groups to keep::
+
+                filter = (Affinity <= 500) | (Presentation.rank <= 2.0)
+
+        rank_by : Expr or list of Expr, optional
+            How to sort surviving groups. First non-NaN wins::
+
+                rank_by = [Presentation.score, Affinity.score]
+
+            Or a composite expression::
+
+                rank_by = 0.5 * Affinity.score + 0.5 * Presentation.score
 
         padding_around_mutation : int, optional
             Residues around a mutation to include in candidate epitopes.
@@ -80,21 +102,31 @@ class TopiaryPredictor(object):
         raise_on_error : bool
             Raise on variant-effect errors vs. skip.
 
-        mhc_model : deprecated alias for ``models`` (single predictor)
-        mhc_models : deprecated alias for ``models`` (list)
-        ic50_cutoff : deprecated, use ``ranking=Affinity.value <= X``
-        percentile_cutoff : deprecated, use ``ranking=Affinity.rank <= X``
-        ranking_strategy : deprecated alias for ``ranking``
+        mhc_model : deprecated alias for ``models``
+        mhc_models : deprecated alias for ``models``
+        ic50_cutoff : deprecated, use ``filter=Affinity <= X``
+        percentile_cutoff : deprecated, use ``filter=Affinity.rank <= X``
+        ranking : deprecated alias for ``filter``
+        ranking_strategy : deprecated alias for ``filter``
         """
         # --- model setup ---
-        if models is not None:
-            self.models = [models] if not isinstance(models, (list, tuple)) else list(models)
-        elif mhc_models is not None:
-            self.models = list(mhc_models)
-        elif mhc_model is not None:
-            self.models = [mhc_model]
-        else:
-            raise ValueError("Must provide models (or mhc_model/mhc_models)")
+        raw_models = models or mhc_models or (mhc_model and [mhc_model])
+        if raw_models is None:
+            raise ValueError("Must provide models")
+        if not isinstance(raw_models, (list, tuple)):
+            raw_models = [raw_models]
+
+        self.models = []
+        for m in raw_models:
+            if isinstance(m, type):
+                # It's a class — instantiate with alleles
+                if alleles is None:
+                    raise ValueError(
+                        f"alleles required when passing model class {m.__name__}"
+                    )
+                self.models.append(m(alleles=alleles))
+            else:
+                self.models.append(m)
 
         # Padding uses the union of all models' peptide lengths
         all_lengths = set()
@@ -105,18 +137,31 @@ class TopiaryPredictor(object):
             epitope_lengths=sorted(all_lengths),
         )
 
-        # --- ranking / filtering ---
-        effective_ranking = ranking or ranking_strategy
-        if isinstance(effective_ranking, EpitopeFilter):
-            effective_ranking = RankingStrategy(filters=[effective_ranking])
-        if effective_ranking is not None:
-            self.ranking_strategy = effective_ranking
+        # --- filter / ranking ---
+        effective_filter = filter or ranking or ranking_strategy
+        if isinstance(effective_filter, EpitopeFilter):
+            effective_filter = RankingStrategy(filters=[effective_filter])
+        if effective_filter is not None:
+            self.ranking_strategy = effective_filter
         elif ic50_cutoff or percentile_cutoff:
             self.ranking_strategy = RankingStrategy(
                 filters=[affinity_filter(ic50_cutoff, percentile_cutoff)],
             )
         else:
             self.ranking_strategy = None
+
+        # Attach rank_by to strategy if provided separately
+        if rank_by is not None:
+            if not isinstance(rank_by, (list, tuple)):
+                rank_by = [rank_by]
+            if self.ranking_strategy is None:
+                self.ranking_strategy = RankingStrategy(sort_by=list(rank_by))
+            else:
+                self.ranking_strategy = RankingStrategy(
+                    filters=list(self.ranking_strategy.filters),
+                    require_all=self.ranking_strategy.require_all,
+                    sort_by=list(rank_by),
+                )
 
         self.ic50_cutoff = ic50_cutoff
         self.percentile_cutoff = percentile_cutoff

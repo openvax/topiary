@@ -150,6 +150,88 @@ def cta_sequences(release=None):
     return _sequences_for_genes(genome, list(gene_ids), by="id")
 
 
+def reproductive_sequences(
+    tissues=("testis", "placenta", "ovary"),
+    min_ntpm=1.0,
+    exclude_tissues=("heart_muscle", "lung", "cerebral_cortex", "liver",
+                     "kidney", "colon", "bone_marrow"),
+    exclude_max_ntpm=1.0,
+    release=None,
+):
+    """Protein sequences from genes with reproductive-restricted expression.
+
+    First-principles alternative to curated CTA lists: finds genes
+    expressed in reproductive tissues but not in vital organs.
+
+    Parameters
+    ----------
+    tissues : tuple of str
+        Tissues to require expression in (OR — expressed in any).
+
+    min_ntpm : float
+        Minimum nTPM in at least one of ``tissues``.
+
+    exclude_tissues : tuple of str
+        Tissues where expression should be absent.
+
+    exclude_max_ntpm : float
+        Maximum nTPM allowed across all ``exclude_tissues``.
+
+    release : int, optional
+        Ensembl release.
+
+    Returns
+    -------
+    dict : "GENE_NAME|TRANSCRIPT_ID" -> amino acid sequence
+    """
+    gene_ids = reproductive_gene_ids(
+        tissues=tissues,
+        min_ntpm=min_ntpm,
+        exclude_tissues=exclude_tissues,
+        exclude_max_ntpm=exclude_max_ntpm,
+    )
+    genome = _get_genome(release, "human")
+    return _sequences_for_genes(genome, list(gene_ids), by="id")
+
+
+def reproductive_gene_ids(
+    tissues=("testis", "placenta", "ovary"),
+    min_ntpm=1.0,
+    exclude_tissues=("heart_muscle", "lung", "cerebral_cortex", "liver",
+                     "kidney", "colon", "bone_marrow"),
+    exclude_max_ntpm=1.0,
+):
+    """Gene IDs with reproductive-restricted expression.
+
+    Genes expressed in any of ``tissues`` (>= min_ntpm) but not in
+    any of ``exclude_tissues`` (all < exclude_max_ntpm).
+
+    Parameters
+    ----------
+    tissues : tuple of str
+    min_ntpm : float
+    exclude_tissues : tuple of str
+    exclude_max_ntpm : float
+
+    Returns
+    -------
+    set of str : Ensembl gene IDs
+    """
+    _check_pirlygenes()
+    from pirlygenes import load_all_dataframes_dict
+    pce = load_all_dataframes_dict()["pan-cancer-expression.csv"]
+
+    include_cols = [f"nTPM_{t}" for t in tissues]
+    exclude_cols = [f"nTPM_{t}" for t in exclude_tissues]
+
+    _validate_tissue_cols(pce, include_cols + exclude_cols)
+
+    expressed = pce[include_cols].max(axis=1) >= min_ntpm
+    not_in_vital = pce[exclude_cols].max(axis=1) < exclude_max_ntpm
+
+    return set(pce.loc[expressed & not_in_vital, "Ensembl_Gene_ID"])
+
+
 def non_cta_sequences(release=None):
     """Protein sequences from all non-CTA genes.
 
@@ -204,14 +286,9 @@ def tissue_expressed_gene_ids(tissues, min_ntpm=1.0):
     from pirlygenes import load_all_dataframes_dict
     pce = load_all_dataframes_dict()["pan-cancer-expression.csv"]
 
-    available = {c.replace("nTPM_", "") for c in pce.columns if c.startswith("nTPM_")}
-    bad = set(tissues) - available
-    if bad:
-        raise ValueError(
-            "Unknown tissue(s): %s. Available: %s" % (sorted(bad), sorted(available))
-        )
-
     cols = [f"nTPM_{t}" for t in tissues]
+    _validate_tissue_cols(pce, cols)
+
     mask = pce[cols].max(axis=1) >= min_ntpm
     return set(pce.loc[mask, "Ensembl_Gene_ID"])
 
@@ -279,6 +356,17 @@ def _sequences_for_genes(genome, identifiers, by="name"):
                 key = f"{gene.name}|{best_transcript.id}"
                 sequences[key] = best_transcript.protein_sequence
     return sequences
+
+
+def _validate_tissue_cols(pce, cols):
+    available = {c for c in pce.columns if c.startswith("nTPM_")}
+    bad = [c for c in cols if c not in available]
+    if bad:
+        tissues = sorted(c.replace("nTPM_", "") for c in available)
+        raise ValueError(
+            "Unknown tissue column(s): %s. Available: %s"
+            % ([c.replace("nTPM_", "") for c in bad], tissues)
+        )
 
 
 def _check_pirlygenes():
