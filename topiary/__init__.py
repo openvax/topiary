@@ -1,10 +1,16 @@
 from .predictor import TopiaryPredictor
 from .ranking import (
+    Affinity,
     EpitopeFilter,
-    K,
+    Expr,
+    KindAccessor,
+    Presentation,
+    Processing,
     RankingStrategy,
+    Stability,
     affinity_filter,
     apply_ranking_strategy,
+    parse_ranking,
     presentation_filter,
 )
 from .sequence_helpers import (
@@ -18,9 +24,14 @@ __version__ = "4.1.0"
 
 __all__ = [
     "TopiaryPredictor",
+    "Affinity",
     "EpitopeFilter",
-    "K",
+    "Expr",
+    "KindAccessor",
+    "Presentation",
+    "Processing",
     "RankingStrategy",
+    "Stability",
     "affinity_filter",
     "apply_ranking_strategy",
     "presentation_filter",

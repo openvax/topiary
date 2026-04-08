@@ -88,4 +88,17 @@ def add_filter_args(arg_parser):
         type=str,
     )
 
+    filter_group.add_argument(
+        "--ranking",
+        help=(
+            "Filter/ranking expression. Examples: "
+            "'affinity <= 500', "
+            "'affinity <= 500 | presentation.rank <= 2', "
+            "'ic50 <= 500 & el.score >= 0.5'. "
+            "Overrides --ic50-cutoff, --percentile-cutoff, --presentation-cutoff."
+        ),
+        default=None,
+        type=str,
+    )
+
     return filter_group

@@ -18,8 +18,6 @@ from argparse import ArgumentParser
 from mhctools.cli import add_mhc_args, mhc_binding_predictor_from_args
 from varcode.cli import add_variant_args, variant_collection_from_args
 
-from mhctools import Kind
-
 from .filtering import add_filter_args
 from .rna import (
     add_rna_args,
@@ -32,8 +30,10 @@ from .outputs import add_output_args
 from .protein_changes import add_protein_change_args
 from ..predictor import TopiaryPredictor
 from ..ranking import (
+    EpitopeFilter,
     RankingStrategy,
     affinity_filter,
+    parse_ranking,
     presentation_filter,
 )
 
@@ -74,6 +74,14 @@ arg_parser = create_arg_parser()
 
 def _build_ranking_strategy(args):
     """Build a RankingStrategy from CLI args, or return None."""
+    # --ranking takes precedence over individual filter args
+    ranking_text = getattr(args, "ranking", None)
+    if ranking_text:
+        result = parse_ranking(ranking_text)
+        if isinstance(result, EpitopeFilter):
+            return RankingStrategy(filters=[result])
+        return result
+
     has_presentation = getattr(args, "presentation_cutoff", None) is not None
     has_rank_by = getattr(args, "rank_by", None) is not None
     filter_logic = getattr(args, "filter_logic", "any")
@@ -92,8 +100,9 @@ def _build_ranking_strategy(args):
 
     sort_by = []
     if has_rank_by:
+        from ..ranking import KindAccessor, _resolve_kind
         kind_names = [s.strip() for s in args.rank_by.split(",")]
-        sort_by = [(Kind(k), "score") for k in kind_names]
+        sort_by = [KindAccessor(_resolve_kind(k)).score for k in kind_names]
 
     return RankingStrategy(
         filters=filters,
