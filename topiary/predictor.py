@@ -198,6 +198,11 @@ class TopiaryPredictor(object):
             allele, kind, score, value, affinity, percentile_rank,
             prediction_method_name, predictor_version, n_flank, c_flank
         """
+        df = self._predict_raw(name_to_sequence_dict)
+        return self._apply_filter(df)
+
+    def _predict_raw(self, name_to_sequence_dict):
+        """Run models and format output, without applying filter/ranking."""
         dfs = []
         for model in self.models:
             model_df = model.predict_proteins_dataframe(name_to_sequence_dict)
@@ -206,16 +211,20 @@ class TopiaryPredictor(object):
             return pd.DataFrame()
         df = pd.concat(dfs, ignore_index=True)
 
-        # Backward-compatible column renames / additions
         df = df.rename(columns={
             "offset": "peptide_offset",
             "predictor_name": "prediction_method_name",
         })
         df["peptide_length"] = df["peptide"].str.len()
-        # "affinity" = IC50 value for pMHC_affinity rows, NaN otherwise
         df["affinity"] = np.where(
             df["kind"] == "pMHC_affinity", df["value"], np.nan
         )
+        return df
+
+    def _apply_filter(self, df):
+        """Apply ranking strategy filter/sort if configured."""
+        if self.ranking_strategy and not df.empty:
+            df = apply_ranking_strategy(df, self.ranking_strategy)
         return df
 
     def predict_from_sequences(self, sequences):
@@ -296,7 +305,7 @@ class TopiaryPredictor(object):
             effect.variant.short_description: subseq_offset
             for (effect, subseq_offset) in effect_to_offset_dict.items()
         }
-        df = self.predict_from_named_sequences(variant_string_to_subsequence_dict)
+        df = self._predict_raw(variant_string_to_subsequence_dict)
         logging.info(
             "MHC predictor returned %d peptide binding predictions" % (len(df))
         )

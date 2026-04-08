@@ -57,3 +57,14 @@ jobs:
         uses: coverallsapp/github-action@v2.2.3
         with:
           parallel: true
+          flag-name: python-${{ matrix.python-version }}
+
+  coveralls-finish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Finalize Coveralls
+        uses: coverallsapp/github-action@v2.2.3
+        with:
+          parallel-finished: true

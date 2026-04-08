@@ -1,0 +1,26 @@
+site_name: Topiary
+site_description: Predict cancer & viral epitopes from sequence data
+site_url: https://openvax.github.io/topiary/
+repo_url: https://github.com/openvax/topiary
+repo_name: openvax/topiary
+
+theme:
+  name: material
+  palette:
+    scheme: default
+    primary: teal
+  features:
+    - content.code.copy
+    - navigation.sections
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - API Reference: api.md
+
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - admonition
+  - toc:
+      permalink: true
