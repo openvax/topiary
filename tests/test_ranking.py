@@ -468,3 +468,138 @@ def test_parse_ranking_applied():
         strategy = RankingStrategy(filters=[strategy])
     result = apply_ranking_strategy(df, strategy)
     assert set(result["peptide"]) == {"SIINFEKL"}
+
+
+# ---------------------------------------------------------------------------
+# Tests: clip, abs, log, exp, sqrt, pow
+# ---------------------------------------------------------------------------
+
+
+def test_clip_both():
+    expr = Affinity.value.clip(lo=50, hi=200)
+    df = _make_df(PEPTIDE_A_ROWS)  # value = 120
+    assert abs(expr.evaluate(df) - 120.0) < 1e-9
+
+    # Value below lo
+    rows = [dict(PEPTIDE_A_ROWS[0], value=10.0)]
+    assert abs(expr.evaluate(_make_df(rows)) - 50.0) < 1e-9
+
+    # Value above hi
+    rows = [dict(PEPTIDE_A_ROWS[0], value=999.0)]
+    assert abs(expr.evaluate(_make_df(rows)) - 200.0) < 1e-9
+
+
+def test_clip_lo_only():
+    expr = Affinity.value.clip(lo=0)
+    rows = [dict(PEPTIDE_A_ROWS[0], value=-5.0)]
+    assert abs(expr.evaluate(_make_df(rows))) < 1e-9
+
+
+def test_clip_hi_only():
+    expr = Affinity.value.clip(hi=100)
+    df = _make_df(PEPTIDE_A_ROWS)  # value = 120
+    assert abs(expr.evaluate(df) - 100.0) < 1e-9
+
+
+def test_abs_positive():
+    expr = abs(Affinity.value)
+    df = _make_df(PEPTIDE_A_ROWS)
+    assert abs(expr.evaluate(df) - 120.0) < 1e-9
+
+
+def test_abs_negative():
+    expr = abs(-Affinity.value)
+    df = _make_df(PEPTIDE_A_ROWS)
+    assert abs(expr.evaluate(df) - 120.0) < 1e-9
+
+
+def test_log():
+    expr = Affinity.value.log()
+    df = _make_df(PEPTIDE_A_ROWS)
+    assert abs(expr.evaluate(df) - math.log(120.0)) < 1e-9
+
+
+def test_log10():
+    expr = Affinity.value.log10()
+    df = _make_df(PEPTIDE_A_ROWS)
+    assert abs(expr.evaluate(df) - math.log10(120.0)) < 1e-9
+
+
+def test_exp():
+    expr = Affinity.score.exp()  # score = 0.8
+    df = _make_df(PEPTIDE_A_ROWS)
+    assert abs(expr.evaluate(df) - math.exp(0.8)) < 1e-9
+
+
+def test_sqrt():
+    expr = Affinity.value.sqrt()
+    df = _make_df(PEPTIDE_A_ROWS)
+    assert abs(expr.evaluate(df) - math.sqrt(120.0)) < 1e-9
+
+
+def test_pow():
+    expr = Affinity.score ** 2
+    df = _make_df(PEPTIDE_A_ROWS)
+    assert abs(expr.evaluate(df) - 0.64) < 1e-9
+
+
+def test_log_negative_returns_nan():
+    rows = [dict(PEPTIDE_A_ROWS[0], value=-5.0)]
+    expr = Affinity.value.log()
+    assert math.isnan(expr.evaluate(_make_df(rows)))
+
+
+def test_composite_with_clip_and_log():
+    """log(clip(IC50, 1, 50000)) is a common transform."""
+    expr = Affinity.value.clip(lo=1, hi=50000).log()
+    df = _make_df(PEPTIDE_A_ROWS)
+    assert abs(expr.evaluate(df) - math.log(120.0)) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Tests: >= and > on value/rank fields
+# ---------------------------------------------------------------------------
+
+
+def test_value_ge_filter():
+    filt = Affinity.value >= 100
+    assert isinstance(filt, EpitopeFilter)
+    assert filt.min_value == 100
+
+
+def test_rank_ge_filter():
+    filt = Affinity.rank >= 1.0
+    assert isinstance(filt, EpitopeFilter)
+    assert filt.min_percentile_rank == 1.0
+
+
+def test_gt_delegates_to_ge():
+    filt = Presentation.score > 0.5
+    assert isinstance(filt, EpitopeFilter)
+    assert filt.min_score == 0.5
+
+
+def test_lt_delegates_to_le():
+    filt = Affinity < 500
+    assert isinstance(filt, EpitopeFilter)
+    assert filt.max_value == 500
+
+
+def test_ge_filter_applied():
+    """Keep only weak binders (IC50 >= 1000)."""
+    df = _two_peptide_df()
+    strategy = RankingStrategy(filters=[Affinity.value >= 1000])
+    result = apply_ranking_strategy(df, strategy)
+    assert set(result["peptide"]) == {"ELAGIGIL"}
+
+
+def test_parse_filter_value_ge():
+    from topiary.ranking import parse_filter
+    f = parse_filter("affinity >= 100")
+    assert f.min_value == 100
+
+
+def test_parse_filter_rank_ge():
+    from topiary.ranking import parse_filter
+    f = parse_filter("presentation.rank >= 5")
+    assert f.min_percentile_rank == 5.0

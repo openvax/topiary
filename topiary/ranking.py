@@ -94,6 +94,37 @@ class Expr:
     def __neg__(self):
         return _BinOp(_Const(-1), self, operator.mul)
 
+    def __abs__(self):
+        return _UnaryOp(self, abs)
+
+    def __pow__(self, other):
+        return _BinOp(self, _as_expr(other), operator.pow)
+
+    def __rpow__(self, other):
+        return _BinOp(_as_expr(other), self, operator.pow)
+
+    # -- transforms --
+
+    def clip(self, lo=None, hi=None):
+        """Clamp value to [lo, hi]. None = unbounded."""
+        return _ClipExpr(self, lo, hi)
+
+    def log(self):
+        """Natural logarithm (NaN if value <= 0)."""
+        return _UnaryOp(self, math.log)
+
+    def log10(self):
+        """Base-10 logarithm (NaN if value <= 0)."""
+        return _UnaryOp(self, math.log10)
+
+    def exp(self):
+        """Exponential (e^x)."""
+        return _UnaryOp(self, math.exp)
+
+    def sqrt(self):
+        """Square root (NaN if value < 0)."""
+        return _UnaryOp(self, math.sqrt)
+
     # -- filters (return EpitopeFilter, not Expr) --
 
     def __le__(self, threshold):
@@ -157,6 +188,44 @@ class _NormExpr(Expr):
         return _gauss_cdf((val - self.mean) / self.std)
 
 
+class _UnaryOp(Expr):
+    """Apply a unary function to an inner expression."""
+    __slots__ = ("inner", "fn")
+
+    def __init__(self, inner, fn):
+        self.inner = inner
+        self.fn = fn
+
+    def evaluate(self, group_df):
+        val = self.inner.evaluate(group_df)
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return float("nan")
+        try:
+            return float(self.fn(val))
+        except (ValueError, OverflowError):
+            return float("nan")
+
+
+class _ClipExpr(Expr):
+    """Clamp an inner expression to [lo, hi]."""
+    __slots__ = ("inner", "lo", "hi")
+
+    def __init__(self, inner, lo, hi):
+        self.inner = inner
+        self.lo = lo
+        self.hi = hi
+
+    def evaluate(self, group_df):
+        val = self.inner.evaluate(group_df)
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return float("nan")
+        if self.lo is not None and val < self.lo:
+            return float(self.lo)
+        if self.hi is not None and val > self.hi:
+            return float(self.hi)
+        return val
+
+
 def _as_expr(obj):
     if isinstance(obj, Expr):
         return obj
@@ -209,6 +278,10 @@ class Field(Expr):
     def __ge__(self, threshold):
         if self.field == "score":
             return EpitopeFilter(kind=self.kind, min_score=threshold)
+        if self.field == "value":
+            return EpitopeFilter(kind=self.kind, min_value=threshold)
+        if self.field == "percentile_rank":
+            return EpitopeFilter(kind=self.kind, min_percentile_rank=threshold)
         raise ValueError(f"Cannot apply >= to field {self.field!r}")
 
     def __lt__(self, threshold):
@@ -291,7 +364,9 @@ class EpitopeFilter:
 
     kind: Kind
     max_value: Optional[float] = None
+    min_value: Optional[float] = None
     max_percentile_rank: Optional[float] = None
+    min_percentile_rank: Optional[float] = None
     min_score: Optional[float] = None
     max_score: Optional[float] = None
 
@@ -383,23 +458,23 @@ def _pick_group_keys(df):
 def _row_passes_filter(row, filt):
     if row["kind"] != filt.kind.value:
         return False
-    if filt.max_value is not None:
-        v = row.get("value")
-        if v is None or (isinstance(v, float) and np.isnan(v)) or v > filt.max_value:
+
+    def _check(field, val, op):
+        if val is None:
+            return True
+        v = row.get(field)
+        if v is None or (isinstance(v, float) and np.isnan(v)):
             return False
-    if filt.max_percentile_rank is not None:
-        r = row.get("percentile_rank")
-        if r is None or (isinstance(r, float) and np.isnan(r)) or r > filt.max_percentile_rank:
-            return False
-    if filt.min_score is not None:
-        s = row.get("score")
-        if s is None or (isinstance(s, float) and np.isnan(s)) or s < filt.min_score:
-            return False
-    if filt.max_score is not None:
-        s = row.get("score")
-        if s is None or (isinstance(s, float) and np.isnan(s)) or s > filt.max_score:
-            return False
-    return True
+        return op(v, val)
+
+    return (
+        _check("value", filt.max_value, operator.le)
+        and _check("value", filt.min_value, operator.ge)
+        and _check("percentile_rank", filt.max_percentile_rank, operator.le)
+        and _check("percentile_rank", filt.min_percentile_rank, operator.ge)
+        and _check("score", filt.min_score, operator.ge)
+        and _check("score", filt.max_score, operator.le)
+    )
 
 
 def _group_passes(group_df, strategy):
@@ -544,9 +619,12 @@ def parse_filter(text):
                 elif field_name == "score":
                     return EpitopeFilter(kind=kind, max_score=threshold)
             elif op_name in ("ge", "gt"):
-                if field_name == "score":
+                if field_name == "value":
+                    return EpitopeFilter(kind=kind, min_value=threshold)
+                elif field_name == "percentile_rank":
+                    return EpitopeFilter(kind=kind, min_percentile_rank=threshold)
+                elif field_name == "score":
                     return EpitopeFilter(kind=kind, min_score=threshold)
-                raise ValueError(f">= not supported on {field_name}")
             break
     else:
         raise ValueError(f"No comparison operator found in {text!r}")
