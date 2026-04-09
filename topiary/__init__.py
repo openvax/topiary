@@ -20,7 +20,7 @@ from .sequence_helpers import (
     protein_subsequences_around_mutations,
 )
 
-__version__ = "4.3.2"
+__version__ = "4.4.0"
 
 __all__ = [
     "TopiaryPredictor",
