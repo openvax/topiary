@@ -10,7 +10,7 @@
 
 Topiary predicts which peptides from protein sequences will be presented by MHC molecules, making them potential T-cell epitopes. It is used in cancer immunotherapy research to find mutant peptides (neoantigens) that the immune system could target.
 
-**Core idea:** Given protein sequences + HLA alleles + an MHC binding predictor, Topiary scans all possible peptides and returns those predicted to bind MHC, ranked by binding strength.
+**Core idea:** Given protein sequences + HLA alleles + one or more MHC prediction models, Topiary scans all possible peptides and returns those predicted to be presented by MHC, ranked by any combination of binding affinity, presentation score, processing score, and stability.
 
 Topiary can start from several types of input:
 
@@ -24,7 +24,7 @@ Topiary can start from several types of input:
 
 1. **Get protein sequences** — from variants (via [varcode](https://github.com/openvax/varcode)), FASTA/CSV files, or Ensembl lookups
 2. **Generate candidate peptides** — sliding window over proteins, or use peptides as-is
-3. **Predict MHC binding** — via [mhctools](https://github.com/openvax/mhctools) (NetMHCpan, MHCflurry, etc.)
+3. **Predict MHC presentation** — via [mhctools](https://github.com/openvax/mhctools) (NetMHCpan, MHCflurry, etc.), producing binding affinity, presentation, processing, and/or stability scores depending on the model
 4. **Filter and rank** — by binding affinity, percentile rank, presentation score, or custom expressions
 5. **Annotate** — with gene/transcript info, mutation positions, RNA expression levels
 
@@ -181,9 +181,9 @@ For gene lookups, Topiary uses the longest protein-coding transcript per gene.
 
 Multiple input flags can be combined in a single run.
 
-## MHC binding prediction
+## MHC prediction models
 
-You must specify a predictor and alleles:
+Models predict one or more aspects of MHC presentation — binding affinity, antigen processing, stability, or an overall presentation score. Different models produce different subsets of these. You must specify a predictor and alleles:
 
 ```bash
 --mhc-predictor netmhcpan \
