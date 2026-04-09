@@ -20,8 +20,6 @@ Then use in ranking via :class:`~topiary.ranking.Column`::
     score = 0.5 * Affinity.score - 0.2 * Column("cysteine_count")
 """
 
-import numpy as np
-import pandas as pd
 
 
 # ---------------------------------------------------------------------------
