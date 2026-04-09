@@ -52,6 +52,13 @@ For cancer-testis antigen and tissue expression features:
 pip install pirlygenes
 ```
 
+For tab completion of command-line arguments (bash/zsh/fish):
+
+```bash
+pip install 'topiary[completion]'
+activate-global-python-argcomplete
+```
+
 ## Quick start
 
 ### Command line

@@ -19,6 +19,9 @@ classifiers = [
 readme = "README.md"
 dynamic = ["version", "dependencies"]
 
+[project.optional-dependencies]
+completion = ["argcomplete>=1.10"]
+
 [tool.setuptools.dynamic]
 version = {attr = "topiary.__version__"}
 dependencies = {file = ["requirements.txt"]}
