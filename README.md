@@ -196,51 +196,173 @@ Models predict one or more aspects of MHC presentation — binding affinity, ant
 
 **Peptide lengths:** `--mhc-epitope-lengths 8,9,10,11` (defaults come from the predictor).
 
-## Filtering and ranking
+## Expression DSL
 
-### Simple cutoffs
+Topiary has an expression language for filtering and ranking predictions. It works in two forms: a **Python API** with operator overloading, and a **string syntax** for the CLI. Both compile to the same internal representation.
 
-```bash
---ic50-cutoff 500            # Keep peptides with IC50 <= 500 nM
---percentile-cutoff 2.0      # Keep peptides with percentile rank <= 2.0
---presentation-cutoff 2.0    # Keep peptides with presentation rank <= 2.0
---filter-logic any            # "any" (OR, default) or "all" (AND)
-```
+### Prediction kinds and fields
 
-### Expression-based ranking
+Four built-in accessors correspond to different aspects of MHC presentation:
 
-```bash
---rank-by pMHC_presentation,pMHC_affinity
-```
+| Accessor | Aliases | What it measures |
+|----------|---------|------------------|
+| `Affinity` | `ba`, `aff`, `ic50` | Binding affinity (IC50 nM) |
+| `Presentation` | `el` | Presentation / eluted ligand score |
+| `Stability` | | pMHC complex stability |
+| `Processing` | | Antigen processing / cleavage |
 
-Sort surviving peptides by presentation score, breaking ties with affinity.
+Each has three fields:
 
-### Advanced filter expressions
+| Field | Description | Example |
+|-------|-------------|---------|
+| `.value` | Raw value (IC50 nM, etc.) | `Affinity.value` |
+| `.rank` | Percentile rank (lower = better) | `Affinity.rank` |
+| `.score` | Normalized score (higher = better) | `Affinity.score` |
 
-```bash
---ranking "affinity <= 500 | presentation.rank <= 2"
-```
+The default field is `.value`, so `Affinity <= 500` means `Affinity.value <= 500`.
 
-### Python API expressions
+### Filters: Python vs string
+
+Filters select which peptide-allele groups to keep. The same filter can be written in Python or as a CLI string:
 
 ```python
-from topiary import Affinity, Presentation, RankingStrategy
+# Python                                    # CLI string
+Affinity <= 500                             # "affinity <= 500" or "ba <= 500"
+Affinity.rank <= 2.0                        # "affinity.rank <= 2"
+Presentation.score >= 0.5                   # "el.score >= 0.5"
 
-# Combine filters with | (OR) or & (AND)
-my_filter = (Affinity <= 500) | (Presentation.rank <= 2.0)
+# OR / AND
+(Affinity <= 500) | (Presentation.rank <= 2)  # "affinity <= 500 | el.rank <= 2"
+(Affinity <= 500) & (Presentation.rank <= 2)  # "affinity <= 500 & el.rank <= 2"
+```
 
-# Composite scoring
-my_score = 0.5 * Affinity.score + 0.5 * Presentation.score
+On the CLI:
 
-predictor = TopiaryPredictor(
-    models=[NetMHCpan],
-    alleles=["HLA-A*02:01"],
-    filter=my_filter,
-    rank_by=[my_score],
+```bash
+--ranking "affinity <= 500 | el.rank <= 2"
+--ic50-cutoff 500          # shorthand for affinity <= 500
+--percentile-cutoff 2.0    # shorthand for affinity.rank <= 2
+--filter-logic any         # "any" (OR, default) or "all" (AND)
+```
+
+### Multi-model disambiguation
+
+When multiple models produce the same kind (e.g. NetMHCpan and MHCflurry both produce affinity), qualify with brackets in Python or underscores in strings:
+
+```python
+# Python                                    # CLI string
+Affinity["netmhcpan"] <= 500               # "netmhcpan_affinity <= 500"
+Affinity["mhcflurry"].score                # "mhcflurry_affinity.score"
+Presentation["mhcflurry"].rank <= 2        # "mhcflurry_el.rank <= 2"
+```
+
+When only one model produces a kind, no qualification is needed. If you forget to qualify with multiple models, you get a clear error:
+
+```
+ValueError: Ambiguous: multiple models produce pMHC_affinity
+(mhcflurry, netmhcpan). Use Affinity["modelname"] to disambiguate.
+```
+
+Typos also get caught:
+
+```
+ValueError: No pMHC_affinity predictions from method matching 'netmhcapn'.
+Available: ['mhcflurry', 'netmhcpan']. Did you mean: ['netmhcpan']?
+```
+
+### Transforms (Python-only)
+
+Expressions support mathematical transforms for composite scoring. These have no CLI string equivalent — use the Python API for composite scores:
+
+```python
+# Logistic sigmoid (Vaxrank-compatible IC50 scoring)
+Affinity.logistic(midpoint=350, width=150)
+
+# Gaussian CDF normalization
+Affinity.value.norm(mean=500, std=200)
+
+# Arithmetic
+0.5 * Affinity.score + 0.5 * Presentation.score
+
+# Other transforms
+Affinity.value.clip(lo=1, hi=50000)
+Affinity.value.log()
+Affinity.value.sqrt()
+abs(Affinity.value)
+```
+
+### Column() — use any DataFrame column
+
+`Column()` brings arbitrary DataFrame columns into the expression system. This is how peptide properties, read counts, and custom annotations participate in ranking:
+
+```python
+# Python                                    # CLI string (filters only)
+Column("cysteine_count")                    # column(cysteine_count)
+Column("cysteine_count") <= 2               # "column(cysteine_count) <= 2"
+Column("hydrophobicity") >= -0.5            # "column(hydrophobicity) >= -0.5"
+
+# In composite scores (Python-only)
+score = (
+    0.5 * Affinity.logistic(350, 150)
+    - 0.2 * Column("cysteine_count")
+    + 0.1 * Column("tcr_aromaticity")
 )
 ```
 
-Available prediction kinds: `Affinity`, `Presentation`, `Processing`, `Stability`. Each has `.value`, `.rank`, and `.score` attributes.
+Missing columns get a helpful error with typo suggestions:
+
+```
+ValueError: Column 'hydrophobicty' not found. Did you mean: ['hydrophobicity']?
+```
+
+### WT() — wildtype comparison (Python-only)
+
+`WT()` wraps a kind accessor to read wildtype prediction columns (`wt_value`, `wt_score`, `wt_percentile_rank`), populated by `predict_column` after variant-derived predictions:
+
+```python
+WT(Affinity).value                        # WT IC50
+WT(Affinity["netmhcpan"]).score           # qualified WT
+Affinity.score - WT(Affinity).score       # differential binding
+Affinity.logistic(350, 150) - WT(Affinity).logistic(350, 150)
+```
+
+`WT()` is for ranking expressions, not filters. Returns NaN when WT columns don't exist (non-variant inputs).
+
+### Sorting
+
+Sort surviving peptides after filtering:
+
+```python
+predictor = TopiaryPredictor(
+    models=[NetMHCpan, MHCflurry],
+    alleles=["HLA-A*02:01"],
+    filter=(Affinity <= 500) | (Presentation.rank <= 2.0),
+    rank_by=[Presentation.score, Affinity.score],  # first non-NaN wins
+)
+```
+
+On the CLI:
+
+```bash
+--rank-by pMHC_presentation,pMHC_affinity
+--rank-by "netmhcpan_affinity,mhcflurry_presentation"  # tool-qualified
+```
+
+### Quick reference: Python to CLI string
+
+| Python DSL | CLI string form |
+|---|---|
+| `Affinity <= 500` | `affinity <= 500` or `ba <= 500` or `ic50 <= 500` |
+| `Affinity.rank <= 2` | `affinity.rank <= 2` |
+| `Affinity.score >= 0.5` | `affinity.score >= 0.5` |
+| `Affinity["netmhcpan"] <= 500` | `netmhcpan_ba <= 500` |
+| `Presentation["mhcflurry"].rank <= 2` | `mhcflurry_el.rank <= 2` |
+| `Column("cysteine_count") <= 2` | `column(cysteine_count) <= 2` |
+| `(A <= 500) \| (B.rank <= 2)` | `affinity <= 500 \| el.rank <= 2` |
+| `0.5 * Affinity.score + ...` | *Python-only* |
+| `.logistic()`, `.norm()`, `.clip()` | *Python-only* |
+| `WT(Affinity).score` | *Python-only* |
+| `Column("x")` in arithmetic | *Python-only* |
 
 ## Exclusion filtering
 
@@ -339,45 +461,9 @@ from topiary.ranking import Column
 score = Affinity.logistic(350, 150) - 0.1 * Column("cysteine_count")
 ```
 
-## Multi-model and composite scoring
-
-When using multiple MHC prediction models, qualify by method name using bracket syntax to disambiguate:
-
-```python
-from topiary import TopiaryPredictor, Affinity, Presentation
-from mhctools import NetMHCpan, MHCflurry
-
-predictor = TopiaryPredictor(
-    models=[NetMHCpan, MHCflurry],
-    alleles=["HLA-A*02:01", "HLA-B*07:02"],
-)
-df = predictor.predict_from_named_sequences(seqs)
-
-# Each model's predictions are accessible separately
-Affinity["netmhcpan"].value          # string: "netmhcpan_affinity" or "netmhcpan_ba"
-Affinity["mhcflurry"].value          # string: "mhcflurry_affinity" or "mhcflurry_ba"
-Presentation["mhcflurry"].score      # string: "mhcflurry_presentation.score" or "mhcflurry_el.score"
-
-# Combine into a composite score (Python-only — no string form for arithmetic)
-score = (
-    0.3 * Affinity["netmhcpan"].logistic(350, 150)
-    + 0.3 * Affinity["mhcflurry"].logistic(350, 150)
-    + 0.4 * Presentation["mhcflurry"].score
-)
-```
-
-On the CLI, use `tool_kind` underscore syntax:
-
-```bash
---ranking "netmhcpan_affinity <= 500 | mhcflurry_el.rank <= 2"
---rank-by "netmhcpan_affinity,mhcflurry_presentation"
-```
-
-When only one model produces a given kind, no qualification is needed — `Affinity <= 500` works automatically.
-
 ## Advanced example: neoantigen scoring pipeline
 
-This example shows the full Python API for a neoantigen analysis — predicting mutant epitopes, comparing against wildtype, checking the reference proteome, computing peptide properties, and ranking with a composite score across multiple models:
+Full Python API for neoantigen analysis — variant prediction, wildtype comparison, reference proteome check, peptide properties, and composite scoring across two models:
 
 ```python
 from topiary import (
@@ -429,54 +515,26 @@ df = add_peptide_properties(df, peptide_column="wt_peptide", prefix="wt_",
 
 score = (
     # Binding: average logistic IC50 across models
-    #   string filter form: "netmhcpan_ba <= 500" or "netmhcpan_affinity <= 500"
-    #   (logistic transform and arithmetic are Python-only)
     0.25 * Affinity["netmhcpan"].logistic(350, 150)
     + 0.25 * Affinity["mhcflurry"].logistic(350, 150)
 
-    # Presentation: MHCflurry presentation score
-    #   string filter form: "mhcflurry_el.score >= 0.5"
+    # Presentation
     + 0.2 * Presentation["mhcflurry"].score
 
     # Differential binding: mutant binds better than wildtype
-    #   no string form — WT() is Python-only
     + 0.15 * (Affinity["netmhcpan"].logistic(350, 150)
               - WT(Affinity["netmhcpan"]).logistic(350, 150))
 
     # Manufacturability: penalize cysteines and unstable peptides
-    #   string filter form: "column(cysteine_count) <= 2"
-    #   (arithmetic and transforms like .clip().norm() are Python-only)
     - 0.05 * Column("cysteine_count")
     - 0.05 * Column("instability_index").clip(lo=0, hi=100).norm(50, 20)
 
     # Immunogenicity: reward aromatic TCR-facing residues
-    #   string filter form: "column(tcr_aromaticity) >= 1"
     + 0.05 * Column("tcr_aromaticity")
 )
 ```
 
-### String form reference
-
-The CLI `--ranking` flag supports filter expressions. Here's the mapping:
-
-| Python DSL | String form | Notes |
-|---|---|---|
-| `Affinity <= 500` | `affinity <= 500` or `ba <= 500` | |
-| `Affinity.rank <= 2` | `affinity.rank <= 2` or `ba.rank <= 2` | |
-| `Affinity.score >= 0.5` | `affinity.score >= 0.5` | |
-| `Affinity["netmhcpan"] <= 500` | `netmhcpan_affinity <= 500` or `netmhcpan_ba <= 500` | |
-| `Presentation["mhcflurry"].rank <= 2` | `mhcflurry_presentation.rank <= 2` or `mhcflurry_el.rank <= 2` | |
-| `Column("cysteine_count") <= 2` | `column(cysteine_count) <= 2` | |
-| `(A <= 500) \| (B.rank <= 2)` | `affinity <= 500 \| presentation.rank <= 2` | |
-| `(A <= 500) & (B.rank <= 2)` | `affinity <= 500 & presentation.rank <= 2` | |
-
-**Python-only** (no string form):
-- Arithmetic: `0.5 * Affinity.score + 0.5 * Presentation.score`
-- Transforms: `.logistic()`, `.norm()`, `.clip()`, `.log()`, `.sqrt()`
-- `WT()` expressions: `WT(Affinity).score`, `Affinity.score - WT(Affinity).score`
-- `Column()` in arithmetic: `0.5 * Column("charge")` (only `column(x) <= N` works in strings)
-
-For full composite scoring, use the Python API. The CLI handles filtering and simple sort-by:
+The CLI equivalent for the filtering portion:
 
 ```bash
 topiary \
