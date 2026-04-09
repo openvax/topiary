@@ -207,6 +207,16 @@ class TestColumn:
         assert abs(Column("charge")).evaluate(df) == 1.0
         assert Column("charge").clip(lo=0).evaluate(df) == 0.0
 
+    def test_non_numeric_column_raises(self):
+        """String column gives clear error, not generic ValueError."""
+        df = _make_df([dict(
+            source_sequence_name="x", peptide="AAA", peptide_offset=0,
+            allele="A", kind="pMHC_affinity", score=0.5, value=100.0,
+            percentile_rank=1.0, gene_name="BRAF",
+        )])
+        with pytest.raises(TypeError, match="non-numeric value"):
+            Column("gene_name").evaluate(df)
+
 
 class TestColumnFilter:
     def test_parse_column_filter(self):
@@ -250,6 +260,14 @@ class TestColumnFilter:
         f = parse_ranking("affinity <= 500 | column(charge) >= 0")
         assert isinstance(f, RankingStrategy)
         assert f.require_all is False
+
+    def test_parse_column_empty_name_raises(self):
+        with pytest.raises(ValueError, match="requires a column name"):
+            parse_filter("column() <= 5")
+
+    def test_parse_column_nested_parens_raises(self):
+        with pytest.raises(ValueError, match="must be a plain name"):
+            parse_filter("column(func()) <= 5")
 
 
 # ---------------------------------------------------------------------------

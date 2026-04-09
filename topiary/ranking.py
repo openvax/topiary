@@ -319,7 +319,14 @@ class Column(Expr):
         val = group_df.iloc[0][self.col_name]
         if val is None or (isinstance(val, float) and math.isnan(val)):
             return float("nan")
-        return float(val)
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            raise TypeError(
+                f"Column {self.col_name!r} contains non-numeric value "
+                f"{val!r} ({type(val).__name__}). "
+                f"Only numeric columns can be used in ranking expressions."
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -566,7 +573,10 @@ class WT:
         WT(Affinity).value                        # WT IC50
         WT(Affinity["netmhcpan"]).score           # qualified WT
         Affinity.score - WT(Affinity).score       # differential binding
-        WT(Affinity) <= 500                        # filter on WT value
+        WT(Affinity).logistic(350, 150)           # WT scoring
+
+    WT is for ranking expressions, not filters. Use
+    ``rank_by=[Affinity.score - WT(Affinity).score]``.
 
     When WT columns don't exist (non-variant inputs), evaluates to NaN.
     """
@@ -1017,7 +1027,15 @@ def _parse_column_ref(text):
     """Check if text is a column(name) reference. Returns name or None."""
     text = text.strip()
     if text.startswith("column(") and text.endswith(")"):
-        return text[7:-1].strip()
+        name = text[7:-1].strip()
+        if not name:
+            raise ValueError("column() requires a column name, e.g. column(charge)")
+        if "(" in name or ")" in name:
+            raise ValueError(
+                f"Invalid column name {name!r} — must be a plain name, "
+                f"e.g. column(charge)"
+            )
+        return name
     return None
 
 
