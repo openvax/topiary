@@ -25,6 +25,7 @@ from __future__ import annotations
 import math
 import operator
 from dataclasses import dataclass, field
+from difflib import get_close_matches
 from typing import Optional
 
 import numpy as np
@@ -236,6 +237,19 @@ def _as_expr(obj):
     raise TypeError(f"Cannot convert {type(obj)} to Expr")
 
 
+def _method_not_found_error(kind_name, method, available):
+    """Build a ValueError for an unrecognized method, suggesting close matches."""
+    msg = (
+        f"No {kind_name} predictions from method matching {method!r}. "
+        f"Available: {available}"
+    )
+    close = get_close_matches(method.lower(), [a.lower() for a in available], n=2, cutoff=0.6)
+    if close:
+        suggestions = [next(a for a in available if a.lower() == c) for c in close]
+        msg += f". Did you mean: {suggestions}?"
+    return ValueError(msg)
+
+
 # ---------------------------------------------------------------------------
 # Field — a reference to one column of one prediction kind
 # ---------------------------------------------------------------------------
@@ -249,16 +263,49 @@ class Field(Expr):
         Affinity.value   # IC50 / value column for pMHC_affinity
         Affinity.rank    # percentile_rank column
         Affinity.score   # score column (higher = better)
+
+    Optionally qualified by prediction method::
+
+        Affinity["netmhcpan"].value   # only NetMHCpan's affinity
     """
 
-    __slots__ = ("kind", "field")
+    __slots__ = ("kind", "field", "method")
 
-    def __init__(self, kind: Kind, field: str):
+    def __init__(self, kind: Kind, field: str, method: Optional[str] = None):
         self.kind = kind
         self.field = field
+        self.method = method
 
     def evaluate(self, group_df):
+        if group_df.empty or "kind" not in group_df.columns:
+            return float("nan")
         kind_rows = group_df[group_df["kind"] == self.kind.value]
+        if kind_rows.empty:
+            return float("nan")
+        col = "prediction_method_name"
+        if self.method is not None:
+            if col in kind_rows.columns:
+                method_lower = self.method.lower()
+                matched = kind_rows[
+                    kind_rows[col].str.lower().str.contains(method_lower, na=False)
+                ]
+                if matched.empty:
+                    available = sorted(kind_rows[col].dropna().unique())
+                    raise _method_not_found_error(
+                        self.kind.name, self.method, available
+                    )
+                kind_rows = matched
+            # If column doesn't exist, keep all rows (legacy data)
+        elif col in kind_rows.columns:
+            methods = kind_rows[col].dropna().unique()
+            if len(methods) > 1:
+                kind_name = self.kind.name
+                method_list = ", ".join(sorted(methods))
+                raise ValueError(
+                    f"Ambiguous: multiple models produce {kind_name} "
+                    f"({method_list}). Use Affinity[\"modelname\"] to "
+                    f"disambiguate."
+                )
         if kind_rows.empty:
             return float("nan")
         try:
@@ -273,20 +320,20 @@ class Field(Expr):
 
     def __le__(self, threshold):
         if self.field == "value":
-            return EpitopeFilter(kind=self.kind, max_value=threshold)
+            return EpitopeFilter(kind=self.kind, max_value=threshold, method=self.method)
         if self.field == "percentile_rank":
-            return EpitopeFilter(kind=self.kind, max_percentile_rank=threshold)
+            return EpitopeFilter(kind=self.kind, max_percentile_rank=threshold, method=self.method)
         if self.field == "score":
-            return EpitopeFilter(kind=self.kind, max_score=threshold)
+            return EpitopeFilter(kind=self.kind, max_score=threshold, method=self.method)
         raise ValueError(f"Cannot apply <= to field {self.field!r}")
 
     def __ge__(self, threshold):
         if self.field == "score":
-            return EpitopeFilter(kind=self.kind, min_score=threshold)
+            return EpitopeFilter(kind=self.kind, min_score=threshold, method=self.method)
         if self.field == "value":
-            return EpitopeFilter(kind=self.kind, min_value=threshold)
+            return EpitopeFilter(kind=self.kind, min_value=threshold, method=self.method)
         if self.field == "percentile_rank":
-            return EpitopeFilter(kind=self.kind, min_percentile_rank=threshold)
+            return EpitopeFilter(kind=self.kind, min_percentile_rank=threshold, method=self.method)
         raise ValueError(f"Cannot apply >= to field {self.field!r}")
 
     def __lt__(self, threshold):
@@ -307,31 +354,45 @@ class KindAccessor:
     Pre-built instances: ``Affinity``, ``Presentation``, ``Stability``,
     ``Processing``.  Build custom ones with ``KindAccessor(Kind.foo)``.
 
-    The default field is ``value``, so comparisons on the accessor itself
-    act on the value column::
+    Qualify by prediction method with bracket syntax::
 
-        Affinity <= 500        # same as Affinity.value <= 500
+        Affinity["netmhcpan"] <= 500
+        Affinity["mhcflurry"].score
+
+    When unqualified, uses the first matching row (works automatically
+    when only one model produces the kind).
+
+    The default field is ``value``, so comparisons and Expr methods on
+    the accessor itself act on the value column::
+
+        Affinity <= 500              # same as Affinity.value <= 500
+        Affinity.norm(500, 200)      # same as Affinity.value.norm(500, 200)
     """
 
-    __slots__ = ("kind",)
+    __slots__ = ("kind", "method")
 
-    def __init__(self, kind: Kind):
+    def __init__(self, kind: Kind, method: Optional[str] = None):
         self.kind = kind
+        self.method = method
+
+    def __getitem__(self, method: str) -> "KindAccessor":
+        """Qualify by prediction method name, e.g. Affinity["netmhcpan"]."""
+        return KindAccessor(self.kind, method=method)
 
     @property
     def value(self) -> Field:
         """Kind-specific value (e.g. IC50 nM for affinity)."""
-        return Field(self.kind, "value")
+        return Field(self.kind, "value", method=self.method)
 
     @property
     def rank(self) -> Field:
         """Percentile rank (lower is better)."""
-        return Field(self.kind, "percentile_rank")
+        return Field(self.kind, "percentile_rank", method=self.method)
 
     @property
     def score(self) -> Field:
         """Continuous score (higher is better)."""
-        return Field(self.kind, "score")
+        return Field(self.kind, "score", method=self.method)
 
     # Default comparisons delegate to .value
     def __le__(self, threshold):
@@ -346,8 +407,57 @@ class KindAccessor:
     def __gt__(self, threshold):
         return self.value.__gt__(threshold)
 
+    # Delegate Expr methods to .value so Affinity.norm(...) works
+    def norm(self, mean=0.0, std=1.0):
+        return self.value.norm(mean, std)
 
-# Top-level accessors for common kinds
+    def clip(self, lo=None, hi=None):
+        return self.value.clip(lo, hi)
+
+    def log(self):
+        return self.value.log()
+
+    def log10(self):
+        return self.value.log10()
+
+    def exp(self):
+        return self.value.exp()
+
+    def sqrt(self):
+        return self.value.sqrt()
+
+    def __neg__(self):
+        return -self.value
+
+    def __abs__(self):
+        return abs(self.value)
+
+    def __add__(self, other):
+        return self.value + other
+
+    def __radd__(self, other):
+        return other + self.value
+
+    def __sub__(self, other):
+        return self.value - other
+
+    def __rsub__(self, other):
+        return other - self.value
+
+    def __mul__(self, other):
+        return self.value * other
+
+    def __rmul__(self, other):
+        return other * self.value
+
+    def __truediv__(self, other):
+        return self.value / other
+
+    def __rtruediv__(self, other):
+        return other / self.value
+
+
+# Top-level accessors for common kinds (unqualified — use when one model per kind)
 Affinity = KindAccessor(Kind.pMHC_affinity)
 Presentation = KindAccessor(Kind.pMHC_presentation)
 Stability = KindAccessor(Kind.pMHC_stability)
@@ -365,6 +475,10 @@ class EpitopeFilter:
 
     All specified thresholds must be satisfied (AND within a single filter).
     Combine with ``|`` (OR) or ``&`` (AND) to build a :class:`RankingStrategy`.
+
+    Optionally scoped to a specific prediction method via ``method``::
+
+        Affinity["netmhcpan"] <= 500  # only filters NetMHCpan rows
     """
 
     kind: Kind
@@ -374,6 +488,7 @@ class EpitopeFilter:
     min_percentile_rank: Optional[float] = None
     min_score: Optional[float] = None
     max_score: Optional[float] = None
+    method: Optional[str] = None
 
     def __or__(self, other):
         return _combine(self, other, require_all=False)
@@ -466,8 +581,20 @@ def _pick_group_keys(df):
     return _GROUP_KEYS
 
 
+def _method_matches(row, method):
+    """Check if a row's prediction_method_name matches the filter method."""
+    if method is None:
+        return True
+    name = row.get("prediction_method_name", "")
+    if not name:
+        return False
+    return method.lower() in name.lower()
+
+
 def _row_passes_filter(row, filt):
     if row["kind"] != filt.kind.value:
+        return False
+    if not _method_matches(row, filt.method):
         return False
 
     def _check(field, val, op):
@@ -500,6 +627,23 @@ def _group_passes(group_df, strategy):
         else:
             # EpitopeFilter
             kind_rows = group_df[group_df["kind"] == item.kind.value]
+            if item.method is not None and not kind_rows.empty:
+                col = "prediction_method_name"
+                if col in kind_rows.columns:
+                    method_lower = item.method.lower()
+                    matched = kind_rows[
+                        kind_rows[col].str.lower().str.contains(
+                            method_lower, na=False
+                        )
+                    ]
+                    if matched.empty:
+                        available = sorted(
+                            kind_rows[col].dropna().unique()
+                        )
+                        raise _method_not_found_error(
+                            item.kind.name, item.method, available
+                        )
+                    kind_rows = matched
             if kind_rows.empty:
                 results.append(False)
                 continue
@@ -582,12 +726,50 @@ _FIELD_ALIASES = {
 
 
 def _resolve_kind(name):
+    """Resolve a kind alias to a Kind enum value.
+
+    Accepts plain kind names (``"affinity"``, ``"ba"``) or
+    tool-qualified names (``"netmhcpan_affinity"``).
+
+    Returns ``(Kind, method)`` when called via :func:`_resolve_qualified_kind`,
+    or just ``Kind`` for backwards compatibility.
+    """
     key = name.strip().lower()
     if key in _KIND_ALIASES:
         return _KIND_ALIASES[key]
     raise ValueError(
         f"Unknown prediction kind {name!r}. "
         f"Available: {sorted(_KIND_ALIASES.keys())}"
+    )
+
+
+def _resolve_qualified_kind(name):
+    """Resolve a possibly tool-qualified kind string.
+
+    Returns ``(Kind, method_or_None)``.
+
+    Examples::
+
+        "affinity"             -> (Kind.pMHC_affinity, None)
+        "netmhcpan_affinity"   -> (Kind.pMHC_affinity, "netmhcpan")
+        "netmhcpan_ba"         -> (Kind.pMHC_affinity, "netmhcpan")
+        "mhcflurry_el"         -> (Kind.pMHC_presentation, "mhcflurry")
+    """
+    key = name.strip().lower()
+    # Try as a plain kind first
+    if key in _KIND_ALIASES:
+        return _KIND_ALIASES[key], None
+    # Try splitting at each underscore from left to right
+    parts = key.split("_")
+    for i in range(1, len(parts)):
+        tool = "_".join(parts[:i])
+        kind_str = "_".join(parts[i:])
+        if kind_str in _KIND_ALIASES:
+            return _KIND_ALIASES[kind_str], tool
+    raise ValueError(
+        f"Unknown prediction kind {name!r}. "
+        f"Use 'kind' or 'tool_kind' format. "
+        f"Available kinds: {sorted(_KIND_ALIASES.keys())}"
     )
 
 
@@ -611,6 +793,8 @@ def parse_filter(text):
         "presentation.score >= 0.5"
         "ic50 <= 500"
         "el.rank <= 2"
+        "netmhcpan_affinity <= 500"
+        "mhcflurry_el.rank <= 2"
 
     Returns an :class:`EpitopeFilter`.
     """
@@ -627,23 +811,23 @@ def parse_filter(text):
             else:
                 kind_str, field_str = lhs, "value"
 
-            kind = _resolve_kind(kind_str)
+            kind, method = _resolve_qualified_kind(kind_str)
             field_name = _resolve_field(field_str)
 
             if op_name in ("le", "lt"):
                 if field_name == "value":
-                    return EpitopeFilter(kind=kind, max_value=threshold)
+                    return EpitopeFilter(kind=kind, max_value=threshold, method=method)
                 elif field_name == "percentile_rank":
-                    return EpitopeFilter(kind=kind, max_percentile_rank=threshold)
+                    return EpitopeFilter(kind=kind, max_percentile_rank=threshold, method=method)
                 elif field_name == "score":
-                    return EpitopeFilter(kind=kind, max_score=threshold)
+                    return EpitopeFilter(kind=kind, max_score=threshold, method=method)
             elif op_name in ("ge", "gt"):
                 if field_name == "value":
-                    return EpitopeFilter(kind=kind, min_value=threshold)
+                    return EpitopeFilter(kind=kind, min_value=threshold, method=method)
                 elif field_name == "percentile_rank":
-                    return EpitopeFilter(kind=kind, min_percentile_rank=threshold)
+                    return EpitopeFilter(kind=kind, min_percentile_rank=threshold, method=method)
                 elif field_name == "score":
-                    return EpitopeFilter(kind=kind, min_score=threshold)
+                    return EpitopeFilter(kind=kind, min_score=threshold, method=method)
             break
     else:
         raise ValueError(f"No comparison operator found in {text!r}")

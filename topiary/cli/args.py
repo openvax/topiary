@@ -248,9 +248,11 @@ def _build_ranking_strategy(args):
 
     sort_by = []
     if has_rank_by:
-        from ..ranking import KindAccessor, _resolve_kind
+        from ..ranking import KindAccessor, _resolve_qualified_kind
         kind_names = [s.strip() for s in args.rank_by.split(",")]
-        sort_by = [KindAccessor(_resolve_kind(k)).score for k in kind_names]
+        for k in kind_names:
+            kind, method = _resolve_qualified_kind(k)
+            sort_by.append(KindAccessor(kind, method=method).score)
 
     return RankingStrategy(
         filters=filters,
