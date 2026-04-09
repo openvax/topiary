@@ -354,11 +354,11 @@ predictor = TopiaryPredictor(
 df = predictor.predict_from_named_sequences(seqs)
 
 # Each model's predictions are accessible separately
-Affinity["netmhcpan"].value          # NetMHCpan IC50
-Affinity["mhcflurry"].value          # MHCflurry IC50
-Presentation["mhcflurry"].score      # MHCflurry presentation score
+Affinity["netmhcpan"].value          # string: "netmhcpan_affinity" or "netmhcpan_ba"
+Affinity["mhcflurry"].value          # string: "mhcflurry_affinity" or "mhcflurry_ba"
+Presentation["mhcflurry"].score      # string: "mhcflurry_presentation.score" or "mhcflurry_el.score"
 
-# Combine into a composite score
+# Combine into a composite score (Python-only — no string form for arithmetic)
 score = (
     0.3 * Affinity["netmhcpan"].logistic(350, 150)
     + 0.3 * Affinity["mhcflurry"].logistic(350, 150)
@@ -429,35 +429,62 @@ df = add_peptide_properties(df, peptide_column="wt_peptide", prefix="wt_",
 
 score = (
     # Binding: average logistic IC50 across models
+    #   string filter form: "netmhcpan_ba <= 500" or "netmhcpan_affinity <= 500"
+    #   (logistic transform and arithmetic are Python-only)
     0.25 * Affinity["netmhcpan"].logistic(350, 150)
     + 0.25 * Affinity["mhcflurry"].logistic(350, 150)
 
     # Presentation: MHCflurry presentation score
+    #   string filter form: "mhcflurry_el.score >= 0.5"
     + 0.2 * Presentation["mhcflurry"].score
 
     # Differential binding: mutant binds better than wildtype
+    #   no string form — WT() is Python-only
     + 0.15 * (Affinity["netmhcpan"].logistic(350, 150)
               - WT(Affinity["netmhcpan"]).logistic(350, 150))
 
     # Manufacturability: penalize cysteines and unstable peptides
+    #   string filter form: "column(cysteine_count) <= 2"
+    #   (arithmetic and transforms like .clip().norm() are Python-only)
     - 0.05 * Column("cysteine_count")
     - 0.05 * Column("instability_index").clip(lo=0, hi=100).norm(50, 20)
 
     # Immunogenicity: reward aromatic TCR-facing residues
+    #   string filter form: "column(tcr_aromaticity) >= 1"
     + 0.05 * Column("tcr_aromaticity")
 )
 ```
 
-The same composite score on the CLI:
+### String form reference
+
+The CLI `--ranking` flag supports filter expressions. Here's the mapping:
+
+| Python DSL | String form | Notes |
+|---|---|---|
+| `Affinity <= 500` | `affinity <= 500` or `ba <= 500` | |
+| `Affinity.rank <= 2` | `affinity.rank <= 2` or `ba.rank <= 2` | |
+| `Affinity.score >= 0.5` | `affinity.score >= 0.5` | |
+| `Affinity["netmhcpan"] <= 500` | `netmhcpan_affinity <= 500` or `netmhcpan_ba <= 500` | |
+| `Presentation["mhcflurry"].rank <= 2` | `mhcflurry_presentation.rank <= 2` or `mhcflurry_el.rank <= 2` | |
+| `Column("cysteine_count") <= 2` | `column(cysteine_count) <= 2` | |
+| `(A <= 500) \| (B.rank <= 2)` | `affinity <= 500 \| presentation.rank <= 2` | |
+| `(A <= 500) & (B.rank <= 2)` | `affinity <= 500 & presentation.rank <= 2` | |
+
+**Python-only** (no string form):
+- Arithmetic: `0.5 * Affinity.score + 0.5 * Presentation.score`
+- Transforms: `.logistic()`, `.norm()`, `.clip()`, `.log()`, `.sqrt()`
+- `WT()` expressions: `WT(Affinity).score`, `Affinity.score - WT(Affinity).score`
+- `Column()` in arithmetic: `0.5 * Column("charge")` (only `column(x) <= N` works in strings)
+
+For full composite scoring, use the Python API. The CLI handles filtering and simple sort-by:
 
 ```bash
 topiary \
   --vcf somatic.vcf \
   --mhc-predictor netmhcpan \
   --mhc-alleles HLA-A*02:01,HLA-B*07:02 \
-  --ranking "netmhcpan_affinity <= 500 | mhcflurry_el.rank <= 2" \
+  --ranking "netmhcpan_ba <= 500 & column(cysteine_count) <= 2" \
+  --rank-by "netmhcpan_affinity,mhcflurry_presentation" \
   --only-novel-epitopes \
   --output-csv epitopes.csv
 ```
-
-CLI supports simple filtering and tool-qualified expressions. For composite scoring with `Column()`, `WT()`, and peptide properties, use the Python API.
