@@ -46,16 +46,9 @@ pyensembl install --release 93 --species human
 pyensembl install --release 75 --species human
 ```
 
-For cancer-testis antigen and tissue expression features:
+Tab completion is built in. To activate for bash/zsh/fish:
 
 ```bash
-pip install pirlygenes
-```
-
-For tab completion of command-line arguments (bash/zsh/fish):
-
-```bash
-pip install 'topiary[completion]'
 activate-global-python-argcomplete
 ```
 

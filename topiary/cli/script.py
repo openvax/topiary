@@ -28,10 +28,7 @@ Example usage:
 
 import sys
 
-try:
-    import argcomplete
-except ImportError:
-    argcomplete = None
+import argcomplete
 
 from .args import arg_parser, predict_epitopes_from_args
 
@@ -41,8 +38,7 @@ from .outputs import write_outputs
 def parse_args(args_list=None):
     if args_list is None:
         args_list = sys.argv[1:]
-    if argcomplete is not None:
-        argcomplete.autocomplete(arg_parser)
+    argcomplete.autocomplete(arg_parser)
     return arg_parser.parse_args(args_list)
 
 

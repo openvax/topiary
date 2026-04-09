@@ -60,19 +60,30 @@ class Expr:
     def norm(self, mean=0.0, std=1.0):
         """Gaussian CDF normalization: maps value to ~[0, 1].
 
-        ``norm(mean=500, std=200)`` on an IC50 of 100 gives ~0.977
-        (strong binder → high score).  For "lower is better" fields
-        like IC50, use ``1 - field.norm(...)`` or negate the mean.
+        **Higher input → higher output.** Good for "higher is better"
+        fields like ``.score``. For "lower is better" fields like IC50,
+        use ``1 - field.norm(...)``::
+
+            # Presentation score (higher = better) → use directly
+            Presentation.score.norm(mean=0.5, std=0.3)
+
+            # IC50 (lower = better) → invert
+            1 - Affinity.norm(mean=500, std=200)
         """
         return _NormExpr(self, mean, std)
 
     def logistic(self, midpoint=0.0, width=1.0):
         """Logistic sigmoid: ``1 / (1 + exp((x - midpoint) / width))``.
 
-        Maps values to (0, 1). For IC50 scoring (lower is better),
-        Vaxrank uses ``midpoint=350, width=150``::
+        **Lower input → higher output.** Good for "lower is better"
+        fields like IC50. Values below the midpoint score > 0.5;
+        values above score < 0.5::
 
+            # IC50 (lower = better) → use directly
             Affinity.logistic(midpoint=350, width=150)
+
+            # Score (higher = better) → logistic goes the wrong way,
+            # use norm() instead
         """
         return _LogisticExpr(self, midpoint, width)
 
@@ -124,9 +135,17 @@ class Expr:
         """Natural logarithm (NaN if value <= 0)."""
         return _UnaryOp(self, math.log)
 
+    def log2(self):
+        """Base-2 logarithm (NaN if value <= 0)."""
+        return _UnaryOp(self, math.log2)
+
     def log10(self):
         """Base-10 logarithm (NaN if value <= 0)."""
         return _UnaryOp(self, math.log10)
+
+    def log1p(self):
+        """``log(1 + x)``, accurate for small x (NaN if x <= -1)."""
+        return _UnaryOp(self, math.log1p)
 
     def exp(self):
         """Exponential (e^x)."""
@@ -511,8 +530,14 @@ class KindAccessor:
     def log(self):
         return self.value.log()
 
+    def log2(self):
+        return self.value.log2()
+
     def log10(self):
         return self.value.log10()
+
+    def log1p(self):
+        return self.value.log1p()
 
     def exp(self):
         return self.value.exp()
@@ -978,10 +1003,14 @@ def _resolve_kind(name):
     key = name.strip().lower()
     if key in _KIND_ALIASES:
         return _KIND_ALIASES[key]
-    raise ValueError(
-        f"Unknown prediction kind {name!r}. "
-        f"Available: {sorted(_KIND_ALIASES.keys())}"
-    )
+    available = sorted(_KIND_ALIASES.keys())
+    close = get_close_matches(key, available, n=3, cutoff=0.6)
+    msg = f"Unknown prediction kind {name!r}."
+    if close:
+        msg += f" Did you mean: {close}?"
+    else:
+        msg += f" Available: {available}"
+    raise ValueError(msg)
 
 
 def _resolve_qualified_kind(name):
@@ -1007,20 +1036,28 @@ def _resolve_qualified_kind(name):
         kind_str = "_".join(parts[i:])
         if kind_str in _KIND_ALIASES:
             return _KIND_ALIASES[kind_str], tool
-    raise ValueError(
-        f"Unknown prediction kind {name!r}. "
-        f"Use 'kind' or 'tool_kind' format. "
-        f"Available kinds: {sorted(_KIND_ALIASES.keys())}"
-    )
+    available = sorted(_KIND_ALIASES.keys())
+    close = get_close_matches(key, available, n=3, cutoff=0.6)
+    msg = f"Unknown prediction kind {name!r}. Use 'kind' or 'tool_kind' format."
+    if close:
+        msg += f" Did you mean: {close}?"
+    else:
+        msg += f" Available kinds: {available}"
+    raise ValueError(msg)
 
 
 def _resolve_field(name):
     key = name.strip().lower()
     if key in _FIELD_ALIASES:
         return _FIELD_ALIASES[key]
-    raise ValueError(
-        f"Unknown field {name!r}. Available: {sorted(_FIELD_ALIASES.keys())}"
-    )
+    available = sorted(_FIELD_ALIASES.keys())
+    close = get_close_matches(key, available, n=3, cutoff=0.6)
+    msg = f"Unknown field {name!r}."
+    if close:
+        msg += f" Did you mean: {close}?"
+    else:
+        msg += f" Available: {available}"
+    raise ValueError(msg)
 
 
 def _parse_column_ref(text):
@@ -1065,7 +1102,14 @@ def parse_filter(text):
         if op_str in text:
             lhs, rhs = text.split(op_str, 1)
             lhs = lhs.strip()
-            threshold = float(rhs.strip())
+            rhs = rhs.strip()
+            try:
+                threshold = float(rhs)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid threshold {rhs!r} in {text!r}. "
+                    f"Right side of {op_str} must be a number."
+                ) from None
 
             # Check for column(name) syntax
             col_name = _parse_column_ref(lhs)
