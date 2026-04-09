@@ -655,3 +655,371 @@ def test_parse_ranking_mixed_operators_raises():
     from topiary.ranking import parse_ranking
     with pytest.raises(ValueError, match="Cannot mix"):
         parse_ranking("affinity <= 500 | presentation.rank <= 2 & stability.score >= 0.5")
+
+
+# ---------------------------------------------------------------------------
+# Tests: method-qualified access (multi-model disambiguation)
+# ---------------------------------------------------------------------------
+
+
+def _multi_model_df():
+    """Two models producing affinity for the same peptide-allele pair."""
+    return _make_df([
+        dict(
+            source_sequence_name="seq1", peptide="SIINFEKL", peptide_offset=10,
+            allele="HLA-A*02:01", kind="pMHC_affinity",
+            score=0.8, value=120.0, percentile_rank=0.5,
+            prediction_method_name="netmhcpan",
+        ),
+        dict(
+            source_sequence_name="seq1", peptide="SIINFEKL", peptide_offset=10,
+            allele="HLA-A*02:01", kind="pMHC_affinity",
+            score=0.6, value=350.0, percentile_rank=2.0,
+            prediction_method_name="mhcflurry",
+        ),
+        dict(
+            source_sequence_name="seq1", peptide="SIINFEKL", peptide_offset=10,
+            allele="HLA-A*02:01", kind="pMHC_presentation",
+            score=0.9, value=None, percentile_rank=0.3,
+            prediction_method_name="mhcflurry",
+        ),
+    ])
+
+
+def test_bracket_qualified_field_evaluate():
+    df = _multi_model_df()
+    assert Affinity["netmhcpan"].value.evaluate(df) == 120.0
+    assert Affinity["mhcflurry"].value.evaluate(df) == 350.0
+    assert Presentation["mhcflurry"].score.evaluate(df) == 0.9
+
+
+def test_bracket_qualified_filter():
+    f = Affinity["netmhcpan"] <= 500
+    assert f.method == "netmhcpan"
+    assert f.kind == Kind.pMHC_affinity
+    assert f.max_value == 500
+
+
+def test_bracket_qualified_ranking_apply():
+    df = _multi_model_df()
+    # Filter: only keep if mhcflurry affinity <= 200 (it's 350, so should drop)
+    strategy = RankingStrategy(filters=[Affinity["mhcflurry"] <= 200])
+    result = apply_ranking_strategy(df, strategy)
+    assert len(result) == 0
+
+    # Filter: netmhcpan affinity <= 200 (it's 120, so should keep)
+    strategy = RankingStrategy(filters=[Affinity["netmhcpan"] <= 200])
+    result = apply_ranking_strategy(df, strategy)
+    assert len(result) == 3  # all rows for this group kept
+
+
+def test_unqualified_ambiguity_raises():
+    import pytest
+    df = _multi_model_df()
+    with pytest.raises(ValueError, match="Ambiguous.*multiple models"):
+        Affinity.value.evaluate(df)
+
+
+def test_unqualified_single_model_ok():
+    """When only one model produces a kind, no qualification needed."""
+    df = _multi_model_df()
+    # Presentation only comes from mhcflurry — no ambiguity
+    assert Presentation.score.evaluate(df) == 0.9
+
+
+def test_bracket_norm_shorthand():
+    """KindAccessor.norm() delegates to .value.norm()."""
+    df = _multi_model_df()
+    via_accessor = Affinity["netmhcpan"].norm(500, 200).evaluate(df)
+    via_field = Affinity["netmhcpan"].value.norm(500, 200).evaluate(df)
+    assert via_accessor == via_field
+
+
+def test_bracket_arithmetic():
+    """KindAccessor arithmetic delegates to .value."""
+    df = _multi_model_df()
+    expr = 0.5 * Affinity["netmhcpan"] + 0.5 * Affinity["mhcflurry"]
+    result = expr.evaluate(df)
+    assert result == 0.5 * 120.0 + 0.5 * 350.0
+
+
+# ---------------------------------------------------------------------------
+# Tests: CLI tool_kind parsing
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_qualified_kind_plain():
+    from topiary.ranking import _resolve_qualified_kind
+    kind, method = _resolve_qualified_kind("affinity")
+    assert kind == Kind.pMHC_affinity
+    assert method is None
+
+
+def test_resolve_qualified_kind_with_tool():
+    from topiary.ranking import _resolve_qualified_kind
+    kind, method = _resolve_qualified_kind("netmhcpan_affinity")
+    assert kind == Kind.pMHC_affinity
+    assert method == "netmhcpan"
+
+
+def test_resolve_qualified_kind_short_aliases():
+    from topiary.ranking import _resolve_qualified_kind
+    kind, method = _resolve_qualified_kind("netmhcpan_ba")
+    assert kind == Kind.pMHC_affinity
+    assert method == "netmhcpan"
+
+    kind, method = _resolve_qualified_kind("mhcflurry_el")
+    assert kind == Kind.pMHC_presentation
+    assert method == "mhcflurry"
+
+
+def test_resolve_qualified_kind_underscore_kind():
+    """Kind names with underscores (antigen_processing) resolve without a tool."""
+    from topiary.ranking import _resolve_qualified_kind
+    kind, method = _resolve_qualified_kind("antigen_processing")
+    assert kind == Kind.antigen_processing
+    assert method is None
+
+
+def test_resolve_qualified_kind_tool_plus_underscore_kind():
+    from topiary.ranking import _resolve_qualified_kind
+    kind, method = _resolve_qualified_kind("netmhcpan_antigen_processing")
+    assert kind == Kind.antigen_processing
+    assert method == "netmhcpan"
+
+
+def test_parse_filter_tool_qualified():
+    from topiary.ranking import parse_filter
+    f = parse_filter("netmhcpan_affinity <= 500")
+    assert f.kind == Kind.pMHC_affinity
+    assert f.method == "netmhcpan"
+    assert f.max_value == 500.0
+
+
+def test_parse_filter_tool_qualified_with_field():
+    from topiary.ranking import parse_filter
+    f = parse_filter("mhcflurry_el.rank <= 2")
+    assert f.kind == Kind.pMHC_presentation
+    assert f.method == "mhcflurry"
+    assert f.max_percentile_rank == 2.0
+
+
+def test_parse_ranking_tool_qualified():
+    from topiary.ranking import parse_ranking
+    strategy = parse_ranking(
+        "netmhcpan_affinity <= 500 | mhcflurry_el.rank <= 2"
+    )
+    assert isinstance(strategy, RankingStrategy)
+    assert len(strategy.filters) == 2
+    assert strategy.filters[0].method == "netmhcpan"
+    assert strategy.filters[1].method == "mhcflurry"
+
+
+# ---------------------------------------------------------------------------
+# Adversarial / edge case tests for method qualification
+# ---------------------------------------------------------------------------
+
+
+def test_qualified_nonexistent_method_raises():
+    """Qualifying with a method that doesn't exist in data → ValueError."""
+    import pytest
+    df = _multi_model_df()
+    with pytest.raises(ValueError, match="No pMHC_affinity predictions from method"):
+        Affinity["nonexistent_tool"].value.evaluate(df)
+
+
+def test_qualified_nonexistent_method_shows_available():
+    """Error message lists available methods."""
+    import pytest
+    df = _multi_model_df()
+    with pytest.raises(ValueError, match="Available.*mhcflurry.*netmhcpan"):
+        Affinity["totally_wrong"].value.evaluate(df)
+
+
+def test_qualified_typo_suggests_correction():
+    """Close misspellings get 'Did you mean' suggestions."""
+    import pytest
+    df = _multi_model_df()
+    with pytest.raises(ValueError, match="Did you mean.*netmhcpan"):
+        Affinity["netmhcapn"].value.evaluate(df)
+
+
+def test_qualified_typo_in_filter_suggests_correction():
+    """Same suggestion works in the filter path."""
+    import pytest
+    df = _multi_model_df()
+    strategy = RankingStrategy(filters=[Affinity["mchflurry"] <= 500])
+    with pytest.raises(ValueError, match="Did you mean.*mhcflurry"):
+        apply_ranking_strategy(df, strategy)
+
+
+def test_method_match_is_case_insensitive():
+    """Method matching should be case-insensitive."""
+    df = _multi_model_df()
+    assert Affinity["NETMHCPAN"].value.evaluate(df) == 120.0
+    assert Affinity["NetMHCpan"].value.evaluate(df) == 120.0
+
+
+def test_method_match_is_substring():
+    """Method matching uses substring — 'pan' matches 'netmhcpan'."""
+    df = _multi_model_df()
+    assert Affinity["pan"].value.evaluate(df) == 120.0
+
+
+def test_method_substring_ambiguity():
+    """If substring matches multiple methods, picks first match (no error)."""
+    df = _make_df([
+        dict(
+            source_sequence_name="seq1", peptide="AAA", peptide_offset=0,
+            allele="A", kind="pMHC_affinity",
+            score=0.8, value=100.0, percentile_rank=0.5,
+            prediction_method_name="tool_alpha",
+        ),
+        dict(
+            source_sequence_name="seq1", peptide="AAA", peptide_offset=0,
+            allele="A", kind="pMHC_affinity",
+            score=0.6, value=200.0, percentile_rank=1.0,
+            prediction_method_name="tool_alphabeta",
+        ),
+    ])
+    # "alpha" matches both — should get first match (100.0)
+    val = Affinity["alpha"].value.evaluate(df)
+    assert val == 100.0
+
+
+def test_empty_dataframe_qualified():
+    """Qualified field on empty DataFrame → NaN."""
+    df = _make_df([])
+    val = Affinity["netmhcpan"].value.evaluate(df)
+    assert math.isnan(val)
+
+
+def test_no_prediction_method_name_column():
+    """Data without prediction_method_name column — unqualified works, qualified is NaN."""
+    df = _make_df([
+        dict(
+            source_sequence_name="seq1", peptide="AAA", peptide_offset=0,
+            allele="A", kind="pMHC_affinity",
+            score=0.8, value=100.0, percentile_rank=0.5,
+        ),
+    ])
+    # Unqualified works (no ambiguity check without column)
+    assert Affinity.value.evaluate(df) == 100.0
+    # Qualified — column doesn't exist, so method filter can't match
+    # but the code guards with 'if col in kind_rows.columns', so falls through
+    val = Affinity["netmhcpan"].value.evaluate(df)
+    assert val == 100.0  # no column to filter on → uses all rows
+
+
+def test_nan_prediction_method_name():
+    """Rows with NaN prediction_method_name shouldn't crash or match."""
+    df = _make_df([
+        dict(
+            source_sequence_name="seq1", peptide="AAA", peptide_offset=0,
+            allele="A", kind="pMHC_affinity",
+            score=0.8, value=100.0, percentile_rank=0.5,
+            prediction_method_name=None,
+        ),
+        dict(
+            source_sequence_name="seq1", peptide="AAA", peptide_offset=0,
+            allele="A", kind="pMHC_affinity",
+            score=0.6, value=200.0, percentile_rank=1.0,
+            prediction_method_name="netmhcpan",
+        ),
+    ])
+    # Qualified should skip None row and find netmhcpan
+    assert Affinity["netmhcpan"].value.evaluate(df) == 200.0
+
+
+def test_ambiguity_not_raised_when_qualified():
+    """Even with multiple models, qualifying one side shouldn't error."""
+    df = _multi_model_df()
+    # Qualified access — no ambiguity
+    assert Affinity["netmhcpan"].value.evaluate(df) == 120.0
+    assert Affinity["mhcflurry"].value.evaluate(df) == 350.0
+
+
+def test_composite_score_across_models():
+    """Composite expression mixing qualified fields from different models."""
+    df = _multi_model_df()
+    expr = (
+        0.5 * Affinity["netmhcpan"].norm(500, 200)
+        + 0.5 * Presentation["mhcflurry"].score
+    )
+    val = expr.evaluate(df)
+    assert isinstance(val, float)
+    assert not math.isnan(val)
+    assert val > 0
+
+
+def test_sort_by_qualified_field():
+    """Sorting by a qualified field across groups."""
+    df = _make_df([
+        # Group 1: netmhcpan says 500
+        dict(
+            source_sequence_name="seq1", peptide="AAA", peptide_offset=0,
+            allele="A", kind="pMHC_affinity",
+            score=0.5, value=500.0, percentile_rank=5.0,
+            prediction_method_name="netmhcpan",
+        ),
+        # Group 2: netmhcpan says 100
+        dict(
+            source_sequence_name="seq1", peptide="BBB", peptide_offset=10,
+            allele="A", kind="pMHC_affinity",
+            score=0.9, value=100.0, percentile_rank=0.5,
+            prediction_method_name="netmhcpan",
+        ),
+    ])
+    strategy = RankingStrategy(sort_by=[Affinity["netmhcpan"].score])
+    result = apply_ranking_strategy(df, strategy)
+    # BBB has higher score (0.9) so should come first
+    assert result.iloc[0]["peptide"] == "BBB"
+
+
+def test_resolve_qualified_kind_unknown_raises():
+    import pytest
+    from topiary.ranking import _resolve_qualified_kind
+    with pytest.raises(ValueError, match="Unknown prediction kind"):
+        _resolve_qualified_kind("totally_bogus_nonsense")
+
+
+def test_resolve_qualified_kind_empty_raises():
+    import pytest
+    from topiary.ranking import _resolve_qualified_kind
+    with pytest.raises(ValueError):
+        _resolve_qualified_kind("")
+
+
+def test_filter_or_across_models():
+    """OR filter: pass if netmhcpan OR mhcflurry affinity is low enough."""
+    df = _make_df([
+        dict(
+            source_sequence_name="seq1", peptide="AAA", peptide_offset=0,
+            allele="A", kind="pMHC_affinity",
+            score=0.9, value=50.0, percentile_rank=0.1,
+            prediction_method_name="netmhcpan",
+        ),
+        dict(
+            source_sequence_name="seq1", peptide="AAA", peptide_offset=0,
+            allele="A", kind="pMHC_affinity",
+            score=0.1, value=9999.0, percentile_rank=50.0,
+            prediction_method_name="mhcflurry",
+        ),
+    ])
+    # netmhcpan passes, mhcflurry doesn't — OR should keep
+    strategy = (Affinity["netmhcpan"] <= 500) | (Affinity["mhcflurry"] <= 500)
+    result = apply_ranking_strategy(df, strategy)
+    assert len(result) == 2  # both rows for the group kept
+
+    # AND should fail (mhcflurry doesn't pass)
+    strategy = (Affinity["netmhcpan"] <= 500) & (Affinity["mhcflurry"] <= 500)
+    result = apply_ranking_strategy(df, strategy)
+    assert len(result) == 0
+
+
+def test_bracket_on_kind_accessor_returns_new_accessor():
+    """Affinity["x"] returns a new KindAccessor, not a mutation."""
+    original_method = Affinity.method
+    qualified = Affinity["netmhcpan"]
+    assert qualified.method == "netmhcpan"
+    assert Affinity.method == original_method  # unchanged
