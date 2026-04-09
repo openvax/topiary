@@ -1,6 +1,8 @@
 from .predictor import TopiaryPredictor
 from .ranking import (
     Affinity,
+    Column,
+    ColumnFilter,
     EpitopeFilter,
     Expr,
     KindAccessor,
@@ -8,6 +10,7 @@ from .ranking import (
     Processing,
     RankingStrategy,
     Stability,
+    WT,
     affinity_filter,
     apply_ranking_strategy,
     parse_ranking,
@@ -25,6 +28,8 @@ __version__ = "4.4.0"
 __all__ = [
     "TopiaryPredictor",
     "Affinity",
+    "Column",
+    "ColumnFilter",
     "EpitopeFilter",
     "Expr",
     "KindAccessor",
@@ -32,6 +37,7 @@ __all__ = [
     "Processing",
     "RankingStrategy",
     "Stability",
+    "WT",
     "affinity_filter",
     "apply_ranking_strategy",
     "presentation_filter",
