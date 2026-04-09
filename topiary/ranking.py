@@ -66,6 +66,16 @@ class Expr:
         """
         return _NormExpr(self, mean, std)
 
+    def logistic(self, midpoint=0.0, width=1.0):
+        """Logistic sigmoid: ``1 / (1 + exp((x - midpoint) / width))``.
+
+        Maps values to (0, 1). For IC50 scoring (lower is better),
+        Vaxrank uses ``midpoint=350, width=150``::
+
+            Affinity.logistic(midpoint=350, width=150)
+        """
+        return _LogisticExpr(self, midpoint, width)
+
     # -- arithmetic --
 
     def __add__(self, other):
@@ -191,6 +201,27 @@ class _NormExpr(Expr):
         return _gauss_cdf((val - self.mean) / self.std)
 
 
+class _LogisticExpr(Expr):
+    """Logistic sigmoid of an inner expression."""
+    __slots__ = ("inner", "midpoint", "width")
+
+    def __init__(self, inner, midpoint, width):
+        self.inner = inner
+        self.midpoint = float(midpoint)
+        self.width = float(width)
+
+    def evaluate(self, group_df):
+        val = self.inner.evaluate(group_df)
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return float("nan")
+        if self.width == 0:
+            return float("nan")
+        try:
+            return 1.0 / (1.0 + math.exp((val - self.midpoint) / self.width))
+        except OverflowError:
+            return 0.0
+
+
 class _UnaryOp(Expr):
     """Apply a unary function to an inner expression."""
     __slots__ = ("inner", "fn")
@@ -248,6 +279,47 @@ def _method_not_found_error(kind_name, method, available):
         suggestions = [next(a for a in available if a.lower() == c) for c in close]
         msg += f". Did you mean: {suggestions}?"
     return ValueError(msg)
+
+
+# ---------------------------------------------------------------------------
+# Column — reference any DataFrame column in an expression
+# ---------------------------------------------------------------------------
+
+
+class Column(Expr):
+    """Reference an arbitrary column in the predictions DataFrame.
+
+    Reads the value from the first row of the group (peptide-level columns
+    are constant across kind rows within a group).
+
+    Use for peptide properties, variant metadata, or any custom annotation::
+
+        Column("hydrophobicity") >= -0.5
+        Column("n_alt_reads").sqrt()
+        0.5 * Affinity.score - 0.2 * Column("cysteine_count")
+    """
+
+    __slots__ = ("col_name",)
+
+    def __init__(self, col_name: str):
+        self.col_name = col_name
+
+    def evaluate(self, group_df):
+        if group_df.empty:
+            return float("nan")
+        if self.col_name not in group_df.columns:
+            available = sorted(group_df.columns)
+            close = get_close_matches(self.col_name, available, n=3, cutoff=0.6)
+            msg = f"Column {self.col_name!r} not found in DataFrame."
+            if close:
+                msg += f" Did you mean: {close}?"
+            else:
+                msg += f" Available: {available}"
+            raise ValueError(msg)
+        val = group_df.iloc[0][self.col_name]
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return float("nan")
+        return float(val)
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +391,12 @@ class Field(Expr):
     # -- filter comparisons (only valid on Field, not compound Expr) --
 
     def __le__(self, threshold):
+        if self.field.startswith("wt_"):
+            raise TypeError(
+                "WT fields can't be used in filters directly. "
+                "Use WT() in ranking expressions instead, e.g.: "
+                "rank_by=[Affinity.score - WT(Affinity).score]"
+            )
         if self.field == "value":
             return EpitopeFilter(kind=self.kind, max_value=threshold, method=self.method)
         if self.field == "percentile_rank":
@@ -328,6 +406,12 @@ class Field(Expr):
         raise ValueError(f"Cannot apply <= to field {self.field!r}")
 
     def __ge__(self, threshold):
+        if self.field.startswith("wt_"):
+            raise TypeError(
+                "WT fields can't be used in filters directly. "
+                "Use WT() in ranking expressions instead, e.g.: "
+                "rank_by=[Affinity.score - WT(Affinity).score]"
+            )
         if self.field == "score":
             return EpitopeFilter(kind=self.kind, min_score=threshold, method=self.method)
         if self.field == "value":
@@ -411,6 +495,9 @@ class KindAccessor:
     def norm(self, mean=0.0, std=1.0):
         return self.value.norm(mean, std)
 
+    def logistic(self, midpoint=0.0, width=1.0):
+        return self.value.logistic(midpoint, width)
+
     def clip(self, lo=None, hi=None):
         return self.value.clip(lo, hi)
 
@@ -465,6 +552,111 @@ Processing = KindAccessor(Kind.antigen_processing)
 
 
 # ---------------------------------------------------------------------------
+# WT — wildtype comparison wrapper
+# ---------------------------------------------------------------------------
+
+
+class WT:
+    """Wrap a KindAccessor to read wildtype prediction columns.
+
+    The ``add_wildtype_predictions()`` step populates ``wt_value``,
+    ``wt_score``, and ``wt_percentile_rank`` columns alongside the
+    mutant values.  ``WT()`` reads those instead::
+
+        WT(Affinity).value                        # WT IC50
+        WT(Affinity["netmhcpan"]).score           # qualified WT
+        Affinity.score - WT(Affinity).score       # differential binding
+        WT(Affinity) <= 500                        # filter on WT value
+
+    When WT columns don't exist (non-variant inputs), evaluates to NaN.
+    """
+
+    __slots__ = ("_accessor",)
+
+    def __init__(self, accessor: KindAccessor):
+        if not isinstance(accessor, KindAccessor):
+            raise TypeError(
+                f"WT() expects a KindAccessor (e.g. Affinity, "
+                f"Presentation), got {type(accessor).__name__}"
+            )
+        self._accessor = accessor
+
+    def __getitem__(self, method: str) -> "WT":
+        return WT(self._accessor[method])
+
+    @property
+    def value(self) -> Field:
+        return Field(self._accessor.kind, "wt_value", method=self._accessor.method)
+
+    @property
+    def rank(self) -> Field:
+        return Field(self._accessor.kind, "wt_percentile_rank", method=self._accessor.method)
+
+    @property
+    def score(self) -> Field:
+        return Field(self._accessor.kind, "wt_score", method=self._accessor.method)
+
+    def _filter_error(self):
+        raise TypeError(
+            "WT fields can't be used in filters directly. "
+            "Use WT() in ranking expressions instead, e.g.: "
+            "rank_by=[Affinity.score - WT(Affinity).score]"
+        )
+
+    def __le__(self, other):
+        self._filter_error()
+
+    def __lt__(self, other):
+        self._filter_error()
+
+    def __ge__(self, other):
+        self._filter_error()
+
+    def __gt__(self, other):
+        self._filter_error()
+
+    # Delegate Expr methods to .value for use in ranking expressions
+    def norm(self, mean=0.0, std=1.0):
+        return self.value.norm(mean, std)
+
+    def logistic(self, midpoint=0.0, width=1.0):
+        return self.value.logistic(midpoint, width)
+
+    def clip(self, lo=None, hi=None):
+        return self.value.clip(lo, hi)
+
+    def __neg__(self):
+        return -self.value
+
+    def __abs__(self):
+        return abs(self.value)
+
+    def __add__(self, other):
+        return self.value + other
+
+    def __radd__(self, other):
+        return other + self.value
+
+    def __sub__(self, other):
+        return self.value - other
+
+    def __rsub__(self, other):
+        return other - self.value
+
+    def __mul__(self, other):
+        return self.value * other
+
+    def __rmul__(self, other):
+        return other * self.value
+
+    def __truediv__(self, other):
+        return self.value / other
+
+    def __rtruediv__(self, other):
+        return other / self.value
+
+
+# ---------------------------------------------------------------------------
 # Filter / strategy dataclasses with operator support
 # ---------------------------------------------------------------------------
 
@@ -497,6 +689,30 @@ class EpitopeFilter:
         return _combine(self, other, require_all=True)
 
     def rank_by(self, *exprs: Expr) -> RankingStrategy:
+        return RankingStrategy(filters=[self], sort_by=list(exprs))
+
+
+@dataclass(frozen=True)
+class ColumnFilter:
+    """A filter criterion on an arbitrary DataFrame column.
+
+    Created via CLI ``column(name) <= threshold`` or programmatically::
+
+        ColumnFilter("cysteine_count", max_value=2)
+        ColumnFilter("hydrophobicity", min_value=-0.5)
+    """
+
+    col_name: str
+    max_value: Optional[float] = None
+    min_value: Optional[float] = None
+
+    def __or__(self, other):
+        return _combine(self, other, require_all=False)
+
+    def __and__(self, other):
+        return _combine(self, other, require_all=True)
+
+    def rank_by(self, *exprs: Expr) -> "RankingStrategy":
         return RankingStrategy(filters=[self], sort_by=list(exprs))
 
 
@@ -624,6 +840,21 @@ def _group_passes(group_df, strategy):
         if isinstance(item, RankingStrategy):
             # Nested sub-strategy — recurse
             results.append(_group_passes(group_df, item))
+        elif isinstance(item, ColumnFilter):
+            # Column-level filter — check first row
+            if group_df.empty or item.col_name not in group_df.columns:
+                results.append(False)
+                continue
+            val = group_df.iloc[0][item.col_name]
+            if val is None or (isinstance(val, float) and np.isnan(val)):
+                results.append(False)
+                continue
+            passed = True
+            if item.max_value is not None and val > item.max_value:
+                passed = False
+            if item.min_value is not None and val < item.min_value:
+                passed = False
+            results.append(passed)
         else:
             # EpitopeFilter
             kind_rows = group_df[group_df["kind"] == item.kind.value]
@@ -782,6 +1013,14 @@ def _resolve_field(name):
     )
 
 
+def _parse_column_ref(text):
+    """Check if text is a column(name) reference. Returns name or None."""
+    text = text.strip()
+    if text.startswith("column(") and text.endswith(")"):
+        return text[7:-1].strip()
+    return None
+
+
 def parse_filter(text):
     """Parse a single filter expression from a string.
 
@@ -795,16 +1034,28 @@ def parse_filter(text):
         "el.rank <= 2"
         "netmhcpan_affinity <= 500"
         "mhcflurry_el.rank <= 2"
+        "column(cysteine_count) <= 2"
+        "column(hydrophobicity) >= -0.5"
 
-    Returns an :class:`EpitopeFilter`.
+    Returns an :class:`EpitopeFilter` or :class:`ColumnFilter`.
     """
-    # Strip parentheses and whitespace
-    text = text.strip().strip("()")
+    # Strip parentheses and whitespace (but not column() parens)
+    text = text.strip()
+    if not text.startswith("column("):
+        text = text.strip("()")
     for op_str, op_name in [("<=", "le"), (">=", "ge"), ("<", "lt"), (">", "gt")]:
         if op_str in text:
             lhs, rhs = text.split(op_str, 1)
             lhs = lhs.strip()
             threshold = float(rhs.strip())
+
+            # Check for column(name) syntax
+            col_name = _parse_column_ref(lhs)
+            if col_name is not None:
+                if op_name in ("le", "lt"):
+                    return ColumnFilter(col_name=col_name, max_value=threshold)
+                else:
+                    return ColumnFilter(col_name=col_name, min_value=threshold)
 
             if "." in lhs:
                 kind_str, field_str = lhs.rsplit(".", 1)
