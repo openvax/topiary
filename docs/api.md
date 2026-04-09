@@ -89,15 +89,41 @@ For ranking expressions only (not filters). Returns NaN when WT columns absent.
 
 | Method | Description |
 |--------|-------------|
-| `.norm(mean, std)` | Gaussian CDF normalization -> [0, 1] |
+| `.ascending_cdf(mean, std)` | Gaussian CDF: higher input → higher output. Alias: `.norm()` |
+| `.descending_cdf(mean, std)` | 1-CDF: lower input → higher output (for IC50, rank) |
 | `.logistic(midpoint, width)` | Logistic sigmoid: `1 / (1 + exp((x - midpoint) / width))` |
 | `.clip(lo, hi)` | Clamp to range |
-| `.log()` / `.log10()` | Logarithm |
+| `.hinge()` | `max(0, x)` — zeroes out negative values |
+| `.log()` / `.log2()` / `.log10()` | Logarithm |
+| `.log1p()` | `log(1 + x)`, accurate for small x |
 | `.exp()` | Exponential |
 | `.sqrt()` | Square root |
 | `abs(expr)` | Absolute value |
 | `expr ** n` | Power |
 | `+`, `-`, `*`, `/` | Arithmetic between expressions and scalars |
+
+## Aggregation functions
+
+Combine multiple expressions, skipping NaN values:
+
+| Function | Description |
+|----------|-------------|
+| `mean(a, b, ...)` | Arithmetic mean |
+| `geomean(a, b, ...)` | Geometric mean (skips non-positive) |
+| `minimum(a, b, ...)` | Minimum value |
+| `maximum(a, b, ...)` | Maximum value |
+| `median(a, b, ...)` | Median (mean of middle two for even count) |
+
+```python
+from topiary import mean, geomean, minimum
+
+# Average binding across models
+mean(Affinity["netmhcpan"].logistic(350, 150),
+     Affinity["mhcflurry"].logistic(350, 150))
+
+# Best binding across models
+minimum(Affinity["netmhcpan"].value, Affinity["mhcflurry"].value)
+```
 
 ## Filter expressions
 

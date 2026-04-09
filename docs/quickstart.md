@@ -54,7 +54,7 @@ from mhctools import NetMHCpan
 predictor = TopiaryPredictor(
     models=NetMHCpan,
     alleles=["A0201"],
-    filter=Affinity <= 500,
+    filter_by=Affinity <= 500,
 )
 df = predictor.predict_from_sequences(["MASIINFEKLGGG"])
 ```
@@ -68,7 +68,7 @@ from mhctools import NetMHCpan, MHCflurry
 predictor = TopiaryPredictor(
     models=[NetMHCpan, MHCflurry],
     alleles=["A0201", "A0301", "B0702"],
-    filter=Affinity <= 500,
+    filter_by=Affinity <= 500,
     rank_by=Presentation.score,
 )
 ```

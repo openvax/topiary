@@ -40,7 +40,7 @@ class TopiaryPredictor(object):
         self,
         models=None,
         alleles=None,
-        filter=None,
+        filter_by=None,
         rank_by=None,
         padding_around_mutation=None,
         only_novel_epitopes=False,
@@ -48,6 +48,7 @@ class TopiaryPredictor(object):
         min_transcript_expression=0.0,
         raise_on_error=True,
         # backward-compat aliases
+        filter=None,
         mhc_model=None,
         mhc_models=None,
         ic50_cutoff=None,
@@ -73,19 +74,21 @@ class TopiaryPredictor(object):
             HLA alleles. When provided, model classes in ``models`` are
             instantiated with these alleles.
 
-        filter : EpitopeFilter or RankingStrategy
-            Which peptide-allele groups to keep::
+        filter_by : EpitopeFilter, RankingStrategy, or str
+            Which peptide-allele groups to keep. Accepts expression objects
+            or a string that will be parsed::
 
-                filter = (Affinity <= 500) | (Presentation.rank <= 2.0)
+                filter_by=(Affinity <= 500) | (Presentation.rank <= 2.0)
+                filter_by="affinity <= 500 | el.rank <= 2"
 
         rank_by : Expr or list of Expr, optional
             How to sort surviving groups. First non-NaN wins::
 
-                rank_by = [Presentation.score, Affinity.score]
+                rank_by=[Presentation.score, Affinity.score]
 
             Or a composite expression::
 
-                rank_by = 0.5 * Affinity.score + 0.5 * Presentation.score
+                rank_by=0.5 * Affinity.score + 0.5 * Presentation.score
 
         padding_around_mutation : int, optional
             Residues around a mutation to include in candidate epitopes.
@@ -102,12 +105,13 @@ class TopiaryPredictor(object):
         raise_on_error : bool
             Raise on variant-effect errors vs. skip.
 
+        filter : deprecated alias for ``filter_by``
         mhc_model : deprecated alias for ``models``
         mhc_models : deprecated alias for ``models``
-        ic50_cutoff : deprecated, use ``filter=Affinity <= X``
-        percentile_cutoff : deprecated, use ``filter=Affinity.rank <= X``
-        ranking : deprecated alias for ``filter``
-        ranking_strategy : deprecated alias for ``filter``
+        ic50_cutoff : deprecated, use ``filter_by=Affinity <= X``
+        percentile_cutoff : deprecated, use ``filter_by=Affinity.rank <= X``
+        ranking : deprecated alias for ``filter_by``
+        ranking_strategy : deprecated alias for ``filter_by``
         """
         # --- model setup ---
         raw_models = models or mhc_models or (mhc_model and [mhc_model])
@@ -138,7 +142,10 @@ class TopiaryPredictor(object):
         )
 
         # --- filter / ranking ---
-        effective_filter = filter or ranking or ranking_strategy
+        effective_filter = filter_by or filter or ranking or ranking_strategy
+        if isinstance(effective_filter, str):
+            from .ranking import parse_ranking
+            effective_filter = parse_ranking(effective_filter)
         if isinstance(effective_filter, EpitopeFilter):
             effective_filter = RankingStrategy(filters=[effective_filter])
         if effective_filter is not None:

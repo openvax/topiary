@@ -86,7 +86,7 @@ score = (
     - 0.1 * Column("cysteine_count")
     - 0.1 * abs(Column("charge"))           # prefer neutral peptides
     + 0.1 * Column("tcr_aromaticity")       # reward aromatic TCR contacts
-    - 0.05 * Column("instability_index").clip(lo=0, hi=100).norm(50, 20)
+    - 0.05 * Column("instability_index").clip(lo=0, hi=100).ascending_cdf(50, 20)
 )
 ```
 

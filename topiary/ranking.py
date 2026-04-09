@@ -57,20 +57,41 @@ class Expr:
 
     # -- Gaussian normalization --
 
-    def norm(self, mean=0.0, std=1.0):
-        """Gaussian CDF normalization: maps value to ~[0, 1].
+    def ascending_cdf(self, mean=0.0, std=1.0):
+        """Gaussian left CDF: **higher input → higher output**.
 
-        ``norm(mean=500, std=200)`` on an IC50 of 100 gives ~0.977
-        (strong binder → high score).  For "lower is better" fields
-        like IC50, use ``1 - field.norm(...)`` or negate the mean.
+        P(X ≤ x) — the area to the left under the curve.
+        Use for "higher is better" fields like ``.score``::
+
+            Presentation.score.ascending_cdf(mean=0.5, std=0.3)
+
+        For "lower is better" fields (IC50, rank), use
+        :meth:`descending_cdf` instead.
         """
         return _NormExpr(self, mean, std)
 
-    def logistic(self, midpoint=0.0, width=1.0):
-        """Logistic sigmoid: ``1 / (1 + exp((x - midpoint) / width))``.
+    # Keep norm as alias for ascending_cdf
+    norm = ascending_cdf
 
-        Maps values to (0, 1). For IC50 scoring (lower is better),
-        Vaxrank uses ``midpoint=350, width=150``::
+    def descending_cdf(self, mean=0.0, std=1.0):
+        """Gaussian right CDF (1-CDF): **lower input → higher output**.
+
+        P(X > x) — the area to the right under the curve.
+        Use for "lower is better" fields like IC50 and percentile rank::
+
+            Affinity.descending_cdf(mean=500, std=200)
+            Affinity.rank.descending_cdf(mean=5, std=3)
+
+        For "higher is better" fields, use :meth:`ascending_cdf` instead.
+        """
+        return _SurvivalExpr(self, mean, std)
+
+    def logistic(self, midpoint=0.0, width=1.0):
+        """Logistic sigmoid: **lower input → higher output**.
+
+        ``1 / (1 + exp((x - midpoint) / width))``.
+        Values below the midpoint score > 0.5; above score < 0.5.
+        Use for "lower is better" fields like IC50::
 
             Affinity.logistic(midpoint=350, width=150)
         """
@@ -120,13 +141,25 @@ class Expr:
         """Clamp value to [lo, hi]. None = unbounded."""
         return _ClipExpr(self, lo, hi)
 
+    def hinge(self):
+        """``max(0, x)``. Zeroes out negative values."""
+        return _ClipExpr(self, lo=0, hi=None)
+
     def log(self):
         """Natural logarithm (NaN if value <= 0)."""
         return _UnaryOp(self, math.log)
 
+    def log2(self):
+        """Base-2 logarithm (NaN if value <= 0)."""
+        return _UnaryOp(self, math.log2)
+
     def log10(self):
         """Base-10 logarithm (NaN if value <= 0)."""
         return _UnaryOp(self, math.log10)
+
+    def log1p(self):
+        """``log(1 + x)``, accurate for small x (NaN if x <= -1)."""
+        return _UnaryOp(self, math.log1p)
 
     def exp(self):
         """Exponential (e^x)."""
@@ -201,6 +234,24 @@ class _NormExpr(Expr):
         return _gauss_cdf((val - self.mean) / self.std)
 
 
+class _SurvivalExpr(Expr):
+    """Survival function (1 - Gaussian CDF) of an inner expression."""
+    __slots__ = ("inner", "mean", "std")
+
+    def __init__(self, inner, mean, std):
+        self.inner = inner
+        self.mean = float(mean)
+        self.std = float(std)
+
+    def evaluate(self, group_df):
+        val = self.inner.evaluate(group_df)
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return float("nan")
+        if self.std == 0:
+            return float("nan")
+        return 1.0 - _gauss_cdf((val - self.mean) / self.std)
+
+
 class _LogisticExpr(Expr):
     """Logistic sigmoid of an inner expression."""
     __slots__ = ("inner", "midpoint", "width")
@@ -266,6 +317,69 @@ def _as_expr(obj):
     if isinstance(obj, (int, float)):
         return _Const(obj)
     raise TypeError(f"Cannot convert {type(obj)} to Expr")
+
+
+# ---------------------------------------------------------------------------
+# Aggregation functions — combine multiple expressions
+# ---------------------------------------------------------------------------
+
+
+class _AggExpr(Expr):
+    """Aggregate multiple expressions with a reducing function."""
+    __slots__ = ("exprs", "agg_fn")
+
+    def __init__(self, exprs, agg_fn):
+        self.exprs = exprs
+        self.agg_fn = agg_fn
+
+    def evaluate(self, group_df):
+        vals = []
+        for e in self.exprs:
+            v = e.evaluate(group_df)
+            if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                vals.append(v)
+        if not vals:
+            return float("nan")
+        return self.agg_fn(vals)
+
+
+def mean(*exprs):
+    """Arithmetic mean of expressions. NaN values are skipped."""
+    return _AggExpr([_as_expr(e) for e in exprs], lambda vs: sum(vs) / len(vs))
+
+
+def geomean(*exprs):
+    """Geometric mean of expressions. NaN and non-positive values are skipped."""
+    def _geomean(vs):
+        pos = [v for v in vs if v > 0]
+        if not pos:
+            return float("nan")
+        return math.exp(sum(math.log(v) for v in pos) / len(pos))
+    return _AggExpr([_as_expr(e) for e in exprs], _geomean)
+
+
+def minimum(*exprs):
+    """Minimum of expressions. NaN values are skipped."""
+    return _AggExpr([_as_expr(e) for e in exprs], min)
+
+
+def maximum(*exprs):
+    """Maximum of expressions. NaN values are skipped."""
+    return _AggExpr([_as_expr(e) for e in exprs], max)
+
+
+def median(*exprs):
+    """Median of expressions. NaN values are skipped.
+
+    For even count, returns mean of the two middle values.
+    """
+    def _median(vs):
+        vs = sorted(vs)
+        n = len(vs)
+        if n % 2 == 1:
+            return vs[n // 2]
+        return (vs[n // 2 - 1] + vs[n // 2]) / 2.0
+    return _AggExpr([_as_expr(e) for e in exprs], _median)
 
 
 def _method_not_found_error(kind_name, method, available):
@@ -498,9 +612,14 @@ class KindAccessor:
     def __gt__(self, threshold):
         return self.value.__gt__(threshold)
 
-    # Delegate Expr methods to .value so Affinity.norm(...) works
-    def norm(self, mean=0.0, std=1.0):
-        return self.value.norm(mean, std)
+    # Delegate Expr methods to .value so Affinity.ascending_cdf(...) works
+    def ascending_cdf(self, mean=0.0, std=1.0):
+        return self.value.ascending_cdf(mean, std)
+
+    norm = ascending_cdf  # alias
+
+    def descending_cdf(self, mean=0.0, std=1.0):
+        return self.value.descending_cdf(mean, std)
 
     def logistic(self, midpoint=0.0, width=1.0):
         return self.value.logistic(midpoint, width)
@@ -511,8 +630,14 @@ class KindAccessor:
     def log(self):
         return self.value.log()
 
+    def log2(self):
+        return self.value.log2()
+
     def log10(self):
         return self.value.log10()
+
+    def log1p(self):
+        return self.value.log1p()
 
     def exp(self):
         return self.value.exp()
@@ -626,8 +751,13 @@ class WT:
         self._filter_error()
 
     # Delegate Expr methods to .value for use in ranking expressions
-    def norm(self, mean=0.0, std=1.0):
-        return self.value.norm(mean, std)
+    def ascending_cdf(self, mean=0.0, std=1.0):
+        return self.value.ascending_cdf(mean, std)
+
+    norm = ascending_cdf  # alias
+
+    def descending_cdf(self, mean=0.0, std=1.0):
+        return self.value.descending_cdf(mean, std)
 
     def logistic(self, midpoint=0.0, width=1.0):
         return self.value.logistic(midpoint, width)
@@ -978,10 +1108,14 @@ def _resolve_kind(name):
     key = name.strip().lower()
     if key in _KIND_ALIASES:
         return _KIND_ALIASES[key]
-    raise ValueError(
-        f"Unknown prediction kind {name!r}. "
-        f"Available: {sorted(_KIND_ALIASES.keys())}"
-    )
+    available = sorted(_KIND_ALIASES.keys())
+    close = get_close_matches(key, available, n=3, cutoff=0.6)
+    msg = f"Unknown prediction kind {name!r}."
+    if close:
+        msg += f" Did you mean: {close}?"
+    else:
+        msg += f" Available: {available}"
+    raise ValueError(msg)
 
 
 def _resolve_qualified_kind(name):
@@ -1007,20 +1141,28 @@ def _resolve_qualified_kind(name):
         kind_str = "_".join(parts[i:])
         if kind_str in _KIND_ALIASES:
             return _KIND_ALIASES[kind_str], tool
-    raise ValueError(
-        f"Unknown prediction kind {name!r}. "
-        f"Use 'kind' or 'tool_kind' format. "
-        f"Available kinds: {sorted(_KIND_ALIASES.keys())}"
-    )
+    available = sorted(_KIND_ALIASES.keys())
+    close = get_close_matches(key, available, n=3, cutoff=0.6)
+    msg = f"Unknown prediction kind {name!r}. Use 'kind' or 'tool_kind' format."
+    if close:
+        msg += f" Did you mean: {close}?"
+    else:
+        msg += f" Available kinds: {available}"
+    raise ValueError(msg)
 
 
 def _resolve_field(name):
     key = name.strip().lower()
     if key in _FIELD_ALIASES:
         return _FIELD_ALIASES[key]
-    raise ValueError(
-        f"Unknown field {name!r}. Available: {sorted(_FIELD_ALIASES.keys())}"
-    )
+    available = sorted(_FIELD_ALIASES.keys())
+    close = get_close_matches(key, available, n=3, cutoff=0.6)
+    msg = f"Unknown field {name!r}."
+    if close:
+        msg += f" Did you mean: {close}?"
+    else:
+        msg += f" Available: {available}"
+    raise ValueError(msg)
 
 
 def _parse_column_ref(text):
@@ -1065,7 +1207,14 @@ def parse_filter(text):
         if op_str in text:
             lhs, rhs = text.split(op_str, 1)
             lhs = lhs.strip()
-            threshold = float(rhs.strip())
+            rhs = rhs.strip()
+            try:
+                threshold = float(rhs)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid threshold {rhs!r} in {text!r}. "
+                    f"Right side of {op_str} must be a number."
+                ) from None
 
             # Check for column(name) syntax
             col_name = _parse_column_ref(lhs)
