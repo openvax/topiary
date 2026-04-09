@@ -1,7 +1,21 @@
 # Topiary
 
-Predict cancer and viral epitopes from sequence data, with multi-model
-support, composable ranking expressions, and tissue-aware exclusion.
+Predict which peptides from protein sequences will be presented by MHC molecules, making them potential T-cell epitopes. Used in cancer immunotherapy research to find mutant peptides (neoantigens) that the immune system could target.
+
+**Core idea:** Given protein sequences + HLA alleles + one or more MHC prediction models, Topiary scans all possible peptides and returns those predicted to be presented by MHC, ranked by any combination of binding affinity, presentation score, processing score, and stability.
+
+## Features
+
+- **Multiple prediction models** — NetMHCpan, MHCflurry, NetMHCIIpan, etc. via [mhctools](https://github.com/openvax/mhctools)
+- **Multi-model disambiguation** — `Affinity["netmhcpan"]` bracket syntax when combining models
+- **Composable ranking DSL** — filter, rank, and score with operator expressions
+- **Transforms** — `.logistic()`, `.norm()`, `.clip()`, `.log()`, `.sqrt()` for composite scoring
+- **Arbitrary column access** — `Column("cysteine_count")` brings any DataFrame column into the DSL
+- **Wildtype comparison** — `WT(Affinity).score` for differential binding analysis
+- **Peptide properties** — charge, hydrophobicity, aromaticity, manufacturability, TCR-facing residue analysis
+- **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, Ensembl lookups, CTA gene sets
+- **Tissue-aware exclusion** — exclude peptides from vital-organ proteomes
+- **Tab completion** — `pip install 'topiary[completion]'`
 
 ## Installation
 
@@ -9,42 +23,34 @@ support, composable ranking expressions, and tissue-aware exclusion.
 pip install topiary
 ```
 
-For tissue-specific gene lists:
+For Ensembl-based features:
+
+```bash
+pyensembl install --release 93 --species human
+```
+
+For cancer-testis antigen and tissue expression features:
 
 ```bash
 pip install pirlygenes
 ```
 
-## Features
-
-- **Multiple prediction models** — NetMHCpan, MHCflurry, NetMHCstabpan, etc.
-- **Composable filter/rank expressions** — `Affinity <= 500`, `Presentation.rank <= 2.0`
-- **Gaussian normalization** — `.norm(mean, std)` for composite scoring
-- **Direct sequence inputs** — CSV, FASTA, gene names, Ensembl lookups
-- **Tissue-aware exclusion** — exclude peptides from vital-organ proteomes
-- **Variant-to-epitope pipeline** — VCF/MAF → protein effects → predictions
-
 ## Quick example
 
 ```python
 from topiary import TopiaryPredictor, Affinity, Presentation
-from topiary.sources import tissue_expressed_sequences
-from topiary.inputs import exclude_by
 from mhctools import NetMHCpan
-
-# Predict from testis-expressed genes
-targets = tissue_expressed_sequences(["testis", "placenta", "ovary"])
-
-# Vital organ proteome for exclusion
-vital = tissue_expressed_sequences(["heart_muscle", "lung", "liver"])
 
 predictor = TopiaryPredictor(
     models=NetMHCpan,
-    alleles=["A0201", "A0301", "B0702"],
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
     filter=(Affinity <= 500) | (Presentation.rank <= 2.0),
     rank_by=Presentation.score,
 )
 
-df = predictor.predict_from_named_sequences(targets)
-df = exclude_by(df, vital, mode="substring")
+df = predictor.predict_from_named_sequences({
+    "BRAF_V600E": "MAALSGGGGG...LATEKSRWSG",
+})
 ```
+
+See the [Quickstart](quickstart.md) for more examples, [Ranking DSL](ranking.md) for the expression system, and [API Reference](api.md) for full details.

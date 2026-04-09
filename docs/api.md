@@ -2,8 +2,6 @@
 
 ## TopiaryPredictor
 
-::: topiary.predictor.TopiaryPredictor
-
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `models` | class, instance, or list | Predictor model(s). Classes require `alleles`. |
@@ -12,33 +10,87 @@
 | `rank_by` | Expr or list of Expr | How to sort surviving groups. |
 | `padding_around_mutation` | int | Residues around mutation for candidate epitopes. |
 | `only_novel_epitopes` | bool | Drop peptides without mutated residues. |
+| `min_gene_expression` | float | Minimum gene FPKM (variant inputs). |
+| `min_transcript_expression` | float | Minimum transcript FPKM (variant inputs). |
+| `raise_on_error` | bool | Raise on variant-effect errors vs. skip. |
 
-### Methods
+### Prediction methods
 
-| Method | Input | Output |
-|--------|-------|--------|
-| `predict_from_named_sequences(dict)` | `{name: sequence}` | DataFrame |
-| `predict_from_sequences(list)` | `[sequence, ...]` | DataFrame |
-| `predict_from_variants(variants)` | VariantCollection | DataFrame |
-| `predict_from_mutation_effects(effects)` | EffectCollection | DataFrame |
+| Method | Input | Behavior |
+|--------|-------|----------|
+| `predict_from_named_sequences(dict)` | `{name: sequence}` | Sliding-window scan |
+| `predict_from_named_peptides(dict)` | `{name: peptide}` | Score as-is |
+| `predict_from_sequences(list)` | `[sequence, ...]` | Sliding-window scan |
+| `predict_from_variants(variants)` | VariantCollection | Full variant pipeline |
+| `predict_from_mutation_effects(effects)` | EffectCollection | From pre-computed effects |
 
-## Filter expressions
+## Kind accessors
 
-| Expression | Meaning |
-|------------|---------|
-| `Affinity <= 500` | IC50 ≤ 500 nM |
-| `Affinity.rank <= 2.0` | Affinity percentile rank ≤ 2% |
-| `Affinity.score >= 0.5` | Affinity score ≥ 0.5 |
-| `Presentation.rank <= 2.0` | EL percentile rank ≤ 2% |
-| `Presentation.score >= 0.5` | EL score ≥ 0.5 |
+| Accessor | Kind | Default field |
+|----------|------|---------------|
+| `Affinity` | `pMHC_affinity` | `.value` (IC50 nM) |
+| `Presentation` | `pMHC_presentation` | `.value` |
+| `Stability` | `pMHC_stability` | `.value` |
+| `Processing` | `antigen_processing` | `.value` |
 
-Combine with `|` (OR) and `&` (AND). Chain with `.rank_by()`.
+### Fields
+
+| Field | Column read | Description |
+|-------|-------------|-------------|
+| `.value` | `value` | Raw prediction value |
+| `.rank` | `percentile_rank` | Percentile rank (lower = better) |
+| `.score` | `score` | Normalized score (higher = better) |
+
+### Multi-model bracket syntax
+
+```python
+Affinity["netmhcpan"].value       # filter to netmhcpan rows
+Affinity["mhcflurry"].score       # filter to mhcflurry rows
+```
+
+Method matching is case-insensitive and substring-based. Errors with "Did you mean" on typos.
+
+## Column
+
+Reference any DataFrame column in expressions:
+
+```python
+Column("charge")                  # reads 'charge' column
+Column("cysteine_count") <= 2     # creates ColumnFilter
+```
+
+Errors with close-match suggestions when column doesn't exist. Raises `TypeError` for non-numeric columns.
+
+## ColumnFilter
+
+Filter on arbitrary DataFrame columns. Created by `Column() <= N` or `parse_filter("column(name) <= N")`:
+
+```python
+ColumnFilter(col_name="cysteine_count", max_value=2)
+ColumnFilter(col_name="hydrophobicity", min_value=-0.5)
+```
+
+Supports `|` (OR) and `&` (AND) combination with `EpitopeFilter`.
+
+## WT
+
+Wildtype comparison wrapper. Reads `wt_*` columns for ranking expressions:
+
+```python
+WT(Affinity).value                # reads wt_value
+WT(Affinity).score                # reads wt_score
+WT(Affinity["netmhcpan"]).score   # qualified WT
+WT(Affinity)["netmhcpan"].score   # also works
+```
+
+For ranking expressions only (not filters). Returns NaN when WT columns absent.
 
 ## Expr transforms
 
 | Method | Description |
 |--------|-------------|
-| `.norm(mean, std)` | Gaussian CDF normalization → [0, 1] |
+| `.norm(mean, std)` | Gaussian CDF normalization -> [0, 1] |
+| `.logistic(midpoint, width)` | Logistic sigmoid: `1 / (1 + exp((x - midpoint) / width))` |
 | `.clip(lo, hi)` | Clamp to range |
 | `.log()` / `.log10()` | Logarithm |
 | `.exp()` | Exponential |
@@ -47,15 +99,51 @@ Combine with `|` (OR) and `&` (AND). Chain with `.rank_by()`.
 | `expr ** n` | Power |
 | `+`, `-`, `*`, `/` | Arithmetic between expressions and scalars |
 
+## Filter expressions
+
+| Expression | Creates |
+|------------|---------|
+| `Affinity <= 500` | `EpitopeFilter(kind=pMHC_affinity, max_value=500)` |
+| `Affinity.rank <= 2` | `EpitopeFilter(kind=pMHC_affinity, max_percentile_rank=2)` |
+| `Affinity.score >= 0.5` | `EpitopeFilter(kind=pMHC_affinity, min_score=0.5)` |
+| `Column("x") <= 2` | `ColumnFilter(col_name="x", max_value=2)` |
+
+Combine with `|` (OR) and `&` (AND). Chain with `.rank_by()`.
+
 ## String parsing
 
-| String | Equivalent |
-|--------|-----------|
-| `"affinity <= 500"` | `Affinity <= 500` |
-| `"ic50 <= 500"` | `Affinity <= 500` |
-| `"presentation.rank <= 2"` | `Presentation.rank <= 2` |
-| `"el.score >= 0.5"` | `Presentation.score >= 0.5` |
-| `"aff <= 500 \| el.rank <= 2"` | `(Affinity <= 500) \| (Presentation.rank <= 2)` |
+### Kind aliases
+
+| Alias | Kind |
+|-------|------|
+| `affinity`, `ba`, `aff`, `ic50` | `pMHC_affinity` |
+| `presentation`, `el` | `pMHC_presentation` |
+| `stability` | `pMHC_stability` |
+| `processing`, `antigen_processing` | `antigen_processing` |
+
+### Tool-qualified kinds
+
+Prefix with tool name and underscore: `netmhcpan_affinity`, `mhcflurry_el`, `netmhcpan_ba`.
+
+### parse_filter examples
+
+| String | Result |
+|--------|--------|
+| `"affinity <= 500"` | `EpitopeFilter(pMHC_affinity, max_value=500)` |
+| `"netmhcpan_ba <= 500"` | `EpitopeFilter(pMHC_affinity, max_value=500, method="netmhcpan")` |
+| `"mhcflurry_el.rank <= 2"` | `EpitopeFilter(pMHC_presentation, max_percentile_rank=2, method="mhcflurry")` |
+| `"column(cysteine_count) <= 2"` | `ColumnFilter("cysteine_count", max_value=2)` |
+
+### parse_ranking
+
+Combines filters with `|` (OR) or `&` (AND):
+
+```python
+parse_ranking("affinity <= 500 | presentation.rank <= 2")
+parse_ranking("netmhcpan_ba <= 500 & column(cysteine_count) <= 2")
+```
+
+Mixing `|` and `&` in one string is not supported; use the Python API for complex nesting.
 
 ## Input functions
 
@@ -74,8 +162,28 @@ Combine with `|` (OR) and `&` (AND). Chain with `.rank_by()`.
 |----------|---------|
 | `sequences_from_gene_names(names)` | `{GENE\|TRANSCRIPT: seq}` |
 | `sequences_from_gene_ids(ids)` | `{GENE\|TRANSCRIPT: seq}` |
+| `sequences_from_transcript_ids(ids)` | `{GENE\|TRANSCRIPT: seq}` |
+| `sequences_from_transcript_names(names)` | `{GENE\|TRANSCRIPT: seq}` |
 | `tissue_expressed_sequences(tissues)` | `{GENE\|TRANSCRIPT: seq}` |
 | `tissue_expressed_gene_ids(tissues)` | `set` of Ensembl gene IDs |
 | `cta_sequences()` | CTA protein sequences |
+| `non_cta_sequences()` | Non-CTA protein sequences |
 | `ensembl_proteome()` | All Ensembl proteins |
-| `available_tissues()` | List of 50 tissue names |
+| `available_tissues()` | List of tissue names |
+
+## Peptide properties
+
+```python
+from topiary.properties import add_peptide_properties, available_properties
+
+# Add properties to predictions DataFrame
+df = add_peptide_properties(df)                              # all
+df = add_peptide_properties(df, groups=["core"])             # named group
+df = add_peptide_properties(df, include=["charge"])          # specific
+df = add_peptide_properties(df, peptide_column="wt_peptide", prefix="wt_")
+
+# List available properties and their groups
+available_properties()
+```
+
+Groups: `"core"`, `"manufacturability"`, `"immunogenicity"`. See [Peptide Properties](properties.md) for details.

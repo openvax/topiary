@@ -528,3 +528,94 @@ class TestProperties:
         assert result["instability_index"].iloc[1] > result["instability_index"].iloc[0]
 
 
+# ---------------------------------------------------------------------------
+# Edge cases found during documentation review
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeCasesFromDocs:
+    def test_wt_bracket_both_directions(self):
+        """WT(Affinity["x"]) and WT(Affinity)["x"] should produce same result."""
+        df = _group_with_wt()
+        v1 = WT(Affinity["netmhcpan"]).value.evaluate(df)
+        v2 = WT(Affinity)["netmhcpan"].value.evaluate(df)
+        assert v1 == v2 == 800.0
+
+    def test_wt_ge_also_raises(self):
+        """WT >= should also raise, not just <=."""
+        with pytest.raises(TypeError, match="WT fields"):
+            WT(Affinity) >= 100
+
+    def test_column_filter_both_bounds(self):
+        """ColumnFilter with both min and max."""
+        df = _make_df([
+            dict(source_sequence_name="s", peptide="A", peptide_offset=0,
+                 allele="A", kind="pMHC_affinity", score=0.5, value=100.0,
+                 percentile_rank=1.0, charge=-1.0),
+            dict(source_sequence_name="s", peptide="B", peptide_offset=5,
+                 allele="A", kind="pMHC_affinity", score=0.5, value=100.0,
+                 percentile_rank=1.0, charge=0.0),
+            dict(source_sequence_name="s", peptide="C", peptide_offset=10,
+                 allele="A", kind="pMHC_affinity", score=0.5, value=100.0,
+                 percentile_rank=1.0, charge=2.0),
+        ])
+        strategy = RankingStrategy(
+            filters=[ColumnFilter("charge", min_value=-0.5, max_value=1.0)]
+        )
+        result = apply_ranking_strategy(df, strategy)
+        assert set(result["peptide"]) == {"B"}
+
+    def test_column_filter_or_with_epitope_filter(self):
+        """ColumnFilter | EpitopeFilter works in apply_ranking_strategy."""
+        df = _make_df([
+            dict(source_sequence_name="s", peptide="AAA", peptide_offset=0,
+                 allele="A", kind="pMHC_affinity", score=0.9, value=50.0,
+                 percentile_rank=0.1, cysteine_count=5),
+            dict(source_sequence_name="s", peptide="BBB", peptide_offset=5,
+                 allele="A", kind="pMHC_affinity", score=0.1, value=9999.0,
+                 percentile_rank=50.0, cysteine_count=0),
+        ])
+        # AAA passes affinity filter, BBB passes column filter
+        strategy = (Affinity <= 500) | ColumnFilter("cysteine_count", max_value=1)
+        result = apply_ranking_strategy(df, strategy)
+        assert set(result["peptide"]) == {"AAA", "BBB"}
+
+    def test_logistic_in_composite_with_column(self):
+        """Logistic + Column in same expression."""
+        df = _group_with_properties()
+        expr = Affinity.logistic(350, 150) - 0.1 * Column("cysteine_count")
+        val = expr.evaluate(df)
+        assert isinstance(val, float)
+        assert not math.isnan(val)
+
+    def test_wt_with_missing_kind(self):
+        """WT on a kind that has no rows returns NaN, not error."""
+        df = _group_with_wt()
+        # Stability kind doesn't exist in this df
+        from topiary.ranking import Stability
+        val = WT(Stability).value.evaluate(df)
+        assert math.isnan(val)
+
+    def test_multiple_groups_overlap(self):
+        """Requesting overlapping groups doesn't duplicate columns."""
+        from topiary.properties import add_peptide_properties
+        df = _make_df([dict(peptide="SIINFEKL")])
+        result = add_peptide_properties(df, groups=["core", "manufacturability"])
+        # charge is in both groups but should appear only once
+        assert list(result.columns).count("charge") == 1
+
+    def test_parse_column_with_spaces(self):
+        """column( name ) with spaces should work."""
+        f = parse_filter("column( cysteine_count ) <= 2")
+        assert isinstance(f, ColumnFilter)
+        assert f.col_name == "cysteine_count"
+
+    def test_available_properties(self):
+        from topiary.properties import available_properties
+        props = available_properties()
+        assert "charge" in props
+        assert "core" in props["charge"]
+        assert "cysteine_count" in props
+        assert "manufacturability" in props["cysteine_count"]
+        assert "tcr_aromaticity" in props
+        assert "immunogenicity" in props["tcr_aromaticity"]

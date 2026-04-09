@@ -16,6 +16,8 @@ theme:
 nav:
   - Home: index.md
   - Quickstart: quickstart.md
+  - Ranking DSL: ranking.md
+  - Peptide Properties: properties.md
   - API Reference: api.md
 
 markdown_extensions:
