@@ -269,8 +269,8 @@ Expressions support mathematical transforms for composite scoring. These have no
 
 ```python
 # Normalizing to [0, 1]:
-Affinity.right_cdf(mean=500, std=200)           # lower input → higher output (for IC50, rank)
-Presentation.score.left_cdf(mean=0.5, std=0.3)  # higher input → higher output (for scores)
+Affinity.descending_cdf(mean=500, std=200)           # lower input → higher output (for IC50, rank)
+Presentation.score.ascending_cdf(mean=0.5, std=0.3)  # higher input → higher output (for scores)
 Affinity.logistic(midpoint=350, width=150)       # lower input → higher output (sigmoid)
 
 # Aggregating across models:
@@ -358,7 +358,7 @@ On the CLI:
 | `Column("cysteine_count") <= 2` | `column(cysteine_count) <= 2` |
 | `(A <= 500) \| (B.rank <= 2)` | `affinity <= 500 \| el.rank <= 2` |
 | `0.5 * Affinity.score + ...` | *Python-only* |
-| `.logistic()`, `.left_cdf()`, `.right_cdf()`, `.clip()` | *Python-only* |
+| `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()` | *Python-only* |
 | `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()` | *Python-only* |
 | `WT(Affinity).score` | *Python-only* |
 | `Column("x")` in arithmetic | *Python-only* |
@@ -526,7 +526,7 @@ score = (
 
     # Manufacturability: penalize cysteines and unstable peptides
     - 0.05 * Column("cysteine_count")
-    - 0.05 * Column("instability_index").clip(lo=0, hi=100).left_cdf(50, 20)
+    - 0.05 * Column("instability_index").clip(lo=0, hi=100).ascending_cdf(50, 20)
 
     # Immunogenicity: reward aromatic TCR-facing residues
     + 0.05 * Column("tcr_aromaticity")

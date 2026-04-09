@@ -57,32 +57,32 @@ class Expr:
 
     # -- Gaussian normalization --
 
-    def left_cdf(self, mean=0.0, std=1.0):
+    def ascending_cdf(self, mean=0.0, std=1.0):
         """Gaussian left CDF: **higher input → higher output**.
 
         P(X ≤ x) — the area to the left under the curve.
         Use for "higher is better" fields like ``.score``::
 
-            Presentation.score.left_cdf(mean=0.5, std=0.3)
+            Presentation.score.ascending_cdf(mean=0.5, std=0.3)
 
         For "lower is better" fields (IC50, rank), use
-        :meth:`right_cdf` instead.
+        :meth:`descending_cdf` instead.
         """
         return _NormExpr(self, mean, std)
 
-    # Keep norm as alias for left_cdf
-    norm = left_cdf
+    # Keep norm as alias for ascending_cdf
+    norm = ascending_cdf
 
-    def right_cdf(self, mean=0.0, std=1.0):
+    def descending_cdf(self, mean=0.0, std=1.0):
         """Gaussian right CDF (1-CDF): **lower input → higher output**.
 
         P(X > x) — the area to the right under the curve.
         Use for "lower is better" fields like IC50 and percentile rank::
 
-            Affinity.right_cdf(mean=500, std=200)
-            Affinity.rank.right_cdf(mean=5, std=3)
+            Affinity.descending_cdf(mean=500, std=200)
+            Affinity.rank.descending_cdf(mean=5, std=3)
 
-        For "higher is better" fields, use :meth:`left_cdf` instead.
+        For "higher is better" fields, use :meth:`ascending_cdf` instead.
         """
         return _SurvivalExpr(self, mean, std)
 
@@ -612,14 +612,14 @@ class KindAccessor:
     def __gt__(self, threshold):
         return self.value.__gt__(threshold)
 
-    # Delegate Expr methods to .value so Affinity.left_cdf(...) works
-    def left_cdf(self, mean=0.0, std=1.0):
-        return self.value.left_cdf(mean, std)
+    # Delegate Expr methods to .value so Affinity.ascending_cdf(...) works
+    def ascending_cdf(self, mean=0.0, std=1.0):
+        return self.value.ascending_cdf(mean, std)
 
-    norm = left_cdf  # alias
+    norm = ascending_cdf  # alias
 
-    def right_cdf(self, mean=0.0, std=1.0):
-        return self.value.right_cdf(mean, std)
+    def descending_cdf(self, mean=0.0, std=1.0):
+        return self.value.descending_cdf(mean, std)
 
     def logistic(self, midpoint=0.0, width=1.0):
         return self.value.logistic(midpoint, width)
@@ -751,13 +751,13 @@ class WT:
         self._filter_error()
 
     # Delegate Expr methods to .value for use in ranking expressions
-    def left_cdf(self, mean=0.0, std=1.0):
-        return self.value.left_cdf(mean, std)
+    def ascending_cdf(self, mean=0.0, std=1.0):
+        return self.value.ascending_cdf(mean, std)
 
-    norm = left_cdf  # alias
+    norm = ascending_cdf  # alias
 
-    def right_cdf(self, mean=0.0, std=1.0):
-        return self.value.right_cdf(mean, std)
+    def descending_cdf(self, mean=0.0, std=1.0):
+        return self.value.descending_cdf(mean, std)
 
     def logistic(self, midpoint=0.0, width=1.0):
         return self.value.logistic(midpoint, width)

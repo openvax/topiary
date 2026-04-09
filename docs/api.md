@@ -89,8 +89,8 @@ For ranking expressions only (not filters). Returns NaN when WT columns absent.
 
 | Method | Description |
 |--------|-------------|
-| `.left_cdf(mean, std)` | Gaussian CDF: higher input → higher output. Alias: `.norm()` |
-| `.right_cdf(mean, std)` | 1-CDF: lower input → higher output (for IC50, rank) |
+| `.ascending_cdf(mean, std)` | Gaussian CDF: higher input → higher output. Alias: `.norm()` |
+| `.descending_cdf(mean, std)` | 1-CDF: lower input → higher output (for IC50, rank) |
 | `.logistic(midpoint, width)` | Logistic sigmoid: `1 / (1 + exp((x - midpoint) / width))` |
 | `.clip(lo, hi)` | Clamp to range |
 | `.hinge()` | `max(0, x)` — zeroes out negative values |

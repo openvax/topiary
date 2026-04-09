@@ -31,19 +31,19 @@ def _aff_df(ic50):
 class TestDirection:
     def test_norm_higher_input_higher_output(self):
         """norm: higher input -> higher output (CDF)."""
-        low = Affinity.left_cdf(500, 200).evaluate(_aff_df(100))
-        high = Affinity.left_cdf(500, 200).evaluate(_aff_df(1000))
+        low = Affinity.ascending_cdf(500, 200).evaluate(_aff_df(100))
+        high = Affinity.ascending_cdf(500, 200).evaluate(_aff_df(1000))
         assert high > low
 
     def test_norm_lower_lower_input_higher_output(self):
         """norm_lower: lower input -> higher output (1-CDF)."""
-        strong = Affinity.right_cdf(500, 200).evaluate(_aff_df(100))
-        weak = Affinity.right_cdf(500, 200).evaluate(_aff_df(1000))
+        strong = Affinity.descending_cdf(500, 200).evaluate(_aff_df(100))
+        weak = Affinity.descending_cdf(500, 200).evaluate(_aff_df(1000))
         assert strong > weak
 
     def test_norm_lower_is_complement_of_norm(self):
-        n = Affinity.left_cdf(500, 200).evaluate(_aff_df(300))
-        nl = Affinity.right_cdf(500, 200).evaluate(_aff_df(300))
+        n = Affinity.ascending_cdf(500, 200).evaluate(_aff_df(300))
+        nl = Affinity.descending_cdf(500, 200).evaluate(_aff_df(300))
         assert n + nl == pytest.approx(1.0)
 
     def test_logistic_lower_input_higher_output(self):
@@ -54,7 +54,7 @@ class TestDirection:
 
     def test_norm_lower_for_ic50(self):
         """For IC50, norm_lower gives high scores for strong binders."""
-        val = Affinity.right_cdf(500, 200).evaluate(_aff_df(100))
+        val = Affinity.descending_cdf(500, 200).evaluate(_aff_df(100))
         assert val > 0.5
 
     def test_logistic_for_ic50_works_directly(self):
@@ -64,7 +64,7 @@ class TestDirection:
 
     def test_norm_and_logistic_are_different(self):
         """They give different values for the same input."""
-        n = Affinity.left_cdf(350, 150).evaluate(_aff_df(200))
+        n = Affinity.ascending_cdf(350, 150).evaluate(_aff_df(200))
         l = Affinity.logistic(350, 150).evaluate(_aff_df(200))
         assert n != pytest.approx(l, abs=0.01)
 

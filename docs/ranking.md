@@ -49,8 +49,8 @@ Expressions support arithmetic and mathematical transforms:
 0.5 * Affinity.score + 0.5 * Presentation.score
 
 # Gaussian CDF normalization -> maps to ~[0, 1]
-Affinity.value.right_cdf(mean=500, std=200)    # lower IC50 → higher output
-Presentation.score.left_cdf(mean=0.5, std=0.3)  # higher score → higher output
+Affinity.value.descending_cdf(mean=500, std=200)    # lower IC50 → higher output
+Presentation.score.ascending_cdf(mean=0.5, std=0.3)  # higher score → higher output
 
 # Logistic sigmoid (Vaxrank-compatible IC50 scoring)
 # 1 / (1 + exp((x - midpoint) / width))
@@ -173,7 +173,7 @@ The `--ranking` flag and `--rank-by` flag accept string expressions:
 **Python-only** (no string form):
 
 - Arithmetic: `0.5 * Affinity.score + 0.5 * Presentation.score`
-- Transforms: `.logistic()`, `.left_cdf()`, `.right_cdf()`, `.clip()`, `.hinge()`, `.log()`
+- Transforms: `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()`, `.hinge()`, `.log()`
 - Aggregations: `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()`
 - `WT()` expressions
 - `Column()` in arithmetic (only `column(x) <= N` works in strings)
@@ -209,7 +209,7 @@ score = (
     + 0.2 * Presentation["mhcflurry"].score
     # Manufacturability
     - 0.05 * Column("cysteine_count")
-    - 0.05 * Column("instability_index").clip(lo=0, hi=100).left_cdf(50, 20)
+    - 0.05 * Column("instability_index").clip(lo=0, hi=100).ascending_cdf(50, 20)
     # Immunogenicity
     + 0.05 * Column("tcr_aromaticity")
 )
