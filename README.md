@@ -8,130 +8,302 @@
 
 # Topiary
 
-Predict mutation-derived cancer T-cell epitopes from (1) somatic variants (2) tumor RNA expression data, and (3) patient HLA type.
+Topiary predicts which peptides from protein sequences will be presented by MHC molecules, making them potential T-cell epitopes. It is used in cancer immunotherapy research to find mutant peptides (neoantigens) that the immune system could target.
 
-## Example
+**Core idea:** Given protein sequences + HLA alleles + an MHC binding predictor, Topiary scans all possible peptides and returns those predicted to bind MHC, ranked by binding strength.
 
-```sh
-./topiary \
+Topiary can start from several types of input:
+
+- **Somatic variants** (VCF/MAF) — the original use case: find mutant peptides from cancer sequencing data
+- **Protein sequences** (FASTA/CSV) — scan full-length proteins with a sliding window
+- **Peptide lists** (FASTA/CSV) — score specific peptides directly, no sliding window
+- **Gene/transcript IDs** — pull sequences from Ensembl automatically
+- **Built-in gene sets** — cancer-testis antigens (CTA), tissue-expressed genes
+
+## How it works
+
+1. **Get protein sequences** — from variants (via [varcode](https://github.com/openvax/varcode)), FASTA/CSV files, or Ensembl lookups
+2. **Generate candidate peptides** — sliding window over proteins, or use peptides as-is
+3. **Predict MHC binding** — via [mhctools](https://github.com/openvax/mhctools) (NetMHCpan, MHCflurry, etc.)
+4. **Filter and rank** — by binding affinity, percentile rank, presentation score, or custom expressions
+5. **Annotate** — with gene/transcript info, mutation positions, RNA expression levels
+
+For variant inputs, Topiary also filters by RNA expression and identifies which predicted epitopes actually overlap the mutation.
+
+## Installation
+
+```bash
+pip install topiary
+```
+
+For Ensembl-based features (variant annotation, gene lookups), download reference data:
+
+```bash
+# GRCh38 (hg38) — most common
+pyensembl install --release 93 --species human
+
+# GRCh37 (hg19) — if your variants use this reference
+pyensembl install --release 75 --species human
+```
+
+For cancer-testis antigen and tissue expression features:
+
+```bash
+pip install pirlygenes
+```
+
+## Quick start
+
+### Command line
+
+**Scan a FASTA file for MHC binders:**
+
+```bash
+topiary \
+  --fasta proteins.fasta \
+  --mhc-predictor netmhcpan \
+  --mhc-alleles HLA-A*02:01,HLA-B*07:02 \
+  --ic50-cutoff 500 \
+  --output-csv results.csv
+```
+
+**Score specific peptides (no sliding window):**
+
+```bash
+topiary \
+  --peptide-csv peptides.csv \
+  --mhc-predictor netmhcpan \
+  --mhc-alleles HLA-A*02:01 \
+  --ic50-cutoff 500 \
+  --output-csv results.csv
+```
+
+**Find neoantigen candidates from somatic variants:**
+
+```bash
+topiary \
   --vcf somatic.vcf \
   --mhc-predictor netmhcpan \
   --mhc-alleles HLA-A*02:01,HLA-B*07:02 \
   --ic50-cutoff 500 \
   --percentile-cutoff 2.0 \
-  --mhc-epitope-lengths 8-11 \
   --rna-gene-fpkm-tracking-file genes.fpkm_tracking \
   --rna-min-gene-expression 4.0 \
-  --rna-transcript-fpkm-tracking-file isoforms.fpkm_tracking \
-  --rna-min-transcript-expression 1.5 \
-  --output-csv epitopes.csv \
-  --output-html epitopes.html
+  --only-novel-epitopes \
+  --output-csv epitopes.csv
 ```
 
-## Installation
+**Scan cancer-testis antigens, excluding peptides found in vital organs:**
 
-You can install Topiary and all of the libraries it depends on by running:
-```
-pip install topiary
-```
-
-You'll need to download the reference genome sequences and annotations for a
-recent Ensembl release (e.g. 81) by running:
-
-```
-pyensembl install --release 81 --species human
+```bash
+topiary \
+  --cta \
+  --exclude-tissues heart_muscle lung liver \
+  --mhc-predictor netmhcpan \
+  --mhc-alleles HLA-A*02:01 \
+  --ic50-cutoff 500 \
+  --output-csv cta_epitopes.csv
 ```
 
-If you want to work with variants which were aligned against the older reference
-GRCh37, you will need to also download its annotation data, which is contained
-in Ensembl release 75:
+### Python API
 
+```python
+from topiary import TopiaryPredictor, Affinity, Presentation
+from mhctools import NetMHCpan
+
+# Set up predictor with filtering
+predictor = TopiaryPredictor(
+    models=[NetMHCpan],
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+    filter=(Affinity <= 500) | (Presentation.rank <= 2.0),
+    rank_by=[Presentation.score, Affinity.score],
+)
+
+# Scan protein sequences (sliding window)
+df = predictor.predict_from_named_sequences({
+    "BRAF_V600E": "MAALSGGGGG...LATEKSRWSG",
+    "TP53_R248W": "MEEPQSDPSV...ALPQHAHAQM",
+})
+
+# Score specific peptides (no sliding window)
+df = predictor.predict_from_named_peptides({
+    "peptide_1": "YLQLVFGIEV",
+    "peptide_2": "LLFNILGGWV",
+})
+
+# From somatic variants (requires varcode)
+from varcode import load_vcf
+variants = load_vcf("somatic.vcf")
+df = predictor.predict_from_variants(variants)
 ```
-pyensembl install --release 75 --species human
+
+## Input modes
+
+### Sequence and peptide files
+
+| Flag | Format | Behavior |
+|------|--------|----------|
+| `--fasta FILE` | FASTA with full-length proteins | Sliding-window scan |
+| `--peptide-fasta FILE` | FASTA where each entry is one peptide | Scored as-is |
+| `--sequence-csv FILE` | CSV with `sequence` column (+ optional `name`) | Sliding-window scan |
+| `--peptide-csv FILE` | CSV with `peptide` column (+ optional `name`) | Scored as-is |
+
+### Gene and transcript lookups
+
+These pull protein sequences from Ensembl automatically:
+
+| Flag | Example |
+|------|---------|
+| `--gene-names NAME [NAME ...]` | `--gene-names BRAF TP53 EGFR` |
+| `--gene-ids ID [ID ...]` | `--gene-ids ENSG00000157764` |
+| `--transcript-ids ID [ID ...]` | `--transcript-ids ENST00000288602` |
+| `--ensembl-proteome` | Scan the entire Ensembl proteome |
+| `--cta` | Cancer-testis antigen genes (requires `pirlygenes`) |
+| `--ensembl-release N` | Use a specific Ensembl release (default: 93 for human) |
+
+For gene lookups, Topiary uses the longest protein-coding transcript per gene.
+
+### Genomic variants
+
+| Flag | Description |
+|------|-------------|
+| `--vcf FILE` | VCF file of somatic variants |
+| `--maf FILE` | TCGA MAF file |
+| `--variant CHR POS REF ALT` | Individual variant (requires `--ensembl-version`) |
+| `--protein-change GENE CHANGE` | Direct protein change, e.g. `--protein-change EGFR T790M` |
+
+Multiple input flags can be combined in a single run.
+
+## MHC binding prediction
+
+You must specify a predictor and alleles:
+
+```bash
+--mhc-predictor netmhcpan \
+--mhc-alleles HLA-A*02:01,HLA-B*07:02
 ```
 
+**Supported predictors:** `netmhcpan`, `netmhc`, `netmhciipan`, `netmhccons`, `mhcflurry`, `random`, and IEDB web API variants (`netmhcpan-iedb`, `netmhccons-iedb`, `smm-iedb`, `smm-pmbec-iedb`).
 
-## Commandline Arguments
+**Alleles** can be specified as a comma-separated list (`--mhc-alleles`) or one per line in a file (`--mhc-alleles-file`).
 
-### Genomic Variants
+**Peptide lengths:** `--mhc-epitope-lengths 8,9,10,11` (defaults come from the predictor).
 
-Specify some variants by giving at least one of the following options. They can
-be used in combination and repeated.
+## Filtering and ranking
 
-* `--vcf VCF_FILENAME`: Load a [VCF](http://www.1000genomes.org/wiki/analysis/variant%20call%20format/vcf-variant-call-format-version-41) file
-* `--maf MAF_FILENAME`: Load a TCGA [MAF](https://wiki.nci.nih.gov/display/TCGA/Mutation+Annotation+Format+%28MAF%29+Specification) file
-* `--variant CHR POS REF ALT : Specify an individual variant (requires --ensembl-version)`
+### Simple cutoffs
 
-### Output Format
+```bash
+--ic50-cutoff 500            # Keep peptides with IC50 <= 500 nM
+--percentile-cutoff 2.0      # Keep peptides with percentile rank <= 2.0
+--presentation-cutoff 2.0    # Keep peptides with presentation rank <= 2.0
+--filter-logic any            # "any" (OR, default) or "all" (AND)
+```
 
-* `--output-csv OUTPUT_CSV_FILENAME`: Path to an output CSV file
-* `--output-html OUTPUT_HTML_FILENAME`: Path to an output HTML file
+### Expression-based ranking
 
-### RNA Expression Filtering
+```bash
+--rank-by pMHC_presentation,pMHC_affinity
+```
 
-Optional flags to use Cufflinks expression estimates for dropping epitopes
-arising from genes or transcripts that are not highly expressed.
+Sort surviving peptides by presentation score, breaking ties with affinity.
 
-* `--rna-gene-fpkm-tracking-file RNA_GENE_FPKM_TRACKING_FILE`: Cufflinks FPKM tracking file
-containing gene expression estimates.
-* `--rna-min-gene-expression RNA_MIN_GENE_EXPRESSION`: Minimum FPKM for genes
-* `--rna-transcript-fpkm-tracking-file RNA_TRANSCRIPT_FPKM_TRACKING_FILE`: Cufflinks FPKM tracking
-file containing transcript expression estimates.
-* `--rna-min-transcript-expression RNA_MIN_TRANSCRIPT_EXPRESSION`: Minimum FPKM
-for transcripts
-* `--rna-transcript-fpkm-gtf-file RNA_TRANSCRIPT_FPKM_GTF_FILE`: StringTie GTF file
-file containing transcript expression estimates.
+### Advanced filter expressions
 
-### Choose an MHC Binding Predictor
+```bash
+--ranking "affinity <= 500 | presentation.rank <= 2"
+```
 
-You *must* choose an MHC binding predictor using one of the following values
-for the `--mhc-predictor` flag:
+### Python API expressions
 
-* `netmhc`: Local [NetMHC](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHC) predictor (Topiary will attempt to automatically detect whether NetMHC 3.x or 4.0 is available)
-* `netmhcpan`: Local [NetMHCpan](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHCpan) predictor
-* `netmhciipan`: Local [NetMHCIIpan](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHCIIpan) predictor
-* `netmhccons`: Local [NetMHCcons](http://www.cbs.dtu.dk/cgi-bin/nph-sw_request?netMHCcons)
-* `random`: Random IC50 values
-* `smm`: Local [SMM](http://www.mhc-pathway.net/smm) predictor
-* `smm-pmbec`: Local [SMM-PMBEC](http://www.mhc-pathway.net/smmpmbec) predictor
-* `netmhcpan-iedb`: Use NetMHCpan via the IEDB web API
-* `netmhccons-iedb`: Use NetMHCcons via the IEDB web API
-* `smm-iedb`: Use SMM via the IEDB web API
-* `smm-pmbec-iedb`: Use SMM-PMBEC via the IEDB web API
+```python
+from topiary import Affinity, Presentation, RankingStrategy
 
-### MHC Alleles
-You must specify the alleles to perform binding prediction for using one of
-the following flags:
+# Combine filters with | (OR) or & (AND)
+my_filter = (Affinity <= 500) | (Presentation.rank <= 2.0)
 
-* `--mhc-alleles-file MHC_ALLELES_FILE`: Text file containing one allele name per
-line
-* `--mhc-alleles MHC_ALLELES`: Comma separated list of allele names,
-e.g. "HLA-A02:01,HLA-B07:02"
+# Composite scoring
+my_score = 0.5 * Affinity.score + 0.5 * Presentation.score
 
-### Peptide Length
+predictor = TopiaryPredictor(
+    models=[NetMHCpan],
+    alleles=["HLA-A*02:01"],
+    filter=my_filter,
+    rank_by=[my_score],
+)
+```
 
-* `--mhc-epitope-lengths MHC_EPITOPE_LENGTHS`: comma separated list of integers
-specifying which peptide lengths to use for MHC binding prediction
+Available prediction kinds: `Affinity`, `Presentation`, `Processing`, `Stability`. Each has `.value`, `.rank`, and `.score` attributes.
 
-### Binding Prediction Filtering
+## Exclusion filtering
 
-* `--only-novel-epitopes`: Topiary will normally keep all predicted epitopes,
-even those which occur in a given self-ligandome or don't overlap a mutated region
-of a protein. Use this flag to drop any epitopes which don't contain mutations
-or that occur elsewhere in the self-ligandome.
-* `--ic50-cutoff IC50_CUTOFF`: Drop peptides with predicted IC50 nM greater
-than this value (typical value is 500.0)
-* `--percentile-cutoff PERCENTILE_CUTOFF`: Drop peptides with percentile rank
-of their predicted IC50 (among predictions for a particular allele) fall below
-this threshold (lower values are stricter filters, typical value is 2.0)
+For direct sequence/peptide inputs, you can exclude peptides that also appear in reference proteomes — useful for finding tumor-specific or pathogen-specific peptides:
 
-### Misc
+```bash
+--exclude-ensembl                    # Exclude peptides in the human Ensembl proteome
+--exclude-non-cta                    # Exclude non-CTA proteins (requires pirlygenes)
+--exclude-tissues heart_muscle lung  # Exclude genes expressed in these tissues
+--exclude-fasta reference.fasta      # Exclude peptides in custom reference sequences
+--exclude-mode substring             # "substring" (default) or "exact"
+```
 
-* `--padding-around-mutation PADDING_AROUND_MUTATION`: Include more unmutated residues
-around the mutation (useful when not using `--only-novel-epitopes`)
-* `--self-filter-directory SELF_FILTER_DIRECTORY`: Directory of files named by MHC allele
-containing a self peptide ligandome (peptides which should be excluded from
-results)
-* `--skip-variant-errors`: If a particular mutation causes an exception to be raised
-during annotation, you can skip it using this flag.
+## Region restriction
 
+Limit prediction to specific protein regions (only applies to sequence inputs, not peptides):
+
+```bash
+--regions spike:319-541 nucleocapsid:0-50
+```
+
+Format: `name:start-end` (0-based, half-open interval).
+
+## RNA expression filtering
+
+For variant-based workflows, filter by gene or transcript expression:
+
+```bash
+--rna-gene-fpkm-tracking-file genes.fpkm_tracking
+--rna-min-gene-expression 4.0
+--rna-transcript-fpkm-tracking-file isoforms.fpkm_tracking
+--rna-min-transcript-expression 1.5
+```
+
+Also supports StringTie GTF format: `--rna-transcript-fpkm-gtf-file`.
+
+## Output
+
+```bash
+--output-csv results.csv          # CSV output
+--output-html results.html        # HTML table
+--output-csv-sep "\t"             # Use tab separator
+--subset-output-columns peptide allele affinity  # Select columns
+--rename-output-column value ic50               # Rename columns
+```
+
+### Output columns
+
+**All predictions:** `source_sequence_name`, `peptide`, `peptide_offset`, `peptide_length`, `allele`, `kind`, `score`, `value`, `affinity`, `percentile_rank`, `prediction_method_name`
+
+**Variant predictions add:** `variant`, `gene`, `gene_id`, `transcript_id`, `transcript_name`, `effect`, `effect_type`, `contains_mutant_residues`, `mutation_start_in_peptide`, `mutation_end_in_peptide`
+
+## Built-in protein sources (Python API)
+
+The `topiary.sources` module provides functions for loading protein sequences from Ensembl and PirlyGenes:
+
+```python
+from topiary.sources import (
+    ensembl_proteome,
+    sequences_from_gene_names,
+    sequences_from_gene_ids,
+    sequences_from_transcript_ids,
+    cta_sequences,
+    non_cta_sequences,
+    tissue_expressed_sequences,
+    available_tissues,
+)
+
+# All return dict[name -> amino_acid_sequence]
+seqs = sequences_from_gene_names(["BRAF", "TP53", "EGFR"])
+cta = cta_sequences()
+tissues = available_tissues()  # list of tissue names
+```
