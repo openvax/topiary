@@ -115,7 +115,7 @@ from mhctools import NetMHCpan
 predictor = TopiaryPredictor(
     models=[NetMHCpan],
     alleles=["HLA-A*02:01", "HLA-B*07:02"],
-    filter=(Affinity <= 500) | (Presentation.rank <= 2.0),
+    filter_by=(Affinity <= 500) | (Presentation.rank <= 2.0),
     rank_by=[Presentation.score, Affinity.score],
 )
 
@@ -268,18 +268,23 @@ Available: ['mhcflurry', 'netmhcpan']. Did you mean: ['netmhcpan']?
 Expressions support mathematical transforms for composite scoring. These have no CLI string equivalent — use the Python API for composite scores:
 
 ```python
-# Logistic sigmoid (Vaxrank-compatible IC50 scoring)
-Affinity.logistic(midpoint=350, width=150)
+# Normalizing to [0, 1]:
+Affinity.right_cdf(mean=500, std=200)           # lower input → higher output (for IC50, rank)
+Presentation.score.left_cdf(mean=0.5, std=0.3)  # higher input → higher output (for scores)
+Affinity.logistic(midpoint=350, width=150)       # lower input → higher output (sigmoid)
 
-# Gaussian CDF normalization
-Affinity.value.norm(mean=500, std=200)
+# Aggregating across models:
+from topiary import mean, geomean, minimum, maximum, median
+mean(Affinity["netmhcpan"].logistic(350, 150),
+     Affinity["mhcflurry"].logistic(350, 150))
 
-# Arithmetic
+# Arithmetic:
 0.5 * Affinity.score + 0.5 * Presentation.score
 
-# Other transforms
+# Other transforms:
 Affinity.value.clip(lo=1, hi=50000)
-Affinity.value.log()
+Affinity.value.hinge()               # max(0, x)
+Affinity.value.log()                 # also log2(), log10(), log1p()
 Affinity.value.sqrt()
 abs(Affinity.value)
 ```
@@ -329,7 +334,7 @@ Sort surviving peptides after filtering:
 predictor = TopiaryPredictor(
     models=[NetMHCpan, MHCflurry],
     alleles=["HLA-A*02:01"],
-    filter=(Affinity <= 500) | (Presentation.rank <= 2.0),
+    filter_by=(Affinity <= 500) | (Presentation.rank <= 2.0),
     rank_by=[Presentation.score, Affinity.score],  # first non-NaN wins
 )
 ```
@@ -353,7 +358,8 @@ On the CLI:
 | `Column("cysteine_count") <= 2` | `column(cysteine_count) <= 2` |
 | `(A <= 500) \| (B.rank <= 2)` | `affinity <= 500 \| el.rank <= 2` |
 | `0.5 * Affinity.score + ...` | *Python-only* |
-| `.logistic()`, `.norm()`, `.clip()` | *Python-only* |
+| `.logistic()`, `.left_cdf()`, `.right_cdf()`, `.clip()` | *Python-only* |
+| `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()` | *Python-only* |
 | `WT(Affinity).score` | *Python-only* |
 | `Column("x")` in arithmetic | *Python-only* |
 
@@ -520,7 +526,7 @@ score = (
 
     # Manufacturability: penalize cysteines and unstable peptides
     - 0.05 * Column("cysteine_count")
-    - 0.05 * Column("instability_index").clip(lo=0, hi=100).norm(50, 20)
+    - 0.05 * Column("instability_index").clip(lo=0, hi=100).left_cdf(50, 20)
 
     # Immunogenicity: reward aromatic TCR-facing residues
     + 0.05 * Column("tcr_aromaticity")

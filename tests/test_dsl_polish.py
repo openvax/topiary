@@ -31,9 +31,20 @@ def _aff_df(ic50):
 class TestDirection:
     def test_norm_higher_input_higher_output(self):
         """norm: higher input -> higher output (CDF)."""
-        low = Affinity.norm(500, 200).evaluate(_aff_df(100))
-        high = Affinity.norm(500, 200).evaluate(_aff_df(1000))
+        low = Affinity.left_cdf(500, 200).evaluate(_aff_df(100))
+        high = Affinity.left_cdf(500, 200).evaluate(_aff_df(1000))
         assert high > low
+
+    def test_norm_lower_lower_input_higher_output(self):
+        """norm_lower: lower input -> higher output (1-CDF)."""
+        strong = Affinity.right_cdf(500, 200).evaluate(_aff_df(100))
+        weak = Affinity.right_cdf(500, 200).evaluate(_aff_df(1000))
+        assert strong > weak
+
+    def test_norm_lower_is_complement_of_norm(self):
+        n = Affinity.left_cdf(500, 200).evaluate(_aff_df(300))
+        nl = Affinity.right_cdf(500, 200).evaluate(_aff_df(300))
+        assert n + nl == pytest.approx(1.0)
 
     def test_logistic_lower_input_higher_output(self):
         """logistic: lower input -> higher output."""
@@ -41,21 +52,19 @@ class TestDirection:
         weak = Affinity.logistic(350, 150).evaluate(_aff_df(5000))
         assert strong > weak
 
-    def test_norm_for_ic50_needs_inversion(self):
-        """For IC50 (lower=better), must use 1 - norm()."""
-        raw = Affinity.norm(500, 200).evaluate(_aff_df(100))
-        inverted = (1 - Affinity.norm(500, 200)).evaluate(_aff_df(100))
-        assert raw < 0.5   # low IC50 -> low CDF
-        assert inverted > 0.5  # inverted -> high score
+    def test_norm_lower_for_ic50(self):
+        """For IC50, norm_lower gives high scores for strong binders."""
+        val = Affinity.right_cdf(500, 200).evaluate(_aff_df(100))
+        assert val > 0.5
 
     def test_logistic_for_ic50_works_directly(self):
         """For IC50 (lower=better), logistic works without inversion."""
         val = Affinity.logistic(350, 150).evaluate(_aff_df(100))
-        assert val > 0.5   # low IC50 -> high logistic score
+        assert val > 0.5
 
     def test_norm_and_logistic_are_different(self):
         """They give different values for the same input."""
-        n = Affinity.norm(350, 150).evaluate(_aff_df(200))
+        n = Affinity.left_cdf(350, 150).evaluate(_aff_df(200))
         l = Affinity.logistic(350, 150).evaluate(_aff_df(200))
         assert n != pytest.approx(l, abs=0.01)
 
@@ -96,6 +105,96 @@ class TestNewTransforms:
         expr = Affinity.log2() + 1
         val = expr.evaluate(_aff_df(4.0))
         assert val == pytest.approx(3.0)  # log2(4) + 1
+
+    def test_hinge(self):
+        assert Affinity.value.hinge().evaluate(_aff_df(100)) == 100.0
+        assert Affinity.value.hinge().evaluate(_aff_df(-5)) == 0.0
+        assert Affinity.value.hinge().evaluate(_aff_df(0)) == 0.0
+
+    def test_hinge_in_expression(self):
+        """hinge of a difference: max(0, mutant - wt)."""
+        expr = (Affinity.value - 200).hinge()
+        assert expr.evaluate(_aff_df(300)) == 100.0
+        assert expr.evaluate(_aff_df(100)) == 0.0
+
+
+class TestAggregations:
+    def test_mean(self):
+        from topiary.ranking import mean
+        expr = mean(Affinity.value, 200)
+        val = expr.evaluate(_aff_df(100))
+        assert val == pytest.approx(150.0)
+
+    def test_mean_three(self):
+        from topiary.ranking import mean
+        expr = mean(Affinity.value, 200, 300)
+        val = expr.evaluate(_aff_df(100))
+        assert val == pytest.approx(200.0)
+
+    def test_geomean(self):
+        from topiary.ranking import geomean
+        expr = geomean(Affinity.value, 400)
+        val = expr.evaluate(_aff_df(100))
+        assert val == pytest.approx(200.0)  # sqrt(100 * 400)
+
+    def test_geomean_skips_non_positive(self):
+        from topiary.ranking import geomean
+        expr = geomean(Affinity.value, -5, 400)
+        val = expr.evaluate(_aff_df(100))
+        assert val == pytest.approx(200.0)  # -5 skipped
+
+    def test_minimum(self):
+        from topiary.ranking import minimum
+        expr = minimum(Affinity.value, 500, 200)
+        assert expr.evaluate(_aff_df(100)) == 100.0
+        assert expr.evaluate(_aff_df(300)) == 200.0
+
+    def test_maximum(self):
+        from topiary.ranking import maximum
+        expr = maximum(Affinity.value, 50, 200)
+        assert expr.evaluate(_aff_df(100)) == 200.0
+        assert expr.evaluate(_aff_df(300)) == 300.0
+
+    def test_median_odd(self):
+        from topiary.ranking import median
+        expr = median(Affinity.value, 200, 300)
+        val = expr.evaluate(_aff_df(100))
+        assert val == pytest.approx(200.0)  # sorted: [100, 200, 300]
+
+    def test_median_even(self):
+        from topiary.ranking import median
+        expr = median(Affinity.value, 200, 300, 400)
+        val = expr.evaluate(_aff_df(100))
+        assert val == pytest.approx(250.0)  # sorted: [100, 200, 300, 400] → (200+300)/2
+
+    def test_mean_with_qualified_fields(self):
+        """mean() works with multi-model qualified fields."""
+        from topiary.ranking import mean
+        df = pd.DataFrame([
+            dict(source_sequence_name="x", peptide="A", peptide_offset=0,
+                 allele="A", kind="pMHC_affinity", score=0.8, value=100.0,
+                 percentile_rank=0.5, prediction_method_name="netmhcpan"),
+            dict(source_sequence_name="x", peptide="A", peptide_offset=0,
+                 allele="A", kind="pMHC_affinity", score=0.6, value=300.0,
+                 percentile_rank=2.0, prediction_method_name="mhcflurry"),
+        ])
+        expr = mean(
+            Affinity["netmhcpan"].logistic(350, 150),
+            Affinity["mhcflurry"].logistic(350, 150),
+        )
+        val = expr.evaluate(df)
+        assert isinstance(val, float)
+        assert not math.isnan(val)
+
+    def test_aggregation_all_nan(self):
+        from topiary.ranking import mean
+        df = pd.DataFrame([dict(
+            source_sequence_name="x", peptide="A", peptide_offset=0,
+            allele="A", kind="pMHC_affinity", score=float("nan"),
+            value=float("nan"), percentile_rank=float("nan"),
+        )])
+        val = mean(Affinity.value, Affinity.score).evaluate(df)
+        assert math.isnan(val)
 
 
 # ---------------------------------------------------------------------------

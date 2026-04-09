@@ -13,6 +13,11 @@ from .ranking import (
     WT,
     affinity_filter,
     apply_ranking_strategy,
+    geomean,
+    maximum,
+    mean,
+    median,
+    minimum,
     parse_ranking,
     presentation_filter,
 )
@@ -23,7 +28,7 @@ from .sequence_helpers import (
     protein_subsequences_around_mutations,
 )
 
-__version__ = "4.5.1"
+__version__ = "4.6.0"
 
 __all__ = [
     "TopiaryPredictor",

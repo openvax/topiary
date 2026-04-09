@@ -57,33 +57,43 @@ class Expr:
 
     # -- Gaussian normalization --
 
-    def norm(self, mean=0.0, std=1.0):
-        """Gaussian CDF normalization: maps value to ~[0, 1].
+    def left_cdf(self, mean=0.0, std=1.0):
+        """Gaussian left CDF: **higher input → higher output**.
 
-        **Higher input → higher output.** Good for "higher is better"
-        fields like ``.score``. For "lower is better" fields like IC50,
-        use ``1 - field.norm(...)``::
+        P(X ≤ x) — the area to the left under the curve.
+        Use for "higher is better" fields like ``.score``::
 
-            # Presentation score (higher = better) → use directly
-            Presentation.score.norm(mean=0.5, std=0.3)
+            Presentation.score.left_cdf(mean=0.5, std=0.3)
 
-            # IC50 (lower = better) → invert
-            1 - Affinity.norm(mean=500, std=200)
+        For "lower is better" fields (IC50, rank), use
+        :meth:`right_cdf` instead.
         """
         return _NormExpr(self, mean, std)
 
+    # Keep norm as alias for left_cdf
+    norm = left_cdf
+
+    def right_cdf(self, mean=0.0, std=1.0):
+        """Gaussian right CDF (1-CDF): **lower input → higher output**.
+
+        P(X > x) — the area to the right under the curve.
+        Use for "lower is better" fields like IC50 and percentile rank::
+
+            Affinity.right_cdf(mean=500, std=200)
+            Affinity.rank.right_cdf(mean=5, std=3)
+
+        For "higher is better" fields, use :meth:`left_cdf` instead.
+        """
+        return _SurvivalExpr(self, mean, std)
+
     def logistic(self, midpoint=0.0, width=1.0):
-        """Logistic sigmoid: ``1 / (1 + exp((x - midpoint) / width))``.
+        """Logistic sigmoid: **lower input → higher output**.
 
-        **Lower input → higher output.** Good for "lower is better"
-        fields like IC50. Values below the midpoint score > 0.5;
-        values above score < 0.5::
+        ``1 / (1 + exp((x - midpoint) / width))``.
+        Values below the midpoint score > 0.5; above score < 0.5.
+        Use for "lower is better" fields like IC50::
 
-            # IC50 (lower = better) → use directly
             Affinity.logistic(midpoint=350, width=150)
-
-            # Score (higher = better) → logistic goes the wrong way,
-            # use norm() instead
         """
         return _LogisticExpr(self, midpoint, width)
 
@@ -130,6 +140,10 @@ class Expr:
     def clip(self, lo=None, hi=None):
         """Clamp value to [lo, hi]. None = unbounded."""
         return _ClipExpr(self, lo, hi)
+
+    def hinge(self):
+        """``max(0, x)``. Zeroes out negative values."""
+        return _ClipExpr(self, lo=0, hi=None)
 
     def log(self):
         """Natural logarithm (NaN if value <= 0)."""
@@ -220,6 +234,24 @@ class _NormExpr(Expr):
         return _gauss_cdf((val - self.mean) / self.std)
 
 
+class _SurvivalExpr(Expr):
+    """Survival function (1 - Gaussian CDF) of an inner expression."""
+    __slots__ = ("inner", "mean", "std")
+
+    def __init__(self, inner, mean, std):
+        self.inner = inner
+        self.mean = float(mean)
+        self.std = float(std)
+
+    def evaluate(self, group_df):
+        val = self.inner.evaluate(group_df)
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return float("nan")
+        if self.std == 0:
+            return float("nan")
+        return 1.0 - _gauss_cdf((val - self.mean) / self.std)
+
+
 class _LogisticExpr(Expr):
     """Logistic sigmoid of an inner expression."""
     __slots__ = ("inner", "midpoint", "width")
@@ -285,6 +317,69 @@ def _as_expr(obj):
     if isinstance(obj, (int, float)):
         return _Const(obj)
     raise TypeError(f"Cannot convert {type(obj)} to Expr")
+
+
+# ---------------------------------------------------------------------------
+# Aggregation functions — combine multiple expressions
+# ---------------------------------------------------------------------------
+
+
+class _AggExpr(Expr):
+    """Aggregate multiple expressions with a reducing function."""
+    __slots__ = ("exprs", "agg_fn")
+
+    def __init__(self, exprs, agg_fn):
+        self.exprs = exprs
+        self.agg_fn = agg_fn
+
+    def evaluate(self, group_df):
+        vals = []
+        for e in self.exprs:
+            v = e.evaluate(group_df)
+            if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                vals.append(v)
+        if not vals:
+            return float("nan")
+        return self.agg_fn(vals)
+
+
+def mean(*exprs):
+    """Arithmetic mean of expressions. NaN values are skipped."""
+    return _AggExpr([_as_expr(e) for e in exprs], lambda vs: sum(vs) / len(vs))
+
+
+def geomean(*exprs):
+    """Geometric mean of expressions. NaN and non-positive values are skipped."""
+    def _geomean(vs):
+        pos = [v for v in vs if v > 0]
+        if not pos:
+            return float("nan")
+        return math.exp(sum(math.log(v) for v in pos) / len(pos))
+    return _AggExpr([_as_expr(e) for e in exprs], _geomean)
+
+
+def minimum(*exprs):
+    """Minimum of expressions. NaN values are skipped."""
+    return _AggExpr([_as_expr(e) for e in exprs], min)
+
+
+def maximum(*exprs):
+    """Maximum of expressions. NaN values are skipped."""
+    return _AggExpr([_as_expr(e) for e in exprs], max)
+
+
+def median(*exprs):
+    """Median of expressions. NaN values are skipped.
+
+    For even count, returns mean of the two middle values.
+    """
+    def _median(vs):
+        vs = sorted(vs)
+        n = len(vs)
+        if n % 2 == 1:
+            return vs[n // 2]
+        return (vs[n // 2 - 1] + vs[n // 2]) / 2.0
+    return _AggExpr([_as_expr(e) for e in exprs], _median)
 
 
 def _method_not_found_error(kind_name, method, available):
@@ -517,9 +612,14 @@ class KindAccessor:
     def __gt__(self, threshold):
         return self.value.__gt__(threshold)
 
-    # Delegate Expr methods to .value so Affinity.norm(...) works
-    def norm(self, mean=0.0, std=1.0):
-        return self.value.norm(mean, std)
+    # Delegate Expr methods to .value so Affinity.left_cdf(...) works
+    def left_cdf(self, mean=0.0, std=1.0):
+        return self.value.left_cdf(mean, std)
+
+    norm = left_cdf  # alias
+
+    def right_cdf(self, mean=0.0, std=1.0):
+        return self.value.right_cdf(mean, std)
 
     def logistic(self, midpoint=0.0, width=1.0):
         return self.value.logistic(midpoint, width)
@@ -651,8 +751,13 @@ class WT:
         self._filter_error()
 
     # Delegate Expr methods to .value for use in ranking expressions
-    def norm(self, mean=0.0, std=1.0):
-        return self.value.norm(mean, std)
+    def left_cdf(self, mean=0.0, std=1.0):
+        return self.value.left_cdf(mean, std)
+
+    norm = left_cdf  # alias
+
+    def right_cdf(self, mean=0.0, std=1.0):
+        return self.value.right_cdf(mean, std)
 
     def logistic(self, midpoint=0.0, width=1.0):
         return self.value.logistic(midpoint, width)

@@ -9,7 +9,8 @@ Predict which peptides from protein sequences will be presented by MHC molecules
 - **Multiple prediction models** — NetMHCpan, MHCflurry, NetMHCIIpan, etc. via [mhctools](https://github.com/openvax/mhctools)
 - **Multi-model disambiguation** — `Affinity["netmhcpan"]` bracket syntax when combining models
 - **Composable ranking DSL** — filter, rank, and score with operator expressions
-- **Transforms** — `.logistic()`, `.norm()`, `.clip()`, `.log()`, `.sqrt()` for composite scoring
+- **Transforms** — `.logistic()`, `.left_cdf()`, `.right_cdf()`, `.clip()`, `.hinge()`, `.log()` for composite scoring
+- **Aggregations** — `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()` for combining expressions
 - **Arbitrary column access** — `Column("cysteine_count")` brings any DataFrame column into the DSL
 - **Wildtype comparison** — `WT(Affinity).score` for differential binding analysis
 - **Peptide properties** — charge, hydrophobicity, aromaticity, manufacturability, TCR-facing residue analysis
