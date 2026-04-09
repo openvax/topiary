@@ -183,11 +183,58 @@ Models predict one or more aspects of MHC presentation — binding affinity, ant
 --mhc-alleles HLA-A*02:01,HLA-B*07:02
 ```
 
-**Supported predictors:** `netmhcpan`, `netmhc`, `netmhciipan`, `netmhccons`, `mhcflurry`, `random`, and IEDB web API variants (`netmhcpan-iedb`, `netmhccons-iedb`, `smm-iedb`, `smm-pmbec-iedb`).
-
 **Alleles** can be specified as a comma-separated list (`--mhc-alleles`) or one per line in a file (`--mhc-alleles-file`).
 
 **Peptide lengths:** `--mhc-epitope-lengths 8,9,10,11` (defaults come from the predictor).
+
+### Supported predictors
+
+All predictors are provided by [mhctools](https://github.com/openvax/mhctools). The `--mhc-predictor` CLI flag accepts:
+
+**MHC-I binding / presentation:**
+
+| CLI flag | Class | Output kinds |
+|----------|-------|-------------|
+| `netmhcpan` | NetMHCpan (auto-detects version) | affinity + presentation |
+| `netmhcpan4` | NetMHCpan4 | affinity + presentation |
+| `netmhcpan4-ba` | NetMHCpan4_BA | affinity only |
+| `netmhcpan4-el` | NetMHCpan4_EL | presentation only |
+| `netmhcpan41` | NetMHCpan41 | affinity + presentation |
+| `netmhcpan41-ba` / `netmhcpan41-el` | NetMHCpan41_BA / _EL | single mode |
+| `netmhc` | NetMHC (auto-detects 3 vs 4) | affinity |
+| `netmhccons` | NetMHCcons | affinity |
+| `mhcflurry` | MHCflurry | affinity + presentation + processing |
+| `mixmhcpred` | MixMHCpred | presentation |
+| `random` | RandomBindingPredictor | affinity (random, for testing) |
+
+**MHC-II binding:**
+
+| CLI flag | Class | Output kinds |
+|----------|-------|-------------|
+| `netmhciipan` | NetMHCIIpan (auto-detects version) | affinity |
+| `netmhciipan4` | NetMHCIIpan4 | affinity + presentation |
+| `netmhciipan4-ba` / `netmhciipan4-el` | NetMHCIIpan4_BA / _EL | single mode |
+
+**IEDB web API** (no local install needed):
+
+| CLI flag | Class |
+|----------|-------|
+| `netmhcpan-iedb` | IedbNetMHCpan |
+| `netmhccons-iedb` | IedbNetMHCcons |
+| `netmhciipan-iedb` | IedbNetMHCIIpan |
+| `smm-iedb` | IedbSMM |
+| `smm-pmbec-iedb` | IedbSMM_PMBEC |
+
+**Python-only** (no CLI flag — use via the Python API with `models=[ClassName]`):
+
+| Class | What it does |
+|-------|-------------|
+| `BigMHC` | Presentation and immunogenicity prediction |
+| `NetMHCpan42` / `NetMHCpan42_BA` / `NetMHCpan42_EL` | NetMHCpan 4.2 |
+| `NetMHCIIpan43` / `NetMHCIIpan43_BA` / `NetMHCIIpan43_EL` | NetMHCIIpan 4.3 |
+| `NetMHCstabpan` | pMHC stability prediction |
+| `Pepsickle` | Proteasomal cleavage prediction |
+| `NetChop` | Proteasome cleavage prediction |
 
 ## Expression DSL
 
