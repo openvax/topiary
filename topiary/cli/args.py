@@ -51,7 +51,9 @@ from ..sources import (
 )
 from ..predictor import TopiaryPredictor
 from ..ranking import (
+    ColumnFilter,
     EpitopeFilter,
+    ExprFilter,
     RankingStrategy,
     affinity_filter,
     parse_expr,
@@ -228,52 +230,51 @@ arg_parser = create_arg_parser()
 
 def _build_ranking_strategy(args):
     """Build a RankingStrategy from CLI args, or return None."""
-    # --ranking takes precedence over individual filter args
-    ranking_text = getattr(args, "ranking", None)
-    if ranking_text:
-        result = parse_ranking(ranking_text)
-        if isinstance(result, EpitopeFilter):
-            return RankingStrategy(filters=[result])
-        return result
-
+    ranking_text = getattr(args, "filter_by", None)
     has_presentation = getattr(args, "presentation_cutoff", None) is not None
     has_rank_by = getattr(args, "rank_by", None) is not None
     filter_logic = getattr(args, "filter_logic", "any")
 
-    if not (has_presentation or has_rank_by):
-        return None
-
     filters = []
-    if args.ic50_cutoff or args.percentile_cutoff:
-        filters.append(affinity_filter(
-            ic50_cutoff=args.ic50_cutoff,
-            percentile_cutoff=args.percentile_cutoff,
-        ))
-    if has_presentation:
-        filters.append(presentation_filter(max_rank=args.presentation_cutoff))
+    require_all = (filter_logic == "all")
+
+    if ranking_text:
+        result = parse_ranking(ranking_text)
+        if isinstance(result, RankingStrategy):
+            filters.extend(result.filters)
+            require_all = result.require_all
+        elif isinstance(result, (EpitopeFilter, ColumnFilter, ExprFilter)):
+            filters.append(result)
+        else:
+            filters.append(result)
+    else:
+        if args.ic50_cutoff or args.percentile_cutoff:
+            filters.append(affinity_filter(
+                ic50_cutoff=args.ic50_cutoff,
+                percentile_cutoff=args.percentile_cutoff,
+            ))
+        if has_presentation:
+            filters.append(presentation_filter(max_rank=args.presentation_cutoff))
 
     sort_by = []
     if has_rank_by:
         rank_by_text = args.rank_by.strip()
-        # Detect expression syntax: operators, parens, or dots indicate
-        # a DSL expression. Plain comma-separated kind names (e.g.
-        # "pMHC_affinity,pMHC_presentation") have none of these.
-        is_expr = any(c in rank_by_text for c in '+-*/()')
-        if is_expr:
-            sort_by.append(parse_expr(rank_by_text))
+        # Comma-separated list means multiple fallback sort keys;
+        # otherwise the whole string is one expression.
+        if "," in rank_by_text and not any(c in rank_by_text for c in "+-*/()"):
+            # Legacy: "pMHC_affinity,pMHC_presentation" — each item is
+            # a kind name or column name, parsed independently.
+            for item in rank_by_text.split(","):
+                sort_by.append(parse_expr(item.strip()))
         else:
-            from ..ranking import KindAccessor, _resolve_qualified_kind
-            kind_names = [s.strip() for s in rank_by_text.split(",")]
-            for k in kind_names:
-                if "." in k or "(" in k:
-                    sort_by.append(parse_expr(k))
-                else:
-                    kind, method = _resolve_qualified_kind(k)
-                    sort_by.append(KindAccessor(kind, method=method).score)
+            sort_by.append(parse_expr(rank_by_text))
+
+    if not filters and not sort_by:
+        return None
 
     return RankingStrategy(
         filters=filters,
-        require_all=(filter_logic == "all"),
+        require_all=require_all,
         sort_by=sort_by,
     )
 
@@ -412,6 +413,12 @@ def _validate_input_modes(args):
         incompatible_flags.append("--rna-transcript-fpkm-tracking-file")
     if getattr(args, "rna_transcript_fpkm_gtf_file", None):
         incompatible_flags.append("--rna-transcript-fpkm-gtf-file")
+    if getattr(args, "gene_expression", None):
+        incompatible_flags.append("--gene-expression")
+    if getattr(args, "transcript_expression", None):
+        incompatible_flags.append("--transcript-expression")
+    if getattr(args, "variant_expression", None):
+        incompatible_flags.append("--variant-expression")
 
     if incompatible_flags:
         raise ValueError(

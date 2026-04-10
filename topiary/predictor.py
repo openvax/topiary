@@ -22,7 +22,9 @@ from .filters import (
     filter_silent_and_noncoding_effects,
 )
 from .ranking import (
+    ColumnFilter,
     EpitopeFilter,
+    ExprFilter,
     RankingStrategy,
     affinity_filter,
     apply_ranking_strategy,
@@ -40,6 +42,22 @@ _JOIN_COLUMNS = {
     "transcript": "transcript_id",
     "variant": "variant",
 }
+
+
+def _transcript_expression_dict_from_data(expression_data):
+    """Extract a transcript_id -> expression dict from new-style expression data.
+
+    Uses the first transcript-level source's first value column.
+    Returns None if no transcript expression data is available.
+    """
+    transcript_sources = expression_data.get("transcript", [])
+    if not transcript_sources:
+        return None
+    _name_prefix, id_col, df = transcript_sources[0]
+    value_cols = [c for c in df.columns if c != id_col]
+    if not value_cols:
+        return None
+    return dict(zip(df[id_col], df[value_cols[0]]))
 
 
 def _attach_expression_data(df, expression_data):
@@ -64,11 +82,36 @@ def _attach_expression_data(df, expression_data):
                 continue
             # Rename ID column in expression data to match the join column
             merge_df = expr_df.rename(columns={id_col: join_col})
-            # Prefix value columns with name_prefix if provided
+            # Aggregate duplicate join keys — sum numeric columns so that
+            # e.g. multiple transcripts per gene have their TPM summed.
+            if merge_df[join_col].duplicated().any():
+                n_dupes = merge_df[join_col].duplicated().sum()
+                logging.warning(
+                    "%s-level expression (%s) has %d duplicate %s values; "
+                    "summing numeric columns per %s",
+                    level, name_prefix or "unnamed", n_dupes,
+                    join_col, join_col,
+                )
+                numeric_cols = merge_df.select_dtypes(include="number").columns
+                agg = {c: "sum" for c in numeric_cols}
+                non_numeric = [
+                    c for c in merge_df.columns
+                    if c != join_col and c not in numeric_cols
+                ]
+                for c in non_numeric:
+                    agg[c] = "first"
+                merge_df = merge_df.groupby(join_col, sort=False).agg(agg).reset_index()
+            # Prefix value columns with name_prefix if provided.
+            # Column names are lowercased so that e.g. Salmon's "TPM"
+            # becomes "gene_tpm", matching the documented ranking syntax.
             if name_prefix:
                 for col in merge_df.columns:
                     if col != join_col:
-                        new_name = f"{name_prefix}_{col}" if not col.startswith(name_prefix) else col
+                        col_lower = col.lower()
+                        if col_lower.startswith(name_prefix):
+                            new_name = col_lower
+                        else:
+                            new_name = f"{name_prefix}_{col_lower}"
                         merge_df = merge_df.rename(columns={col: new_name})
             # Left join — keep all prediction rows, fill missing with NaN
             n_before = len(df)
@@ -192,7 +235,7 @@ class TopiaryPredictor(object):
         if isinstance(effective_filter, str):
             from .ranking import parse_ranking
             effective_filter = parse_ranking(effective_filter)
-        if isinstance(effective_filter, EpitopeFilter):
+        if isinstance(effective_filter, (EpitopeFilter, ColumnFilter, ExprFilter)):
             effective_filter = RankingStrategy(filters=[effective_filter])
         if effective_filter is not None:
             self.ranking_strategy = effective_filter
@@ -399,9 +442,18 @@ class TopiaryPredictor(object):
             logging.warning("No candidates for MHC binding prediction")
             return pd.DataFrame()
 
-        if transcript_expression_dict:
+        # Derive a transcript expression dict from new-style data when
+        # the legacy dict is absent, so that transcript selection stays
+        # expression-aware after migrating to --transcript-expression.
+        effective_transcript_expr = transcript_expression_dict
+        if not effective_transcript_expr and expression_data:
+            effective_transcript_expr = _transcript_expression_dict_from_data(
+                expression_data
+            )
+
+        if effective_transcript_expr:
             top_effects = [
-                variant_effects.top_expression_effect(transcript_expression_dict)
+                variant_effects.top_expression_effect(effective_transcript_expr)
                 for variant_effects in variant_effect_groups.values()
             ]
         else:

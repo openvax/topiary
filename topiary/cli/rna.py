@@ -17,7 +17,7 @@ def add_expression_args(arg_parser):
         title="Expression Data",
         description=(
             "Load expression quantification to annotate predictions. "
-            "Values become columns accessible in --ranking and --rank-by. "
+            "Values become columns accessible in --filter-by and --rank-by. "
             "Format: [name:]file[:id_col[:val_col]]. "
             "Common formats (Salmon .sf, Kallisto abundance.tsv, RSEM, "
             "StringTie .gtf, Cufflinks .fpkm_tracking) are auto-detected."
@@ -69,17 +69,18 @@ def expression_data_from_args(args):
     """
     result = {"gene": [], "transcript": [], "variant": []}
 
-    for spec in getattr(args, "gene_expression", []) or []:
-        name, id_col, df = load_expression_from_spec(spec, default_name="gene")
-        result["gene"].append((name, id_col, df))
-
-    for spec in getattr(args, "transcript_expression", []) or []:
-        name, id_col, df = load_expression_from_spec(spec, default_name="transcript")
-        result["transcript"].append((name, id_col, df))
-
-    for spec in getattr(args, "variant_expression", []) or []:
-        name, id_col, df = load_expression_from_spec(spec, default_name="variant")
-        result["variant"].append((name, id_col, df))
+    for level, attr, default_name in [
+        ("gene", "gene_expression", "gene"),
+        ("transcript", "transcript_expression", "transcript"),
+        ("variant", "variant_expression", "variant"),
+    ]:
+        specs = getattr(args, attr, []) or []
+        for i, spec in enumerate(specs):
+            suffix = f"_{i + 1}" if len(specs) > 1 else ""
+            name, id_col, df = load_expression_from_spec(
+                spec, default_name=f"{default_name}{suffix}",
+            )
+            result[level].append((name, id_col, df))
 
     return result
 
@@ -111,7 +112,7 @@ def add_rna_args(arg_parser):
     rna_group.add_argument(
         "--rna-min-transcript-expression",
         help="(Deprecated) Minimum transcript FPKM. "
-             "Use --ranking 'transcript_tpm >= N' instead.",
+             "Use --transcript-expression with --filter-by 'transcript_tpm >= N'.",
         default=0.0,
         type=float,
     )
@@ -126,7 +127,7 @@ def add_rna_args(arg_parser):
     rna_group.add_argument(
         "--rna-min-gene-expression",
         help="(Deprecated) Minimum gene FPKM. "
-             "Use --ranking 'gene_tpm >= N' instead.",
+             "Use --gene-expression with --filter-by 'gene_tpm >= N'.",
         default=0.0,
         type=float,
     )

@@ -86,9 +86,13 @@ def test_parse_filter_negative():
     assert f.min_value == -100.0
 
 
-def test_parse_filter_unknown_kind():
-    with pytest.raises(ValueError, match="Unknown prediction kind"):
-        parse_filter("bogus_kind <= 500")
+def test_parse_filter_unknown_kind_becomes_column():
+    """Unknown identifiers in filters become ColumnFilter (not an error)."""
+    from topiary.ranking import ColumnFilter
+    f = parse_filter("bogus_kind <= 500")
+    assert isinstance(f, ColumnFilter)
+    assert f.col_name == "bogus_kind"
+    assert f.max_value == 500.0
 
 
 def test_parse_ranking_mixed_ops_error():
@@ -109,11 +113,13 @@ def test_field_ge_on_bad_field():
         f >= 5
 
 
-def test_expr_le_raises_on_compound():
-    """Can't do (Affinity.score + 1) <= 5."""
+def test_expr_le_on_compound_returns_expr_filter():
+    """(Affinity.score + 1) <= 5 returns an ExprFilter."""
+    from topiary.ranking import ExprFilter
     expr = Affinity.score + 1
-    with pytest.raises(TypeError, match="Comparison operators"):
-        expr <= 5
+    f = expr <= 5
+    assert isinstance(f, ExprFilter)
+    assert f.max_value == 5.0
 
 
 def test_gauss_cdf_extreme():

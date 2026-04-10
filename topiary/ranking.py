@@ -169,19 +169,19 @@ class Expr:
         """Square root (NaN if value < 0)."""
         return _UnaryOp(self, math.sqrt)
 
-    # -- filters (return EpitopeFilter, not Expr) --
+    # -- filters (return filter objects, not Expr) --
 
     def __le__(self, threshold):
-        raise TypeError(
-            "Comparison operators are only supported on Field objects "
-            "(e.g. Affinity.value <= 500), not on computed expressions."
-        )
+        return ExprFilter(expr=self, max_value=float(threshold))
 
     def __ge__(self, threshold):
-        raise TypeError(
-            "Comparison operators are only supported on Field objects "
-            "(e.g. Affinity.score >= 0.5), not on computed expressions."
-        )
+        return ExprFilter(expr=self, min_value=float(threshold))
+
+    def __lt__(self, threshold):
+        return self.__le__(threshold)
+
+    def __gt__(self, threshold):
+        return self.__ge__(threshold)
 
 
 class _Const(Expr):
@@ -521,6 +521,18 @@ class Column(Expr):
                 f"{val!r} ({type(val).__name__}). "
                 f"Only numeric columns can be used in ranking expressions."
             )
+
+    def __le__(self, threshold):
+        return ColumnFilter(col_name=self.col_name, max_value=float(threshold))
+
+    def __ge__(self, threshold):
+        return ColumnFilter(col_name=self.col_name, min_value=float(threshold))
+
+    def __lt__(self, threshold):
+        return self.__le__(threshold)
+
+    def __gt__(self, threshold):
+        return self.__ge__(threshold)
 
 
 # ---------------------------------------------------------------------------
@@ -990,6 +1002,31 @@ class ColumnFilter:
         return RankingStrategy(filters=[self], sort_by=list(exprs))
 
 
+@dataclass(frozen=True)
+class ExprFilter:
+    """A filter criterion that evaluates an arbitrary :class:`Expr`.
+
+    Generalizes :class:`ColumnFilter` to handle transforms, arithmetic,
+    and any other Expr node::
+
+        ExprFilter(Column("gene_tpm").log(), min_value=1.0)
+        Column("gene_tpm").log() >= 1.0   # equivalent
+    """
+
+    expr: Expr
+    max_value: Optional[float] = None
+    min_value: Optional[float] = None
+
+    def __or__(self, other):
+        return _combine(self, other, require_all=False)
+
+    def __and__(self, other):
+        return _combine(self, other, require_all=True)
+
+    def rank_by(self, *exprs: Expr) -> "RankingStrategy":
+        return RankingStrategy(filters=[self], sort_by=list(exprs))
+
+
 @dataclass
 class RankingStrategy:
     """Composite filter + ranking specification.
@@ -1114,12 +1151,15 @@ def _group_passes(group_df, strategy):
         if isinstance(item, RankingStrategy):
             # Nested sub-strategy — recurse
             results.append(_group_passes(group_df, item))
-        elif isinstance(item, ColumnFilter):
-            # Column-level filter — check first row
-            if group_df.empty or item.col_name not in group_df.columns:
-                results.append(False)
-                continue
-            val = group_df.iloc[0][item.col_name]
+        elif isinstance(item, (ColumnFilter, ExprFilter)):
+            # Expression or column filter — evaluate and compare.
+            # Errors (missing column, non-numeric value) propagate so
+            # the user gets an informative message instead of silent
+            # empty results.
+            if isinstance(item, ColumnFilter):
+                val = Column(item.col_name).evaluate(group_df)
+            else:
+                val = item.expr.evaluate(group_df)
             if val is None or (isinstance(val, float) and np.isnan(val)):
                 results.append(False)
                 continue
@@ -1172,6 +1212,49 @@ def _sort_key_for_group(group_df, sort_by):
     return float("-inf")
 
 
+def _collect_column_names(obj):
+    """Walk an Expr/filter tree and return all Column.col_name references."""
+    names = set()
+    stack = [obj]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, Column):
+            names.add(node.col_name)
+        elif isinstance(node, ColumnFilter):
+            names.add(node.col_name)
+        elif isinstance(node, ExprFilter):
+            stack.append(node.expr)
+        elif isinstance(node, RankingStrategy):
+            stack.extend(node.filters)
+            stack.extend(node.sort_by)
+        elif isinstance(node, _BinOp):
+            stack.append(node.left)
+            stack.append(node.right)
+        elif isinstance(node, _AggExpr):
+            stack.extend(node.exprs)
+        elif hasattr(node, "inner") and isinstance(node.inner, Expr):
+            stack.append(node.inner)
+    return names
+
+
+def _validate_columns(df, strategy):
+    """Raise early if the strategy references columns not in *df*."""
+    needed = _collect_column_names(strategy)
+    if not needed:
+        return
+    available = set(df.columns)
+    missing = needed - available
+    if missing:
+        for col_name in sorted(missing):
+            close = get_close_matches(col_name, sorted(available), n=3, cutoff=0.6)
+            msg = f"Column {col_name!r} not found in DataFrame."
+            if close:
+                msg += f" Did you mean: {close}?"
+            else:
+                msg += f" Available columns: {sorted(available)}"
+            raise ValueError(msg)
+
+
 def apply_ranking_strategy(df, strategy):
     """Apply a :class:`RankingStrategy` to a predictions DataFrame.
 
@@ -1181,6 +1264,7 @@ def apply_ranking_strategy(df, strategy):
     if df.empty:
         return df
 
+    _validate_columns(df, strategy)
     group_keys = _pick_group_keys(df)
     grouped = df.groupby(group_keys, sort=False)
 
@@ -1331,13 +1415,11 @@ def parse_filter(text):
         "column(cysteine_count) <= 2"
         "column(hydrophobicity) >= -0.5"
 
-    Returns an :class:`EpitopeFilter` or :class:`ColumnFilter`.
+    Returns an :class:`EpitopeFilter`, :class:`ColumnFilter`, or
+    :class:`ExprFilter`.
     """
-    # Strip parentheses and whitespace (but not column() parens)
-    text = text.strip()
-    if not text.startswith("column("):
-        text = text.strip("()")
-    for op_str, op_name in [("<=", "le"), (">=", "ge"), ("<", "lt"), (">", "gt")]:
+    text = text.strip().strip("()")
+    for op_str in ["<=", ">=", "<", ">"]:
         if op_str in text:
             lhs, rhs = text.split(op_str, 1)
             lhs = lhs.strip()
@@ -1350,37 +1432,15 @@ def parse_filter(text):
                     f"Right side of {op_str} must be a number."
                 ) from None
 
-            # Check for column(name) syntax
-            col_name = _parse_column_ref(lhs)
-            if col_name is not None:
-                if op_name in ("le", "lt"):
-                    return ColumnFilter(col_name=col_name, max_value=threshold)
-                else:
-                    return ColumnFilter(col_name=col_name, min_value=threshold)
-
-            if "." in lhs:
-                kind_str, field_str = lhs.rsplit(".", 1)
+            # Parse the LHS as a general expression, then apply the
+            # comparison.  Field/KindAccessor.__le__ returns EpitopeFilter,
+            # Column.__le__ returns ColumnFilter, and Expr.__le__ returns
+            # ExprFilter — so this handles all cases uniformly.
+            expr = parse_expr(lhs)
+            if op_str in ("<=", "<"):
+                return expr <= threshold
             else:
-                kind_str, field_str = lhs, "value"
-
-            kind, method = _resolve_qualified_kind(kind_str)
-            field_name = _resolve_field(field_str)
-
-            if op_name in ("le", "lt"):
-                if field_name == "value":
-                    return EpitopeFilter(kind=kind, max_value=threshold, method=method)
-                elif field_name == "percentile_rank":
-                    return EpitopeFilter(kind=kind, max_percentile_rank=threshold, method=method)
-                elif field_name == "score":
-                    return EpitopeFilter(kind=kind, max_score=threshold, method=method)
-            elif op_name in ("ge", "gt"):
-                if field_name == "value":
-                    return EpitopeFilter(kind=kind, min_value=threshold, method=method)
-                elif field_name == "percentile_rank":
-                    return EpitopeFilter(kind=kind, min_percentile_rank=threshold, method=method)
-                elif field_name == "score":
-                    return EpitopeFilter(kind=kind, min_score=threshold, method=method)
-            break
+                return expr >= threshold
     else:
         raise ValueError(f"No comparison operator found in {text!r}")
 

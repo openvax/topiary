@@ -94,12 +94,12 @@ def add_filter_args(arg_parser):
     )
 
     filter_group.add_argument(
-        "--ranking",
+        "--filter-by",
         help=(
-            "Filter/ranking expression. Examples: "
+            "Filter expression. Examples: "
             "'affinity <= 500', "
-            "'affinity <= 500 | presentation.rank <= 2', "
-            "'ic50 <= 500 & el.score >= 0.5'. "
+            "'affinity <= 500 | el.rank <= 2', "
+            "'ba <= 500 & gene_tpm >= 5'. "
             "Overrides --ic50-cutoff, --percentile-cutoff, --presentation-cutoff."
         ),
         default=None,

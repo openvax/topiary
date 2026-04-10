@@ -49,11 +49,11 @@ def test_attach_gene_expression():
     })
     expr_data = {"gene": [("gene", "gene_id", expr_df)], "transcript": [], "variant": []}
     result = _attach_expression_data(df, expr_data)
-    assert "gene_TPM" in result.columns
+    assert "gene_tpm" in result.columns
     # Both rows for var1 should have the same gene TPM
-    assert result.iloc[0]["gene_TPM"] == 42.5
-    assert result.iloc[1]["gene_TPM"] == 42.5
-    assert result.iloc[2]["gene_TPM"] == 15.3
+    assert result.iloc[0]["gene_tpm"] == 42.5
+    assert result.iloc[1]["gene_tpm"] == 42.5
+    assert result.iloc[2]["gene_tpm"] == 15.3
 
 
 def test_attach_gene_expression_missing_gene_nan():
@@ -64,8 +64,8 @@ def test_attach_gene_expression_missing_gene_nan():
     })
     expr_data = {"gene": [("gene", "gene_id", expr_df)], "transcript": [], "variant": []}
     result = _attach_expression_data(df, expr_data)
-    assert result.iloc[0]["gene_TPM"] == 42.5
-    assert math.isnan(result.iloc[2]["gene_TPM"])
+    assert result.iloc[0]["gene_tpm"] == 42.5
+    assert math.isnan(result.iloc[2]["gene_tpm"])
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ def test_missing_join_column_warns(caplog):
     expr_data = {"gene": [("gene", "gene_id", expr_df)], "transcript": [], "variant": []}
     result = _attach_expression_data(df, expr_data)
     # Should warn and return df unchanged (no gene_id column to join on)
-    assert "gene_TPM" not in result.columns
+    assert "gene_tpm" not in result.columns
 
 
 # ---------------------------------------------------------------------------
