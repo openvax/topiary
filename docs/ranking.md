@@ -193,12 +193,13 @@ The `--ranking` flag and `--rank-by` flag accept string expressions:
 
 **Kind aliases:** `ba` / `aff` / `ic50` = Affinity, `el` = Presentation.
 
-**Python-only** (no string form):
+**All features work in both Python and CLI string form** (`--rank-by`):
 
-- Arithmetic: `0.5 * Affinity.score + 0.5 * Presentation.score`
+- Arithmetic: `0.5 * affinity.score + 0.5 * presentation.score`
 - Transforms: `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()`, `.hinge()`, `.log()`
 - Aggregations: `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()`
-- `Column()` in arithmetic (only `column(x) <= N` works in strings)
+- `column(x)` in arithmetic, filters, and ranking
+- Scope prefixes: `wt.affinity.score`, `wt.len`, `wt.count('C')`
 
 ## Putting it together
 

@@ -224,16 +224,16 @@ All predictors are provided by [mhctools](https://github.com/openvax/mhctools). 
 | `smm-iedb` | IedbSMM |
 | `smm-pmbec-iedb` | IedbSMM_PMBEC |
 
-**Python-only** (no CLI flag — use via the Python API with `models=[ClassName]`):
+**Additional predictors** (available via `--mhc-predictor` or Python API `models=[ClassName]`):
 
-| Class | What it does |
-|-------|-------------|
-| `BigMHC` | Presentation and immunogenicity prediction |
-| `NetMHCpan42` / `NetMHCpan42_BA` / `NetMHCpan42_EL` | NetMHCpan 4.2 |
-| `NetMHCIIpan43` / `NetMHCIIpan43_BA` / `NetMHCIIpan43_EL` | NetMHCIIpan 4.3 |
-| `NetMHCstabpan` | pMHC stability prediction |
-| `Pepsickle` | Proteasomal cleavage prediction |
-| `NetChop` | Proteasome cleavage prediction |
+| CLI name | Class | What it does |
+|----------|-------|-------------|
+| `bigmhc` / `bigmhc-el` / `bigmhc-im` | `BigMHC` / `BigMHC_EL` / `BigMHC_IM` | Presentation and immunogenicity prediction |
+| `netmhcpan42` / `netmhcpan42-ba` / `netmhcpan42-el` | `NetMHCpan42` / `NetMHCpan42_BA` / `NetMHCpan42_EL` | NetMHCpan 4.2 |
+| `netmhciipan43` / `netmhciipan43-ba` / `netmhciipan43-el` | `NetMHCIIpan43` / `NetMHCIIpan43_BA` / `NetMHCIIpan43_EL` | NetMHCIIpan 4.3 |
+| `netmhcstabpan` | `NetMHCstabpan` | pMHC stability prediction |
+| `pepsickle` | `Pepsickle` | Proteasomal cleavage prediction |
+| `netchop` | `NetChop` | Proteasome cleavage prediction |
 
 ## Expression DSL
 
@@ -309,25 +309,18 @@ ValueError: No pMHC_affinity predictions from method matching 'netmhcapn'.
 Available: ['mhcflurry', 'netmhcpan']. Did you mean: ['netmhcpan']?
 ```
 
-### Transforms (Python-only)
+### Transforms
 
-Expressions support mathematical transforms for composite scoring. These have no CLI string equivalent — use the Python API for composite scores:
+Expressions support mathematical transforms for composite scoring:
 
 ```python
-# Normalizing to [0, 1]:
+# Python API
 Affinity.descending_cdf(mean=500, std=200)           # lower input → higher output (for IC50, rank)
 Presentation.score.ascending_cdf(mean=0.5, std=0.3)  # higher input → higher output (for scores)
-Affinity.logistic(midpoint=350, width=150)       # lower input → higher output (sigmoid)
-
-# Aggregating across models:
-from topiary import mean, geomean, minimum, maximum, median
+Affinity.logistic(midpoint=350, width=150)            # lower input → higher output (sigmoid)
 mean(Affinity["netmhcpan"].logistic(350, 150),
      Affinity["mhcflurry"].logistic(350, 150))
-
-# Arithmetic:
 0.5 * Affinity.score + 0.5 * Presentation.score
-
-# Other transforms:
 Affinity.value.clip(lo=1, hi=50000)
 Affinity.value.hinge()               # max(0, x)
 Affinity.value.log()                 # also log2(), log10(), log1p()
@@ -335,22 +328,33 @@ Affinity.value.sqrt()
 abs(Affinity.value)
 ```
 
+On the CLI via `--rank-by`:
+
+```bash
+--rank-by "affinity.descending_cdf(500, 200)"
+--rank-by "0.5 * affinity.score + 0.5 * presentation.score"
+--rank-by "mean(affinity['netmhcpan'].logistic(350, 150), affinity['mhcflurry'].logistic(350, 150))"
+--rank-by "affinity.value.clip(1, 50000).log()"
+```
+
 ### Column() — use any DataFrame column
 
 `Column()` brings arbitrary DataFrame columns into the expression system. This is how peptide properties, read counts, and custom annotations participate in ranking:
 
 ```python
-# Python                                    # CLI string (filters only)
-Column("cysteine_count")                    # column(cysteine_count)
-Column("cysteine_count") <= 2               # "column(cysteine_count) <= 2"
-Column("hydrophobicity") >= -0.5            # "column(hydrophobicity) >= -0.5"
+# Python API                                 # CLI string
+Column("cysteine_count")                     # column(cysteine_count)
+Column("cysteine_count") <= 2                # "column(cysteine_count) <= 2"
+Column("hydrophobicity") >= -0.5             # "column(hydrophobicity) >= -0.5"
 
-# In composite scores (Python-only)
+# In composite scores
 score = (
     0.5 * Affinity.logistic(350, 150)
     - 0.2 * Column("cysteine_count")
     + 0.1 * Column("tcr_aromaticity")
 )
+# Or via CLI:
+# --rank-by "0.5 * affinity.logistic(350, 150) - 0.2 * column(cysteine_count) + 0.1 * column(tcr_aromaticity)"
 ```
 
 Missing columns get a helpful error with typo suggestions:
@@ -422,13 +426,13 @@ On the CLI:
 | `Presentation["mhcflurry"].rank <= 2` | `mhcflurry_el.rank <= 2` |
 | `Column("cysteine_count") <= 2` | `column(cysteine_count) <= 2` |
 | `(A <= 500) \| (B.rank <= 2)` | `affinity <= 500 \| el.rank <= 2` |
-| `0.5 * Affinity.score + ...` | *Python-only* |
-| `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()` | *Python-only* |
-| `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()` | *Python-only* |
+| `0.5 * Affinity.score + ...` | `0.5 * affinity.score + ...` |
+| `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()` | `affinity.logistic(350, 150)` etc. |
+| `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()` | `mean(affinity.score, presentation.score)` |
 | `wt.Affinity.score` | `wt.affinity.score` |
 | `len`, `count('C')` | `len`, `count('C')` |
 | `wt.len`, `wt.count('C')` | `wt.len`, `wt.count('C')` |
-| `Column("x")` in arithmetic | *Python-only* |
+| `Column("x")` in arithmetic | `column(x)` in arithmetic |
 
 ## Exclusion filtering
 
