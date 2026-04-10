@@ -374,6 +374,144 @@ affinity.score - wt.affinity.score
 
 These are valid expression strings that `parse_expr` can re-parse, enabling round-tripping.
 
+## Expression data as DSL fields
+
+### The problem with the current RNA interface
+
+Currently, RNA expression filtering is a separate pre-processing step outside the DSL:
+
+```bash
+# Old: separate flags, separate code path, Cufflinks-specific
+--rna-gene-fpkm-tracking-file genes.fpkm_tracking
+--rna-min-gene-expression 4.0
+```
+
+This is wrong for several reasons:
+1. Expression filtering is disconnected from binding filters — they can't be combined in a single expression
+2. The flag names are tool-specific (Cufflinks tracking files) when the data is just a `gene_id → number` mapping
+3. Expression values can't participate in ranking (only in pre-filtering)
+4. Different input sources provide different expression data, but the interface doesn't adapt
+
+### Expression fields
+
+Expression data should be first-class fields in the DSL, alongside binding affinity and presentation score. The data comes from user-provided files and is attached to rows by matching gene/transcript IDs.
+
+**Gene/transcript expression** (available for all input types if user provides data):
+
+| Field | Units | Source | CLI example |
+|-------|-------|--------|-------------|
+| `gene_tpm` | TPM | RNA-seq quantification | `--expression gene_tpm:quant.sf:Name:TPM` |
+| `gene_fpkm` | FPKM | Legacy RNA-seq | `--expression gene_fpkm:genes.fpkm:id:FPKM` |
+| `transcript_tpm` | TPM | Transcript-level | `--expression transcript_tpm:quant.sf:Name:TPM` |
+
+**Variant-level** (available for VCF/MAF inputs if user provides data):
+
+| Field | Units | Source |
+|-------|-------|--------|
+| `vaf` | 0–1 | Variant allele frequency (DNA) |
+| `alt_reads` | count | Reads supporting alt allele |
+| `ref_reads` | count | Reads supporting ref allele |
+| `rna_vaf` | 0–1 | Variant allele frequency (RNA) |
+| `rna_alt_reads` | count | RNA reads supporting variant |
+
+**Single-cell** (available for single-cell inputs):
+
+| Field | Units | Source |
+|-------|-------|--------|
+| `n_cells` | count | Cells expressing the gene/variant |
+| `umis` | count | UMI counts |
+| `cell_fraction` | 0–1 | Fraction of cells expressing |
+
+### Loading expression data
+
+The `--expression` flag replaces all tool-specific RNA flags. It takes a generic `name:file:id_column:value_column` spec:
+
+```bash
+# Salmon
+--expression gene_tpm:salmon/quant.sf:Name:TPM
+
+# Kallisto
+--expression transcript_tpm:abundance.tsv:target_id:tpm
+
+# RSEM
+--expression gene_tpm:rsem.genes.results:gene_id:TPM
+
+# StringTie GTF
+--expression transcript_fpkm:stringtie.gtf:reference_id:FPKM
+
+# Any TSV with ID + value columns
+--expression gene_tpm:my_expression.tsv:ensembl_gene_id:tpm
+```
+
+The predictor matches IDs to rows (gene ID for gene-level, transcript ID for transcript-level) and adds the named column to the DataFrame.
+
+### Unified filtering
+
+Expression fields participate in the same DSL as binding predictions:
+
+```bash
+# Filter: good binder AND expressed
+--ranking "ba <= 500 & gene_tpm >= 4"
+
+# Filter: strong presentation OR highly expressed with moderate binding
+--ranking "(el.score >= 0.9) | (gene_tpm >= 10 & ba <= 1000)"
+
+# Rank by composite including expression
+--rank-by "0.4 * affinity.descending_cdf(500, 200) + 0.3 * presentation.score + 0.2 * gene_tpm.log().ascending_cdf(2, 1) + 0.1 * vaf"
+```
+
+### Expression fields compose with everything
+
+Transforms work on expression fields just like binding fields:
+
+```
+gene_tpm.log()                              # log-transform TPM
+gene_tpm.ascending_cdf(10, 5)               # normalize to [0,1]
+gene_tpm.clip(0, 100)                       # clamp range
+vaf.hinge()                                 # zero out negative values
+```
+
+Expression fields compose with binding and peptide fields:
+
+```
+# Neoantigen priority score: binding × expression × novelty
+0.4 * affinity.descending_cdf(500, 200)
++ 0.3 * presentation.score
++ 0.2 * gene_tpm.log().ascending_cdf(2, 1)
++ 0.1 * (affinity.score - wt.affinity.score)
+
+# Single-cell: weight by cell fraction
+affinity.logistic(350, 150) * cell_fraction
+
+# Variant support: require RNA evidence
+--ranking "ba <= 500 & rna_alt_reads >= 3"
+```
+
+### Implementation
+
+Expression fields are just `column()` references with short aliases. The parser recognizes them as keywords and resolves them to `Column(name)`:
+
+```
+gene_tpm           →  Column("gene_tpm")
+transcript_tpm     →  Column("transcript_tpm")
+vaf                →  Column("vaf")
+```
+
+This means any user-provided column works — the aliases are just convenience for common ones. Users can always fall back to `column(my_custom_field)` for arbitrary data.
+
+### What this replaces
+
+| Old interface | New interface |
+|---|---|
+| `--rna-gene-fpkm-tracking-file FILE` | `--expression gene_tpm:FILE:id:TPM` |
+| `--rna-min-gene-expression 4.0` | `--ranking "gene_tpm >= 4"` |
+| `--rna-transcript-fpkm-tracking-file FILE` | `--expression transcript_tpm:FILE:id:TPM` |
+| `--rna-transcript-fpkm-gtf-file FILE` | `--expression transcript_tpm:FILE:reference_id:FPKM` |
+| `--rna-min-transcript-expression 1.5` | `--ranking "transcript_tpm >= 1.5"` |
+| Hard threshold, discard before prediction | Soft threshold in DSL, participates in ranking |
+
+The old flags would remain as deprecated aliases during a transition period.
+
 ## Summary of decisions
 
 | Decision | Choice |
@@ -387,3 +525,6 @@ These are valid expression strings that `parse_expr` can re-parse, enabling roun
 | Context population | Predictor-managed via `add_context()` |
 | Missing context | NaN at eval time, warning at build time |
 | Backward compat for `WT()` | **None** — clean break |
+| Expression data | First-class DSL fields via `--expression name:file:id_col:val_col` |
+| Expression filtering | Unified with binding filters in `--ranking` |
+| Expression aliases | `gene_tpm`, `transcript_tpm`, `vaf`, etc. → `Column(name)` |
