@@ -12,23 +12,6 @@ Topiary predicts which peptides from protein sequences will be presented by MHC 
 
 **Core idea:** Given protein sequences + HLA alleles + one or more MHC prediction models, Topiary scans all possible peptides and returns those predicted to be presented by MHC, ranked by any combination of binding affinity, presentation score, processing score, and stability.
 
-Topiary can start from several types of input:
-
-- **Somatic variants** (VCF/MAF) — the original use case: find mutant peptides from cancer sequencing data
-- **Protein sequences** (FASTA/CSV) — scan full-length proteins with a sliding window
-- **Peptide lists** (FASTA/CSV) — score specific peptides directly, no sliding window
-- **Gene/transcript IDs** — pull sequences from Ensembl automatically
-
-## How it works
-
-1. **Get protein sequences** — from variants (via [varcode](https://github.com/openvax/varcode)), FASTA/CSV files, or Ensembl lookups
-2. **Generate candidate peptides** — sliding window over proteins, or use peptides as-is
-3. **Predict MHC presentation** — via [mhctools](https://github.com/openvax/mhctools) (NetMHCpan, MHCflurry, etc.), producing binding affinity, presentation, processing, and/or stability scores depending on the model
-4. **Filter and rank** — by binding affinity, percentile rank, presentation score, or custom expressions
-5. **Annotate** — with gene/transcript info, mutation positions, RNA expression levels
-
-For variant inputs, Topiary also filters by RNA expression and identifies which predicted epitopes actually overlap the mutation.
-
 ## Installation
 
 ```bash
@@ -38,24 +21,14 @@ pip install topiary
 For Ensembl-based features (variant annotation, gene lookups), download reference data:
 
 ```bash
-# GRCh38 (hg38) — most common
 pyensembl install --release 93 --species human
-
-# GRCh37 (hg19) — if your variants use this reference
-pyensembl install --release 75 --species human
 ```
 
-Tab completion is built in. To activate for bash/zsh/fish:
-
-```bash
-activate-global-python-argcomplete
-```
+Tab completion: `activate-global-python-argcomplete`
 
 ## Quick start
 
-### Command line
-
-**Scan a FASTA file for MHC binders:**
+### Scan a FASTA for MHC binders
 
 ```bash
 topiary \
@@ -66,56 +39,56 @@ topiary \
   --output-csv results.csv
 ```
 
-**Score specific peptides (no sliding window):**
+### Score specific peptides
 
 ```bash
 topiary \
   --peptide-csv peptides.csv \
   --mhc-predictor netmhcpan \
   --mhc-alleles HLA-A*02:01 \
-  --ic50-cutoff 500 \
+  --ranking "ba <= 500 & el.score >= 0.5" \
   --output-csv results.csv
 ```
 
-**Find neoantigen candidates from somatic variants:**
+### Find neoantigen candidates from somatic variants
 
 ```bash
 topiary \
   --vcf somatic.vcf \
   --mhc-predictor netmhcpan \
   --mhc-alleles HLA-A*02:01,HLA-B*07:02 \
-  --ic50-cutoff 500 \
-  --percentile-cutoff 2.0 \
-  --rna-gene-fpkm-tracking-file genes.fpkm_tracking \
-  --rna-min-gene-expression 4.0 \
+  --ranking "ba <= 500 | el.rank <= 2" \
+  --rank-by "0.6 * affinity.descending_cdf(500, 200) + 0.4 * presentation.score" \
   --only-novel-epitopes \
   --output-csv epitopes.csv
 ```
 
-**Scan cancer-testis antigens, excluding peptides found in vital organs:**
+### Multi-model scoring with composite ranking
 
 ```bash
 topiary \
-  --cta \
-  --exclude-tissues heart_muscle lung liver \
-  --mhc-predictor netmhcpan \
+  --fasta antigens.fasta \
+  --mhc-predictor netmhcpan mhcflurry \
   --mhc-alleles HLA-A*02:01 \
-  --ic50-cutoff 500 \
-  --output-csv cta_epitopes.csv
+  --ranking "ba <= 500" \
+  --rank-by "mean(affinity['netmhcpan'].logistic(350, 150), affinity['mhcflurry'].logistic(350, 150))" \
+  --output-csv results.csv
 ```
 
 ### Python API
 
 ```python
-from topiary import TopiaryPredictor, Affinity, Presentation
-from mhctools import NetMHCpan
+from topiary import TopiaryPredictor, Affinity, Presentation, wt, mean
+from mhctools import NetMHCpan, MHCflurry
 
-# Set up predictor with filtering
 predictor = TopiaryPredictor(
-    models=[NetMHCpan],
+    models=[NetMHCpan, MHCflurry],
     alleles=["HLA-A*02:01", "HLA-B*07:02"],
     filter_by=(Affinity <= 500) | (Presentation.rank <= 2.0),
-    rank_by=[Presentation.score, Affinity.score],
+    rank_by=mean(
+        Affinity["netmhcpan"].logistic(350, 150),
+        Affinity["mhcflurry"].logistic(350, 150),
+    ),
 )
 
 # Scan protein sequences (sliding window)
@@ -136,9 +109,9 @@ variants = load_vcf("somatic.vcf")
 df = predictor.predict_from_variants(variants)
 ```
 
-## Input modes
+## Inputs
 
-### Sequence and peptide files
+### Sequences and peptides
 
 | Flag | Format | Behavior |
 |------|--------|----------|
@@ -147,101 +120,85 @@ df = predictor.predict_from_variants(variants)
 | `--sequence-csv FILE` | CSV with `sequence` column (+ optional `name`) | Sliding-window scan |
 | `--peptide-csv FILE` | CSV with `peptide` column (+ optional `name`) | Scored as-is |
 
-### Gene and transcript lookups
-
-These pull protein sequences from Ensembl automatically:
-
-| Flag | Example |
-|------|---------|
-| `--gene-names NAME [NAME ...]` | `--gene-names BRAF TP53 EGFR` |
-| `--gene-ids ID [ID ...]` | `--gene-ids ENSG00000157764` |
-| `--transcript-ids ID [ID ...]` | `--transcript-ids ENST00000288602` |
-| `--ensembl-proteome` | Scan the entire Ensembl proteome |
-| `--cta` | Cancer-testis antigen genes (requires `pirlygenes`) |
-| `--ensembl-release N` | Use a specific Ensembl release (default: 93 for human) |
-
-For gene lookups, Topiary uses the longest protein-coding transcript per gene.
-
 ### Genomic variants
 
 | Flag | Description |
 |------|-------------|
 | `--vcf FILE` | VCF file of somatic variants |
 | `--maf FILE` | TCGA MAF file |
-| `--variant CHR POS REF ALT` | Individual variant (requires `--ensembl-version`) |
+| `--variant CHR POS REF ALT` | Individual variant |
 | `--protein-change GENE CHANGE` | Direct protein change, e.g. `--protein-change EGFR T790M` |
+
+### Gene and transcript lookups
+
+Pull protein sequences from Ensembl automatically:
+
+| Flag | Example |
+|------|---------|
+| `--gene-names NAME [...]` | `--gene-names BRAF TP53 EGFR` |
+| `--gene-ids ID [...]` | `--gene-ids ENSG00000157764` |
+| `--transcript-ids ID [...]` | `--transcript-ids ENST00000288602` |
+| `--ensembl-proteome` | Scan the entire Ensembl proteome |
+| `--cta` | Cancer-testis antigen genes (requires `pirlygenes`) |
+| `--ensembl-release N` | Use a specific Ensembl release |
 
 Multiple input flags can be combined in a single run.
 
-## MHC prediction models
+### Restrict to regions
 
-Models predict one or more aspects of MHC presentation — binding affinity, antigen processing, stability, or an overall presentation score. Different models produce different subsets of these. You must specify a predictor and alleles:
+Limit prediction to specific protein regions (only applies to sequence inputs):
 
 ```bash
---mhc-predictor netmhcpan \
+--regions spike:319-541 nucleocapsid:0-50
+```
+
+### RNA expression filtering
+
+For variant workflows, filter by gene or transcript expression:
+
+```bash
+--rna-gene-fpkm-tracking-file genes.fpkm_tracking
+--rna-min-gene-expression 4.0
+--rna-transcript-fpkm-tracking-file isoforms.fpkm_tracking
+--rna-min-transcript-expression 1.5
+```
+
+Also supports StringTie GTF: `--rna-transcript-fpkm-gtf-file`.
+
+## MHC prediction models
+
+Specify one or more predictors and alleles:
+
+```bash
+--mhc-predictor netmhcpan mhcflurry \
 --mhc-alleles HLA-A*02:01,HLA-B*07:02
 ```
 
-**Alleles** can be specified as a comma-separated list (`--mhc-alleles`) or one per line in a file (`--mhc-alleles-file`).
+All predictors come from [mhctools](https://github.com/openvax/mhctools). Multiple models can be used together — the expression DSL handles disambiguation.
+
+| CLI name | Class | Predicts |
+|----------|-------|----------|
+| `netmhcpan` | NetMHCpan (auto-detects version) | affinity + presentation |
+| `netmhcpan4` / `netmhcpan41` | NetMHCpan4 / 41 | affinity + presentation |
+| `netmhcpan4-ba` / `netmhcpan4-el` | NetMHCpan4_BA / _EL | single mode |
+| `netmhcpan42` / `netmhcpan42-ba` / `netmhcpan42-el` | NetMHCpan42 variants | NetMHCpan 4.2 |
+| `mhcflurry` | MHCflurry | affinity + presentation + processing |
+| `mixmhcpred` | MixMHCpred | presentation |
+| `netmhciipan` / `netmhciipan4` | NetMHCIIpan variants | MHC-II affinity + presentation |
+| `netmhciipan43` / `netmhciipan43-ba` / `netmhciipan43-el` | NetMHCIIpan43 variants | NetMHCIIpan 4.3 |
+| `bigmhc` / `bigmhc-el` / `bigmhc-im` | BigMHC variants | presentation / immunogenicity |
+| `netmhcstabpan` | NetMHCstabpan | pMHC stability |
+| `pepsickle` / `netchop` | Pepsickle / NetChop | proteasomal cleavage |
+| `netmhcpan-iedb` / `netmhccons-iedb` / `smm-iedb` | IEDB web API | no local install needed |
+| `random` | RandomBindingPredictor | random (for testing) |
 
 **Peptide lengths:** `--mhc-epitope-lengths 8,9,10,11` (defaults come from the predictor).
 
-### Supported predictors
+## Filtering and ranking
 
-All predictors are provided by [mhctools](https://github.com/openvax/mhctools). The `--mhc-predictor` CLI flag accepts:
-
-**MHC-I binding / presentation:**
-
-| CLI flag | Class | Output kinds |
-|----------|-------|-------------|
-| `netmhcpan` | NetMHCpan (auto-detects version) | affinity + presentation |
-| `netmhcpan4` | NetMHCpan4 | affinity + presentation |
-| `netmhcpan4-ba` | NetMHCpan4_BA | affinity only |
-| `netmhcpan4-el` | NetMHCpan4_EL | presentation only |
-| `netmhcpan41` | NetMHCpan41 | affinity + presentation |
-| `netmhcpan41-ba` / `netmhcpan41-el` | NetMHCpan41_BA / _EL | single mode |
-| `netmhc` | NetMHC (auto-detects 3 vs 4) | affinity |
-| `netmhccons` | NetMHCcons | affinity |
-| `mhcflurry` | MHCflurry | affinity + presentation + processing |
-| `mixmhcpred` | MixMHCpred | presentation |
-| `random` | RandomBindingPredictor | affinity (random, for testing) |
-
-**MHC-II binding:**
-
-| CLI flag | Class | Output kinds |
-|----------|-------|-------------|
-| `netmhciipan` | NetMHCIIpan (auto-detects version) | affinity |
-| `netmhciipan4` | NetMHCIIpan4 | affinity + presentation |
-| `netmhciipan4-ba` / `netmhciipan4-el` | NetMHCIIpan4_BA / _EL | single mode |
-
-**IEDB web API** (no local install needed):
-
-| CLI flag | Class |
-|----------|-------|
-| `netmhcpan-iedb` | IedbNetMHCpan |
-| `netmhccons-iedb` | IedbNetMHCcons |
-| `netmhciipan-iedb` | IedbNetMHCIIpan |
-| `smm-iedb` | IedbSMM |
-| `smm-pmbec-iedb` | IedbSMM_PMBEC |
-
-**Additional predictors** (available via `--mhc-predictor` or Python API `models=[ClassName]`):
-
-| CLI name | Class | What it does |
-|----------|-------|-------------|
-| `bigmhc` / `bigmhc-el` / `bigmhc-im` | `BigMHC` / `BigMHC_EL` / `BigMHC_IM` | Presentation and immunogenicity prediction |
-| `netmhcpan42` / `netmhcpan42-ba` / `netmhcpan42-el` | `NetMHCpan42` / `NetMHCpan42_BA` / `NetMHCpan42_EL` | NetMHCpan 4.2 |
-| `netmhciipan43` / `netmhciipan43-ba` / `netmhciipan43-el` | `NetMHCIIpan43` / `NetMHCIIpan43_BA` / `NetMHCIIpan43_EL` | NetMHCIIpan 4.3 |
-| `netmhcstabpan` | `NetMHCstabpan` | pMHC stability prediction |
-| `pepsickle` | `Pepsickle` | Proteasomal cleavage prediction |
-| `netchop` | `NetChop` | Proteasome cleavage prediction |
-
-## Expression DSL
-
-Topiary has an expression language for filtering and ranking predictions. It works in two forms: a **Python API** with operator overloading, and a **string syntax** for the CLI. Both compile to the same internal representation.
+Topiary has an expression language for filtering and ranking predictions. It works identically in the Python API and as CLI strings.
 
 ### Prediction kinds and fields
-
-Four built-in accessors correspond to different aspects of MHC presentation:
 
 | Accessor | Aliases | What it measures |
 |----------|---------|------------------|
@@ -250,193 +207,120 @@ Four built-in accessors correspond to different aspects of MHC presentation:
 | `Stability` | | pMHC complex stability |
 | `Processing` | | Antigen processing / cleavage |
 
-Each has three fields:
+Each has three fields: `.value` (raw), `.rank` (percentile, lower = better), `.score` (normalized, higher = better). Default is `.value`, so `Affinity <= 500` means `Affinity.value <= 500`.
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| `.value` | Raw value (IC50 nM, etc.) | `Affinity.value` |
-| `.rank` | Percentile rank (lower = better) | `Affinity.rank` |
-| `.score` | Normalized score (higher = better) | `Affinity.score` |
-
-The default field is `.value`, so `Affinity <= 500` means `Affinity.value <= 500`.
-
-### Filters: Python vs string
-
-Filters select which peptide-allele groups to keep. The same filter can be written in Python or as a CLI string:
+### Filters
 
 ```python
 # Python                                    # CLI string
 Affinity <= 500                             # "affinity <= 500" or "ba <= 500"
 Affinity.rank <= 2.0                        # "affinity.rank <= 2"
 Presentation.score >= 0.5                   # "el.score >= 0.5"
-
-# OR / AND
 (Affinity <= 500) | (Presentation.rank <= 2)  # "affinity <= 500 | el.rank <= 2"
 (Affinity <= 500) & (Presentation.rank <= 2)  # "affinity <= 500 & el.rank <= 2"
 ```
 
-On the CLI:
+CLI flags:
 
 ```bash
 --ranking "affinity <= 500 | el.rank <= 2"
 --ic50-cutoff 500          # shorthand for affinity <= 500
 --percentile-cutoff 2.0    # shorthand for affinity.rank <= 2
---filter-logic any         # "any" (OR, default) or "all" (AND)
 ```
 
-### Multi-model disambiguation
+### Ranking and transforms
 
-When multiple models produce the same kind (e.g. NetMHCpan and MHCflurry both produce affinity), qualify with brackets in Python or underscores in strings:
-
-```python
-# Python                                    # CLI string
-Affinity["netmhcpan"] <= 500               # "netmhcpan_affinity <= 500"
-Affinity["mhcflurry"].score                # "mhcflurry_affinity.score"
-Presentation["mhcflurry"].rank <= 2        # "mhcflurry_el.rank <= 2"
-```
-
-When only one model produces a kind, no qualification is needed. If you forget to qualify with multiple models, you get a clear error:
-
-```
-ValueError: Ambiguous: multiple models produce pMHC_affinity
-(mhcflurry, netmhcpan). Use Affinity["modelname"] to disambiguate.
-```
-
-Typos also get caught:
-
-```
-ValueError: No pMHC_affinity predictions from method matching 'netmhcapn'.
-Available: ['mhcflurry', 'netmhcpan']. Did you mean: ['netmhcpan']?
-```
-
-### Transforms
-
-Expressions support mathematical transforms for composite scoring:
-
-```python
-# Python API
-Affinity.descending_cdf(mean=500, std=200)           # lower input → higher output (for IC50, rank)
-Presentation.score.ascending_cdf(mean=0.5, std=0.3)  # higher input → higher output (for scores)
-Affinity.logistic(midpoint=350, width=150)            # lower input → higher output (sigmoid)
-mean(Affinity["netmhcpan"].logistic(350, 150),
-     Affinity["mhcflurry"].logistic(350, 150))
-0.5 * Affinity.score + 0.5 * Presentation.score
-Affinity.value.clip(lo=1, hi=50000)
-Affinity.value.hinge()               # max(0, x)
-Affinity.value.log()                 # also log2(), log10(), log1p()
-Affinity.value.sqrt()
-abs(Affinity.value)
-```
-
-On the CLI via `--rank-by`:
+Sort surviving peptides with `--rank-by`. Supports arithmetic, transforms, and aggregations:
 
 ```bash
---rank-by "affinity.descending_cdf(500, 200)"
---rank-by "0.5 * affinity.score + 0.5 * presentation.score"
+# Simple: sort by presentation score, fall back to affinity
+--rank-by pMHC_presentation,pMHC_affinity
+
+# Composite score with normalization
+--rank-by "0.6 * affinity.descending_cdf(500, 200) + 0.4 * presentation.score"
+
+# Average across models
 --rank-by "mean(affinity['netmhcpan'].logistic(350, 150), affinity['mhcflurry'].logistic(350, 150))"
+
+# Chain transforms
 --rank-by "affinity.value.clip(1, 50000).log()"
 ```
 
-### Column() — use any DataFrame column
+Available transforms:
 
-`Column()` brings arbitrary DataFrame columns into the expression system. This is how peptide properties, read counts, and custom annotations participate in ranking:
+| Transform | What it does |
+|-----------|-------------|
+| `.descending_cdf(mean, std)` | Lower input → higher output (for IC50, rank) |
+| `.ascending_cdf(mean, std)` | Higher input → higher output (for scores) |
+| `.logistic(midpoint, width)` | Sigmoid normalization |
+| `.clip(lo, hi)` | Clamp to range |
+| `.hinge()` | `max(0, x)` |
+| `.log()` / `.log2()` / `.log10()` / `.log1p()` | Logarithms |
+| `.sqrt()` / `.exp()` | Square root, exponential |
+| `abs(...)` | Absolute value |
 
-```python
-# Python API                                 # CLI string
-Column("cysteine_count")                     # column(cysteine_count)
-Column("cysteine_count") <= 2                # "column(cysteine_count) <= 2"
-Column("hydrophobicity") >= -0.5             # "column(hydrophobicity) >= -0.5"
+Aggregations: `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()`
 
-# In composite scores
-score = (
-    0.5 * Affinity.logistic(350, 150)
-    - 0.2 * Column("cysteine_count")
-    + 0.1 * Column("tcr_aromaticity")
-)
-# Or via CLI:
-# --rank-by "0.5 * affinity.logistic(350, 150) - 0.2 * column(cysteine_count) + 0.1 * column(tcr_aromaticity)"
-```
+### Multi-model disambiguation
 
-Missing columns get a helpful error with typo suggestions:
-
-```
-ValueError: Column 'hydrophobicty' not found. Did you mean: ['hydrophobicity']?
-```
-
-### wt. — wildtype comparison
-
-The `wt.` scope prefix reads wildtype prediction columns (`wt_value`, `wt_score`, `wt_percentile_rank`), populated by `predict_column` after variant-derived predictions:
+When multiple models produce the same kind, qualify with brackets (Python) or underscores (CLI):
 
 ```python
-# Python API (capitalized kind names)
-wt.Affinity.value                         # WT IC50
-wt.Affinity["netmhcpan"].score            # qualified WT
-Affinity.score - wt.Affinity.score        # differential binding
-Affinity.logistic(350, 150) - wt.Affinity.logistic(350, 150)
-
-# String DSL (lowercase kind names)
-# wt.affinity.value
-# wt.affinity["netmhcpan"].score
-# affinity.score - wt.affinity.score
+Affinity["netmhcpan"] <= 500               # "netmhcpan_ba <= 500"
+Affinity["mhcflurry"].score                # "mhcflurry_affinity.score"
 ```
 
-`wt.` expressions are for ranking, not filters. Returns NaN when WT columns don't exist (non-variant inputs).
+### Scope prefixes: wildtype and alternate peptide contexts
 
-### len and count() — peptide-level expressions
-
-`len` reads the peptide length; `count('C')` counts amino acid occurrences. Both work with scope prefixes:
+The `wt.` prefix reads predictions for the wildtype peptide at the same position. Use it for differential binding:
 
 ```python
-# String DSL
-# len                        # peptide length
-# count('C')                 # cysteine count
-# wt.len                     # wildtype peptide length
-# wt.count('C')              # wildtype cysteine count
-# count('C') - wt.count('C') # gained/lost cysteines
+# Python                                    # CLI string
+wt.Affinity.score                           # wt.affinity.score
+Affinity.score - wt.Affinity.score          # affinity.score - wt.affinity.score
 ```
 
-### Sorting
+`shuffled.` and `self.` prefixes work the same way for shuffled decoy and self-proteome contexts. All return NaN when the corresponding columns don't exist.
 
-Sort surviving peptides after filtering:
+### Peptide-level expressions
 
-```python
-predictor = TopiaryPredictor(
-    models=[NetMHCpan, MHCflurry],
-    alleles=["HLA-A*02:01"],
-    filter_by=(Affinity <= 500) | (Presentation.rank <= 2.0),
-    rank_by=[Presentation.score, Affinity.score],  # first non-NaN wins
-)
-```
-
-On the CLI:
+`len` reads the peptide length. `count('X')` counts amino acid occurrences. Both work with scope prefixes:
 
 ```bash
---rank-by pMHC_presentation,pMHC_affinity
---rank-by "netmhcpan_affinity,mhcflurry_presentation"  # tool-qualified
+--rank-by "len"                             # peptide length
+--rank-by "count('C')"                      # cysteine count
+--rank-by "count('C') - wt.count('C')"      # gained/lost cysteines vs wildtype
 ```
 
-### Quick reference: Python to CLI string
+### Column references
 
-| Python DSL | CLI string form |
+`column(name)` brings any DataFrame column into expressions — peptide properties, read counts, custom annotations:
+
+```bash
+--ranking "column(cysteine_count) <= 2"
+--rank-by "0.5 * affinity.logistic(350, 150) - 0.2 * column(cysteine_count)"
+```
+
+Missing columns get a helpful error: `Column 'hydrophobicty' not found. Did you mean: ['hydrophobicity']?`
+
+### Quick reference
+
+| Python DSL | CLI string |
 |---|---|
-| `Affinity <= 500` | `affinity <= 500` or `ba <= 500` or `ic50 <= 500` |
+| `Affinity <= 500` | `affinity <= 500` / `ba <= 500` / `ic50 <= 500` |
 | `Affinity.rank <= 2` | `affinity.rank <= 2` |
-| `Affinity.score >= 0.5` | `affinity.score >= 0.5` |
 | `Affinity["netmhcpan"] <= 500` | `netmhcpan_ba <= 500` |
-| `Presentation["mhcflurry"].rank <= 2` | `mhcflurry_el.rank <= 2` |
-| `Column("cysteine_count") <= 2` | `column(cysteine_count) <= 2` |
 | `(A <= 500) \| (B.rank <= 2)` | `affinity <= 500 \| el.rank <= 2` |
-| `0.5 * Affinity.score + ...` | `0.5 * affinity.score + ...` |
-| `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()` | `affinity.logistic(350, 150)` etc. |
-| `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()` | `mean(affinity.score, presentation.score)` |
+| `0.5 * Affinity.score + 0.5 * Presentation.score` | `0.5 * affinity.score + 0.5 * presentation.score` |
+| `Affinity.logistic(350, 150)` | `affinity.logistic(350, 150)` |
+| `mean(Affinity.score, Presentation.score)` | `mean(affinity.score, presentation.score)` |
 | `wt.Affinity.score` | `wt.affinity.score` |
-| `len`, `count('C')` | `len`, `count('C')` |
-| `wt.len`, `wt.count('C')` | `wt.len`, `wt.count('C')` |
-| `Column("x")` in arithmetic | `column(x)` in arithmetic |
+| `Len()` / `Count("C")` | `len` / `count('C')` |
+| `Column("cysteine_count")` | `column(cysteine_count)` |
 
 ## Exclusion filtering
 
-For direct sequence/peptide inputs, you can exclude peptides that also appear in reference proteomes — useful for finding tumor-specific or pathogen-specific peptides:
+Exclude peptides that appear in reference proteomes — useful for tumor-specific or pathogen-specific peptides:
 
 ```bash
 --exclude-ensembl                    # Exclude peptides in the human Ensembl proteome
@@ -446,66 +330,19 @@ For direct sequence/peptide inputs, you can exclude peptides that also appear in
 --exclude-mode substring             # "substring" (default) or "exact"
 ```
 
-## Region restriction
-
-Limit prediction to specific protein regions (only applies to sequence inputs, not peptides):
-
-```bash
---regions spike:319-541 nucleocapsid:0-50
-```
-
-Format: `name:start-end` (0-based, half-open interval).
-
-## RNA expression filtering
-
-For variant-based workflows, filter by gene or transcript expression:
-
-```bash
---rna-gene-fpkm-tracking-file genes.fpkm_tracking
---rna-min-gene-expression 4.0
---rna-transcript-fpkm-tracking-file isoforms.fpkm_tracking
---rna-min-transcript-expression 1.5
-```
-
-Also supports StringTie GTF format: `--rna-transcript-fpkm-gtf-file`.
-
 ## Output
 
 ```bash
---output-csv results.csv          # CSV output
---output-html results.html        # HTML table
---output-csv-sep "\t"             # Use tab separator
---subset-output-columns peptide allele affinity  # Select columns
---rename-output-column value ic50               # Rename columns
+--output-csv results.csv
+--output-html results.html
+--output-csv-sep "\t"
+--subset-output-columns peptide allele affinity
+--rename-output-column value ic50
 ```
-
-### Output columns
 
 **All predictions:** `source_sequence_name`, `peptide`, `peptide_offset`, `peptide_length`, `allele`, `kind`, `score`, `value`, `affinity`, `percentile_rank`, `prediction_method_name`
 
 **Variant predictions add:** `variant`, `gene`, `gene_id`, `transcript_id`, `transcript_name`, `effect`, `effect_type`, `contains_mutant_residues`, `mutation_start_in_peptide`, `mutation_end_in_peptide`
-
-## Built-in protein sources (Python API)
-
-The `topiary.sources` module provides functions for loading protein sequences from Ensembl and PirlyGenes:
-
-```python
-from topiary.sources import (
-    ensembl_proteome,
-    sequences_from_gene_names,
-    sequences_from_gene_ids,
-    sequences_from_transcript_ids,
-    cta_sequences,
-    non_cta_sequences,
-    tissue_expressed_sequences,
-    available_tissues,
-)
-
-# All return dict[name -> amino_acid_sequence]
-seqs = sequences_from_gene_names(["BRAF", "TP53", "EGFR"])
-cta = cta_sequences()
-tissues = available_tissues()  # list of tissue names
-```
 
 ## Peptide properties
 
@@ -516,6 +353,10 @@ from topiary.properties import add_peptide_properties
 
 df = predictor.predict_from_named_sequences(seqs)
 df = add_peptide_properties(df, groups=["manufacturability"])
+
+# Properties become ranking signals
+score = Affinity.logistic(350, 150) - 0.1 * Column("cysteine_count")
+# CLI: --rank-by "affinity.logistic(350, 150) - 0.1 * column(cysteine_count)"
 ```
 
 Named groups:
@@ -523,96 +364,21 @@ Named groups:
 - `"manufacturability"` — core + cysteine_count, instability_index, max_7mer_hydrophobicity, difficult_nterm/cterm, asp_pro_bonds
 - `"immunogenicity"` — core + tcr_charge, tcr_aromaticity, tcr_hydrophobicity (TCR-facing positions for MHC-I)
 
-Properties become ranking signals via `Column()`:
+## Protein sources (Python API)
 
 ```python
-from topiary.ranking import Column
-
-score = Affinity.logistic(350, 150) - 0.1 * Column("cysteine_count")
-```
-
-## Advanced example: neoantigen scoring pipeline
-
-Full Python API for neoantigen analysis — variant prediction, wildtype comparison, reference proteome check, peptide properties, and composite scoring across two models:
-
-```python
-from topiary import (
-    TopiaryPredictor, Affinity, Presentation, Column, wt,
-)
-from topiary.properties import add_peptide_properties
-from topiary.comparison import predict_column, annotate_reference
-from topiary.sources import ensembl_proteome, non_cta_sequences
-from mhctools import NetMHCpan, MHCflurry
-from varcode import load_vcf
-
-# --- Set up predictor with two models ---
-
-predictor = TopiaryPredictor(
-    models=[NetMHCpan, MHCflurry],
-    alleles=["HLA-A*02:01", "HLA-B*07:02"],
-    only_novel_epitopes=True,
+from topiary.sources import (
+    ensembl_proteome,
+    sequences_from_gene_names,
+    cta_sequences,
+    non_cta_sequences,
+    tissue_expressed_sequences,
+    available_tissues,
 )
 
-# --- Predict from somatic variants ---
-
-variants = load_vcf("somatic.vcf")
-df = predictor.predict_from_variants(variants)
-# df now has: peptide, allele, kind, value, score, percentile_rank,
-#   variant, gene, effect, contains_mutant_residues,
-#   wt_peptide, wt_source_gene_name, wt_source_sequence_id, ...
-
-# --- Add wildtype predictions (same models, WT peptide at same position) ---
-
-df = predict_column(df, predictor, "wt_peptide", "wt_")
-# Adds: wt_value, wt_score, wt_percentile_rank (per kind × method)
-
-# --- Check if peptide appears in normal proteome ---
-
-df = annotate_reference(df, ensembl_proteome())
-# Adds: occurs_in_reference (boolean)
-
-# --- Compute peptide properties ---
-
-df = add_peptide_properties(df, groups=["manufacturability", "immunogenicity"])
-# Adds: charge, hydrophobicity, aromaticity, cysteine_count,
-#   instability_index, tcr_charge, tcr_aromaticity, ...
-
-df = add_peptide_properties(df, peptide_column="wt_peptide", prefix="wt_",
-                            groups=["core"])
-# Adds: wt_charge, wt_hydrophobicity, wt_aromaticity, wt_molecular_weight
-
-# --- Rank with a composite score across both models ---
-
-score = (
-    # Binding: average logistic IC50 across models
-    0.25 * Affinity["netmhcpan"].logistic(350, 150)
-    + 0.25 * Affinity["mhcflurry"].logistic(350, 150)
-
-    # Presentation
-    + 0.2 * Presentation["mhcflurry"].score
-
-    # Differential binding: mutant binds better than wildtype
-    + 0.15 * (Affinity["netmhcpan"].logistic(350, 150)
-              - wt.Affinity["netmhcpan"].logistic(350, 150))
-
-    # Manufacturability: penalize cysteines and unstable peptides
-    - 0.05 * Column("cysteine_count")
-    - 0.05 * Column("instability_index").clip(lo=0, hi=100).ascending_cdf(50, 20)
-
-    # Immunogenicity: reward aromatic TCR-facing residues
-    + 0.05 * Column("tcr_aromaticity")
-)
-```
-
-The CLI equivalent for the filtering portion:
-
-```bash
-topiary \
-  --vcf somatic.vcf \
-  --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01,HLA-B*07:02 \
-  --ranking "netmhcpan_ba <= 500 & column(cysteine_count) <= 2" \
-  --rank-by "netmhcpan_affinity,mhcflurry_presentation" \
-  --only-novel-epitopes \
-  --output-csv epitopes.csv
+# All return dict[name -> amino_acid_sequence]
+seqs = sequences_from_gene_names(["BRAF", "TP53", "EGFR"])
+cta = cta_sequences()                          # cancer-testis antigens
+heart = tissue_expressed_sequences(["heart_muscle"])
+print(available_tissues())                      # list tissue names
 ```
