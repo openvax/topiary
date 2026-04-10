@@ -1729,8 +1729,14 @@ class _ExprParser:
                 return Column(col_tok[1])
 
             # Kind accessor (e.g. affinity, presentation, affinity.score)
-            accessor = self._parse_kind_accessor()
-            return accessor
+            # or unknown identifier → Column reference (e.g. gene_tpm, vaf)
+            if self._is_kind_name(name):
+                accessor = self._parse_kind_accessor()
+                return accessor
+            else:
+                # Unknown identifier — treat as column reference
+                self.tokenizer.advance()
+                return Column(tok[1])
 
         raise ValueError(
             f"Unexpected token {tok!r} in expression {self.text!r}"
@@ -1861,6 +1867,16 @@ class _ExprParser:
         raise ValueError(
             f"Cannot use ['...'] on {type(node).__name__}"
         )
+
+    def _is_kind_name(self, name):
+        """Check if name resolves as a known kind alias or tool-qualified kind."""
+        if name in _KIND_ACCESSOR_ALIASES:
+            return True
+        try:
+            _resolve_qualified_kind(name)
+            return True
+        except ValueError:
+            return False
 
 
 def parse_expr(text):

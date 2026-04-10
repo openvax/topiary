@@ -35,6 +35,52 @@ from .sequence_helpers import (
 )
 
 
+_JOIN_COLUMNS = {
+    "gene": "gene_id",
+    "transcript": "transcript_id",
+    "variant": "variant",
+}
+
+
+def _attach_expression_data(df, expression_data):
+    """Join expression DataFrames onto prediction DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Prediction DataFrame with gene_id/transcript_id/variant columns.
+    expression_data : dict
+        Keys: 'gene', 'transcript', 'variant'. Values: list of
+        (name_prefix, id_col, DataFrame) tuples from expression_data_from_args.
+    """
+    for level, join_col in _JOIN_COLUMNS.items():
+        for name_prefix, id_col, expr_df in expression_data.get(level, []):
+            if join_col not in df.columns:
+                logging.warning(
+                    "Cannot join %s-level expression: column %r not in "
+                    "predictions (available: %s)",
+                    level, join_col, sorted(df.columns.tolist()),
+                )
+                continue
+            # Rename ID column in expression data to match the join column
+            merge_df = expr_df.rename(columns={id_col: join_col})
+            # Prefix value columns with name_prefix if provided
+            if name_prefix:
+                for col in merge_df.columns:
+                    if col != join_col:
+                        new_name = f"{name_prefix}_{col}" if not col.startswith(name_prefix) else col
+                        merge_df = merge_df.rename(columns={col: new_name})
+            # Left join — keep all prediction rows, fill missing with NaN
+            n_before = len(df)
+            df = df.merge(merge_df, on=join_col, how="left")
+            n_matched = df[merge_df.columns[-1]].notna().sum()
+            logging.info(
+                "Joined %s-level expression (%s): %d/%d rows matched",
+                level, name_prefix or "unnamed", n_matched, n_before,
+            )
+    return df
+
+
 class TopiaryPredictor(object):
     def __init__(
         self,
@@ -313,7 +359,8 @@ class TopiaryPredictor(object):
         return df.rename(columns={"source_sequence_name": "source_sequence"})
 
     def predict_from_mutation_effects(
-        self, effects, transcript_expression_dict=None, gene_expression_dict=None
+        self, effects, transcript_expression_dict=None, gene_expression_dict=None,
+        expression_data=None,
     ):
         """Given a Varcode.EffectCollection of predicted protein effects,
         return predicted epitopes around each mutation.
@@ -323,10 +370,14 @@ class TopiaryPredictor(object):
         effects : Varcode.EffectCollection
 
         transcript_expression_dict : dict, optional
-            Transcript ID -> RNA expression estimates.
+            Transcript ID -> RNA expression estimates (deprecated).
 
         gene_expression_dict : dict, optional
-            Gene ID -> RNA expression estimates.
+            Gene ID -> RNA expression estimates (deprecated).
+
+        expression_data : dict, optional
+            From expression_data_from_args(). Keys: 'gene', 'transcript',
+            'variant', each mapping to list of (name, id_col, DataFrame).
 
         Returns
         -------
@@ -395,14 +446,8 @@ class TopiaryPredictor(object):
             compute_peptide_offset_relative_to_protein, axis=1
         )
 
-        # --- Apply ranking/filtering ---
-        if self.ranking_strategy:
-            df = apply_ranking_strategy(df, self.ranking_strategy)
-            logging.info(
-                "Kept %d predictions after applying ranking strategy" % len(df)
-            )
-
         # --- Annotate with variant/gene/transcript metadata ---
+        # (must happen before ranking so expression columns are available)
         extra_columns = OrderedDict(
             [
                 ("gene", []),
@@ -469,13 +514,26 @@ class TopiaryPredictor(object):
         for col, values in extra_columns.items():
             df[col] = values
 
+        # --- Join expression data (new-style --gene/transcript/variant-expression) ---
+        if expression_data:
+            df = _attach_expression_data(df, expression_data)
+
+        # --- Apply ranking/filtering ---
+        # (after annotation + expression join so all columns are available)
+        if self.ranking_strategy:
+            df = apply_ranking_strategy(df, self.ranking_strategy)
+            logging.info(
+                "Kept %d predictions after applying ranking strategy" % len(df)
+            )
+
         if self.only_novel_epitopes:
             df = df[df.contains_mutant_residues]
 
         return df
 
     def predict_from_variants(
-        self, variants, transcript_expression_dict=None, gene_expression_dict=None
+        self, variants, transcript_expression_dict=None, gene_expression_dict=None,
+        expression_data=None,
     ):
         """
         Predict epitopes from a Variant collection, filtering options, and
@@ -486,10 +544,16 @@ class TopiaryPredictor(object):
         variants : varcode.VariantCollection
 
         transcript_expression_dict : dict, optional
-            Maps from Ensembl transcript IDs to FPKM expression values.
+            Maps from Ensembl transcript IDs to FPKM expression values
+            (deprecated — use expression_data).
 
         gene_expression_dict : dict, optional
-            Maps from Ensembl gene IDs to FPKM expression values.
+            Maps from Ensembl gene IDs to FPKM expression values
+            (deprecated — use expression_data).
+
+        expression_data : dict, optional
+            From expression_data_from_args(). Keys: 'gene', 'transcript',
+            'variant', each mapping to list of (name, id_col, DataFrame).
 
         Returns
         -------
@@ -509,4 +573,5 @@ class TopiaryPredictor(object):
             effects=effects,
             transcript_expression_dict=transcript_expression_dict,
             gene_expression_dict=gene_expression_dict,
+            expression_data=expression_data,
         )

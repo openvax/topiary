@@ -1,0 +1,4 @@
+variant	num_alt_reads	num_ref_reads	num_total_reads	fraction_alt_reads	num_alt_fragments
+chr7 g.140753336A>T	15	85	105	0.143	12
+chr17 g.7577121G>A	8	42	55	0.145	6
+chr12 g.25398284C>T	3	97	103	0.029	2

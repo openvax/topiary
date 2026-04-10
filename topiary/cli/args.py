@@ -22,7 +22,9 @@ from varcode.cli import add_variant_args, variant_collection_from_args
 
 from .filtering import add_filter_args
 from .rna import (
+    add_expression_args,
     add_rna_args,
+    expression_data_from_args,
     rna_gene_expression_dict_from_args,
     rna_transcript_expression_dict_from_args,
 )
@@ -186,6 +188,7 @@ def _add_input_args(arg_parser):
 
 def create_arg_parser(
     rna=True,
+    expression=True,
     mhc=True,
     variants=True,
     protein_changes=True,
@@ -196,6 +199,8 @@ def create_arg_parser(
     direct_inputs=True,
 ):
     arg_parser = ArgumentParser()
+    if expression:
+        add_expression_args(arg_parser)
     if rna:
         add_rna_args(arg_parser)
     if mhc:
@@ -471,11 +476,13 @@ def predict_epitopes_from_args(args):
     variants = variant_collection_from_args(args)
     gene_expression_dict = rna_gene_expression_dict_from_args(args)
     transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
+    expr_data = expression_data_from_args(args)
 
     df = predictor.predict_from_variants(
         variants=variants,
         transcript_expression_dict=transcript_expression_dict,
         gene_expression_dict=gene_expression_dict,
+        expression_data=expr_data,
     )
     return _apply_exclusion(df, args)
 
