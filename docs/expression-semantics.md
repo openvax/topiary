@@ -404,23 +404,91 @@ Expression data should be first-class fields in the DSL, alongside binding affin
 | `gene_fpkm` | FPKM | Legacy RNA-seq | `--expression gene_fpkm:genes.fpkm:id:FPKM` |
 | `transcript_tpm` | TPM | Transcript-level | `--expression transcript_tpm:quant.sf:Name:TPM` |
 
-**Variant-level** (available for VCF/MAF inputs if user provides data):
+**Variant-level RNA evidence** (from isovar or user-provided):
 
-| Field | Units | Source |
-|-------|-------|--------|
-| `vaf` | 0–1 | Variant allele frequency (DNA) |
-| `alt_reads` | count | Reads supporting alt allele |
-| `ref_reads` | count | Reads supporting ref allele |
-| `rna_vaf` | 0–1 | Variant allele frequency (RNA) |
-| `rna_alt_reads` | count | RNA reads supporting variant |
+Isovar (`run_isovar(variants, alignment_file)`) provides per-variant RNA read evidence by assembling reads around each variant locus. Its output maps directly to DSL fields:
 
-**Single-cell** (available for single-cell inputs):
+| DSL field | Isovar field | Units | What it measures |
+|-----------|-------------|-------|------------------|
+| `rna_alt_reads` | `num_alt_reads` | count | RNA reads supporting the variant allele |
+| `rna_ref_reads` | `num_ref_reads` | count | RNA reads supporting the reference allele |
+| `rna_total_reads` | `num_total_reads` | count | Total reads overlapping the locus |
+| `rna_alt_fraction` | `fraction_alt_reads` | 0–1 | Fraction of reads supporting variant (RNA VAF) |
+| `rna_other_reads` | `num_other_reads` | count | Reads supporting neither ref nor alt |
+| `rna_alt_fragments` | `num_alt_fragments` | count | Deduplicated alt fragments |
 
-| Field | Units | Source |
-|-------|-------|--------|
+Isovar also provides the assembled mutant protein sequence (`protein_sequence`), which becomes the peptide source for RNA-informed predictions — connecting back to issue #102 (mutant protein sequences from multiple sources).
+
+**Variant-level DNA evidence** (from VCF annotations or user-provided):
+
+| DSL field | Units | Source |
+|-----------|-------|--------|
+| `vaf` | 0–1 | Variant allele frequency (from VCF INFO/FORMAT) |
+| `alt_reads` | count | DNA reads supporting alt allele |
+| `ref_reads` | count | DNA reads supporting ref allele |
+| `tumor_depth` | count | Total depth at variant locus |
+
+**Single-cell** (from user-provided annotations):
+
+| DSL field | Units | Source |
+|-----------|-------|--------|
 | `n_cells` | count | Cells expressing the gene/variant |
 | `umis` | count | UMI counts |
-| `cell_fraction` | 0–1 | Fraction of cells expressing |
+| `cell_fraction` | 0–1 | Fraction of cells in cluster expressing |
+
+### Isovar integration path
+
+Isovar's `IsovarResult` objects carry rich variant-level evidence. The integration works in two directions:
+
+**1. As a peptide source** (issue #102): Isovar assembles mutant protein sequences from RNA, providing an alternative to varcode's DNA-only prediction. The `protein_sequence` field becomes an input to `predict_from_named_sequences()`.
+
+**2. As expression/evidence annotations**: Isovar's quantitative fields (`num_alt_reads`, `fraction_alt_reads`, `num_total_reads`, etc.) become columns in the prediction DataFrame, accessible via the expression DSL:
+
+```bash
+# Require RNA evidence for the variant
+--ranking "ba <= 500 & rna_alt_reads >= 3 & rna_alt_fraction >= 0.01"
+
+# Weight ranking by RNA support
+--rank-by "0.5 * affinity.descending_cdf(500, 200) + 0.3 * presentation.score + 0.2 * rna_alt_fraction"
+```
+
+The predictor would load isovar results alongside or instead of variants:
+
+```python
+from isovar import run_isovar
+from varcode import load_vcf
+
+variants = load_vcf("somatic.vcf")
+isovar_results = run_isovar(variants, "tumor_rna.bam")
+
+predictor = TopiaryPredictor(
+    models=[NetMHCpan, MHCflurry],
+    alleles=["HLA-A*02:01"],
+    filter_by=(Affinity <= 500),
+)
+
+# Option A: Use isovar's assembled protein sequences
+df = predictor.predict_from_isovar(isovar_results)
+# Peptides come from RNA assembly, evidence fields auto-populated
+
+# Option B: Use varcode peptides but attach isovar evidence
+df = predictor.predict_from_variants(variants)
+df = predictor.annotate_from_isovar(df, isovar_results)
+# Adds rna_alt_reads, rna_alt_fraction, etc. matched by variant
+```
+
+### Isovar filter thresholds as DSL expressions
+
+Isovar has its own filter system (`filter_thresholds` in `run_isovar`). These map 1:1 to DSL filters:
+
+| Isovar filter | DSL equivalent |
+|---|---|
+| `min_num_alt_reads: 3` | `rna_alt_reads >= 3` |
+| `min_fraction_alt_reads: 0.005` | `rna_alt_fraction >= 0.005` |
+| `max_num_ref_reads: 1e9` | `rna_ref_reads <= 1e9` |
+| `min_ratio_alt_to_other_fragments: 3` | `column(ratio_alt_to_other_fragments) >= 3` |
+
+By expressing isovar's filters in the DSL, users can combine RNA evidence thresholds with binding predictions in a single expression — instead of filtering in two separate stages.
 
 ### Loading expression data
 
