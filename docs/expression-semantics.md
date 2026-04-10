@@ -203,86 +203,175 @@ affinity.score - shuffled.affinity.score
 0.1 * (len - 9).hinge()
 ```
 
-## Predictor-managed contexts
+## Comparison peptides: wt, shuffled, self
 
-The predictor owns the mechanics of populating contexts. Each context is registered with the predictor and knows:
-- Which peptide column to read from
-- How to generate the alternate peptide (if applicable)
-- Which prediction/property columns it has populated
+The `wt.`, `shuffled.`, and `self.` scope prefixes read predictions for comparison peptides. Each comparison type has different biology, different algorithms for finding the comparison peptide, and different data sources. They are not a generic "context" — each is its own thing.
 
-### Context lifecycle
+### Wildtype (wt.)
+
+**What it means:** The unmutated version of this peptide at the same protein position. Only meaningful for variant-derived predictions.
+
+**Where the WT peptide comes from:**
+
+| Source | How | When |
+|--------|-----|------|
+| **varcode effects** | The variant effect carries both mutant and reference protein sequences. Extract the same window from the reference. | `predict_from_variants()` — the predictor has the effects and can generate `wt_peptide` during prediction |
+| **isovar results** | `IsovarResult.trimmed_reference_protein_sequence` gives the reference at the same locus | `predict_from_isovar()` |
+| **User-provided** | CSV/TSV with both `peptide` and `wt_peptide` columns | Any input format — user pre-computed WT peptides externally |
+| **External tools** | pVACtools outputs include `MT Epitope Seq` and `WT Epitope Seq`; LENS outputs include reference peptides | Load via `--variant-expression` or a dedicated importer |
+| **Not applicable** | Sequence/peptide inputs without variants have no natural WT | `wt.` fields evaluate to NaN |
+
+**What the predictor needs to do:**
+
+1. During `predict_from_variants(effects)`: retain the reference protein sequence from each varcode effect, extract WT peptides at the same offsets as mutant peptides, store as `wt_peptide` column
+2. `predictor.predict_wildtype(df)`: re-run all models on the `wt_peptide` column, add `wt_value`, `wt_score`, `wt_percentile_rank` (per kind x method), add `wt_peptide_length`
 
 ```python
-predictor = TopiaryPredictor(
-    models=[NetMHCpan, MHCflurry],
-    alleles=["HLA-A*02:01"],
-)
-
-# 1. Predict from variants — wt_peptide column is generated automatically
+# Automatic: predictor generates wt_peptide during variant prediction
 df = predictor.predict_from_variants(variants)
+# df now has wt_peptide column
 
-# 2. Populate context predictions
-df = predictor.add_context(df, "wt")
-# - Reads wt_peptide column
-# - Runs each model on those peptides
-# - Adds wt_value, wt_score, wt_percentile_rank (per kind x method)
-# - Adds wt_peptide_length
-# - Records "wt" in df.attrs["contexts"]
+# Then score the WT peptides with the same models
+df = predictor.predict_wildtype(df)
+# Adds wt_value, wt_score, wt_percentile_rank
 
-df = predictor.add_context(df, "shuffled")
-# - Generates shuffled_peptide by randomly permuting each peptide
-# - Runs each model on shuffled peptides
-# - Adds shuffled_value, shuffled_score, shuffled_percentile_rank
-# - Adds shuffled_peptide_length
-
-df = predictor.add_context(df, "self", proteome=ensembl_proteome())
-# - For each peptide, finds the closest match in the proteome
-# - Adds self_peptide
-# - Runs each model on self peptides
-# - Adds self_value, self_score, self_percentile_rank
-# - Adds self_peptide_length
+# Or: user provides wt_peptide in a CSV
+df = predictor.predict_from_named_peptides({"pep1": "YLQLVFGIEV"})
+df["wt_peptide"] = "YLQLIFGIEV"  # user knows the WT
+df = predictor.predict_wildtype(df)
 ```
 
-### Context tracking
+**Loading WT data from external tools:**
 
-The DataFrame carries metadata about which contexts are populated:
+```bash
+# pVACtools: has WT and MT epitope sequences and binding predictions
+--variant-expression wt_score:pvacseq_results.tsv:variant:"Best WT Score"
+
+# Or load the WT peptide itself and re-predict
+--variant-expression wt_peptide:pvacseq_results.tsv:variant:"WT Epitope Seq"
+```
+
+In the Python API, any DataFrame column named `wt_peptide` can be scored:
+```python
+df["wt_peptide"] = load_wt_peptides_from_pvactools("pvacseq.tsv")
+df = predictor.predict_wildtype(df)
+```
+
+### Shuffled (shuffled.)
+
+**What it means:** A randomly permuted version of this peptide, preserving amino acid composition but destroying sequence. Used as a null model — if a shuffled peptide binds just as well, the binding isn't sequence-specific.
+
+**Where the shuffled peptide comes from:**
+
+| Source | How | When |
+|--------|-----|------|
+| **Generated** | Randomly permute each peptide's amino acids | `predictor.predict_shuffled(df)` |
+| **User-provided** | `shuffled_peptide` column in input | Pre-computed externally |
+
+**Design questions:**
+- **How many shuffles?** One per peptide (simple), or N shuffles averaged (more robust null)?
+- **Deterministic?** Seed from peptide sequence hash for reproducibility?
+- **What if the shuffle produces the same sequence?** Re-shuffle (relevant for short/low-complexity peptides)
 
 ```python
-df.attrs["contexts"]  # {"wt", "shuffled", "self"}
+df = predictor.predict_shuffled(df, n=1, seed=42)
+# Generates shuffled_peptide, runs models, adds shuffled_value/score/rank
+
+# Multiple shuffles, averaged
+df = predictor.predict_shuffled(df, n=10, seed=42)
+# shuffled_value is the mean across 10 shuffles
 ```
 
-This lets the ranking DSL:
-1. **Validate** at strategy-build time that referenced contexts exist
-2. **Warn** clearly instead of silently producing NaN columns
-3. **List** available contexts for tab completion / help
+**No external data needed** — this is self-contained. Just needs the `peptide` column.
 
-### Properties within contexts
+### Self-proteome (self.)
 
-`add_peptide_properties` already supports the `peptide_column` and `prefix` parameters. Context-aware usage:
+**What it means:** The closest-matching peptide in the normal human proteome (or a tissue-specific subset). If the self-match binds equally well, the peptide is unlikely to trigger a T-cell response because the immune system is tolerant to it.
+
+**Where the self peptide comes from:**
+
+| Source | How | When |
+|--------|-----|------|
+| **Proteome search** | Find the most similar peptide in a reference proteome | `predictor.predict_self_match(df, proteome)` |
+| **Existing exclusion data** | The current `exclude_by()` already finds substring matches | Could be extended to return the match instead of just filtering |
+| **User-provided** | `self_peptide` column | Pre-computed externally (e.g., BLAST results) |
+| **External tools** | LENS self-similarity scores; pVACtools `--normal-sample-name` comparison | Load as columns |
+
+**Design questions:**
+- **Matching algorithm:** Exact substring? Hamming distance? Edit distance? BLOSUM-weighted? The right choice depends on the use case.
+- **Proteome scope:** All human proteins? Non-reproductive tissue only? Tissue-specific (genes expressed in the tumor's tissue of origin)?
+- **Per-allele matching?** Different alleles present different peptides. The closest self-match might differ by allele.
+- **Precomputed k-mer index?** For speed, build an index of all k-mers in the proteome once, then look up each peptide.
 
 ```python
-# Compute properties for the default peptide
-df = add_peptide_properties(df, groups=["core"])
+from topiary.sources import ensembl_proteome, non_cta_sequences
 
-# Compute properties for the WT peptide
-df = add_peptide_properties(df, peptide_column="wt_peptide", prefix="wt_",
-                            groups=["core"])
+# Full proteome
+df = predictor.predict_self_match(df, proteome=ensembl_proteome())
+
+# Tissue-restricted (only proteins expressed in normal tissue)
+df = predictor.predict_self_match(df, proteome=tissue_expressed_sequences(["heart_muscle", "lung"]))
+
+# User provides the matches directly
+df["self_peptide"] = find_closest_peptides(df["peptide"], my_proteome)
+df = predictor.predict_self_match(df)  # just re-predicts the self_peptide column
 ```
 
-These could be folded into `add_context` or kept as a separate step — the predictor just needs to know which property columns exist so the DSL can validate `wt.hydrophobicity` references.
+### Loading comparison data from external tools
 
-## NaN propagation when a context is missing
+All three comparison types can be populated from external tool outputs instead of computed by topiary. The pattern is always: load a column into the DataFrame, then either:
+- Re-predict it with topiary's models (`predictor.predict_wildtype(df)`)
+- Or load pre-computed predictions directly as columns
 
-When a context's columns don't exist, field evaluation returns NaN. NaN propagates through arithmetic:
+```python
+# pVACtools: load WT binding data directly
+import pandas as pd
+pvac = pd.read_csv("pvacseq_results.tsv", sep="\t")
+df["wt_peptide"] = df["variant"].map(dict(zip(pvac["Variant"], pvac["WT Epitope Seq"])))
+df["wt_score"] = df["variant"].map(dict(zip(pvac["Variant"], pvac["Best WT Score"])))
+
+# LENS: load self-similarity scores
+df["self_similarity"] = load_lens_scores(...)  # accessible as column(self_similarity)
+
+# Any tool: if it produces peptide + prediction columns, load them with the right prefix
+external = pd.read_csv("external_wt_predictions.tsv", sep="\t")
+for col in ["wt_value", "wt_score", "wt_percentile_rank"]:
+    df[col] = df["variant"].map(dict(zip(external["variant"], external[col])))
+```
+
+The DSL doesn't care where the data came from — it just reads prefixed columns. This means topiary's comparison predictions are interchangeable with external tool outputs.
+
+### What each method needs
+
+| Comparison | Needs from predictor | Needs from user | Can load externally |
+|-----------|---------------------|-----------------|-------------------|
+| **wt** | Reference protein sequences (from varcode effects or isovar) | Nothing (if using variants) or `wt_peptide` column | pVACtools WT epitopes, any tool with WT sequences |
+| **shuffled** | Nothing — self-contained | Nothing | Unlikely, but `shuffled_peptide` column works |
+| **self** | Models for re-prediction | Proteome FASTA or scope (ensembl, tissue list) | BLAST results, LENS scores, any closest-match tool |
+
+### NaN when comparison data is missing
+
+When a scope's columns don't exist, field evaluation returns NaN. NaN propagates through arithmetic:
 
 ```
 affinity.score - wt.affinity.score  →  NaN  (if wt_ columns absent)
 ```
 
-This is correct — the expression can't be evaluated without the data. But the user experience should be:
+This is correct — the expression can't be evaluated without the data. The user experience should be:
 
-1. **Build time**: If a ranking strategy references `wt.affinity.score` and the DataFrame doesn't have `wt_score`, emit a warning naming the missing context and the expression that needs it.
+1. **Build time**: If a ranking strategy references `wt.affinity.score` and the DataFrame doesn't have `wt_score`, emit a warning naming the missing scope and the expression that needs it.
 2. **Eval time**: Return NaN (not an error), so partial results are still usable.
+3. **Output**: Rows with NaN sort keys sink to the bottom of rankings.
+
+### Properties for comparison peptides
+
+`add_peptide_properties` already supports the `peptide_column` and `prefix` parameters:
+
+```python
+df = add_peptide_properties(df, groups=["core"])
+df = add_peptide_properties(df, peptide_column="wt_peptide", prefix="wt_", groups=["core"])
+# Now wt.hydrophobicity, wt.charge etc. work in the DSL
+```
 3. **Output**: Rows with NaN sort keys sink to the bottom of rankings.
 
 ## Parser grammar (updated)
@@ -615,7 +704,7 @@ The old flags would remain as deprecated aliases during a transition period.
 | `WT()` wrapper | **Removed** — replaced by `wt.` prefix |
 | `len` | Precomputed column (`peptide_length` / `wt_peptide_length`) |
 | `count("X")` | Dynamic — reads peptide string at eval time |
-| Context population | Predictor-managed via `add_context()` |
+| Comparison peptides | Explicit methods: `predict_wildtype()`, `predict_shuffled()`, `predict_self_match()` — no generic abstraction |
 | Missing context | NaN at eval time, warning at build time |
 | Backward compat for `WT()` | **None** — clean break |
 | Expression loading | `--gene-expression`, `--transcript-expression`, `--variant-expression` (join key baked into flag) |
