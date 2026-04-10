@@ -51,11 +51,13 @@ from ..sources import (
 )
 from ..predictor import TopiaryPredictor
 from ..ranking import (
+    Affinity,
     ColumnFilter,
     EpitopeFilter,
     ExprFilter,
     KindAccessor,
     RankingStrategy,
+    _kind_matches,
     _resolve_qualified_kind,
     affinity_filter,
     parse_expr,
@@ -321,7 +323,7 @@ def _parse_sort_expr(text):
     if _looks_like_plain_kind_name(text):
         kind, method = _resolve_qualified_kind(text)
         accessor = KindAccessor(kind, method=method)
-        if kind.name == "pMHC_affinity":
+        if _kind_matches(kind, Affinity.kind):
             return accessor.value
         return accessor.score
 

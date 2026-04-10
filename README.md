@@ -16,7 +16,7 @@ Predict which peptides from protein sequences will be presented by MHC molecules
 pip install topiary
 ```
 
-Topiary `4.9.0` and later require `mhctools>=3.5.0`.
+Topiary `4.9.0` and later require `mhctools>=3.7.0`.
 
 For variant annotation and gene lookups, download Ensembl reference data:
 
@@ -449,13 +449,14 @@ Specify one or more predictors with `--mhc-predictor` and alleles with `--mhc-al
 
 All predictors come from [mhctools](https://github.com/openvax/mhctools).
 
-With `mhctools 3.5.0`, upstream predictor parsing now supports multiple
+With `mhctools 3.7.0+`, upstream predictor parsing supports multiple
 predictors in one CLI invocation, so commands like
 `--mhc-predictor netmhcpan42 bigmhc-el` are supported directly. Topiary keeps
 its higher-level `--filter-by` / `--sort-by` DSL on top of that lower-level
-predictor interface. NetChop and Pepsickle behavior also follows the upstream
-`mhctools 3.5.0` changes: improved NetChop error handling and Pepsickle's
-epitope-focused model selection.
+predictor interface. Topiary's ranking/filtering DSL is also compatible with
+the simplified `mhctools 3.7.0+` kind constants API. NetChop and Pepsickle
+behavior follows the upstream changes as well: improved NetChop error handling
+and Pepsickle's epitope-focused model selection.
 
 | CLI name | Predicts |
 |----------|----------|
