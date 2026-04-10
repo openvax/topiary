@@ -3,18 +3,31 @@
 import math
 
 import pandas as pd
+import pytest
 from mhctools import Kind
 
 from topiary.ranking import (
     Affinity,
+    Column,
+    Count,
     EpitopeFilter,
+    Field,
     KindAccessor,
+    Len,
     Presentation,
     RankingStrategy,
     Stability,
+    _Const,
     affinity_filter,
     apply_ranking_strategy,
+    geomean,
+    maximum,
+    mean,
+    median,
+    minimum,
+    parse_expr,
     presentation_filter,
+    wt,
 )
 
 
@@ -1029,8 +1042,6 @@ def test_bracket_on_kind_accessor_returns_new_accessor():
 # parse_expr tests — expression DSL string parsing
 # ---------------------------------------------------------------------------
 
-from topiary.ranking import parse_expr, Field, _Const, Column, WT
-
 
 def test_parse_expr_number():
     expr = parse_expr("42.5")
@@ -1139,13 +1150,16 @@ def test_parse_expr_negation():
 
 
 def test_parse_expr_abs():
+    # abs of a negated expression
     expr = parse_expr("abs(-affinity.value)")
-    # This doesn't work as written since we can't negate a constant
-    # inside abs at parse time. But abs(affinity.value) should work:
-    expr2 = parse_expr("abs(affinity.value)")
     df = _make_df(PEPTIDE_A_ROWS)
-    val = expr2.evaluate(df)
+    val = expr.evaluate(df)
     assert val == 120.0
+
+    # abs of a positive expression
+    expr2 = parse_expr("abs(affinity.value)")
+    val2 = expr2.evaluate(df)
+    assert val2 == 120.0
 
 
 def test_parse_expr_power():
@@ -1164,7 +1178,6 @@ def test_parse_expr_parentheses():
 
 
 def test_parse_expr_mean():
-    from topiary.ranking import mean as mean_fn
     expr = parse_expr("mean(affinity.score, presentation.score)")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
@@ -1228,3 +1241,1047 @@ def test_parse_expr_complex_composite():
     val = expr.evaluate(df)
     assert isinstance(val, float)
     assert 0 < val  # both components should be positive
+
+
+# ---------------------------------------------------------------------------
+# AST ↔ string equivalence tests — verify parse_expr matches Python DSL
+# ---------------------------------------------------------------------------
+
+
+def _eval_both(ast_expr, text, df):
+    """Evaluate both the Python AST and the parsed string expression."""
+    parsed = parse_expr(text)
+    ast_val = ast_expr.evaluate(df)
+    parsed_val = parsed.evaluate(df)
+    return ast_val, parsed_val
+
+
+def _assert_equiv(ast_expr, text, df, tol=1e-9):
+    """Assert AST and parsed string evaluate to the same value."""
+    ast_val, parsed_val = _eval_both(ast_expr, text, df)
+    assert abs(ast_val - parsed_val) < tol, (
+        f"AST={ast_val}, parsed={parsed_val} for {text!r}"
+    )
+
+
+def test_equiv_bare_kind():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.value, "affinity", df)
+
+
+def test_equiv_kind_value():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.value, "affinity.value", df)
+
+
+def test_equiv_kind_score():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.score, "affinity.score", df)
+
+
+def test_equiv_kind_rank():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.rank, "affinity.rank", df)
+
+
+def test_equiv_presentation_score():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Presentation.score, "presentation.score", df)
+
+
+def test_equiv_presentation_rank():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Presentation.rank, "presentation.rank", df)
+
+
+def test_equiv_descending_cdf():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        Affinity.descending_cdf(500, 200),
+        "affinity.descending_cdf(500, 200)",
+        df,
+    )
+
+
+def test_equiv_ascending_cdf():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        Presentation.score.ascending_cdf(0.5, 0.3),
+        "presentation.score.ascending_cdf(0.5, 0.3)",
+        df,
+    )
+
+
+def test_equiv_norm_alias():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        Affinity.value.norm(500, 200),
+        "affinity.value.norm(500, 200)",
+        df,
+    )
+
+
+def test_equiv_logistic():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        Affinity.logistic(350, 150),
+        "affinity.logistic(350, 150)",
+        df,
+    )
+
+
+def test_equiv_log():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.value.log(), "affinity.value.log()", df)
+
+
+def test_equiv_log2():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.value.log2(), "affinity.value.log2()", df)
+
+
+def test_equiv_log10():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.value.log10(), "affinity.value.log10()", df)
+
+
+def test_equiv_log1p():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.value.log1p(), "affinity.value.log1p()", df)
+
+
+def test_equiv_exp():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.score.exp(), "affinity.score.exp()", df)
+
+
+def test_equiv_sqrt():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.value.sqrt(), "affinity.value.sqrt()", df)
+
+
+def test_equiv_clip():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        Affinity.value.clip(100, 200),
+        "affinity.value.clip(100, 200)",
+        df,
+    )
+
+
+def test_equiv_clip_below():
+    df = _make_df(PEPTIDE_B_ROWS)
+    _assert_equiv(
+        Affinity.value.clip(100, 200),
+        "affinity.value.clip(100, 200)",
+        df,
+    )
+
+
+def test_equiv_hinge():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.value.hinge(), "affinity.value.hinge()", df)
+
+
+def test_equiv_negation():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(-Affinity.value, "-affinity.value", df)
+
+
+def test_equiv_abs():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(abs(-Affinity.value), "abs(-affinity.value)", df)
+
+
+def test_equiv_power():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.value ** 2, "affinity.value ** 2", df)
+
+
+def test_equiv_addition():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        Affinity.score + Presentation.score,
+        "affinity.score + presentation.score",
+        df,
+    )
+
+
+def test_equiv_subtraction():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        Affinity.score - Presentation.score,
+        "affinity.score - presentation.score",
+        df,
+    )
+
+
+def test_equiv_multiplication():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        0.5 * Affinity.score,
+        "0.5 * affinity.score",
+        df,
+    )
+
+
+def test_equiv_division():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        Affinity.value / 100,
+        "affinity.value / 100",
+        df,
+    )
+
+
+def test_equiv_weighted_sum():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        0.5 * Affinity.score + 0.5 * Presentation.score,
+        "0.5 * affinity.score + 0.5 * presentation.score",
+        df,
+    )
+
+
+def test_equiv_weighted_cdf_composite():
+    df = _make_df(PEPTIDE_A_ROWS)
+    ast_expr = (
+        0.6 * Affinity.descending_cdf(500, 200)
+        + 0.4 * Presentation.score.ascending_cdf(0.5, 0.3)
+    )
+    text = (
+        "0.6 * affinity.descending_cdf(500, 200) + "
+        "0.4 * presentation.score.ascending_cdf(0.5, 0.3)"
+    )
+    _assert_equiv(ast_expr, text, df)
+
+
+def test_equiv_parenthesized():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        (Affinity.score + Presentation.score) * 0.5,
+        "(affinity.score + presentation.score) * 0.5",
+        df,
+    )
+
+
+def test_equiv_mean():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        mean(Affinity.score, Presentation.score),
+        "mean(affinity.score, presentation.score)",
+        df,
+    )
+
+
+def test_equiv_geomean():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        geomean(Affinity.score, Presentation.score),
+        "geomean(affinity.score, presentation.score)",
+        df,
+    )
+
+
+def test_equiv_minimum():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        minimum(Affinity.score, Presentation.score),
+        "minimum(affinity.score, presentation.score)",
+        df,
+    )
+
+
+def test_equiv_maximum():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        maximum(Affinity.score, Presentation.score),
+        "maximum(affinity.score, presentation.score)",
+        df,
+    )
+
+
+def test_equiv_median():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        median(Affinity.score, Presentation.score),
+        "median(affinity.score, presentation.score)",
+        df,
+    )
+
+
+def test_equiv_column():
+    df = _make_df(PEPTIDE_A_ROWS)
+    df["hydrophobicity"] = 0.75
+    _assert_equiv(
+        Column("hydrophobicity"),
+        "column(hydrophobicity)",
+        df,
+    )
+
+
+def test_equiv_column_in_arithmetic():
+    df = _make_df(PEPTIDE_A_ROWS)
+    df["cysteine_count"] = 2
+    _assert_equiv(
+        0.5 * Affinity.score - 0.1 * Column("cysteine_count"),
+        "0.5 * affinity.score - 0.1 * column(cysteine_count)",
+        df,
+    )
+
+
+def test_equiv_chained_transforms():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        Affinity.value.clip(50, 500).log(),
+        "affinity.value.clip(50, 500).log()",
+        df,
+    )
+
+
+def test_equiv_chained_transforms_sqrt_hinge():
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(
+        Affinity.value.hinge().sqrt(),
+        "affinity.value.hinge().sqrt()",
+        df,
+    )
+
+
+def test_equiv_complex_realistic():
+    """A realistic multi-model composite score."""
+    df = _make_df(PEPTIDE_A_ROWS)
+    ast_expr = (
+        0.4 * Affinity.descending_cdf(500, 200)
+        + 0.4 * Presentation.score.ascending_cdf(0.5, 0.3)
+        + 0.2 * Affinity.value.clip(1, 50000).log()
+    )
+    text = (
+        "0.4 * affinity.descending_cdf(500, 200) + "
+        "0.4 * presentation.score.ascending_cdf(0.5, 0.3) + "
+        "0.2 * affinity.value.clip(1, 50000).log()"
+    )
+    _assert_equiv(ast_expr, text, df)
+
+
+def test_equiv_kind_aliases():
+    """ba, aff, ic50, el are aliases for affinity/presentation."""
+    df = _make_df(PEPTIDE_A_ROWS)
+    _assert_equiv(Affinity.value, "ba", df)
+    _assert_equiv(Affinity.value, "aff", df)
+    _assert_equiv(Affinity.value, "ic50", df)
+    # el → presentation; use .score since presentation value is NaN in fixture
+    _assert_equiv(Presentation.score, "el.score", df)
+
+
+def test_equiv_operator_precedence():
+    """Multiplication binds tighter than addition."""
+    df = _make_df(PEPTIDE_A_ROWS)
+    # 2 * a + 3 * p should be (2*a) + (3*p), not 2*(a+3)*p
+    ast_expr = 2 * Affinity.score + 3 * Presentation.score
+    _assert_equiv(ast_expr, "2 * affinity.score + 3 * presentation.score", df)
+
+
+def test_equiv_right_associative_power():
+    """2 ** 3 ** 2 should be 2 ** (3 ** 2) = 512, not (2 ** 3) ** 2 = 64."""
+    expr = parse_expr("2 ** 3 ** 2")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    assert abs(val - 512.0) < 1e-9
+
+
+def test_equiv_subtraction_vs_negation():
+    """a - b should differ from a + (-b) only in AST shape, not value."""
+    df = _make_df(PEPTIDE_A_ROWS)
+    ast_sub = Affinity.score - Presentation.score
+    ast_neg = Affinity.score + (-Presentation.score)
+    sub_val = ast_sub.evaluate(df)
+    neg_val = ast_neg.evaluate(df)
+    parsed_val = parse_expr("affinity.score - presentation.score").evaluate(df)
+    assert abs(sub_val - neg_val) < 1e-9
+    assert abs(sub_val - parsed_val) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Multi-dot chains, scopes, bracket+chain, peptide properties via parse_expr
+# ---------------------------------------------------------------------------
+
+
+WT_ROWS = [
+    dict(
+        source_sequence_name="seq1", peptide="SIINFEKL", peptide_offset=10,
+        allele="HLA-A*02:01", kind="pMHC_affinity",
+        score=0.8, value=120.0, percentile_rank=0.5,
+        wt_score=0.3, wt_value=800.0, wt_percentile_rank=5.0,
+        prediction_method_name="netmhcpan",
+    ),
+    dict(
+        source_sequence_name="seq1", peptide="SIINFEKL", peptide_offset=10,
+        allele="HLA-A*02:01", kind="pMHC_presentation",
+        score=0.92, value=None, percentile_rank=0.3,
+        wt_score=0.4, wt_value=None, wt_percentile_rank=3.0,
+        prediction_method_name="netmhcpan",
+    ),
+]
+
+PROPERTY_ROWS = [
+    dict(
+        source_sequence_name="seq1", peptide="SIINFEKL", peptide_offset=10,
+        allele="HLA-A*02:01", kind="pMHC_affinity",
+        score=0.8, value=120.0, percentile_rank=0.5,
+        prediction_method_name="netmhcpan",
+        charge=-1.0, hydrophobicity=0.5, cysteine_count=0,
+    ),
+]
+
+
+# --- Triple-chain transforms ---
+
+
+def test_parse_triple_chain():
+    """value.hinge().sqrt().log() — three chained transforms."""
+    df = _make_df(PEPTIDE_A_ROWS)
+    ast_expr = Affinity.value.hinge().sqrt().log()
+    _assert_equiv(ast_expr, "affinity.value.hinge().sqrt().log()", df)
+
+
+def test_parse_quad_chain():
+    """value.clip().hinge().sqrt().log() — four chained transforms."""
+    df = _make_df(PEPTIDE_A_ROWS)
+    ast_expr = Affinity.value.clip(50, 1000).hinge().sqrt().log()
+    _assert_equiv(
+        ast_expr,
+        "affinity.value.clip(50, 1000).hinge().sqrt().log()",
+        df,
+    )
+
+
+def test_parse_chain_with_cdf():
+    """descending_cdf after clip — chain CDF onto another transform."""
+    df = _make_df(PEPTIDE_A_ROWS)
+    ast_expr = Affinity.value.clip(50, 1000).descending_cdf(500, 200)
+    _assert_equiv(
+        ast_expr,
+        "affinity.value.clip(50, 1000).descending_cdf(500, 200)",
+        df,
+    )
+
+
+# --- Scope prefix (wt.) via parse_expr ---
+
+
+def test_parse_wt_bare():
+    """wt.affinity → wt.affinity.value"""
+    df = _make_df(WT_ROWS)
+    ast_expr = wt.Affinity.value
+    _assert_equiv(ast_expr, "wt.affinity", df)
+
+
+def test_parse_wt_score():
+    df = _make_df(WT_ROWS)
+    ast_expr = wt.Affinity.score
+    _assert_equiv(ast_expr, "wt.affinity.score", df)
+
+
+def test_parse_wt_rank():
+    df = _make_df(WT_ROWS)
+    ast_expr = wt.Affinity.rank
+    _assert_equiv(ast_expr, "wt.affinity.rank", df)
+
+
+def test_parse_wt_value():
+    df = _make_df(WT_ROWS)
+    ast_expr = wt.Affinity.value
+    _assert_equiv(ast_expr, "wt.affinity.value", df)
+
+
+def test_parse_wt_descending_cdf():
+    df = _make_df(WT_ROWS)
+    ast_expr = wt.Affinity.descending_cdf(500, 200)
+    _assert_equiv(ast_expr, "wt.affinity.descending_cdf(500, 200)", df)
+
+
+def test_parse_wt_logistic():
+    df = _make_df(WT_ROWS)
+    ast_expr = wt.Affinity.logistic(350, 150)
+    _assert_equiv(ast_expr, "wt.affinity.logistic(350, 150)", df)
+
+
+def test_parse_wt_in_arithmetic():
+    """affinity.score - wt.affinity.score — mutant vs wildtype delta."""
+    df = _make_df(WT_ROWS)
+    ast_expr = Affinity.score - wt.Affinity.score
+    _assert_equiv(ast_expr, "affinity.score - wt.affinity.score", df)
+
+
+def test_parse_wt_presentation_score():
+    df = _make_df(WT_ROWS)
+    ast_expr = wt.Presentation.score
+    _assert_equiv(ast_expr, "wt.presentation.score", df)
+
+
+def test_parse_wt_value_transform_chain():
+    """wt.affinity.value.clip(100, 5000).log()"""
+    df = _make_df(WT_ROWS)
+    ast_expr = wt.Affinity.value.clip(100, 5000).log()
+    _assert_equiv(
+        ast_expr,
+        "wt.affinity.value.clip(100, 5000).log()",
+        df,
+    )
+
+
+def test_parse_wt_composite():
+    """Realistic composite: mutant score weighted against WT delta."""
+    df = _make_df(WT_ROWS)
+    ast_expr = (
+        0.7 * Affinity.descending_cdf(500, 200)
+        + 0.3 * (Affinity.score - wt.Affinity.score)
+    )
+    text = (
+        "0.7 * affinity.descending_cdf(500, 200) + "
+        "0.3 * (affinity.score - wt.affinity.score)"
+    )
+    _assert_equiv(ast_expr, text, df)
+
+
+# --- Bracket qualification + chaining ---
+
+
+def test_parse_bracket_then_chain():
+    """affinity["netmhcpan"].value.clip(50, 500).log()"""
+    df = _make_df(WT_ROWS)
+    ast_expr = Affinity["netmhcpan"].value.clip(50, 500).log()
+    _assert_equiv(
+        ast_expr,
+        'affinity["netmhcpan"].value.clip(50, 500).log()',
+        df,
+    )
+
+
+def test_parse_bracket_descending_cdf():
+    """affinity["netmhcpan"].descending_cdf(500, 200)"""
+    df = _make_df(WT_ROWS)
+    ast_expr = Affinity["netmhcpan"].descending_cdf(500, 200)
+    _assert_equiv(
+        ast_expr,
+        'affinity["netmhcpan"].descending_cdf(500, 200)',
+        df,
+    )
+
+
+def test_parse_bracket_score():
+    """affinity["netmhcpan"].score"""
+    df = _make_df(WT_ROWS)
+    ast_expr = Affinity["netmhcpan"].score
+    _assert_equiv(ast_expr, 'affinity["netmhcpan"].score', df)
+
+
+def test_parse_bracket_in_arithmetic():
+    """Weighted sum with bracket-qualified accessors."""
+    df = _make_df(WT_ROWS)
+    ast_expr = (
+        0.5 * Affinity["netmhcpan"].score
+        + 0.5 * Presentation["netmhcpan"].score
+    )
+    text = '0.5 * affinity["netmhcpan"].score + 0.5 * presentation["netmhcpan"].score'
+    _assert_equiv(ast_expr, text, df)
+
+
+# --- Peptide properties via Column ---
+
+
+def test_parse_column_property_hydrophobicity():
+    df = _make_df(PROPERTY_ROWS)
+    ast_expr = Column("hydrophobicity")
+    _assert_equiv(ast_expr, "column(hydrophobicity)", df)
+
+
+def test_parse_column_property_charge():
+    df = _make_df(PROPERTY_ROWS)
+    ast_expr = Column("charge")
+    _assert_equiv(ast_expr, "column(charge)", df)
+
+
+def test_parse_column_property_in_composite():
+    """Realistic: score weighted by peptide properties."""
+    df = _make_df(PROPERTY_ROWS)
+    ast_expr = (
+        0.6 * Affinity.score
+        + 0.2 * Column("hydrophobicity")
+        - 0.1 * Column("cysteine_count")
+    )
+    text = (
+        "0.6 * affinity.score + "
+        "0.2 * column(hydrophobicity) - "
+        "0.1 * column(cysteine_count)"
+    )
+    _assert_equiv(ast_expr, text, df)
+
+
+def test_parse_column_with_transform():
+    """column(charge).abs() — transform on a column reference."""
+    df = _make_df(PROPERTY_ROWS)
+    ast_expr = abs(Column("charge"))
+    _assert_equiv(ast_expr, "abs(column(charge))", df)
+
+
+# --- Kitchen sink: everything combined ---
+
+
+def test_parse_column_with_hinge():
+    df = _make_df(PROPERTY_ROWS)
+    ast_expr = Column("charge").hinge()
+    _assert_equiv(ast_expr, "column(charge).hinge()", df)
+
+
+def test_parse_kitchen_sink():
+    """Combine WT, bracket, transforms, column, arithmetic in one expression."""
+    df = _make_df(WT_ROWS)
+    df["hydrophobicity"] = 0.5
+    ast_expr = (
+        0.4 * Affinity["netmhcpan"].descending_cdf(500, 200)
+        + 0.3 * (Affinity.score - wt.Affinity.score)
+        + 0.1 * Column("hydrophobicity")
+    )
+    text = (
+        '0.4 * affinity["netmhcpan"].descending_cdf(500, 200) + '
+        "0.3 * (affinity.score - wt.affinity.score) + "
+        "0.1 * column(hydrophobicity)"
+    )
+    _assert_equiv(ast_expr, text, df)
+
+
+# --- Underscore-qualified kind names (e.g. netmhcpan_affinity) ---
+
+
+def test_parse_underscore_qualified_kind():
+    """netmhcpan_affinity → Affinity["netmhcpan"].value"""
+    df = _make_df(WT_ROWS)
+    ast_expr = Affinity["netmhcpan"].value
+    _assert_equiv(ast_expr, "netmhcpan_affinity", df)
+
+
+def test_parse_underscore_qualified_ba():
+    df = _make_df(WT_ROWS)
+    ast_expr = Affinity["netmhcpan"].value
+    _assert_equiv(ast_expr, "netmhcpan_ba", df)
+
+
+def test_parse_underscore_qualified_el():
+    df = _make_df(WT_ROWS)
+    ast_expr = Presentation["netmhcpan"].value
+    # presentation value is NaN, so use score
+    _assert_equiv(Presentation["netmhcpan"].score, "netmhcpan_el.score", df)
+
+
+def test_parse_underscore_qualified_with_field():
+    df = _make_df(WT_ROWS)
+    _assert_equiv(
+        Affinity["netmhcpan"].score,
+        "netmhcpan_affinity.score",
+        df,
+    )
+
+
+def test_parse_underscore_qualified_with_rank():
+    df = _make_df(WT_ROWS)
+    _assert_equiv(
+        Affinity["netmhcpan"].rank,
+        "netmhcpan_affinity.rank",
+        df,
+    )
+
+
+def test_parse_underscore_qualified_with_transform():
+    df = _make_df(WT_ROWS)
+    _assert_equiv(
+        Affinity["netmhcpan"].descending_cdf(500, 200),
+        "netmhcpan_affinity.descending_cdf(500, 200)",
+        df,
+    )
+
+
+def test_parse_underscore_qualified_in_arithmetic():
+    df = _make_df(WT_ROWS)
+    _assert_equiv(
+        0.5 * Affinity["netmhcpan"].score + 0.5 * Presentation["netmhcpan"].score,
+        "0.5 * netmhcpan_affinity.score + 0.5 * netmhcpan_el.score",
+        df,
+    )
+
+
+# --- Round-trip tests: parse → repr → parse → evaluate ---
+
+
+def _assert_roundtrip(text, df, tol=1e-9):
+    """Parse text, repr it, re-parse, compare evaluation."""
+    expr1 = parse_expr(text)
+    text2 = repr(expr1)
+    expr2 = parse_expr(text2)
+    v1 = expr1.evaluate(df)
+    v2 = expr2.evaluate(df)
+    assert abs(v1 - v2) < tol, (
+        f"Round-trip mismatch: {text!r} -> {text2!r}, {v1} != {v2}"
+    )
+
+
+def test_roundtrip_bare_kind():
+    _assert_roundtrip("affinity", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_kind_score():
+    _assert_roundtrip("affinity.score", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_kind_rank():
+    _assert_roundtrip("affinity.rank", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_descending_cdf():
+    _assert_roundtrip("affinity.descending_cdf(500, 200)", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_ascending_cdf():
+    _assert_roundtrip(
+        "presentation.score.ascending_cdf(0.5, 0.3)",
+        _make_df(PEPTIDE_A_ROWS),
+    )
+
+
+def test_roundtrip_logistic():
+    _assert_roundtrip("affinity.logistic(350, 150)", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_log():
+    _assert_roundtrip("affinity.value.log()", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_log2():
+    _assert_roundtrip("affinity.value.log2()", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_clip():
+    _assert_roundtrip("affinity.value.clip(50, 500)", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_hinge():
+    _assert_roundtrip("affinity.value.hinge()", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_sqrt():
+    _assert_roundtrip("affinity.value.sqrt()", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_negation():
+    _assert_roundtrip("-affinity.value", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_abs():
+    _assert_roundtrip("abs(affinity.value)", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_power():
+    _assert_roundtrip("affinity.value ** 2", _make_df(PEPTIDE_A_ROWS))
+
+
+def test_roundtrip_arithmetic():
+    _assert_roundtrip(
+        "0.5 * affinity.score + 0.5 * presentation.score",
+        _make_df(PEPTIDE_A_ROWS),
+    )
+
+
+def test_roundtrip_parenthesized():
+    _assert_roundtrip(
+        "(affinity.score + presentation.score) * 0.5",
+        _make_df(PEPTIDE_A_ROWS),
+    )
+
+
+def test_roundtrip_mean():
+    _assert_roundtrip(
+        "mean(affinity.score, presentation.score)",
+        _make_df(PEPTIDE_A_ROWS),
+    )
+
+
+def test_roundtrip_geomean():
+    _assert_roundtrip(
+        "geomean(affinity.score, presentation.score)",
+        _make_df(PEPTIDE_A_ROWS),
+    )
+
+
+def test_roundtrip_minimum():
+    _assert_roundtrip(
+        "minimum(affinity.score, presentation.score)",
+        _make_df(PEPTIDE_A_ROWS),
+    )
+
+
+def test_roundtrip_column():
+    df = _make_df(PEPTIDE_A_ROWS)
+    df["hydrophobicity"] = 0.75
+    _assert_roundtrip("column(hydrophobicity)", df)
+
+
+def test_roundtrip_wt_score():
+    _assert_roundtrip("wt.affinity.score", _make_df(WT_ROWS))
+
+
+def test_roundtrip_wt_delta():
+    _assert_roundtrip(
+        "affinity.score - wt.affinity.score",
+        _make_df(WT_ROWS),
+    )
+
+
+def test_roundtrip_chained_transforms():
+    _assert_roundtrip(
+        "affinity.value.clip(50, 500).log()",
+        _make_df(PEPTIDE_A_ROWS),
+    )
+
+
+def test_roundtrip_bracket_qualified():
+    _assert_roundtrip(
+        'affinity["netmhcpan"].descending_cdf(500, 200)',
+        _make_df(WT_ROWS),
+    )
+
+
+def test_roundtrip_complex_composite():
+    df = _make_df(WT_ROWS)
+    df["hydrophobicity"] = 0.5
+    _assert_roundtrip(
+        '0.4 * affinity["netmhcpan"].descending_cdf(500, 200) + '
+        "0.3 * (affinity.score - wt.affinity.score) + "
+        "0.1 * column(hydrophobicity)",
+        df,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Len and Count expression tests
+# ---------------------------------------------------------------------------
+
+LEN_ROWS = [
+    dict(
+        source_sequence_name="var1", peptide="SIINFEKL", peptide_offset=10,
+        allele="HLA-A*02:01", kind="pMHC_affinity",
+        score=0.8, value=120.0, percentile_rank=0.5,
+        peptide_length=8,
+        wt_peptide="SIINFEAL", wt_peptide_length=8,
+    ),
+]
+
+
+def test_len_default():
+    df = _make_df(LEN_ROWS)
+    expr = parse_expr("len")
+    assert isinstance(expr, Len)
+    assert expr.evaluate(df) == 8.0
+
+
+def test_len_wt_scope():
+    df = _make_df(LEN_ROWS)
+    expr = parse_expr("wt.len")
+    assert isinstance(expr, Len)
+    assert expr.scope == "wt_"
+    assert expr.evaluate(df) == 8.0
+
+
+def test_len_missing_column_nan():
+    df = _make_df(PEPTIDE_A_ROWS)
+    expr = parse_expr("wt.len")
+    assert math.isnan(expr.evaluate(df))
+
+
+def test_len_in_arithmetic():
+    df = _make_df(LEN_ROWS)
+    expr = parse_expr("len - 9")
+    assert expr.evaluate(df) == -1.0
+
+
+def test_len_repr_roundtrip():
+    expr = parse_expr("len")
+    assert repr(expr) == "len"
+    expr2 = parse_expr(repr(expr))
+    assert isinstance(expr2, Len)
+
+
+def test_len_wt_repr_roundtrip():
+    expr = parse_expr("wt.len")
+    assert repr(expr) == "wt.len"
+    expr2 = parse_expr(repr(expr))
+    assert isinstance(expr2, Len)
+    assert expr2.scope == "wt_"
+
+
+def test_count_single_aa():
+    df = _make_df(LEN_ROWS)
+    expr = parse_expr("count('K')")
+    assert isinstance(expr, Count)
+    assert expr.evaluate(df) == 1.0  # SIINFEKL has one K
+
+
+def test_count_multiple_aa():
+    df = _make_df(LEN_ROWS)
+    expr = parse_expr("count('KL')")
+    # SIINFEKL: K=1, L=1
+    assert expr.evaluate(df) == 2.0
+
+
+def test_count_wt_scope():
+    df = _make_df(LEN_ROWS)
+    expr = parse_expr("wt.count('K')")
+    assert expr.scope == "wt_"
+    # wt_peptide = SIINFEAL: no K
+    assert expr.evaluate(df) == 0.0
+
+
+def test_count_cysteine():
+    df = _make_df(LEN_ROWS)
+    expr = parse_expr("count('C')")
+    # SIINFEKL has no C
+    assert expr.evaluate(df) == 0.0
+
+
+def test_count_in_arithmetic():
+    df = _make_df(LEN_ROWS)
+    expr = parse_expr("count('K') - wt.count('K')")
+    # SIINFEKL has K=1, SIINFEAL has K=0
+    assert expr.evaluate(df) == 1.0
+
+
+def test_count_double_quote():
+    df = _make_df(LEN_ROWS)
+    expr = parse_expr('count("KR")')
+    # SIINFEKL: K=1, R=0
+    assert expr.evaluate(df) == 1.0
+
+
+def test_count_repr_roundtrip():
+    expr = parse_expr("count('C')")
+    assert repr(expr) == "count('C')"
+    expr2 = parse_expr(repr(expr))
+    assert isinstance(expr2, Count)
+    assert expr2.chars == "C"
+
+
+def test_count_wt_repr_roundtrip():
+    expr = parse_expr("wt.count('KR')")
+    assert repr(expr) == "wt.count('KR')"
+    expr2 = parse_expr(repr(expr))
+    assert isinstance(expr2, Count)
+    assert expr2.chars == "KR"
+    assert expr2.scope == "wt_"
+
+
+def test_count_missing_peptide_nan():
+    df = _make_df(PEPTIDE_A_ROWS)
+    expr = parse_expr("wt.count('C')")
+    assert math.isnan(expr.evaluate(df))
+
+
+# ---------------------------------------------------------------------------
+# Scope Python API tests
+# ---------------------------------------------------------------------------
+
+
+def test_scope_python_api_field():
+    field = wt.Affinity.score
+    assert isinstance(field, Field)
+    assert field.scope == "wt_"
+    assert field.field == "score"
+
+
+def test_scope_python_api_value():
+    field = wt.Affinity.value
+    assert isinstance(field, Field)
+    assert field.scope == "wt_"
+    assert field.field == "value"
+
+
+def test_scope_python_api_bracket():
+    field = wt.Affinity["netmhcpan"].score
+    assert isinstance(field, Field)
+    assert field.scope == "wt_"
+    assert field.method == "netmhcpan"
+
+
+def test_scope_python_api_alias():
+    field = wt.ba.score
+    assert isinstance(field, Field)
+    assert field.scope == "wt_"
+
+
+def test_scope_python_api_len():
+    expr = wt.len
+    assert isinstance(expr, Len)
+    assert expr.scope == "wt_"
+
+
+def test_scope_python_api_count():
+    expr = wt.count("C")
+    assert isinstance(expr, Count)
+    assert expr.scope == "wt_"
+    assert expr.chars == "C"
+
+
+def test_scope_repr():
+    assert repr(wt) == "wt"
+
+
+def test_scope_unknown_attr_raises():
+    with pytest.raises(AttributeError, match="Unknown kind"):
+        wt.nonexistent
+
+
+def test_reserved_keyword_in_parser():
+    """Context keywords can't be used as kind names."""
+    with pytest.raises(ValueError, match="reserved context keyword"):
+        parse_expr("wt")
+
+
+def test_reserved_keyword_no_dot_raises():
+    """Context keyword without dot raises."""
+    with pytest.raises(ValueError, match="reserved context keyword"):
+        parse_expr("self")
+
+
+# ---------------------------------------------------------------------------
+# Scope round-trip tests
+# ---------------------------------------------------------------------------
+
+
+def test_roundtrip_wt_len():
+    df = _make_df(LEN_ROWS)
+    _assert_roundtrip("wt.len", df)
+
+
+def test_roundtrip_wt_count():
+    df = _make_df(LEN_ROWS)
+    _assert_roundtrip("wt.count('K')", df)
+
+
+def test_roundtrip_len_arithmetic():
+    df = _make_df(LEN_ROWS)
+    _assert_roundtrip("len - 9", df)
+
+
+def test_roundtrip_count_arithmetic():
+    df = _make_df(LEN_ROWS)
+    _assert_roundtrip("count('K') - wt.count('K')", df)
+
+
+def test_roundtrip_wt_scope_composite():
+    df = _make_df(WT_ROWS)
+    df["peptide_length"] = 8
+    df["wt_peptide_length"] = 8
+    df["wt_peptide"] = "SIINFEAL"
+    _assert_roundtrip(
+        "0.5 * affinity.score - 0.3 * wt.affinity.score + 0.1 * len",
+        df,
+    )

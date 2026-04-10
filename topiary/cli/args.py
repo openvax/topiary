@@ -17,7 +17,7 @@ Common commandline arguments used by scripts
 from argparse import ArgumentParser
 
 import pandas as pd
-from mhctools.cli import add_mhc_args, mhc_binding_predictor_from_args, predictors_from_args
+from mhctools.cli import add_mhc_args, predictors_from_args
 from varcode.cli import add_variant_args, variant_collection_from_args
 
 from .filtering import add_filter_args
@@ -250,9 +250,9 @@ def _build_ranking_strategy(args):
     sort_by = []
     if has_rank_by:
         rank_by_text = args.rank_by.strip()
-        # Detect expression syntax: contains operators, parens, or dots
-        # followed by transform names. Simple comma-separated kind names
-        # won't have these.
+        # Detect expression syntax: operators, parens, or dots indicate
+        # a DSL expression. Plain comma-separated kind names (e.g.
+        # "pMHC_affinity,pMHC_presentation") have none of these.
         is_expr = any(c in rank_by_text for c in '+-*/()')
         if is_expr:
             sort_by.append(parse_expr(rank_by_text))
@@ -260,13 +260,7 @@ def _build_ranking_strategy(args):
             from ..ranking import KindAccessor, _resolve_qualified_kind
             kind_names = [s.strip() for s in rank_by_text.split(",")]
             for k in kind_names:
-                # Check if it looks like a transform expression
-                # (has dots followed by parens, e.g. affinity.descending_cdf)
-                if "." in k and k.split(".")[-1].split("(")[0] in {
-                    "ascending_cdf", "descending_cdf", "norm", "logistic",
-                    "clip", "hinge", "log", "log2", "log10", "log1p",
-                    "exp", "sqrt",
-                }:
+                if "." in k or "(" in k:
                     sort_by.append(parse_expr(k))
                 else:
                     kind, method = _resolve_qualified_kind(k)
@@ -277,7 +271,6 @@ def _build_ranking_strategy(args):
         require_all=(filter_logic == "all"),
         sort_by=sort_by,
     )
-
 
 
 def _parse_regions(region_strings):

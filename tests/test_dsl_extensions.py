@@ -1,4 +1,4 @@
-"""Tests for DSL extensions: logistic, Column, WT, peptide properties."""
+"""Tests for DSL extensions: logistic, Column, scopes, peptide properties."""
 
 import math
 
@@ -14,10 +14,11 @@ from topiary.ranking import (
     KindAccessor,
     Presentation,
     RankingStrategy,
-    WT,
+    Stability,
     apply_ranking_strategy,
     parse_filter,
     parse_ranking,
+    wt,
 )
 
 
@@ -271,69 +272,64 @@ class TestColumnFilter:
 
 
 # ---------------------------------------------------------------------------
-# Tests: WT()
+# Tests: wt scope
 # ---------------------------------------------------------------------------
 
 
-class TestWT:
+class TestWTScope:
     def test_basic_wt_access(self):
         df = _group_with_wt()
-        assert WT(Affinity).value.evaluate(df) == 800.0
-        assert WT(Affinity).score.evaluate(df) == 0.3
-        assert WT(Affinity).rank.evaluate(df) == 5.0
+        assert wt.Affinity.value.evaluate(df) == 800.0
+        assert wt.Affinity.score.evaluate(df) == 0.3
+        assert wt.Affinity.rank.evaluate(df) == 5.0
 
     def test_differential_binding(self):
         df = _group_with_wt()
-        diff = Affinity.score - WT(Affinity).score
+        diff = Affinity.score - wt.Affinity.score
         val = diff.evaluate(df)
         assert val == 0.8 - 0.3
 
     def test_wt_qualified(self):
         df = _group_with_wt()
-        val = WT(Affinity["netmhcpan"]).value.evaluate(df)
+        val = wt.Affinity["netmhcpan"].value.evaluate(df)
         assert val == 800.0
 
-    def test_wt_bracket_on_wt(self):
-        """WT(Affinity)["netmhcpan"] also works."""
+    def test_wt_bracket(self):
         df = _group_with_wt()
-        val = WT(Affinity)["netmhcpan"].value.evaluate(df)
+        val = wt.Affinity["netmhcpan"].value.evaluate(df)
         assert val == 800.0
 
     def test_wt_no_columns_returns_nan(self):
         """When wt_* columns don't exist, returns NaN."""
         df = _basic_group()
-        val = WT(Affinity).value.evaluate(df)
+        val = wt.Affinity.value.evaluate(df)
         assert math.isnan(val)
 
     def test_wt_comparison_raises(self):
-        """WT fields can't be used in filters — only in ranking expressions."""
-        with pytest.raises(TypeError, match="WT fields can't be used in filters"):
-            WT(Affinity) <= 1000
+        """Scoped fields can't be used in filters — only in ranking expressions."""
+        with pytest.raises(TypeError, match="Scoped fields"):
+            wt.Affinity <= 1000
 
     def test_wt_logistic(self):
         df = _group_with_wt()
-        val = WT(Affinity).logistic(350, 150).evaluate(df)
+        val = wt.Affinity.logistic(350, 150).evaluate(df)
         assert 0 < val < 0.5  # WT IC50=800, above midpoint
 
     def test_wt_norm(self):
         df = _group_with_wt()
-        val = WT(Affinity).norm(500, 200).evaluate(df)
+        val = wt.Affinity.norm(500, 200).evaluate(df)
         assert isinstance(val, float)
         assert not math.isnan(val)
 
     def test_wt_arithmetic(self):
         df = _group_with_wt()
-        expr = 0.5 * WT(Affinity) + 0.5 * Affinity
+        expr = 0.5 * wt.Affinity + 0.5 * Affinity
         val = expr.evaluate(df)
         assert val == 0.5 * 800.0 + 0.5 * 120.0
 
-    def test_wt_wrong_type_raises(self):
-        with pytest.raises(TypeError, match="expects a KindAccessor"):
-            WT("not an accessor")
-
     def test_wt_presentation(self):
         df = _group_with_wt()
-        val = WT(Presentation).score.evaluate(df)
+        val = wt.Presentation.score.evaluate(df)
         assert val == 0.4
 
 
@@ -534,17 +530,16 @@ class TestProperties:
 
 
 class TestEdgeCasesFromDocs:
-    def test_wt_bracket_both_directions(self):
-        """WT(Affinity["x"]) and WT(Affinity)["x"] should produce same result."""
+    def test_wt_bracket_qualified(self):
+        """wt.Affinity["x"].value works correctly."""
         df = _group_with_wt()
-        v1 = WT(Affinity["netmhcpan"]).value.evaluate(df)
-        v2 = WT(Affinity)["netmhcpan"].value.evaluate(df)
-        assert v1 == v2 == 800.0
+        val = wt.Affinity["netmhcpan"].value.evaluate(df)
+        assert val == 800.0
 
     def test_wt_ge_also_raises(self):
-        """WT >= should also raise, not just <=."""
-        with pytest.raises(TypeError, match="WT fields"):
-            WT(Affinity) >= 100
+        """Scoped >= should also raise, not just <=."""
+        with pytest.raises(TypeError, match="Scoped fields"):
+            wt.Affinity >= 100
 
     def test_column_filter_both_bounds(self):
         """ColumnFilter with both min and max."""
@@ -589,11 +584,10 @@ class TestEdgeCasesFromDocs:
         assert not math.isnan(val)
 
     def test_wt_with_missing_kind(self):
-        """WT on a kind that has no rows returns NaN, not error."""
+        """Scoped kind with no rows returns NaN, not error."""
         df = _group_with_wt()
         # Stability kind doesn't exist in this df
-        from topiary.ranking import Stability
-        val = WT(Stability).value.evaluate(df)
+        val = wt.Stability.value.evaluate(df)
         assert math.isnan(val)
 
     def test_multiple_groups_overlap(self):
