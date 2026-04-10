@@ -18,7 +18,6 @@ Topiary can start from several types of input:
 - **Protein sequences** (FASTA/CSV) — scan full-length proteins with a sliding window
 - **Peptide lists** (FASTA/CSV) — score specific peptides directly, no sliding window
 - **Gene/transcript IDs** — pull sequences from Ensembl automatically
-- **Built-in gene sets** — cancer-testis antigens (CTA), tissue-expressed genes
 
 ## How it works
 
