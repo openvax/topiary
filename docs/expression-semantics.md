@@ -492,26 +492,50 @@ By expressing isovar's filters in the DSL, users can combine RNA evidence thresh
 
 ### Loading expression data
 
-The `--expression` flag replaces all tool-specific RNA flags. It takes a generic `name:file:id_column:value_column` spec:
+Three flags, each baking in the join key:
 
 ```bash
-# Salmon
---expression gene_tpm:salmon/quant.sf:Name:TPM
-
-# Kallisto
---expression transcript_tpm:abundance.tsv:target_id:tpm
-
-# RSEM
---expression gene_tpm:rsem.genes.results:gene_id:TPM
-
-# StringTie GTF
---expression transcript_fpkm:stringtie.gtf:reference_id:FPKM
-
-# Any TSV with ID + value columns
---expression gene_tpm:my_expression.tsv:ensembl_gene_id:tpm
+--gene-expression name:file:id_column:value_column       # joins on gene_id
+--transcript-expression name:file:id_column:value_column  # joins on transcript_id
+--variant-expression name:file:id_column:value_column     # joins on variant
 ```
 
-The predictor matches IDs to rows (gene ID for gene-level, transcript ID for transcript-level) and adds the named column to the DataFrame.
+The join key is implicit in the flag — gene expression matches on `gene_id` in the DataFrame, transcript on `transcript_id`, variant on `variant`. This avoids ambiguity about which ID space the file's identifiers belong to.
+
+**Simple default**: when only a file is given, use sensible defaults for common formats:
+
+```bash
+# Simple: just a file, auto-detect columns
+--gene-expression salmon/quant.sf
+--transcript-expression abundance.tsv
+
+# With explicit column names
+--gene-expression gene_tpm:salmon/quant.sf:Name:TPM
+--transcript-expression transcript_tpm:kallisto/abundance.tsv:target_id:tpm
+--gene-expression gene_fpkm:rsem.genes.results:gene_id:FPKM
+
+# Multiple in one run
+--gene-expression gene_tpm:salmon/quant.sf:Name:TPM \
+--transcript-expression tx_tpm:salmon/quant.sf:Name:TPM
+
+# Variant-level (from isovar output or any variant-keyed TSV)
+--variant-expression rna_alt_reads:isovar_results.tsv:variant:num_alt_reads
+--variant-expression rna_vaf:isovar_results.tsv:variant:fraction_alt_reads
+```
+
+Auto-detection for common formats:
+
+| File pattern | Detected format | Default ID column | Default value column |
+|---|---|---|---|
+| `*.sf` (Salmon) | TSV | `Name` | `TPM` |
+| `*abundance.tsv` (Kallisto) | TSV | `target_id` | `tpm` |
+| `*.genes.results` (RSEM) | TSV | `gene_id` | `TPM` |
+| `*.isoforms.results` (RSEM) | TSV | `transcript_id` | `TPM` |
+| `*.gtf` (StringTie) | GTF | `reference_id` | `FPKM` |
+| `*.fpkm_tracking` (Cufflinks) | TSV | `tracking_id` | `FPKM` |
+| Other TSV/CSV | Inferred from headers | — | — |
+
+When auto-detection can't determine columns, the flag requires the full `name:file:id_col:val_col` form.
 
 ### Unified filtering
 
@@ -571,11 +595,12 @@ This means any user-provided column works — the aliases are just convenience f
 
 | Old interface | New interface |
 |---|---|
-| `--rna-gene-fpkm-tracking-file FILE` | `--expression gene_tpm:FILE:id:TPM` |
-| `--rna-min-gene-expression 4.0` | `--ranking "gene_tpm >= 4"` |
-| `--rna-transcript-fpkm-tracking-file FILE` | `--expression transcript_tpm:FILE:id:TPM` |
-| `--rna-transcript-fpkm-gtf-file FILE` | `--expression transcript_tpm:FILE:reference_id:FPKM` |
-| `--rna-min-transcript-expression 1.5` | `--ranking "transcript_tpm >= 1.5"` |
+| `--rna-gene-fpkm-tracking-file FILE` | `--gene-expression FILE` or `--gene-expression gene_fpkm:FILE:tracking_id:FPKM` |
+| `--rna-min-gene-expression 4.0` | `--ranking "gene_fpkm >= 4"` |
+| `--rna-transcript-fpkm-tracking-file FILE` | `--transcript-expression FILE` |
+| `--rna-transcript-fpkm-gtf-file FILE` | `--transcript-expression tx_fpkm:FILE:reference_id:FPKM` |
+| `--rna-min-transcript-expression 1.5` | `--ranking "tx_fpkm >= 1.5"` |
+| *(no variant-level support)* | `--variant-expression rna_alt_reads:FILE:variant:num_alt_reads` |
 | Hard threshold, discard before prediction | Soft threshold in DSL, participates in ranking |
 
 The old flags would remain as deprecated aliases during a transition period.
@@ -593,6 +618,7 @@ The old flags would remain as deprecated aliases during a transition period.
 | Context population | Predictor-managed via `add_context()` |
 | Missing context | NaN at eval time, warning at build time |
 | Backward compat for `WT()` | **None** — clean break |
-| Expression data | First-class DSL fields via `--expression name:file:id_col:val_col` |
+| Expression loading | `--gene-expression`, `--transcript-expression`, `--variant-expression` (join key baked into flag) |
 | Expression filtering | Unified with binding filters in `--ranking` |
 | Expression aliases | `gene_tpm`, `transcript_tpm`, `vaf`, etc. → `Column(name)` |
+| Simple default | `--gene-expression quant.sf` auto-detects columns for common formats |
