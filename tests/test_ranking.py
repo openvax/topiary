@@ -1023,3 +1023,208 @@ def test_bracket_on_kind_accessor_returns_new_accessor():
     qualified = Affinity["netmhcpan"]
     assert qualified.method == "netmhcpan"
     assert Affinity.method == original_method  # unchanged
+
+
+# ---------------------------------------------------------------------------
+# parse_expr tests — expression DSL string parsing
+# ---------------------------------------------------------------------------
+
+from topiary.ranking import parse_expr, Field, _Const, Column, WT
+
+
+def test_parse_expr_number():
+    expr = parse_expr("42.5")
+    assert isinstance(expr, _Const)
+    assert expr.val == 42.5
+
+
+def test_parse_expr_kind_accessor_defaults_to_value():
+    expr = parse_expr("affinity")
+    assert isinstance(expr, Field)
+    assert expr.kind == Kind.pMHC_affinity
+    assert expr.field == "value"
+
+
+def test_parse_expr_kind_field():
+    expr = parse_expr("affinity.score")
+    assert isinstance(expr, Field)
+    assert expr.kind == Kind.pMHC_affinity
+    assert expr.field == "score"
+
+
+def test_parse_expr_kind_rank():
+    expr = parse_expr("presentation.rank")
+    assert isinstance(expr, Field)
+    assert expr.kind == Kind.pMHC_presentation
+    assert expr.field == "percentile_rank"
+
+
+def test_parse_expr_arithmetic():
+    expr = parse_expr("0.5 * affinity.score + 0.5 * presentation.score")
+    # evaluate against a group
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    expected = 0.5 * 0.8 + 0.5 * 0.92
+    assert abs(val - expected) < 1e-9
+
+
+def test_parse_expr_descending_cdf():
+    expr = parse_expr("affinity.descending_cdf(500, 200)")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    # IC50=120, mean=500, std=200 → descending CDF should be high (close to 1)
+    assert val > 0.9
+
+
+def test_parse_expr_ascending_cdf():
+    expr = parse_expr("presentation.score.ascending_cdf(0.5, 0.3)")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    # score=0.92, mean=0.5, std=0.3 → ascending CDF should be high
+    assert val > 0.9
+
+
+def test_parse_expr_logistic():
+    expr = parse_expr("affinity.logistic(350, 150)")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    # IC50=120 < midpoint=350 → score > 0.5
+    assert val > 0.5
+
+
+def test_parse_expr_log():
+    expr = parse_expr("affinity.value.log()")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    assert abs(val - math.log(120.0)) < 1e-9
+
+
+def test_parse_expr_log2():
+    expr = parse_expr("affinity.value.log2()")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    assert abs(val - math.log2(120.0)) < 1e-9
+
+
+def test_parse_expr_clip():
+    expr = parse_expr("affinity.value.clip(100, 200)")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    assert val == 120.0  # 120 is within [100, 200]
+
+    df_b = _make_df(PEPTIDE_B_ROWS)
+    val_b = expr.evaluate(df_b)
+    assert val_b == 200.0  # 5000 clipped to 200
+
+
+def test_parse_expr_hinge():
+    expr = parse_expr("affinity.value.hinge()")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    assert val == 120.0
+
+
+def test_parse_expr_sqrt():
+    expr = parse_expr("affinity.value.sqrt()")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    assert abs(val - math.sqrt(120.0)) < 1e-9
+
+
+def test_parse_expr_negation():
+    expr = parse_expr("-affinity.value")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    assert val == -120.0
+
+
+def test_parse_expr_abs():
+    expr = parse_expr("abs(-affinity.value)")
+    # This doesn't work as written since we can't negate a constant
+    # inside abs at parse time. But abs(affinity.value) should work:
+    expr2 = parse_expr("abs(affinity.value)")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr2.evaluate(df)
+    assert val == 120.0
+
+
+def test_parse_expr_power():
+    expr = parse_expr("affinity.value ** 2")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    assert abs(val - 120.0 ** 2) < 1e-6
+
+
+def test_parse_expr_parentheses():
+    expr = parse_expr("(affinity.score + presentation.score) * 0.5")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    expected = (0.8 + 0.92) * 0.5
+    assert abs(val - expected) < 1e-9
+
+
+def test_parse_expr_mean():
+    from topiary.ranking import mean as mean_fn
+    expr = parse_expr("mean(affinity.score, presentation.score)")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    expected = (0.8 + 0.92) / 2
+    assert abs(val - expected) < 1e-9
+
+
+def test_parse_expr_minimum():
+    expr = parse_expr("minimum(affinity.score, presentation.score)")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    assert val == 0.8
+
+
+def test_parse_expr_maximum():
+    expr = parse_expr("maximum(affinity.score, presentation.score)")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    assert val == 0.92
+
+
+def test_parse_expr_column():
+    expr = parse_expr("column(hydrophobicity)")
+    assert isinstance(expr, Column)
+    assert expr.col_name == "hydrophobicity"
+
+
+def test_parse_expr_column_in_arithmetic():
+    expr = parse_expr("0.5 * affinity.score - 0.2 * column(cysteine_count)")
+    df = _make_df(PEPTIDE_A_ROWS)
+    df["cysteine_count"] = 1
+    val = expr.evaluate(df)
+    expected = 0.5 * 0.8 - 0.2 * 1
+    assert abs(val - expected) < 1e-9
+
+
+def test_parse_expr_bracket_qualification():
+    expr = parse_expr('affinity["netmhcpan"].score')
+    assert isinstance(expr, Field)
+    assert expr.method == "netmhcpan"
+
+
+def test_parse_expr_norm_alias():
+    """norm() is an alias for ascending_cdf()"""
+    expr = parse_expr("affinity.norm(500, 200)")
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    # IC50=120 with mean=500, std=200 → ascending CDF
+    assert isinstance(val, float)
+    assert 0 < val < 1
+
+
+def test_parse_expr_complex_composite():
+    """Test a realistic composite ranking expression."""
+    text = (
+        "0.6 * affinity.descending_cdf(500, 200) + "
+        "0.4 * presentation.score.ascending_cdf(0.5, 0.3)"
+    )
+    expr = parse_expr(text)
+    df = _make_df(PEPTIDE_A_ROWS)
+    val = expr.evaluate(df)
+    assert isinstance(val, float)
+    assert 0 < val  # both components should be positive

@@ -1285,3 +1285,415 @@ def parse_ranking(text):
         return RankingStrategy(filters=filters, require_all=False)
     else:
         return parse_filter(text)
+
+
+# ---------------------------------------------------------------------------
+# Expression parser — full transform/arithmetic DSL for --rank-by
+# ---------------------------------------------------------------------------
+
+# Maps string names to aggregation constructors
+_AGGREGATION_FUNCS = {
+    "mean": mean,
+    "geomean": geomean,
+    "minimum": minimum,
+    "maximum": maximum,
+    "median": median,
+}
+
+# Maps string names to Expr transform methods
+_TRANSFORM_NAMES = {
+    "ascending_cdf", "descending_cdf", "norm", "logistic",
+    "clip", "hinge", "log", "log2", "log10", "log1p", "exp", "sqrt",
+}
+
+# Maps string names to top-level KindAccessor instances
+_KIND_ACCESSOR_ALIASES = {
+    "affinity": Affinity,
+    "presentation": Presentation,
+    "stability": Stability,
+    "processing": Processing,
+    "ba": Affinity,
+    "aff": Affinity,
+    "ic50": Affinity,
+    "el": Presentation,
+}
+
+
+class _ExprTokenizer:
+    """Simple tokenizer for the expression DSL.
+
+    Token types: NUMBER, IDENT, OP, LPAREN, RPAREN, LBRACKET, RBRACKET,
+    DOT, COMMA, STRING, EOF
+    """
+
+    def __init__(self, text):
+        self.text = text
+        self.pos = 0
+        self.tokens = []
+        self._tokenize()
+        self._idx = 0
+
+    def _tokenize(self):
+        import re
+        i = 0
+        text = self.text
+        while i < len(text):
+            if text[i].isspace():
+                i += 1
+                continue
+            # Numbers (including negative literals after operators)
+            m = re.match(r'(\d+\.?\d*([eE][+-]?\d+)?)', text[i:])
+            if m:
+                self.tokens.append(("NUMBER", float(m.group())))
+                i += m.end()
+                continue
+            # Quoted strings
+            if text[i] in ('"', "'"):
+                quote = text[i]
+                j = i + 1
+                while j < len(text) and text[j] != quote:
+                    j += 1
+                if j >= len(text):
+                    raise ValueError(f"Unterminated string at position {i}")
+                self.tokens.append(("STRING", text[i + 1:j]))
+                i = j + 1
+                continue
+            # Identifiers
+            if text[i].isalpha() or text[i] == '_':
+                j = i
+                while j < len(text) and (text[j].isalnum() or text[j] == '_'):
+                    j += 1
+                self.tokens.append(("IDENT", text[i:j]))
+                i = j
+                continue
+            # Two-char operators
+            if i + 1 < len(text) and text[i:i + 2] == '**':
+                self.tokens.append(("OP", "**"))
+                i += 2
+                continue
+            # Single-char tokens
+            c = text[i]
+            if c in '+-*/':
+                self.tokens.append(("OP", c))
+            elif c == '(':
+                self.tokens.append(("LPAREN", c))
+            elif c == ')':
+                self.tokens.append(("RPAREN", c))
+            elif c == '[':
+                self.tokens.append(("LBRACKET", c))
+            elif c == ']':
+                self.tokens.append(("RBRACKET", c))
+            elif c == '.':
+                self.tokens.append(("DOT", c))
+            elif c == ',':
+                self.tokens.append(("COMMA", c))
+            else:
+                raise ValueError(
+                    f"Unexpected character {c!r} at position {i} in {self.text!r}"
+                )
+            i += 1
+        self.tokens.append(("EOF", None))
+
+    def peek(self):
+        return self.tokens[self._idx]
+
+    def advance(self):
+        tok = self.tokens[self._idx]
+        self._idx += 1
+        return tok
+
+    def expect(self, ttype, value=None):
+        tok = self.advance()
+        if tok[0] != ttype:
+            raise ValueError(
+                f"Expected {ttype} but got {tok[0]} ({tok[1]!r}) "
+                f"in {self.text!r}"
+            )
+        if value is not None and tok[1] != value:
+            raise ValueError(
+                f"Expected {value!r} but got {tok[1]!r} in {self.text!r}"
+            )
+        return tok
+
+
+class _ExprParser:
+    """Recursive descent parser for the expression DSL.
+
+    Grammar::
+
+        expr     := term (('+' | '-') term)*
+        term     := unary (('*' | '/') unary)*
+        unary    := '-' unary | atom chain*
+        atom     := NUMBER
+                  | aggregate_call
+                  | 'abs' '(' expr ')'
+                  | 'wt' '(' kind_ref ')' chain*
+                  | 'column' '(' IDENT ')'
+                  | kind_ref
+                  | '(' expr ')'
+        chain    := '.' IDENT call?
+                  | '[' STRING ']'
+        call     := '(' arglist? ')'
+        arglist  := expr (',' expr)*
+        kind_ref := IDENT ('[' STRING ']')? ('.' IDENT)?
+    """
+
+    def __init__(self, text):
+        self.tokenizer = _ExprTokenizer(text)
+        self.text = text
+
+    def parse(self):
+        expr = self._parse_expr()
+        tok = self.tokenizer.peek()
+        if tok[0] != "EOF":
+            raise ValueError(
+                f"Unexpected token {tok[1]!r} after expression in {self.text!r}"
+            )
+        return expr
+
+    def _parse_expr(self):
+        """expr := term (('+' | '-') term)*"""
+        left = self._parse_term()
+        while self.tokenizer.peek() == ("OP", "+") or self.tokenizer.peek() == ("OP", "-"):
+            op_tok = self.tokenizer.advance()
+            right = self._parse_term()
+            if op_tok[1] == "+":
+                left = left + right
+            else:
+                left = left - right
+        return left
+
+    def _parse_term(self):
+        """term := power (('*' | '/') power)*"""
+        left = self._parse_power()
+        while self.tokenizer.peek() == ("OP", "*") or self.tokenizer.peek() == ("OP", "/"):
+            op_tok = self.tokenizer.advance()
+            right = self._parse_power()
+            if op_tok[1] == "*":
+                left = left * right
+            else:
+                left = left / right
+        return left
+
+    def _parse_power(self):
+        """power := unary ('**' power)?"""
+        base = self._parse_unary()
+        if self.tokenizer.peek() == ("OP", "**"):
+            self.tokenizer.advance()
+            exp = self._parse_power()  # right-associative
+            base = base ** exp
+        return base
+
+    def _parse_unary(self):
+        """unary := '-' unary | atom chain*"""
+        if self.tokenizer.peek() == ("OP", "-"):
+            self.tokenizer.advance()
+            inner = self._parse_unary()
+            return -inner
+        return self._parse_postfix()
+
+    def _parse_postfix(self):
+        """atom followed by zero or more .method(args) or [method] chains"""
+        node = self._parse_atom()
+        while True:
+            tok = self.tokenizer.peek()
+            if tok[0] == "DOT":
+                self.tokenizer.advance()
+                name_tok = self.tokenizer.expect("IDENT")
+                name = name_tok[1]
+                # Check if it's a method call with parens
+                if self.tokenizer.peek()[0] == "LPAREN":
+                    args = self._parse_call_args()
+                    node = self._apply_transform(node, name, args)
+                else:
+                    # Field access: .value, .rank, .score
+                    node = self._apply_field_access(node, name)
+            elif tok[0] == "LBRACKET":
+                self.tokenizer.advance()
+                method_tok = self.tokenizer.expect("STRING")
+                self.tokenizer.expect("RBRACKET")
+                node = self._apply_bracket(node, method_tok[1])
+            else:
+                break
+        return node
+
+    def _parse_atom(self):
+        """Parse a single atom (number, identifier, paren group, etc.)"""
+        tok = self.tokenizer.peek()
+
+        # Number literal
+        if tok[0] == "NUMBER":
+            self.tokenizer.advance()
+            return _Const(tok[1])
+
+        # Parenthesized expression
+        if tok[0] == "LPAREN":
+            self.tokenizer.advance()
+            expr = self._parse_expr()
+            self.tokenizer.expect("RPAREN")
+            return expr
+
+        # Identifier-based atoms
+        if tok[0] == "IDENT":
+            name = tok[1].lower()
+
+            # abs(expr)
+            if name == "abs":
+                self.tokenizer.advance()
+                self.tokenizer.expect("LPAREN")
+                inner = self._parse_expr()
+                self.tokenizer.expect("RPAREN")
+                return abs(inner)
+
+            # Aggregation functions: mean(...), geomean(...), etc.
+            if name in _AGGREGATION_FUNCS:
+                self.tokenizer.advance()
+                args = self._parse_call_args()
+                return _AGGREGATION_FUNCS[name](*args)
+
+            # wt(kind_ref) — wildtype wrapper
+            if name == "wt":
+                self.tokenizer.advance()
+                self.tokenizer.expect("LPAREN")
+                accessor = self._parse_kind_accessor()
+                self.tokenizer.expect("RPAREN")
+                return WT(accessor)
+
+            # column(name)
+            if name == "column":
+                self.tokenizer.advance()
+                self.tokenizer.expect("LPAREN")
+                col_tok = self.tokenizer.expect("IDENT")
+                self.tokenizer.expect("RPAREN")
+                return Column(col_tok[1])
+
+            # Kind accessor (e.g. affinity, presentation, affinity.score)
+            accessor = self._parse_kind_accessor()
+            return accessor
+
+        raise ValueError(
+            f"Unexpected token {tok!r} in expression {self.text!r}"
+        )
+
+    def _parse_kind_accessor(self):
+        """Parse a kind accessor like 'affinity', 'affinity["netmhcpan"]'."""
+        name_tok = self.tokenizer.expect("IDENT")
+        name = name_tok[1].lower()
+
+        if name not in _KIND_ACCESSOR_ALIASES:
+            # Try as a tool-qualified kind: netmhcpan_affinity
+            kind, method = _resolve_qualified_kind(name)
+            accessor = KindAccessor(kind, method=method)
+        else:
+            accessor = KindAccessor(_KIND_ACCESSOR_ALIASES[name].kind)
+
+        # Optional [method] qualifier
+        if self.tokenizer.peek()[0] == "LBRACKET":
+            self.tokenizer.advance()
+            method_tok = self.tokenizer.expect("STRING")
+            self.tokenizer.expect("RBRACKET")
+            accessor = accessor[method_tok[1]]
+
+        return accessor
+
+    def _parse_call_args(self):
+        """Parse '(' expr (',' expr)* ')' — returns list of Expr."""
+        self.tokenizer.expect("LPAREN")
+        args = []
+        if self.tokenizer.peek()[0] != "RPAREN":
+            args.append(self._parse_expr())
+            while self.tokenizer.peek()[0] == "COMMA":
+                self.tokenizer.advance()
+                args.append(self._parse_expr())
+        self.tokenizer.expect("RPAREN")
+        return args
+
+    def _apply_transform(self, node, name, args):
+        """Apply a named transform method to a node."""
+        name_lower = name.lower()
+        if name_lower not in _TRANSFORM_NAMES:
+            available = sorted(_TRANSFORM_NAMES)
+            close = get_close_matches(name_lower, available, n=3, cutoff=0.6)
+            msg = f"Unknown transform {name!r}."
+            if close:
+                msg += f" Did you mean: {close}?"
+            else:
+                msg += f" Available: {available}"
+            raise ValueError(msg)
+
+        # For KindAccessor/WT, delegate to .value first if needed
+        if isinstance(node, (KindAccessor, WT)):
+            method = getattr(node, name_lower)
+            float_args = [a.val if isinstance(a, _Const) else a for a in args]
+            return method(*float_args)
+
+        if not isinstance(node, Expr):
+            raise ValueError(
+                f"Cannot apply .{name}() to {type(node).__name__}"
+            )
+
+        method = getattr(node, name_lower, None)
+        if method is None:
+            raise ValueError(f"Expr has no method {name!r}")
+        float_args = [a.val if isinstance(a, _Const) else a for a in args]
+        return method(*float_args)
+
+    def _apply_field_access(self, node, name):
+        """Apply .value, .rank, .score field access."""
+        name_lower = name.lower()
+        # First check if it's a transform with no args
+        if name_lower in _TRANSFORM_NAMES:
+            return self._apply_transform(node, name, [])
+
+        if isinstance(node, (KindAccessor, WT)):
+            field_name = _FIELD_ALIASES.get(name_lower)
+            if field_name is not None:
+                if field_name == "value":
+                    return node.value
+                elif field_name == "percentile_rank":
+                    return node.rank
+                elif field_name == "score":
+                    return node.score
+            raise ValueError(
+                f"Unknown field {name!r}. Available: value, rank, score"
+            )
+        raise ValueError(
+            f"Cannot access .{name} on {type(node).__name__}"
+        )
+
+    def _apply_bracket(self, node, method):
+        """Apply ["method"] qualifier."""
+        if isinstance(node, (KindAccessor, WT)):
+            return node[method]
+        raise ValueError(
+            f"Cannot use ['...'] on {type(node).__name__}"
+        )
+
+
+def parse_expr(text):
+    """Parse a ranking expression string into an :class:`Expr` tree.
+
+    Supports the full expression DSL including transforms, arithmetic,
+    aggregations, and method qualification::
+
+        "affinity.descending_cdf(500, 200)"
+        "0.5 * affinity.score + 0.5 * presentation.score"
+        "mean(affinity.logistic(350, 150), presentation.score)"
+        "affinity['netmhcpan'].descending_cdf(500, 200)"
+        "affinity.value.clip(1, 50000)"
+        "affinity.value.log()"
+        "column(hydrophobicity)"
+        "wt(affinity).score"
+        "affinity.score - wt(affinity).score"
+
+    Returns an :class:`Expr` (or :class:`KindAccessor` / :class:`WT` which
+    delegate to ``.value`` for evaluation).
+    """
+    parser = _ExprParser(text)
+    result = parser.parse()
+    # If we got a bare KindAccessor, convert to its .value field
+    if isinstance(result, KindAccessor):
+        return result.value
+    if isinstance(result, WT):
+        return result.value
+    return result

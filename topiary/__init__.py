@@ -18,6 +18,7 @@ from .ranking import (
     mean,
     median,
     minimum,
+    parse_expr,
     parse_ranking,
     presentation_filter,
 )
@@ -28,7 +29,7 @@ from .sequence_helpers import (
     protein_subsequences_around_mutations,
 )
 
-__version__ = "4.6.0"
+__version__ = "4.7.0"
 
 __all__ = [
     "TopiaryPredictor",
