@@ -22,7 +22,9 @@ from varcode.cli import add_variant_args, variant_collection_from_args
 
 from .filtering import add_filter_args
 from .rna import (
+    add_expression_args,
     add_rna_args,
+    expression_data_from_args,
     rna_gene_expression_dict_from_args,
     rna_transcript_expression_dict_from_args,
 )
@@ -49,8 +51,12 @@ from ..sources import (
 )
 from ..predictor import TopiaryPredictor
 from ..ranking import (
+    ColumnFilter,
     EpitopeFilter,
+    ExprFilter,
+    KindAccessor,
     RankingStrategy,
+    _resolve_qualified_kind,
     affinity_filter,
     parse_expr,
     parse_ranking,
@@ -186,6 +192,7 @@ def _add_input_args(arg_parser):
 
 def create_arg_parser(
     rna=True,
+    expression=True,
     mhc=True,
     variants=True,
     protein_changes=True,
@@ -196,6 +203,8 @@ def create_arg_parser(
     direct_inputs=True,
 ):
     arg_parser = ArgumentParser()
+    if expression:
+        add_expression_args(arg_parser)
     if rna:
         add_rna_args(arg_parser)
     if mhc:
@@ -223,54 +232,113 @@ arg_parser = create_arg_parser()
 
 def _build_ranking_strategy(args):
     """Build a RankingStrategy from CLI args, or return None."""
-    # --ranking takes precedence over individual filter args
-    ranking_text = getattr(args, "ranking", None)
-    if ranking_text:
-        result = parse_ranking(ranking_text)
-        if isinstance(result, EpitopeFilter):
-            return RankingStrategy(filters=[result])
-        return result
-
+    ranking_text = getattr(args, "filter_by", None)
     has_presentation = getattr(args, "presentation_cutoff", None) is not None
-    has_rank_by = getattr(args, "rank_by", None) is not None
+    has_sort_by = getattr(args, "sort_by", None) is not None
+    sort_direction = getattr(args, "sort_direction", "auto")
     filter_logic = getattr(args, "filter_logic", "any")
 
-    if not (has_presentation or has_rank_by):
-        return None
-
     filters = []
-    if args.ic50_cutoff or args.percentile_cutoff:
-        filters.append(affinity_filter(
-            ic50_cutoff=args.ic50_cutoff,
-            percentile_cutoff=args.percentile_cutoff,
-        ))
-    if has_presentation:
-        filters.append(presentation_filter(max_rank=args.presentation_cutoff))
+    require_all = (filter_logic == "all")
+
+    if ranking_text:
+        result = parse_ranking(ranking_text)
+        if isinstance(result, RankingStrategy):
+            filters.extend(result.filters)
+            require_all = result.require_all
+        elif isinstance(result, (EpitopeFilter, ColumnFilter, ExprFilter)):
+            filters.append(result)
+        else:
+            filters.append(result)
+    else:
+        if args.ic50_cutoff or args.percentile_cutoff:
+            filters.append(affinity_filter(
+                ic50_cutoff=args.ic50_cutoff,
+                percentile_cutoff=args.percentile_cutoff,
+            ))
+        if has_presentation:
+            filters.append(presentation_filter(max_rank=args.presentation_cutoff))
 
     sort_by = []
-    if has_rank_by:
-        rank_by_text = args.rank_by.strip()
-        # Detect expression syntax: operators, parens, or dots indicate
-        # a DSL expression. Plain comma-separated kind names (e.g.
-        # "pMHC_affinity,pMHC_presentation") have none of these.
-        is_expr = any(c in rank_by_text for c in '+-*/()')
-        if is_expr:
-            sort_by.append(parse_expr(rank_by_text))
-        else:
-            from ..ranking import KindAccessor, _resolve_qualified_kind
-            kind_names = [s.strip() for s in rank_by_text.split(",")]
-            for k in kind_names:
-                if "." in k or "(" in k:
-                    sort_by.append(parse_expr(k))
-                else:
-                    kind, method = _resolve_qualified_kind(k)
-                    sort_by.append(KindAccessor(kind, method=method).score)
+    if has_sort_by:
+        for item in _split_top_level_commas(args.sort_by.strip()):
+            sort_by.append(_parse_sort_expr(item))
+
+    if not filters and not sort_by:
+        return None
 
     return RankingStrategy(
         filters=filters,
-        require_all=(filter_logic == "all"),
+        require_all=require_all,
         sort_by=sort_by,
+        sort_direction=sort_direction,
     )
+
+
+def _split_top_level_commas(text):
+    """Split a comma-separated sort string on top-level commas only."""
+    if not text:
+        return []
+
+    parts = []
+    current = []
+    paren_depth = 0
+    bracket_depth = 0
+
+    for ch in text:
+        if ch == "(":
+            paren_depth += 1
+        elif ch == ")":
+            paren_depth -= 1
+        elif ch == "[":
+            bracket_depth += 1
+        elif ch == "]":
+            bracket_depth -= 1
+        elif ch == "," and paren_depth == 0 and bracket_depth == 0:
+            item = "".join(current).strip()
+            if item:
+                parts.append(item)
+            current = []
+            continue
+        current.append(ch)
+
+    tail = "".join(current).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _parse_sort_expr(text):
+    """Parse one CLI --sort-by item.
+
+    Bare kind names use the default sort field for that kind:
+    affinity -> raw value (IC50), others -> normalized score.
+    """
+    text = text.strip()
+    if not text:
+        raise ValueError("Empty sort key in --sort-by")
+
+    if _looks_like_plain_kind_name(text):
+        kind, method = _resolve_qualified_kind(text)
+        accessor = KindAccessor(kind, method=method)
+        if kind.name == "pMHC_affinity":
+            return accessor.value
+        return accessor.score
+
+    return parse_expr(text)
+
+
+def _looks_like_plain_kind_name(text):
+    """Return True when *text* is a bare kind token like ba or mhcflurry_el."""
+    if any(ch.isspace() for ch in text):
+        return False
+    if any(ch in text for ch in ".()[]+-*/"):
+        return False
+    try:
+        _resolve_qualified_kind(text)
+        return True
+    except ValueError:
+        return False
 
 
 def _parse_regions(region_strings):
@@ -407,6 +475,12 @@ def _validate_input_modes(args):
         incompatible_flags.append("--rna-transcript-fpkm-tracking-file")
     if getattr(args, "rna_transcript_fpkm_gtf_file", None):
         incompatible_flags.append("--rna-transcript-fpkm-gtf-file")
+    if getattr(args, "gene_expression", None):
+        incompatible_flags.append("--gene-expression")
+    if getattr(args, "transcript_expression", None):
+        incompatible_flags.append("--transcript-expression")
+    if getattr(args, "variant_expression", None):
+        incompatible_flags.append("--variant-expression")
 
     if incompatible_flags:
         raise ValueError(
@@ -471,11 +545,13 @@ def predict_epitopes_from_args(args):
     variants = variant_collection_from_args(args)
     gene_expression_dict = rna_gene_expression_dict_from_args(args)
     transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
+    expr_data = expression_data_from_args(args)
 
     df = predictor.predict_from_variants(
         variants=variants,
         transcript_expression_dict=transcript_expression_dict,
         gene_expression_dict=gene_expression_dict,
+        expression_data=expr_data,
     )
     return _apply_exclusion(df, args)
 

@@ -7,7 +7,7 @@
 | `models` | class, instance, or list | Predictor model(s). Classes require `alleles`. |
 | `alleles` | list of str | HLA alleles. Used to construct model classes. |
 | `filter` | EpitopeFilter or RankingStrategy | Which peptide-allele groups to keep. |
-| `rank_by` | Expr or list of Expr | How to sort surviving groups. |
+| `sort_by` | Expr or list of Expr | How to sort surviving groups. |
 | `padding_around_mutation` | int | Residues around mutation for candidate epitopes. |
 | `only_novel_epitopes` | bool | Drop peptides without mutated residues. |
 | `min_gene_expression` | float | Minimum gene FPKM (variant inputs). |
@@ -151,7 +151,7 @@ minimum(Affinity["netmhcpan"].value, Affinity["mhcflurry"].value)
 | `Affinity.score >= 0.5` | `EpitopeFilter(kind=pMHC_affinity, min_score=0.5)` |
 | `Column("x") <= 2` | `ColumnFilter(col_name="x", max_value=2)` |
 
-Combine with `|` (OR) and `&` (AND). Chain with `.rank_by()`.
+Combine with `|` (OR) and `&` (AND). Chain with `.sort_by()`.
 
 ## String parsing
 

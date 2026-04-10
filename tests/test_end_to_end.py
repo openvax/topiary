@@ -175,7 +175,7 @@ def test_exclude_by_with_unrelated_ref():
 
 
 # ---------------------------------------------------------------------------
-# End-to-end: filter + rank_by combinations
+# End-to-end: filter + sort_by combinations
 # ---------------------------------------------------------------------------
 
 
@@ -196,11 +196,11 @@ def test_filter_removes_non_matching_rows():
     assert len(df_impossible) == 0
 
 
-def test_rank_by_sorts_output():
-    """rank_by=Affinity.score should sort affinity rows by descending score."""
+def test_sort_by_sorts_output():
+    """sort_by=Affinity.score should sort affinity rows by descending score."""
     predictor = TopiaryPredictor(
         models=RandomBindingPredictor, alleles=["A0201"],
-        rank_by=Affinity.score,
+        sort_by=Affinity.score,
     )
     assert predictor.ranking_strategy is not None
     assert len(predictor.ranking_strategy.sort_by) == 1

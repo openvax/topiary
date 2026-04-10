@@ -535,10 +535,10 @@ Isovar's `IsovarResult` objects carry rich variant-level evidence. The integrati
 
 ```bash
 # Require RNA evidence for the variant
---ranking "ba <= 500 & rna_alt_reads >= 3 & rna_alt_fraction >= 0.01"
+--filter-by "ba <= 500 & rna_alt_reads >= 3 & rna_alt_fraction >= 0.01"
 
 # Weight ranking by RNA support
---rank-by "0.5 * affinity.descending_cdf(500, 200) + 0.3 * presentation.score + 0.2 * rna_alt_fraction"
+--sort-by "0.5 * affinity.descending_cdf(500, 200) + 0.3 * presentation.score + 0.2 * rna_alt_fraction"
 ```
 
 The predictor would load isovar results alongside or instead of variants:
@@ -632,13 +632,13 @@ Expression fields participate in the same DSL as binding predictions:
 
 ```bash
 # Filter: good binder AND expressed
---ranking "ba <= 500 & gene_tpm >= 4"
+--filter-by "ba <= 500 & gene_tpm >= 4"
 
 # Filter: strong presentation OR highly expressed with moderate binding
---ranking "(el.score >= 0.9) | (gene_tpm >= 10 & ba <= 1000)"
+--filter-by "(el.score >= 0.9) | (gene_tpm >= 10 & ba <= 1000)"
 
 # Rank by composite including expression
---rank-by "0.4 * affinity.descending_cdf(500, 200) + 0.3 * presentation.score + 0.2 * gene_tpm.log().ascending_cdf(2, 1) + 0.1 * vaf"
+--sort-by "0.4 * affinity.descending_cdf(500, 200) + 0.3 * presentation.score + 0.2 * gene_tpm.log().ascending_cdf(2, 1) + 0.1 * vaf"
 ```
 
 ### Expression fields compose with everything
@@ -665,7 +665,7 @@ Expression fields compose with binding and peptide fields:
 affinity.logistic(350, 150) * cell_fraction
 
 # Variant support: require RNA evidence
---ranking "ba <= 500 & rna_alt_reads >= 3"
+--filter-by "ba <= 500 & rna_alt_reads >= 3"
 ```
 
 ### Implementation
@@ -685,10 +685,10 @@ This means any user-provided column works — the aliases are just convenience f
 | Old interface | New interface |
 |---|---|
 | `--rna-gene-fpkm-tracking-file FILE` | `--gene-expression FILE` or `--gene-expression gene_fpkm:FILE:tracking_id:FPKM` |
-| `--rna-min-gene-expression 4.0` | `--ranking "gene_fpkm >= 4"` |
+| `--rna-min-gene-expression 4.0` | `--filter-by "gene_fpkm >= 4"` |
 | `--rna-transcript-fpkm-tracking-file FILE` | `--transcript-expression FILE` |
 | `--rna-transcript-fpkm-gtf-file FILE` | `--transcript-expression tx_fpkm:FILE:reference_id:FPKM` |
-| `--rna-min-transcript-expression 1.5` | `--ranking "tx_fpkm >= 1.5"` |
+| `--rna-min-transcript-expression 1.5` | `--filter-by "tx_fpkm >= 1.5"` |
 | *(no variant-level support)* | `--variant-expression rna_alt_reads:FILE:variant:num_alt_reads` |
 | Hard threshold, discard before prediction | Soft threshold in DSL, participates in ranking |
 
@@ -708,6 +708,6 @@ The old flags would remain as deprecated aliases during a transition period.
 | Missing context | NaN at eval time, warning at build time |
 | Backward compat for `WT()` | **None** — clean break |
 | Expression loading | `--gene-expression`, `--transcript-expression`, `--variant-expression` (join key baked into flag) |
-| Expression filtering | Unified with binding filters in `--ranking` |
+| Expression filtering | Unified with binding filters in `--filter-by` |
 | Expression aliases | `gene_tpm`, `transcript_tpm`, `vaf`, etc. → `Column(name)` |
 | Simple default | `--gene-expression quant.sf` auto-detects columns for common formats |

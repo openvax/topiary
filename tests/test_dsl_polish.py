@@ -257,12 +257,15 @@ class TestFilterBy:
 
 
 class TestParserErrors:
-    def test_kind_typo_suggests(self):
-        with pytest.raises(ValueError, match="Did you mean.*affinity"):
-            parse_filter("afinity <= 500")
+    def test_kind_typo_becomes_column(self):
+        """Typos in kind names become column references (error deferred to eval)."""
+        from topiary.ranking import ColumnFilter
+        f = parse_filter("afinity <= 500")
+        assert isinstance(f, ColumnFilter)
+        assert f.col_name == "afinity"
 
     def test_field_typo_suggests(self):
-        with pytest.raises(ValueError, match="Did you mean.*rank"):
+        with pytest.raises(ValueError, match="Unknown field.*rnk"):
             parse_filter("affinity.rnk <= 2")
 
     def test_non_numeric_threshold(self):
@@ -287,6 +290,9 @@ class TestParserErrors:
         with pytest.raises(ValueError, match="must be a number"):
             parse_filter("affinity < = 500")
 
-    def test_qualified_kind_typo_suggests(self):
-        with pytest.raises(ValueError, match="Did you mean"):
-            parse_filter("netmhcpan_afinity <= 500")
+    def test_qualified_kind_typo_becomes_column(self):
+        """Qualified kind typos become column references (error deferred to eval)."""
+        from topiary.ranking import ColumnFilter
+        f = parse_filter("netmhcpan_afinity <= 500")
+        assert isinstance(f, ColumnFilter)
+        assert f.col_name == "netmhcpan_afinity"

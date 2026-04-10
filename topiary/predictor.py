@@ -22,7 +22,9 @@ from .filters import (
     filter_silent_and_noncoding_effects,
 )
 from .ranking import (
+    ColumnFilter,
     EpitopeFilter,
+    ExprFilter,
     RankingStrategy,
     affinity_filter,
     apply_ranking_strategy,
@@ -35,12 +37,100 @@ from .sequence_helpers import (
 )
 
 
+_JOIN_COLUMNS = {
+    "gene": "gene_id",
+    "transcript": "transcript_id",
+    "variant": "variant",
+}
+
+
+def _transcript_expression_dict_from_data(expression_data):
+    """Extract a transcript_id -> expression dict from new-style expression data.
+
+    Uses the first transcript-level source's first value column.
+    Returns None if no transcript expression data is available.
+    """
+    transcript_sources = expression_data.get("transcript", [])
+    if not transcript_sources:
+        return None
+    _name_prefix, id_col, df = transcript_sources[0]
+    value_cols = [c for c in df.columns if c != id_col]
+    if not value_cols:
+        return None
+    return dict(zip(df[id_col], df[value_cols[0]]))
+
+
+def _attach_expression_data(df, expression_data):
+    """Join expression DataFrames onto prediction DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Prediction DataFrame with gene_id/transcript_id/variant columns.
+    expression_data : dict
+        Keys: 'gene', 'transcript', 'variant'. Values: list of
+        (name_prefix, id_col, DataFrame) tuples from expression_data_from_args.
+    """
+    for level, join_col in _JOIN_COLUMNS.items():
+        for name_prefix, id_col, expr_df in expression_data.get(level, []):
+            if join_col not in df.columns:
+                logging.warning(
+                    "Cannot join %s-level expression: column %r not in "
+                    "predictions (available: %s)",
+                    level, join_col, sorted(df.columns.tolist()),
+                )
+                continue
+            # Rename ID column in expression data to match the join column
+            merge_df = expr_df.rename(columns={id_col: join_col})
+            # Aggregate duplicate join keys — sum numeric columns so that
+            # e.g. multiple transcripts per gene have their TPM summed.
+            if merge_df[join_col].duplicated().any():
+                n_dupes = merge_df[join_col].duplicated().sum()
+                logging.warning(
+                    "%s-level expression (%s) has %d duplicate %s values; "
+                    "summing numeric columns per %s",
+                    level, name_prefix or "unnamed", n_dupes,
+                    join_col, join_col,
+                )
+                numeric_cols = merge_df.select_dtypes(include="number").columns
+                agg = {c: "sum" for c in numeric_cols}
+                non_numeric = [
+                    c for c in merge_df.columns
+                    if c != join_col and c not in numeric_cols
+                ]
+                for c in non_numeric:
+                    agg[c] = "first"
+                merge_df = merge_df.groupby(join_col, sort=False).agg(agg).reset_index()
+            # Prefix value columns with name_prefix if provided.
+            # Column names are lowercased so that e.g. Salmon's "TPM"
+            # becomes "gene_tpm", matching the documented ranking syntax.
+            if name_prefix:
+                for col in merge_df.columns:
+                    if col != join_col:
+                        col_lower = col.lower()
+                        if col_lower.startswith(name_prefix):
+                            new_name = col_lower
+                        else:
+                            new_name = f"{name_prefix}_{col_lower}"
+                        merge_df = merge_df.rename(columns={col: new_name})
+            # Left join — keep all prediction rows, fill missing with NaN
+            n_before = len(df)
+            df = df.merge(merge_df, on=join_col, how="left")
+            n_matched = df[merge_df.columns[-1]].notna().sum()
+            logging.info(
+                "Joined %s-level expression (%s): %d/%d rows matched",
+                level, name_prefix or "unnamed", n_matched, n_before,
+            )
+    return df
+
+
 class TopiaryPredictor(object):
     def __init__(
         self,
         models=None,
         alleles=None,
         filter_by=None,
+        sort_by=None,
         rank_by=None,
         padding_around_mutation=None,
         only_novel_epitopes=False,
@@ -81,14 +171,16 @@ class TopiaryPredictor(object):
                 filter_by=(Affinity <= 500) | (Presentation.rank <= 2.0)
                 filter_by="affinity <= 500 | el.rank <= 2"
 
-        rank_by : Expr or list of Expr, optional
-            How to sort surviving groups. First non-NaN wins::
+        sort_by : Expr or list of Expr, optional
+            How to sort surviving groups. Multiple expressions act as
+            lexicographic tie breakers, and missing values fall through to
+            later expressions::
 
-                rank_by=[Presentation.score, Affinity.score]
+                sort_by=[Presentation.score, Affinity.score]
 
             Or a composite expression::
 
-                rank_by=0.5 * Affinity.score + 0.5 * Presentation.score
+                sort_by=0.5 * Affinity.score + 0.5 * Presentation.score
 
         padding_around_mutation : int, optional
             Residues around a mutation to include in candidate epitopes.
@@ -112,6 +204,7 @@ class TopiaryPredictor(object):
         percentile_cutoff : deprecated, use ``filter_by=Affinity.rank <= X``
         ranking : deprecated alias for ``filter_by``
         ranking_strategy : deprecated alias for ``filter_by``
+        rank_by : deprecated alias for ``sort_by``
         """
         # --- model setup ---
         raw_models = models or mhc_models or (mhc_model and [mhc_model])
@@ -146,7 +239,7 @@ class TopiaryPredictor(object):
         if isinstance(effective_filter, str):
             from .ranking import parse_ranking
             effective_filter = parse_ranking(effective_filter)
-        if isinstance(effective_filter, EpitopeFilter):
+        if isinstance(effective_filter, (EpitopeFilter, ColumnFilter, ExprFilter)):
             effective_filter = RankingStrategy(filters=[effective_filter])
         if effective_filter is not None:
             self.ranking_strategy = effective_filter
@@ -157,17 +250,22 @@ class TopiaryPredictor(object):
         else:
             self.ranking_strategy = None
 
-        # Attach rank_by to strategy if provided separately
-        if rank_by is not None:
-            if not isinstance(rank_by, (list, tuple)):
-                rank_by = [rank_by]
+        # Attach sort_by to strategy if provided separately
+        if sort_by is not None and rank_by is not None:
+            raise ValueError("Pass only one of sort_by or rank_by")
+
+        effective_sort = sort_by if sort_by is not None else rank_by
+        if effective_sort is not None:
+            if not isinstance(effective_sort, (list, tuple)):
+                effective_sort = [effective_sort]
             if self.ranking_strategy is None:
-                self.ranking_strategy = RankingStrategy(sort_by=list(rank_by))
+                self.ranking_strategy = RankingStrategy(sort_by=list(effective_sort))
             else:
                 self.ranking_strategy = RankingStrategy(
                     filters=list(self.ranking_strategy.filters),
                     require_all=self.ranking_strategy.require_all,
-                    sort_by=list(rank_by),
+                    sort_by=list(effective_sort),
+                    sort_direction=self.ranking_strategy.sort_direction,
                 )
 
         self.ic50_cutoff = ic50_cutoff
@@ -313,7 +411,8 @@ class TopiaryPredictor(object):
         return df.rename(columns={"source_sequence_name": "source_sequence"})
 
     def predict_from_mutation_effects(
-        self, effects, transcript_expression_dict=None, gene_expression_dict=None
+        self, effects, transcript_expression_dict=None, gene_expression_dict=None,
+        expression_data=None,
     ):
         """Given a Varcode.EffectCollection of predicted protein effects,
         return predicted epitopes around each mutation.
@@ -323,10 +422,14 @@ class TopiaryPredictor(object):
         effects : Varcode.EffectCollection
 
         transcript_expression_dict : dict, optional
-            Transcript ID -> RNA expression estimates.
+            Transcript ID -> RNA expression estimates (deprecated).
 
         gene_expression_dict : dict, optional
-            Gene ID -> RNA expression estimates.
+            Gene ID -> RNA expression estimates (deprecated).
+
+        expression_data : dict, optional
+            From expression_data_from_args(). Keys: 'gene', 'transcript',
+            'variant', each mapping to list of (name, id_col, DataFrame).
 
         Returns
         -------
@@ -348,9 +451,18 @@ class TopiaryPredictor(object):
             logging.warning("No candidates for MHC binding prediction")
             return pd.DataFrame()
 
-        if transcript_expression_dict:
+        # Derive a transcript expression dict from new-style data when
+        # the legacy dict is absent, so that transcript selection stays
+        # expression-aware after migrating to --transcript-expression.
+        effective_transcript_expr = transcript_expression_dict
+        if not effective_transcript_expr and expression_data:
+            effective_transcript_expr = _transcript_expression_dict_from_data(
+                expression_data
+            )
+
+        if effective_transcript_expr:
             top_effects = [
-                variant_effects.top_expression_effect(transcript_expression_dict)
+                variant_effects.top_expression_effect(effective_transcript_expr)
                 for variant_effects in variant_effect_groups.values()
             ]
         else:
@@ -395,14 +507,8 @@ class TopiaryPredictor(object):
             compute_peptide_offset_relative_to_protein, axis=1
         )
 
-        # --- Apply ranking/filtering ---
-        if self.ranking_strategy:
-            df = apply_ranking_strategy(df, self.ranking_strategy)
-            logging.info(
-                "Kept %d predictions after applying ranking strategy" % len(df)
-            )
-
         # --- Annotate with variant/gene/transcript metadata ---
+        # (must happen before ranking so expression columns are available)
         extra_columns = OrderedDict(
             [
                 ("gene", []),
@@ -469,13 +575,26 @@ class TopiaryPredictor(object):
         for col, values in extra_columns.items():
             df[col] = values
 
+        # --- Join expression data (new-style --gene/transcript/variant-expression) ---
+        if expression_data:
+            df = _attach_expression_data(df, expression_data)
+
+        # --- Apply ranking/filtering ---
+        # (after annotation + expression join so all columns are available)
+        if self.ranking_strategy:
+            df = apply_ranking_strategy(df, self.ranking_strategy)
+            logging.info(
+                "Kept %d predictions after applying ranking strategy" % len(df)
+            )
+
         if self.only_novel_epitopes:
             df = df[df.contains_mutant_residues]
 
         return df
 
     def predict_from_variants(
-        self, variants, transcript_expression_dict=None, gene_expression_dict=None
+        self, variants, transcript_expression_dict=None, gene_expression_dict=None,
+        expression_data=None,
     ):
         """
         Predict epitopes from a Variant collection, filtering options, and
@@ -486,10 +605,16 @@ class TopiaryPredictor(object):
         variants : varcode.VariantCollection
 
         transcript_expression_dict : dict, optional
-            Maps from Ensembl transcript IDs to FPKM expression values.
+            Maps from Ensembl transcript IDs to FPKM expression values
+            (deprecated — use expression_data).
 
         gene_expression_dict : dict, optional
-            Maps from Ensembl gene IDs to FPKM expression values.
+            Maps from Ensembl gene IDs to FPKM expression values
+            (deprecated — use expression_data).
+
+        expression_data : dict, optional
+            From expression_data_from_args(). Keys: 'gene', 'transcript',
+            'variant', each mapping to list of (name, id_col, DataFrame).
 
         Returns
         -------
@@ -509,4 +634,5 @@ class TopiaryPredictor(object):
             effects=effects,
             transcript_expression_dict=transcript_expression_dict,
             gene_expression_dict=gene_expression_dict,
+            expression_data=expression_data,
         )

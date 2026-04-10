@@ -87,14 +87,14 @@ def test_predictor_with_alleles_and_model_classes():
     assert "HLA-A*02:01" in predictor.models[0].alleles
 
 
-def test_predictor_filter_and_rank_by_separate():
+def test_predictor_filter_and_sort_by_separate():
     from mhctools import RandomBindingPredictor
     from topiary import TopiaryPredictor, Affinity, Presentation
 
     predictor = TopiaryPredictor(
         models=RandomBindingPredictor(alleles=["A0201"]),
         filter=Affinity <= 500,
-        rank_by=[Presentation.score, Affinity.score],
+        sort_by=[Presentation.score, Affinity.score],
     )
     assert predictor.ranking_strategy is not None
     assert len(predictor.ranking_strategy.filters) == 1

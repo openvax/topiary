@@ -47,7 +47,7 @@ predictor = TopiaryPredictor(
     models=NetMHCpan,
     alleles=["HLA-A*02:01", "HLA-B*07:02"],
     filter=(Affinity <= 500) | (Presentation.rank <= 2.0),
-    rank_by=Presentation.score,
+    sort_by=Presentation.score,
 )
 
 df = predictor.predict_from_named_sequences({

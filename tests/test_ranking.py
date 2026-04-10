@@ -279,9 +279,9 @@ def test_operator_and_applied():
     assert set(result["peptide"]) == {"SIINFEKL"}
 
 
-def test_operator_rank_by():
+def test_operator_sort_by():
     df = _two_peptide_df()
-    strategy = (Affinity.value <= 50000).rank_by(Presentation.score, Affinity.score)
+    strategy = (Affinity.value <= 50000).sort_by(Presentation.score, Affinity.score)
     result = apply_ranking_strategy(df, strategy)
     assert result.iloc[0]["peptide"] == "SIINFEKL"
 
@@ -378,13 +378,13 @@ def test_field_norm():
 
 
 def test_composite_norm_ranking():
-    """Composite normalized score used in rank_by."""
+    """Composite normalized score used in sort_by."""
     df = _two_peptide_df()
     composite = (
         0.5 * (1 - Affinity.value.norm(mean=500, std=200))
         + 0.5 * Presentation.score.norm(mean=0.5, std=0.3)
     )
-    strategy = (Affinity.value <= 50000).rank_by(composite)
+    strategy = (Affinity.value <= 50000).sort_by(composite)
     result = apply_ranking_strategy(df, strategy)
     # Peptide A: low IC50 (good) + high presentation (good) → higher composite
     assert result.iloc[0]["peptide"] == "SIINFEKL"
@@ -826,6 +826,84 @@ def test_parse_ranking_tool_qualified():
     assert len(strategy.filters) == 2
     assert strategy.filters[0].method == "netmhcpan"
     assert strategy.filters[1].method == "mhcflurry"
+
+
+# ---------------------------------------------------------------------------
+# Column fallback in filter parser
+# ---------------------------------------------------------------------------
+
+
+def test_parse_filter_column_fallback_ge():
+    """Unknown identifiers in filters become ColumnFilter — e.g. gene_tpm >= 5."""
+    from topiary.ranking import parse_filter, ColumnFilter
+    f = parse_filter("gene_tpm >= 5")
+    assert isinstance(f, ColumnFilter)
+    assert f.col_name == "gene_tpm"
+    assert f.min_value == 5.0
+
+
+def test_parse_filter_column_fallback_le():
+    from topiary.ranking import parse_filter, ColumnFilter
+    f = parse_filter("variant_num_alt_reads <= 100")
+    assert isinstance(f, ColumnFilter)
+    assert f.col_name == "variant_num_alt_reads"
+    assert f.max_value == 100.0
+
+
+def test_parse_ranking_with_column_filter():
+    """Column filters work inside compound --filter-by strings."""
+    from topiary.ranking import parse_ranking, ColumnFilter
+    strategy = parse_ranking("ba <= 500 & gene_tpm >= 5")
+    assert isinstance(strategy, RankingStrategy)
+    assert len(strategy.filters) == 2
+    assert strategy.filters[0].kind == Kind.pMHC_affinity
+    assert isinstance(strategy.filters[1], ColumnFilter)
+    assert strategy.filters[1].col_name == "gene_tpm"
+
+
+def test_parse_filter_column_with_transform():
+    """Transformed columns in filters: gene_tpm.log() >= 1."""
+    from topiary.ranking import parse_filter, ExprFilter
+    f = parse_filter("gene_tpm.log() >= 1")
+    assert isinstance(f, ExprFilter)
+    assert f.min_value == 1.0
+
+
+def test_expr_filter_evaluates():
+    """ExprFilter evaluates its expr and compares against threshold."""
+    import pandas as pd
+    from topiary.ranking import ExprFilter, Column, apply_ranking_strategy
+    df = pd.DataFrame([
+        {"source_sequence_name": "s1", "peptide": "AAA", "peptide_offset": 0,
+         "allele": "A", "kind": "pMHC_affinity", "score": 0.5, "value": 100,
+         "percentile_rank": 1, "gene_tpm": 10.0},
+        {"source_sequence_name": "s2", "peptide": "BBB", "peptide_offset": 0,
+         "allele": "A", "kind": "pMHC_affinity", "score": 0.5, "value": 100,
+         "percentile_rank": 1, "gene_tpm": 1.0},
+    ])
+    strategy = RankingStrategy(
+        filters=[ExprFilter(Column("gene_tpm"), min_value=5.0)]
+    )
+    result = apply_ranking_strategy(df, strategy)
+    assert len(result) == 1
+    assert result.iloc[0]["peptide"] == "AAA"
+
+
+def test_column_comparison_python_api():
+    """Column('gene_tpm') >= 5 works in Python API."""
+    from topiary.ranking import Column, ColumnFilter
+    f = Column("gene_tpm") >= 5
+    assert isinstance(f, ColumnFilter)
+    assert f.col_name == "gene_tpm"
+    assert f.min_value == 5.0
+
+
+def test_compound_expr_filter_python_api():
+    """(Affinity.score + 1) <= 5 returns ExprFilter."""
+    from topiary.ranking import ExprFilter
+    f = (Affinity.score + 1) <= 5
+    assert isinstance(f, ExprFilter)
+    assert f.max_value == 5.0
 
 
 # ---------------------------------------------------------------------------

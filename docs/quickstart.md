@@ -6,13 +6,13 @@
 # From a FASTA of protein sequences
 topiary --fasta proteins.fasta \
   --mhc-predictor netmhcpan --mhc-alleles A0201,B0702 \
-  --ranking "affinity <= 500 | presentation.rank <= 2" \
+  --filter-by "affinity <= 500 | presentation.rank <= 2" \
   --output-csv results.csv
 
 # From specific genes
 topiary --gene-names BRAF TP53 EGFR \
   --mhc-predictor netmhcpan --mhc-alleles A0201 \
-  --ranking "affinity <= 500" \
+  --filter-by "affinity <= 500" \
   --output-csv results.csv
 
 # Score specific peptides (no sliding window)
@@ -25,21 +25,21 @@ topiary --peptide-csv peptides.csv \
 topiary --cta \
   --exclude-tissues heart_muscle lung liver \
   --mhc-predictor netmhcpan --mhc-alleles A0201 \
-  --ranking "affinity <= 500" \
+  --filter-by "affinity <= 500" \
   --output-csv results.csv
 
 # From genomic variants (VCF)
 topiary --vcf somatic.vcf \
   --mhc-predictor netmhcpan --mhc-alleles A0201 \
-  --ranking "affinity <= 500" \
+  --filter-by "affinity <= 500" \
   --only-novel-epitopes \
   --output-csv results.csv
 
 # Multi-model with tool-qualified ranking
 topiary --fasta proteins.fasta \
   --mhc-predictor netmhcpan --mhc-alleles A0201 \
-  --ranking "netmhcpan_ba <= 500 & column(cysteine_count) <= 2" \
-  --rank-by "netmhcpan_affinity,mhcflurry_presentation" \
+  --filter-by "netmhcpan_ba <= 500 & column(cysteine_count) <= 2" \
+  --sort-by "netmhcpan_affinity,mhcflurry_presentation" \
   --output-csv results.csv
 ```
 
@@ -69,7 +69,7 @@ predictor = TopiaryPredictor(
     models=[NetMHCpan, MHCflurry],
     alleles=["A0201", "A0301", "B0702"],
     filter_by=Affinity <= 500,
-    rank_by=Presentation.score,
+    sort_by=Presentation.score,
 )
 ```
 

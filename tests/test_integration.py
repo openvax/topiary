@@ -111,7 +111,7 @@ def test_first_principles_workflow():
         models=RandomBindingPredictor,
         alleles=["A0201"],
         filter=Affinity <= 500,
-        rank_by=Affinity.score,
+        sort_by=Affinity.score,
     )
     df = predictor.predict_from_named_sequences(small_targets)
 

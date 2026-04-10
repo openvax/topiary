@@ -72,7 +72,7 @@ def write_outputs(
                 )
             else:
                 subset_columns.append(column)
-        df = df[subset_columns]
+        df = df.loc[:, subset_columns].copy()
 
     if args.rename_output_column:
         for old_name, new_name in args.rename_output_column:
@@ -82,7 +82,7 @@ def write_outputs(
                     % (old_name, list(df.columns))
                 )
             else:
-                df.rename(columns={old_name: new_name}, inplace=True)
+                df = df.rename(columns={old_name: new_name})
 
     if print_df_after_filtering:
         print(df)

@@ -27,6 +27,7 @@ from topiary.cli.args import (
     _validate_input_modes,
     arg_parser,
     predict_epitopes_from_args,
+    predictors_from_args,
 )
 from topiary.inputs import read_fasta, read_peptide_fasta
 from topiary.sources import (
@@ -173,6 +174,15 @@ def test_no_input_raises_clear_error():
     ])
     with pytest.raises(ValueError, match="No input specified"):
         predict_epitopes_from_args(args)
+
+
+def test_multiple_predictors_parse_from_one_cli_invocation():
+    args = arg_parser.parse_args([
+        "--mhc-predictor", "random", "random",
+        "--mhc-alleles", "A0201",
+    ])
+    predictors = predictors_from_args(args)
+    assert len(predictors) == 2
 
 
 # ---------------------------------------------------------------------------

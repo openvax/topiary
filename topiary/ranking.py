@@ -17,13 +17,14 @@ Express filter/rank heuristics via operator overloading::
         0.5 * Affinity.value.norm(mean=500, std=200) +
         0.5 * Presentation.score.norm(mean=0.5, std=0.3)
     )
-    ranking = (Affinity.value <= 500).rank_by(score)
+    ranking = (Affinity.value <= 500).sort_by(score)
 """
 
 from __future__ import annotations
 
 import math
 import operator
+from functools import cmp_to_key
 from dataclasses import dataclass, field
 from difflib import get_close_matches
 from typing import Optional
@@ -169,19 +170,19 @@ class Expr:
         """Square root (NaN if value < 0)."""
         return _UnaryOp(self, math.sqrt)
 
-    # -- filters (return EpitopeFilter, not Expr) --
+    # -- filters (return filter objects, not Expr) --
 
     def __le__(self, threshold):
-        raise TypeError(
-            "Comparison operators are only supported on Field objects "
-            "(e.g. Affinity.value <= 500), not on computed expressions."
-        )
+        return ExprFilter(expr=self, max_value=float(threshold))
 
     def __ge__(self, threshold):
-        raise TypeError(
-            "Comparison operators are only supported on Field objects "
-            "(e.g. Affinity.score >= 0.5), not on computed expressions."
-        )
+        return ExprFilter(expr=self, min_value=float(threshold))
+
+    def __lt__(self, threshold):
+        return self.__le__(threshold)
+
+    def __gt__(self, threshold):
+        return self.__ge__(threshold)
 
 
 class _Const(Expr):
@@ -522,6 +523,18 @@ class Column(Expr):
                 f"Only numeric columns can be used in ranking expressions."
             )
 
+    def __le__(self, threshold):
+        return ColumnFilter(col_name=self.col_name, max_value=float(threshold))
+
+    def __ge__(self, threshold):
+        return ColumnFilter(col_name=self.col_name, min_value=float(threshold))
+
+    def __lt__(self, threshold):
+        return self.__le__(threshold)
+
+    def __gt__(self, threshold):
+        return self.__ge__(threshold)
+
 
 # ---------------------------------------------------------------------------
 # Field — a reference to one column of one prediction kind
@@ -619,8 +632,8 @@ class Field(Expr):
             scope_name = self.scope.rstrip("_")
             raise TypeError(
                 f"Scoped fields ({scope_name}.*) can't be used in filters. "
-                f"Use them in ranking expressions instead, e.g.: "
-                f"rank_by=[Affinity.score - {scope_name}.Affinity.score]"
+                f"Use them in sorting expressions instead, e.g.: "
+                f"sort_by=[Affinity.score - {scope_name}.Affinity.score]"
             )
 
     def __le__(self, threshold):
@@ -962,8 +975,11 @@ class EpitopeFilter:
     def __and__(self, other):
         return _combine(self, other, require_all=True)
 
-    def rank_by(self, *exprs: Expr) -> RankingStrategy:
+    def sort_by(self, *exprs: Expr) -> "RankingStrategy":
         return RankingStrategy(filters=[self], sort_by=list(exprs))
+
+    def rank_by(self, *exprs: Expr) -> RankingStrategy:
+        return self.sort_by(*exprs)
 
 
 @dataclass(frozen=True)
@@ -986,8 +1002,64 @@ class ColumnFilter:
     def __and__(self, other):
         return _combine(self, other, require_all=True)
 
-    def rank_by(self, *exprs: Expr) -> "RankingStrategy":
+    def sort_by(self, *exprs: Expr) -> "RankingStrategy":
         return RankingStrategy(filters=[self], sort_by=list(exprs))
+
+    def rank_by(self, *exprs: Expr) -> "RankingStrategy":
+        return self.sort_by(*exprs)
+
+
+@dataclass(frozen=True)
+class ExprFilter:
+    """A filter criterion that evaluates an arbitrary :class:`Expr`.
+
+    Generalizes :class:`ColumnFilter` to handle transforms, arithmetic,
+    and any other Expr node::
+
+        ExprFilter(Column("gene_tpm").log(), min_value=1.0)
+        Column("gene_tpm").log() >= 1.0   # equivalent
+    """
+
+    expr: Expr
+    max_value: Optional[float] = None
+    min_value: Optional[float] = None
+
+    def __or__(self, other):
+        return _combine(self, other, require_all=False)
+
+    def __and__(self, other):
+        return _combine(self, other, require_all=True)
+
+    def sort_by(self, *exprs: Expr) -> "RankingStrategy":
+        return RankingStrategy(filters=[self], sort_by=list(exprs))
+
+    def rank_by(self, *exprs: Expr) -> "RankingStrategy":
+        return self.sort_by(*exprs)
+
+
+class SortSpec(list):
+    """List-like sort specification bound to a RankingStrategy.
+
+    Behaves like a normal list for inspection, but is also callable so
+    ``strategy.sort_by(expr1, expr2)`` works alongside ``strategy.sort_by``
+    as stored sort expressions.
+    """
+
+    __slots__ = ("_owner",)
+
+    def __init__(self, iterable=(), owner=None):
+        super().__init__(iterable)
+        self._owner = owner
+
+    def __call__(self, *exprs):
+        if self._owner is None:
+            raise TypeError("Unbound SortSpec cannot be called")
+        return RankingStrategy(
+            filters=list(self._owner.filters),
+            require_all=self._owner.require_all,
+            sort_by=list(exprs),
+            sort_direction=self._owner.sort_direction,
+        )
 
 
 @dataclass
@@ -1002,6 +1074,13 @@ class RankingStrategy:
     filters: list = field(default_factory=list)
     require_all: bool = False
     sort_by: list = field(default_factory=list)
+    sort_direction: str = "desc"
+
+    def __post_init__(self):
+        if isinstance(self.sort_by, SortSpec):
+            self.sort_by._owner = self
+        else:
+            self.sort_by = SortSpec(self.sort_by, owner=self)
 
     def __or__(self, other):
         return _combine(self, other, require_all=False)
@@ -1010,11 +1089,7 @@ class RankingStrategy:
         return _combine(self, other, require_all=True)
 
     def rank_by(self, *exprs: Expr) -> RankingStrategy:
-        return RankingStrategy(
-            filters=list(self.filters),
-            require_all=self.require_all,
-            sort_by=list(exprs),
-        )
+        return self.sort_by(*exprs)
 
 
 def _combine(left, right, require_all):
@@ -1114,12 +1189,15 @@ def _group_passes(group_df, strategy):
         if isinstance(item, RankingStrategy):
             # Nested sub-strategy — recurse
             results.append(_group_passes(group_df, item))
-        elif isinstance(item, ColumnFilter):
-            # Column-level filter — check first row
-            if group_df.empty or item.col_name not in group_df.columns:
-                results.append(False)
-                continue
-            val = group_df.iloc[0][item.col_name]
+        elif isinstance(item, (ColumnFilter, ExprFilter)):
+            # Expression or column filter — evaluate and compare.
+            # Errors (missing column, non-numeric value) propagate so
+            # the user gets an informative message instead of silent
+            # empty results.
+            if isinstance(item, ColumnFilter):
+                val = Column(item.col_name).evaluate(group_df)
+            else:
+                val = item.expr.evaluate(group_df)
             if val is None or (isinstance(val, float) and np.isnan(val)):
                 results.append(False)
                 continue
@@ -1163,13 +1241,100 @@ def _group_passes(group_df, strategy):
     return any(results)
 
 
-def _sort_key_for_group(group_df, sort_by):
-    """Evaluate sort_by expressions against a group, first non-NaN wins."""
-    for expr in sort_by:
-        val = expr.evaluate(group_df)
-        if val is not None and not (isinstance(val, float) and math.isnan(val)):
-            return val
-    return float("-inf")
+def _infer_sort_direction(expr):
+    """Infer the natural sort direction for one expression."""
+    if isinstance(expr, Field):
+        if expr.field == "percentile_rank":
+            return "asc"
+        if expr.kind == Kind.pMHC_affinity and expr.field == "value":
+            return "asc"
+    return "desc"
+
+
+def _resolve_sort_direction(expr, sort_direction):
+    """Resolve sort direction for an expression under global settings."""
+    if sort_direction == "auto":
+        return _infer_sort_direction(expr)
+    return sort_direction
+
+
+def _is_missing_sort_value(val):
+    """Check whether an evaluated sort value is missing."""
+    return val is None or (isinstance(val, float) and math.isnan(val))
+
+
+def _evaluate_sort_values(group_df, sort_by):
+    """Evaluate all sort expressions for one peptide-allele group."""
+    return [expr.evaluate(group_df) for expr in sort_by]
+
+
+def _compare_sort_values(left, right, direction):
+    """Compare two numeric sort values with explicit direction."""
+    if left < right:
+        return -1 if direction == "asc" else 1
+    if left > right:
+        return 1 if direction == "asc" else -1
+    return 0
+
+
+def _compare_group_sort_values(left_vals, right_vals, sort_by, sort_direction):
+    """Compare two groups lexicographically with missing-value fallthrough."""
+    for expr, left_val, right_val in zip(sort_by, left_vals, right_vals):
+        if _is_missing_sort_value(left_val) or _is_missing_sort_value(right_val):
+            # Missing values fall through to later tiebreakers instead of
+            # forcing an order immediately.
+            continue
+        cmp = _compare_sort_values(
+            left_val,
+            right_val,
+            _resolve_sort_direction(expr, sort_direction),
+        )
+        if cmp != 0:
+            return cmp
+    return 0
+
+
+def _collect_column_names(obj):
+    """Walk an Expr/filter tree and return all Column.col_name references."""
+    names = set()
+    stack = [obj]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, Column):
+            names.add(node.col_name)
+        elif isinstance(node, ColumnFilter):
+            names.add(node.col_name)
+        elif isinstance(node, ExprFilter):
+            stack.append(node.expr)
+        elif isinstance(node, RankingStrategy):
+            stack.extend(node.filters)
+            stack.extend(node.sort_by)
+        elif isinstance(node, _BinOp):
+            stack.append(node.left)
+            stack.append(node.right)
+        elif isinstance(node, _AggExpr):
+            stack.extend(node.exprs)
+        elif hasattr(node, "inner") and isinstance(node.inner, Expr):
+            stack.append(node.inner)
+    return names
+
+
+def _validate_columns(df, strategy):
+    """Raise early if the strategy references columns not in *df*."""
+    needed = _collect_column_names(strategy)
+    if not needed:
+        return
+    available = set(df.columns)
+    missing = needed - available
+    if missing:
+        for col_name in sorted(missing):
+            close = get_close_matches(col_name, sorted(available), n=3, cutoff=0.6)
+            msg = f"Column {col_name!r} not found in DataFrame."
+            if close:
+                msg += f" Did you mean: {close}?"
+            else:
+                msg += f" Available columns: {sorted(available)}"
+            raise ValueError(msg)
 
 
 def apply_ranking_strategy(df, strategy):
@@ -1181,6 +1346,7 @@ def apply_ranking_strategy(df, strategy):
     if df.empty:
         return df
 
+    _validate_columns(df, strategy)
     group_keys = _pick_group_keys(df)
     grouped = df.groupby(group_keys, sort=False)
 
@@ -1192,15 +1358,27 @@ def apply_ranking_strategy(df, strategy):
         df = df[keep_mask]
 
     if strategy.sort_by and not df.empty:
-        grouped = df.groupby(group_keys, sort=False)
-        sort_keys = {}
-        for key, group_df in grouped:
-            sort_keys[key] = _sort_key_for_group(group_df, strategy.sort_by)
-        df = df.copy()
-        df["_sort_key"] = df.set_index(group_keys).index.map(
-            lambda k: sort_keys.get(k, float("-inf"))
-        )
-        df = df.sort_values("_sort_key", ascending=False).drop(columns=["_sort_key"])
+        grouped_items = list(df.groupby(group_keys, sort=False))
+        sort_values = {
+            key: _evaluate_sort_values(group_df, strategy.sort_by)
+            for key, group_df in grouped_items
+        }
+
+        def _cmp(left, right):
+            return _compare_group_sort_values(
+                sort_values[left[0]],
+                sort_values[right[0]],
+                strategy.sort_by,
+                strategy.sort_direction,
+            )
+
+        grouped_items = sorted(grouped_items, key=cmp_to_key(_cmp))
+        ordered_index = [
+            row_idx
+            for _key, group_df in grouped_items
+            for row_idx in group_df.index
+        ]
+        df = df.loc[ordered_index]
 
     return df.reset_index(drop=True)
 
@@ -1331,13 +1509,11 @@ def parse_filter(text):
         "column(cysteine_count) <= 2"
         "column(hydrophobicity) >= -0.5"
 
-    Returns an :class:`EpitopeFilter` or :class:`ColumnFilter`.
+    Returns an :class:`EpitopeFilter`, :class:`ColumnFilter`, or
+    :class:`ExprFilter`.
     """
-    # Strip parentheses and whitespace (but not column() parens)
-    text = text.strip()
-    if not text.startswith("column("):
-        text = text.strip("()")
-    for op_str, op_name in [("<=", "le"), (">=", "ge"), ("<", "lt"), (">", "gt")]:
+    text = text.strip().strip("()")
+    for op_str in ["<=", ">=", "<", ">"]:
         if op_str in text:
             lhs, rhs = text.split(op_str, 1)
             lhs = lhs.strip()
@@ -1350,37 +1526,15 @@ def parse_filter(text):
                     f"Right side of {op_str} must be a number."
                 ) from None
 
-            # Check for column(name) syntax
-            col_name = _parse_column_ref(lhs)
-            if col_name is not None:
-                if op_name in ("le", "lt"):
-                    return ColumnFilter(col_name=col_name, max_value=threshold)
-                else:
-                    return ColumnFilter(col_name=col_name, min_value=threshold)
-
-            if "." in lhs:
-                kind_str, field_str = lhs.rsplit(".", 1)
+            # Parse the LHS as a general expression, then apply the
+            # comparison.  Field/KindAccessor.__le__ returns EpitopeFilter,
+            # Column.__le__ returns ColumnFilter, and Expr.__le__ returns
+            # ExprFilter — so this handles all cases uniformly.
+            expr = parse_expr(lhs)
+            if op_str in ("<=", "<"):
+                return expr <= threshold
             else:
-                kind_str, field_str = lhs, "value"
-
-            kind, method = _resolve_qualified_kind(kind_str)
-            field_name = _resolve_field(field_str)
-
-            if op_name in ("le", "lt"):
-                if field_name == "value":
-                    return EpitopeFilter(kind=kind, max_value=threshold, method=method)
-                elif field_name == "percentile_rank":
-                    return EpitopeFilter(kind=kind, max_percentile_rank=threshold, method=method)
-                elif field_name == "score":
-                    return EpitopeFilter(kind=kind, max_score=threshold, method=method)
-            elif op_name in ("ge", "gt"):
-                if field_name == "value":
-                    return EpitopeFilter(kind=kind, min_value=threshold, method=method)
-                elif field_name == "percentile_rank":
-                    return EpitopeFilter(kind=kind, min_percentile_rank=threshold, method=method)
-                elif field_name == "score":
-                    return EpitopeFilter(kind=kind, min_score=threshold, method=method)
-            break
+                return expr >= threshold
     else:
         raise ValueError(f"No comparison operator found in {text!r}")
 
@@ -1422,7 +1576,7 @@ def parse_ranking(text):
 
 
 # ---------------------------------------------------------------------------
-# Expression parser — full transform/arithmetic DSL for --rank-by
+# Expression parser — full transform/arithmetic DSL for --sort-by
 # ---------------------------------------------------------------------------
 
 # Maps string names to aggregation constructors
@@ -1729,8 +1883,14 @@ class _ExprParser:
                 return Column(col_tok[1])
 
             # Kind accessor (e.g. affinity, presentation, affinity.score)
-            accessor = self._parse_kind_accessor()
-            return accessor
+            # or unknown identifier → Column reference (e.g. gene_tpm, vaf)
+            if self._is_kind_name(name):
+                accessor = self._parse_kind_accessor()
+                return accessor
+            else:
+                # Unknown identifier — treat as column reference
+                self.tokenizer.advance()
+                return Column(tok[1])
 
         raise ValueError(
             f"Unexpected token {tok!r} in expression {self.text!r}"
@@ -1861,6 +2021,16 @@ class _ExprParser:
         raise ValueError(
             f"Cannot use ['...'] on {type(node).__name__}"
         )
+
+    def _is_kind_name(self, name):
+        """Check if name resolves as a known kind alias or tool-qualified kind."""
+        if name in _KIND_ACCESSOR_ALIASES:
+            return True
+        try:
+            _resolve_qualified_kind(name)
+            return True
+        except ValueError:
+            return False
 
 
 def parse_expr(text):
