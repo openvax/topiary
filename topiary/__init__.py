@@ -23,6 +23,7 @@ from .ranking import (
     parse_expr,
     parse_ranking,
     presentation_filter,
+    self_scope,
     shuffled,
     wt,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "apply_ranking_strategy",
     "parse_expr",
     "presentation_filter",
+    "self_scope",
     "shuffled",
     "wt",
     "contains_mutant_residues",

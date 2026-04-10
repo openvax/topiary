@@ -838,19 +838,10 @@ class Scope:
         attr_lower = attr.lower()
         if attr_lower in _KIND_ALIASES:
             return KindAccessor(_KIND_ALIASES[attr_lower], scope=self.prefix)
-        # Try as a KindAccessor constant name (Affinity, Presentation, etc.)
-        kind_map = {
-            "affinity": Kind.pMHC_affinity,
-            "presentation": Kind.pMHC_presentation,
-            "stability": Kind.pMHC_stability,
-            "processing": Kind.antigen_processing,
-        }
-        if attr_lower in kind_map:
-            return KindAccessor(kind_map[attr_lower], scope=self.prefix)
+        available = sorted(_KIND_ALIASES.keys())
         raise AttributeError(
             f"Unknown kind {attr!r} in scope {self.name!r}. "
-            f"Available: affinity, presentation, stability, processing, "
-            f"ba, el, aff, ic50"
+            f"Available: {available}"
         )
 
     def count(self, chars: str) -> "Count":
@@ -920,6 +911,8 @@ class Count(Expr):
     __slots__ = ("chars", "scope")
 
     def __init__(self, chars: str, scope: str = ""):
+        if not chars:
+            raise ValueError("count() requires at least one amino acid character")
         self.chars = chars.upper()
         self.scope = scope
 

@@ -131,27 +131,50 @@ TypeError: Column 'gene_name' contains non-numeric value 'BRAF' (str).
 Only numeric columns can be used in ranking expressions.
 ```
 
-## WT() — wildtype comparison
+## wt. — wildtype comparison
 
-`WT()` wraps a kind accessor to read wildtype prediction columns (`wt_value`, `wt_score`, `wt_percentile_rank`). These columns are populated by `predict_column` after variant-derived predictions:
+The `wt.` scope prefix reads wildtype prediction columns (`wt_value`, `wt_score`, `wt_percentile_rank`). These columns are populated by `predict_column` after variant-derived predictions:
 
 ```python
-from topiary import Affinity, WT
+from topiary import Affinity, wt
 
-# Read WT binding values
-WT(Affinity).value                        # wt_value column
-WT(Affinity).score                        # wt_score column
-WT(Affinity["netmhcpan"]).score           # qualified WT
+# Read WT binding values (Python API — capitalized kind names)
+wt.Affinity.value                         # wt_value column
+wt.Affinity.score                         # wt_score column
+wt.Affinity["netmhcpan"].score            # qualified WT
 
 # Differential binding (mutant vs wildtype)
-Affinity.score - WT(Affinity).score
+Affinity.score - wt.Affinity.score
 
 # Logistic differential
-Affinity.logistic(350, 150) - WT(Affinity).logistic(350, 150)
+Affinity.logistic(350, 150) - wt.Affinity.logistic(350, 150)
+```
+
+The string DSL uses lowercase kind names:
+
+```
+wt.affinity.value
+wt.affinity.score
+wt.affinity["netmhcpan"].score
+affinity.score - wt.affinity.score
 ```
 
 !!! note
-    `WT()` is for **ranking expressions only**, not filters. Use it in `rank_by`, not in `filter`. When WT columns don't exist (non-variant inputs), expressions evaluate to NaN.
+    `wt.` is for **ranking expressions only**, not filters. Use it in `rank_by`, not in `filter`. When WT columns don't exist (non-variant inputs), expressions evaluate to NaN.
+
+## len and count() — peptide-level expressions
+
+`len` reads the peptide length; `count('C')` counts amino acid occurrences in the peptide. Both compose with scope prefixes:
+
+```python
+# String DSL
+len                           # peptide length
+count('C')                    # cysteine count
+wt.len                        # wildtype peptide length
+wt.count('C')                 # wildtype cysteine count
+count('C') - wt.count('C')   # gained/lost cysteines vs wildtype
+count('KR') >= 2              # filter: at least 2 basic residues
+```
 
 ## String form (CLI)
 
@@ -175,14 +198,13 @@ The `--ranking` flag and `--rank-by` flag accept string expressions:
 - Arithmetic: `0.5 * Affinity.score + 0.5 * Presentation.score`
 - Transforms: `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()`, `.hinge()`, `.log()`
 - Aggregations: `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()`
-- `WT()` expressions
 - `Column()` in arithmetic (only `column(x) <= N` works in strings)
 
 ## Putting it together
 
 ```python
 from topiary import (
-    TopiaryPredictor, Affinity, Presentation, Column, WT,
+    TopiaryPredictor, Affinity, Presentation, Column, wt,
 )
 from topiary.properties import add_peptide_properties
 from mhctools import NetMHCpan, MHCflurry

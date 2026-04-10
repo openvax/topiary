@@ -2285,3 +2285,137 @@ def test_roundtrip_wt_scope_composite():
         "0.5 * affinity.score - 0.3 * wt.affinity.score + 0.1 * len",
         df,
     )
+
+
+# ---------------------------------------------------------------------------
+# Shuffled and self scope tests
+# ---------------------------------------------------------------------------
+
+SHUFFLED_ROWS = [
+    dict(
+        source_sequence_name="var1", peptide="SIINFEKL", peptide_offset=10,
+        allele="HLA-A*02:01", kind="pMHC_affinity",
+        score=0.8, value=120.0, percentile_rank=0.5,
+        shuffled_score=0.2, shuffled_value=900.0, shuffled_percentile_rank=8.0,
+        shuffled_peptide="KLFINISE", shuffled_peptide_length=8,
+        prediction_method_name="netmhcpan",
+    ),
+]
+
+SELF_ROWS = [
+    dict(
+        source_sequence_name="var1", peptide="SIINFEKL", peptide_offset=10,
+        allele="HLA-A*02:01", kind="pMHC_affinity",
+        score=0.8, value=120.0, percentile_rank=0.5,
+        self_score=0.6, self_value=200.0, self_percentile_rank=1.5,
+        self_peptide="SIINFQKL", self_peptide_length=8,
+        prediction_method_name="netmhcpan",
+    ),
+]
+
+
+def test_shuffled_scope_parse():
+    expr = parse_expr("shuffled.affinity.score")
+    assert isinstance(expr, Field)
+    assert expr.scope == "shuffled_"
+
+
+def test_shuffled_scope_evaluate():
+    df = _make_df(SHUFFLED_ROWS)
+    expr = parse_expr("shuffled.affinity.score")
+    assert expr.evaluate(df) == 0.2
+
+
+def test_shuffled_scope_differential():
+    df = _make_df(SHUFFLED_ROWS)
+    expr = parse_expr("affinity.score - shuffled.affinity.score")
+    assert abs(expr.evaluate(df) - 0.6) < 1e-9
+
+
+def test_shuffled_scope_python_api():
+    from topiary.ranking import shuffled
+    field = shuffled.Affinity.score
+    assert isinstance(field, Field)
+    assert field.scope == "shuffled_"
+    df = _make_df(SHUFFLED_ROWS)
+    assert field.evaluate(df) == 0.2
+
+
+def test_shuffled_len():
+    df = _make_df(SHUFFLED_ROWS)
+    expr = parse_expr("shuffled.len")
+    assert expr.evaluate(df) == 8.0
+
+
+def test_shuffled_count():
+    df = _make_df(SHUFFLED_ROWS)
+    expr = parse_expr("shuffled.count('K')")
+    # KLFINISE has K=1
+    assert expr.evaluate(df) == 1.0
+
+
+def test_shuffled_repr_roundtrip():
+    df = _make_df(SHUFFLED_ROWS)
+    _assert_roundtrip("shuffled.affinity.score", df)
+
+
+def test_self_scope_parse():
+    expr = parse_expr("self.affinity.score")
+    assert isinstance(expr, Field)
+    assert expr.scope == "self_"
+
+
+def test_self_scope_evaluate():
+    df = _make_df(SELF_ROWS)
+    expr = parse_expr("self.affinity.score")
+    assert expr.evaluate(df) == 0.6
+
+
+def test_self_scope_differential():
+    df = _make_df(SELF_ROWS)
+    expr = parse_expr("affinity.score - self.affinity.score")
+    assert abs(expr.evaluate(df) - 0.2) < 1e-9
+
+
+def test_self_scope_python_api():
+    from topiary.ranking import self_scope
+    field = self_scope.Affinity.score
+    assert isinstance(field, Field)
+    assert field.scope == "self_"
+    df = _make_df(SELF_ROWS)
+    assert field.evaluate(df) == 0.6
+
+
+def test_self_repr_roundtrip():
+    df = _make_df(SELF_ROWS)
+    _assert_roundtrip("self.affinity.score", df)
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests from review
+# ---------------------------------------------------------------------------
+
+
+def test_nested_scope_rejected():
+    """wt.wt.affinity should be rejected."""
+    with pytest.raises(ValueError, match="reserved context keyword"):
+        parse_expr("wt.wt.affinity")
+
+
+def test_count_empty_string_rejected():
+    """count('') should raise ValueError."""
+    with pytest.raises(ValueError, match="at least one amino acid"):
+        parse_expr("count('')")
+
+
+def test_count_lowercase_normalized():
+    """count('k') should be treated as count('K')."""
+    df = _make_df(LEN_ROWS)
+    expr = parse_expr("count('k')")
+    assert expr.chars == "K"
+    assert expr.evaluate(df) == 1.0
+
+
+def test_shuffled_reserved_keyword_no_dot():
+    with pytest.raises(ValueError, match="reserved context keyword"):
+        parse_expr("shuffled")

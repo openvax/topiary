@@ -72,18 +72,35 @@ ColumnFilter(col_name="hydrophobicity", min_value=-0.5)
 
 Supports `|` (OR) and `&` (AND) combination with `EpitopeFilter`.
 
-## WT
+## wt (scope prefix)
 
-Wildtype comparison wrapper. Reads `wt_*` columns for ranking expressions:
+Wildtype scope prefix. Reads `wt_*` columns for ranking expressions:
 
 ```python
-WT(Affinity).value                # reads wt_value
-WT(Affinity).score                # reads wt_score
-WT(Affinity["netmhcpan"]).score   # qualified WT
-WT(Affinity)["netmhcpan"].score   # also works
+# Python API (capitalized kind names)
+wt.Affinity.value                 # reads wt_value
+wt.Affinity.score                 # reads wt_score
+wt.Affinity["netmhcpan"].score    # qualified WT
+
+# String DSL (lowercase kind names)
+# wt.affinity.value
+# wt.affinity.score
+# wt.affinity["netmhcpan"].score
 ```
 
 For ranking expressions only (not filters). Returns NaN when WT columns absent.
+
+## len and count()
+
+Peptide-level expressions that compose with scope prefixes:
+
+```python
+# String DSL
+len                           # peptide length (reads peptide_length column)
+count('C')                    # cysteine count (reads from peptide column)
+wt.len                        # wildtype peptide length (reads wt_peptide_length)
+wt.count('C')                 # wildtype cysteine count (reads from wt_peptide)
+```
 
 ## Expr transforms
 
