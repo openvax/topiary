@@ -360,18 +360,37 @@ Missing columns get a helpful error with typo suggestions:
 ValueError: Column 'hydrophobicty' not found. Did you mean: ['hydrophobicity']?
 ```
 
-### WT() — wildtype comparison (Python-only)
+### wt. — wildtype comparison
 
-`WT()` wraps a kind accessor to read wildtype prediction columns (`wt_value`, `wt_score`, `wt_percentile_rank`), populated by `predict_column` after variant-derived predictions:
+The `wt.` scope prefix reads wildtype prediction columns (`wt_value`, `wt_score`, `wt_percentile_rank`), populated by `predict_column` after variant-derived predictions:
 
 ```python
-WT(Affinity).value                        # WT IC50
-WT(Affinity["netmhcpan"]).score           # qualified WT
-Affinity.score - WT(Affinity).score       # differential binding
-Affinity.logistic(350, 150) - WT(Affinity).logistic(350, 150)
+# Python API (capitalized kind names)
+wt.Affinity.value                         # WT IC50
+wt.Affinity["netmhcpan"].score            # qualified WT
+Affinity.score - wt.Affinity.score        # differential binding
+Affinity.logistic(350, 150) - wt.Affinity.logistic(350, 150)
+
+# String DSL (lowercase kind names)
+# wt.affinity.value
+# wt.affinity["netmhcpan"].score
+# affinity.score - wt.affinity.score
 ```
 
-`WT()` is for ranking expressions, not filters. Returns NaN when WT columns don't exist (non-variant inputs).
+`wt.` expressions are for ranking, not filters. Returns NaN when WT columns don't exist (non-variant inputs).
+
+### len and count() — peptide-level expressions
+
+`len` reads the peptide length; `count('C')` counts amino acid occurrences. Both work with scope prefixes:
+
+```python
+# String DSL
+# len                        # peptide length
+# count('C')                 # cysteine count
+# wt.len                     # wildtype peptide length
+# wt.count('C')              # wildtype cysteine count
+# count('C') - wt.count('C') # gained/lost cysteines
+```
 
 ### Sorting
 
@@ -407,7 +426,9 @@ On the CLI:
 | `0.5 * Affinity.score + ...` | *Python-only* |
 | `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()` | *Python-only* |
 | `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()` | *Python-only* |
-| `WT(Affinity).score` | *Python-only* |
+| `wt.Affinity.score` | `wt.affinity.score` |
+| `len`, `count('C')` | `len`, `count('C')` |
+| `wt.len`, `wt.count('C')` | `wt.len`, `wt.count('C')` |
 | `Column("x")` in arithmetic | *Python-only* |
 
 ## Exclusion filtering
@@ -513,7 +534,7 @@ Full Python API for neoantigen analysis — variant prediction, wildtype compari
 
 ```python
 from topiary import (
-    TopiaryPredictor, Affinity, Presentation, Column, WT,
+    TopiaryPredictor, Affinity, Presentation, Column, wt,
 )
 from topiary.properties import add_peptide_properties
 from topiary.comparison import predict_column, annotate_reference
@@ -569,7 +590,7 @@ score = (
 
     # Differential binding: mutant binds better than wildtype
     + 0.15 * (Affinity["netmhcpan"].logistic(350, 150)
-              - WT(Affinity["netmhcpan"]).logistic(350, 150))
+              - wt.Affinity["netmhcpan"].logistic(350, 150))
 
     # Manufacturability: penalize cysteines and unstable peptides
     - 0.05 * Column("cysteine_count")

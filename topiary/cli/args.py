@@ -17,7 +17,7 @@ Common commandline arguments used by scripts
 from argparse import ArgumentParser
 
 import pandas as pd
-from mhctools.cli import add_mhc_args, mhc_binding_predictor_from_args
+from mhctools.cli import add_mhc_args, predictors_from_args
 from varcode.cli import add_variant_args, variant_collection_from_args
 
 from .filtering import add_filter_args
@@ -52,6 +52,7 @@ from ..ranking import (
     EpitopeFilter,
     RankingStrategy,
     affinity_filter,
+    parse_expr,
     parse_ranking,
     presentation_filter,
 )
@@ -248,11 +249,22 @@ def _build_ranking_strategy(args):
 
     sort_by = []
     if has_rank_by:
-        from ..ranking import KindAccessor, _resolve_qualified_kind
-        kind_names = [s.strip() for s in args.rank_by.split(",")]
-        for k in kind_names:
-            kind, method = _resolve_qualified_kind(k)
-            sort_by.append(KindAccessor(kind, method=method).score)
+        rank_by_text = args.rank_by.strip()
+        # Detect expression syntax: operators, parens, or dots indicate
+        # a DSL expression. Plain comma-separated kind names (e.g.
+        # "pMHC_affinity,pMHC_presentation") have none of these.
+        is_expr = any(c in rank_by_text for c in '+-*/()')
+        if is_expr:
+            sort_by.append(parse_expr(rank_by_text))
+        else:
+            from ..ranking import KindAccessor, _resolve_qualified_kind
+            kind_names = [s.strip() for s in rank_by_text.split(",")]
+            for k in kind_names:
+                if "." in k or "(" in k:
+                    sort_by.append(parse_expr(k))
+                else:
+                    kind, method = _resolve_qualified_kind(k)
+                    sort_by.append(KindAccessor(kind, method=method).score)
 
     return RankingStrategy(
         filters=filters,
@@ -412,11 +424,12 @@ def predict_epitopes_from_args(args):
     args : argparse.Namespace
         Parsed commandline arguments for Topiary
     """
-    mhc_model = mhc_binding_predictor_from_args(args)
+    model_instances = predictors_from_args(args)
+
     ranking_strategy = _build_ranking_strategy(args)
 
     predictor = TopiaryPredictor(
-        mhc_model=mhc_model,
+        models=model_instances,
         padding_around_mutation=args.padding_around_mutation,
         ic50_cutoff=args.ic50_cutoff,
         percentile_cutoff=args.percentile_cutoff,

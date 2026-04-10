@@ -12,7 +12,8 @@ Predict which peptides from protein sequences will be presented by MHC molecules
 - **Transforms** — `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()`, `.hinge()`, `.log()` for composite scoring
 - **Aggregations** — `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()` for combining expressions
 - **Arbitrary column access** — `Column("cysteine_count")` brings any DataFrame column into the DSL
-- **Wildtype comparison** — `WT(Affinity).score` for differential binding analysis
+- **Wildtype comparison** — `wt.Affinity.score` for differential binding analysis
+- **Peptide-level expressions** — `len`, `count('C')`, `wt.len`, `wt.count('C')` for peptide properties in the DSL
 - **Peptide properties** — charge, hydrophobicity, aromaticity, manufacturability, TCR-facing residue analysis
 - **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, Ensembl lookups, CTA gene sets
 - **Tissue-aware exclusion** — exclude peptides from vital-organ proteomes

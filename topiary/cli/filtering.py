@@ -80,9 +80,14 @@ def add_filter_args(arg_parser):
     filter_group.add_argument(
         "--rank-by",
         help=(
-            "Comma-separated prediction kinds to rank by, in priority order. "
-            "E.g. 'pMHC_presentation,pMHC_affinity' ranks by presentation "
-            "score when available, falling back to affinity."
+            "Ranking expression or comma-separated prediction kinds. "
+            "Simple: 'pMHC_presentation,pMHC_affinity' ranks by presentation "
+            "score, falling back to affinity. "
+            "Expression: '0.5 * affinity.descending_cdf(500, 200) + "
+            "0.5 * presentation.score.ascending_cdf(0.5, 0.3)'. "
+            "Transforms: ascending_cdf, descending_cdf, logistic, clip, "
+            "hinge, log, log2, log10, log1p, exp, sqrt. "
+            "Aggregations: mean, geomean, minimum, maximum, median."
         ),
         default=None,
         type=str,
