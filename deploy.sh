@@ -36,17 +36,9 @@ fi
 # Build
 rm -rf dist
 python3 -m build
-
-# Confirm
 echo ""
-echo "Ready to upload:"
+echo "Uploading:"
 ls -lh dist/
-echo ""
-read -p "Upload topiary ${VERSION} to PyPI? [y/N] " CONFIRM
-if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
-    echo "Aborted."
-    exit 1
-fi
 
 # Upload
 python3 -m twine upload dist/*
