@@ -2,7 +2,7 @@
 
 ## Steps
 
-1. Bump the version in `topiary/__init__.py` as part of your PR.
+1. Bump the version in `topiary/__init__.py` and update `CHANGELOG.md` as part of your PR.
 2. Merge the PR to master.
 3. Wait for CI to pass on master.
 4. Run `./deploy.sh` from master.

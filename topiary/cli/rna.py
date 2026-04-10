@@ -17,7 +17,7 @@ def add_expression_args(arg_parser):
         title="Expression Data",
         description=(
             "Load expression quantification to annotate predictions. "
-            "Values become columns accessible in --filter-by and --rank-by. "
+            "Values become columns accessible in --filter-by and --sort-by. "
             "Format: [name:]file[:id_col[:val_col]]. "
             "Common formats (Salmon .sf, Kallisto abundance.tsv, RSEM, "
             "StringTie .gtf, Cufflinks .fpkm_tracking) are auto-detected."

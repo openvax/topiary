@@ -1,7 +1,9 @@
 from topiary.cli.args import arg_parser
 from topiary.cli.outputs import write_outputs
 import tempfile
+import warnings
 import pandas as pd
+from pandas.errors import SettingWithCopyWarning
 
 from .common import eq_
 
@@ -26,9 +28,12 @@ def test_write_outputs():
             ]
         )
 
-        write_outputs(
-            df, args, print_df_before_filtering=True, print_df_after_filtering=True
-        )
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            write_outputs(
+                df, args, print_df_before_filtering=True, print_df_after_filtering=True
+            )
+
         print("File: %s" % f.name)
         df_from_file = pd.read_csv(f.name, index_col="#")
 
@@ -36,3 +41,7 @@ def test_write_outputs():
         print(df_from_file)
         eq_(len(df_expected), len(df_from_file))
         assert (df_expected == df_from_file).all().all()
+        assert not any(
+            issubclass(warning.category, SettingWithCopyWarning)
+            for warning in caught_warnings
+        )

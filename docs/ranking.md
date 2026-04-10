@@ -160,7 +160,7 @@ affinity.score - wt.affinity.score
 ```
 
 !!! note
-    `wt.` is for **ranking expressions only**, not filters. Use it in `rank_by`, not in `filter`. When WT columns don't exist (non-variant inputs), expressions evaluate to NaN.
+    `wt.` is for **sorting expressions only**, not filters. Use it in `sort_by`, not in `filter`. When WT columns don't exist (non-variant inputs), expressions evaluate to NaN.
 
 ## len and count() — peptide-level expressions
 
@@ -178,7 +178,7 @@ count('KR') >= 2              # filter: at least 2 basic residues
 
 ## String form (CLI)
 
-The `--ranking` flag and `--rank-by` flag accept string expressions:
+The `--filter-by` flag and `--sort-by` flag accept string expressions:
 
 | Python DSL | String form |
 |---|---|
@@ -193,13 +193,17 @@ The `--ranking` flag and `--rank-by` flag accept string expressions:
 
 **Kind aliases:** `ba` / `aff` / `ic50` = Affinity, `el` = Presentation.
 
-**All features work in both Python and CLI string form** (`--rank-by`):
+**All features work in both Python and CLI string form** (`--sort-by`):
 
 - Arithmetic: `0.5 * affinity.score + 0.5 * presentation.score`
 - Transforms: `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()`, `.hinge()`, `.log()`
 - Aggregations: `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()`
 - `column(x)` in arithmetic, filters, and ranking
 - Scope prefixes: `wt.affinity.score`, `wt.len`, `wt.count('C')`
+
+`--sort-direction` controls whether lower or higher values rank first. The
+default is `auto`: raw affinity values and percentile ranks sort ascending,
+while all other sort expressions sort descending.
 
 ## Putting it together
 

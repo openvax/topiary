@@ -17,13 +17,14 @@ Express filter/rank heuristics via operator overloading::
         0.5 * Affinity.value.norm(mean=500, std=200) +
         0.5 * Presentation.score.norm(mean=0.5, std=0.3)
     )
-    ranking = (Affinity.value <= 500).rank_by(score)
+    ranking = (Affinity.value <= 500).sort_by(score)
 """
 
 from __future__ import annotations
 
 import math
 import operator
+from functools import cmp_to_key
 from dataclasses import dataclass, field
 from difflib import get_close_matches
 from typing import Optional
@@ -631,8 +632,8 @@ class Field(Expr):
             scope_name = self.scope.rstrip("_")
             raise TypeError(
                 f"Scoped fields ({scope_name}.*) can't be used in filters. "
-                f"Use them in ranking expressions instead, e.g.: "
-                f"rank_by=[Affinity.score - {scope_name}.Affinity.score]"
+                f"Use them in sorting expressions instead, e.g.: "
+                f"sort_by=[Affinity.score - {scope_name}.Affinity.score]"
             )
 
     def __le__(self, threshold):
@@ -974,8 +975,11 @@ class EpitopeFilter:
     def __and__(self, other):
         return _combine(self, other, require_all=True)
 
-    def rank_by(self, *exprs: Expr) -> RankingStrategy:
+    def sort_by(self, *exprs: Expr) -> "RankingStrategy":
         return RankingStrategy(filters=[self], sort_by=list(exprs))
+
+    def rank_by(self, *exprs: Expr) -> RankingStrategy:
+        return self.sort_by(*exprs)
 
 
 @dataclass(frozen=True)
@@ -998,8 +1002,11 @@ class ColumnFilter:
     def __and__(self, other):
         return _combine(self, other, require_all=True)
 
-    def rank_by(self, *exprs: Expr) -> "RankingStrategy":
+    def sort_by(self, *exprs: Expr) -> "RankingStrategy":
         return RankingStrategy(filters=[self], sort_by=list(exprs))
+
+    def rank_by(self, *exprs: Expr) -> "RankingStrategy":
+        return self.sort_by(*exprs)
 
 
 @dataclass(frozen=True)
@@ -1023,8 +1030,36 @@ class ExprFilter:
     def __and__(self, other):
         return _combine(self, other, require_all=True)
 
-    def rank_by(self, *exprs: Expr) -> "RankingStrategy":
+    def sort_by(self, *exprs: Expr) -> "RankingStrategy":
         return RankingStrategy(filters=[self], sort_by=list(exprs))
+
+    def rank_by(self, *exprs: Expr) -> "RankingStrategy":
+        return self.sort_by(*exprs)
+
+
+class SortSpec(list):
+    """List-like sort specification bound to a RankingStrategy.
+
+    Behaves like a normal list for inspection, but is also callable so
+    ``strategy.sort_by(expr1, expr2)`` works alongside ``strategy.sort_by``
+    as stored sort expressions.
+    """
+
+    __slots__ = ("_owner",)
+
+    def __init__(self, iterable=(), owner=None):
+        super().__init__(iterable)
+        self._owner = owner
+
+    def __call__(self, *exprs):
+        if self._owner is None:
+            raise TypeError("Unbound SortSpec cannot be called")
+        return RankingStrategy(
+            filters=list(self._owner.filters),
+            require_all=self._owner.require_all,
+            sort_by=list(exprs),
+            sort_direction=self._owner.sort_direction,
+        )
 
 
 @dataclass
@@ -1039,6 +1074,13 @@ class RankingStrategy:
     filters: list = field(default_factory=list)
     require_all: bool = False
     sort_by: list = field(default_factory=list)
+    sort_direction: str = "desc"
+
+    def __post_init__(self):
+        if isinstance(self.sort_by, SortSpec):
+            self.sort_by._owner = self
+        else:
+            self.sort_by = SortSpec(self.sort_by, owner=self)
 
     def __or__(self, other):
         return _combine(self, other, require_all=False)
@@ -1047,11 +1089,7 @@ class RankingStrategy:
         return _combine(self, other, require_all=True)
 
     def rank_by(self, *exprs: Expr) -> RankingStrategy:
-        return RankingStrategy(
-            filters=list(self.filters),
-            require_all=self.require_all,
-            sort_by=list(exprs),
-        )
+        return self.sort_by(*exprs)
 
 
 def _combine(left, right, require_all):
@@ -1203,13 +1241,57 @@ def _group_passes(group_df, strategy):
     return any(results)
 
 
-def _sort_key_for_group(group_df, sort_by):
-    """Evaluate sort_by expressions against a group, first non-NaN wins."""
-    for expr in sort_by:
-        val = expr.evaluate(group_df)
-        if val is not None and not (isinstance(val, float) and math.isnan(val)):
-            return val
-    return float("-inf")
+def _infer_sort_direction(expr):
+    """Infer the natural sort direction for one expression."""
+    if isinstance(expr, Field):
+        if expr.field == "percentile_rank":
+            return "asc"
+        if expr.kind == Kind.pMHC_affinity and expr.field == "value":
+            return "asc"
+    return "desc"
+
+
+def _resolve_sort_direction(expr, sort_direction):
+    """Resolve sort direction for an expression under global settings."""
+    if sort_direction == "auto":
+        return _infer_sort_direction(expr)
+    return sort_direction
+
+
+def _is_missing_sort_value(val):
+    """Check whether an evaluated sort value is missing."""
+    return val is None or (isinstance(val, float) and math.isnan(val))
+
+
+def _evaluate_sort_values(group_df, sort_by):
+    """Evaluate all sort expressions for one peptide-allele group."""
+    return [expr.evaluate(group_df) for expr in sort_by]
+
+
+def _compare_sort_values(left, right, direction):
+    """Compare two numeric sort values with explicit direction."""
+    if left < right:
+        return -1 if direction == "asc" else 1
+    if left > right:
+        return 1 if direction == "asc" else -1
+    return 0
+
+
+def _compare_group_sort_values(left_vals, right_vals, sort_by, sort_direction):
+    """Compare two groups lexicographically with missing-value fallthrough."""
+    for expr, left_val, right_val in zip(sort_by, left_vals, right_vals):
+        if _is_missing_sort_value(left_val) or _is_missing_sort_value(right_val):
+            # Missing values fall through to later tiebreakers instead of
+            # forcing an order immediately.
+            continue
+        cmp = _compare_sort_values(
+            left_val,
+            right_val,
+            _resolve_sort_direction(expr, sort_direction),
+        )
+        if cmp != 0:
+            return cmp
+    return 0
 
 
 def _collect_column_names(obj):
@@ -1276,15 +1358,27 @@ def apply_ranking_strategy(df, strategy):
         df = df[keep_mask]
 
     if strategy.sort_by and not df.empty:
-        grouped = df.groupby(group_keys, sort=False)
-        sort_keys = {}
-        for key, group_df in grouped:
-            sort_keys[key] = _sort_key_for_group(group_df, strategy.sort_by)
-        df = df.copy()
-        df["_sort_key"] = df.set_index(group_keys).index.map(
-            lambda k: sort_keys.get(k, float("-inf"))
-        )
-        df = df.sort_values("_sort_key", ascending=False).drop(columns=["_sort_key"])
+        grouped_items = list(df.groupby(group_keys, sort=False))
+        sort_values = {
+            key: _evaluate_sort_values(group_df, strategy.sort_by)
+            for key, group_df in grouped_items
+        }
+
+        def _cmp(left, right):
+            return _compare_group_sort_values(
+                sort_values[left[0]],
+                sort_values[right[0]],
+                strategy.sort_by,
+                strategy.sort_direction,
+            )
+
+        grouped_items = sorted(grouped_items, key=cmp_to_key(_cmp))
+        ordered_index = [
+            row_idx
+            for _key, group_df in grouped_items
+            for row_idx in group_df.index
+        ]
+        df = df.loc[ordered_index]
 
     return df.reset_index(drop=True)
 
@@ -1482,7 +1576,7 @@ def parse_ranking(text):
 
 
 # ---------------------------------------------------------------------------
-# Expression parser — full transform/arithmetic DSL for --rank-by
+# Expression parser — full transform/arithmetic DSL for --sort-by
 # ---------------------------------------------------------------------------
 
 # Maps string names to aggregation constructors

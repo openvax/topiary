@@ -130,6 +130,7 @@ class TopiaryPredictor(object):
         models=None,
         alleles=None,
         filter_by=None,
+        sort_by=None,
         rank_by=None,
         padding_around_mutation=None,
         only_novel_epitopes=False,
@@ -170,14 +171,16 @@ class TopiaryPredictor(object):
                 filter_by=(Affinity <= 500) | (Presentation.rank <= 2.0)
                 filter_by="affinity <= 500 | el.rank <= 2"
 
-        rank_by : Expr or list of Expr, optional
-            How to sort surviving groups. First non-NaN wins::
+        sort_by : Expr or list of Expr, optional
+            How to sort surviving groups. Multiple expressions act as
+            lexicographic tie breakers, and missing values fall through to
+            later expressions::
 
-                rank_by=[Presentation.score, Affinity.score]
+                sort_by=[Presentation.score, Affinity.score]
 
             Or a composite expression::
 
-                rank_by=0.5 * Affinity.score + 0.5 * Presentation.score
+                sort_by=0.5 * Affinity.score + 0.5 * Presentation.score
 
         padding_around_mutation : int, optional
             Residues around a mutation to include in candidate epitopes.
@@ -201,6 +204,7 @@ class TopiaryPredictor(object):
         percentile_cutoff : deprecated, use ``filter_by=Affinity.rank <= X``
         ranking : deprecated alias for ``filter_by``
         ranking_strategy : deprecated alias for ``filter_by``
+        rank_by : deprecated alias for ``sort_by``
         """
         # --- model setup ---
         raw_models = models or mhc_models or (mhc_model and [mhc_model])
@@ -246,17 +250,22 @@ class TopiaryPredictor(object):
         else:
             self.ranking_strategy = None
 
-        # Attach rank_by to strategy if provided separately
-        if rank_by is not None:
-            if not isinstance(rank_by, (list, tuple)):
-                rank_by = [rank_by]
+        # Attach sort_by to strategy if provided separately
+        if sort_by is not None and rank_by is not None:
+            raise ValueError("Pass only one of sort_by or rank_by")
+
+        effective_sort = sort_by if sort_by is not None else rank_by
+        if effective_sort is not None:
+            if not isinstance(effective_sort, (list, tuple)):
+                effective_sort = [effective_sort]
             if self.ranking_strategy is None:
-                self.ranking_strategy = RankingStrategy(sort_by=list(rank_by))
+                self.ranking_strategy = RankingStrategy(sort_by=list(effective_sort))
             else:
                 self.ranking_strategy = RankingStrategy(
                     filters=list(self.ranking_strategy.filters),
                     require_all=self.ranking_strategy.require_all,
-                    sort_by=list(rank_by),
+                    sort_by=list(effective_sort),
+                    sort_direction=self.ranking_strategy.sort_direction,
                 )
 
         self.ic50_cutoff = ic50_cutoff

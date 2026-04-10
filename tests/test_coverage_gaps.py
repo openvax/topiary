@@ -127,11 +127,11 @@ def test_gauss_cdf_extreme():
     assert _gauss_cdf(-10) < 0.001
 
 
-def test_ranking_strategy_rank_by_preserves_filters():
+def test_ranking_strategy_sort_by_preserves_filters():
     strategy = (Affinity <= 500) | (Presentation.rank <= 2.0)
-    ranked = strategy.rank_by(Presentation.score)
-    assert len(ranked.filters) == 2
-    assert len(ranked.sort_by) == 1
+    sorted_strategy = strategy.sort_by(Presentation.score)
+    assert len(sorted_strategy.filters) == 2
+    assert len(sorted_strategy.sort_by) == 1
 
 
 def test_custom_kind_accessor():

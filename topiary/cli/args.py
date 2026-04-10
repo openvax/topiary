@@ -54,7 +54,9 @@ from ..ranking import (
     ColumnFilter,
     EpitopeFilter,
     ExprFilter,
+    KindAccessor,
     RankingStrategy,
+    _resolve_qualified_kind,
     affinity_filter,
     parse_expr,
     parse_ranking,
@@ -232,7 +234,8 @@ def _build_ranking_strategy(args):
     """Build a RankingStrategy from CLI args, or return None."""
     ranking_text = getattr(args, "filter_by", None)
     has_presentation = getattr(args, "presentation_cutoff", None) is not None
-    has_rank_by = getattr(args, "rank_by", None) is not None
+    has_sort_by = getattr(args, "sort_by", None) is not None
+    sort_direction = getattr(args, "sort_direction", "auto")
     filter_logic = getattr(args, "filter_logic", "any")
 
     filters = []
@@ -257,17 +260,9 @@ def _build_ranking_strategy(args):
             filters.append(presentation_filter(max_rank=args.presentation_cutoff))
 
     sort_by = []
-    if has_rank_by:
-        rank_by_text = args.rank_by.strip()
-        # Comma-separated list means multiple fallback sort keys;
-        # otherwise the whole string is one expression.
-        if "," in rank_by_text and not any(c in rank_by_text for c in "+-*/()"):
-            # Legacy: "pMHC_affinity,pMHC_presentation" — each item is
-            # a kind name or column name, parsed independently.
-            for item in rank_by_text.split(","):
-                sort_by.append(parse_expr(item.strip()))
-        else:
-            sort_by.append(parse_expr(rank_by_text))
+    if has_sort_by:
+        for item in _split_top_level_commas(args.sort_by.strip()):
+            sort_by.append(_parse_sort_expr(item))
 
     if not filters and not sort_by:
         return None
@@ -276,7 +271,74 @@ def _build_ranking_strategy(args):
         filters=filters,
         require_all=require_all,
         sort_by=sort_by,
+        sort_direction=sort_direction,
     )
+
+
+def _split_top_level_commas(text):
+    """Split a comma-separated sort string on top-level commas only."""
+    if not text:
+        return []
+
+    parts = []
+    current = []
+    paren_depth = 0
+    bracket_depth = 0
+
+    for ch in text:
+        if ch == "(":
+            paren_depth += 1
+        elif ch == ")":
+            paren_depth -= 1
+        elif ch == "[":
+            bracket_depth += 1
+        elif ch == "]":
+            bracket_depth -= 1
+        elif ch == "," and paren_depth == 0 and bracket_depth == 0:
+            item = "".join(current).strip()
+            if item:
+                parts.append(item)
+            current = []
+            continue
+        current.append(ch)
+
+    tail = "".join(current).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _parse_sort_expr(text):
+    """Parse one CLI --sort-by item.
+
+    Bare kind names use the default sort field for that kind:
+    affinity -> raw value (IC50), others -> normalized score.
+    """
+    text = text.strip()
+    if not text:
+        raise ValueError("Empty sort key in --sort-by")
+
+    if _looks_like_plain_kind_name(text):
+        kind, method = _resolve_qualified_kind(text)
+        accessor = KindAccessor(kind, method=method)
+        if kind.name == "pMHC_affinity":
+            return accessor.value
+        return accessor.score
+
+    return parse_expr(text)
+
+
+def _looks_like_plain_kind_name(text):
+    """Return True when *text* is a bare kind token like ba or mhcflurry_el."""
+    if any(ch.isspace() for ch in text):
+        return False
+    if any(ch in text for ch in ".()[]+-*/"):
+        return False
+    try:
+        _resolve_qualified_kind(text)
+        return True
+    except ValueError:
+        return False
 
 
 def _parse_regions(region_strings):

@@ -78,11 +78,10 @@ def add_filter_args(arg_parser):
     )
 
     filter_group.add_argument(
-        "--rank-by",
+        "--sort-by",
         help=(
-            "Ranking expression or comma-separated prediction kinds. "
-            "Simple: 'pMHC_presentation,pMHC_affinity' ranks by presentation "
-            "score, falling back to affinity. "
+            "Sort expression or comma-separated fallback sort keys. "
+            "Simple: 'el,ba' sorts by presentation, falling back to affinity. "
             "Expression: '0.5 * affinity.descending_cdf(500, 200) + "
             "0.5 * presentation.score.ascending_cdf(0.5, 0.3)'. "
             "Transforms: ascending_cdf, descending_cdf, logistic, clip, "
@@ -91,6 +90,17 @@ def add_filter_args(arg_parser):
         ),
         default=None,
         type=str,
+    )
+
+    filter_group.add_argument(
+        "--sort-direction",
+        help=(
+            "Sort direction for --sort-by: 'asc', 'desc', or 'auto'. "
+            "'auto' sorts raw affinity values and percentile ranks ascending, "
+            "and sorts everything else descending."
+        ),
+        choices=["auto", "asc", "desc"],
+        default="auto",
     )
 
     filter_group.add_argument(

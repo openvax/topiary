@@ -279,9 +279,9 @@ def test_operator_and_applied():
     assert set(result["peptide"]) == {"SIINFEKL"}
 
 
-def test_operator_rank_by():
+def test_operator_sort_by():
     df = _two_peptide_df()
-    strategy = (Affinity.value <= 50000).rank_by(Presentation.score, Affinity.score)
+    strategy = (Affinity.value <= 50000).sort_by(Presentation.score, Affinity.score)
     result = apply_ranking_strategy(df, strategy)
     assert result.iloc[0]["peptide"] == "SIINFEKL"
 
@@ -378,13 +378,13 @@ def test_field_norm():
 
 
 def test_composite_norm_ranking():
-    """Composite normalized score used in rank_by."""
+    """Composite normalized score used in sort_by."""
     df = _two_peptide_df()
     composite = (
         0.5 * (1 - Affinity.value.norm(mean=500, std=200))
         + 0.5 * Presentation.score.norm(mean=0.5, std=0.3)
     )
-    strategy = (Affinity.value <= 50000).rank_by(composite)
+    strategy = (Affinity.value <= 50000).sort_by(composite)
     result = apply_ranking_strategy(df, strategy)
     # Peptide A: low IC50 (good) + high presentation (good) → higher composite
     assert result.iloc[0]["peptide"] == "SIINFEKL"

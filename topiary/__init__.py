@@ -35,7 +35,7 @@ from .sequence_helpers import (
     protein_subsequences_around_mutations,
 )
 
-__version__ = "4.8.0"
+__version__ = "4.9.0"
 
 __all__ = [
     "TopiaryPredictor",

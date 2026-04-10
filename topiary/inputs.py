@@ -21,7 +21,7 @@ Example — CTA-like targets with vital-organ exclusion::
     predictor = TopiaryPredictor(
         models=NetMHCpan, alleles=["A0201", "A0301"],
         filter=Affinity <= 500,
-        rank_by=Presentation.score,
+        sort_by=Presentation.score,
     )
     df = predictor.predict_from_named_sequences(target_seqs)
 

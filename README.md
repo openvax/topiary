@@ -16,6 +16,8 @@ Predict which peptides from protein sequences will be presented by MHC molecules
 pip install topiary
 ```
 
+Topiary `4.9.0` and later require `mhctools>=3.5.0`.
+
 For variant annotation and gene lookups, download Ensembl reference data:
 
 ```bash
@@ -106,7 +108,7 @@ Each kind has three fields:
 
 ### Ranking with transforms
 
-Sort surviving peptides with `rank_by`. Transforms normalize heterogeneous scores to a common scale:
+Sort surviving peptides with `sort_by`. Transforms normalize heterogeneous scores to a common scale:
 
 ```python
 from topiary import TopiaryPredictor, Affinity, Presentation, mean
@@ -116,7 +118,7 @@ predictor = TopiaryPredictor(
     models=[NetMHCpan, MHCflurry],
     alleles=["HLA-A*02:01"],
     filter_by=Affinity <= 500,
-    rank_by=mean(
+    sort_by=mean(
         Affinity["netmhcpan"].logistic(350, 150),
         Affinity["mhcflurry"].logistic(350, 150),
     ),
@@ -167,18 +169,18 @@ from topiary import Affinity, Column
 # As a filter — bare name or Column() both work
 filter_by = Column("gene_tpm") >= 5.0
 
-# As a ranking signal
-rank_by = 0.5 * Affinity.logistic(350, 150) - 0.1 * Column("cysteine_count")
+# As a sorting signal
+sort_by = 0.5 * Affinity.logistic(350, 150) - 0.1 * Column("cysteine_count")
 
 # Transforms work on columns too
-rank_by = Column("gene_tpm").log1p()
+sort_by = Column("gene_tpm").log1p()
 ```
 
 In CLI strings, bare names work directly:
 
 ```bash
 --filter-by "ba <= 500 & gene_tpm >= 5"
---rank-by "affinity.logistic(350, 150) + 0.1 * gene_tpm.log1p()"
+--sort-by "affinity.logistic(350, 150) + 0.1 * gene_tpm.log1p()"
 ```
 
 The explicit `column(name)` syntax also works: `gene_tpm >= 5`.
@@ -192,7 +194,7 @@ The `wt.` prefix reads predictions for the wildtype peptide at the same position
 ```python
 from topiary import Affinity, wt
 
-rank_by = Affinity.score - wt.Affinity.score  # mutant advantage
+sort_by = Affinity.score - wt.Affinity.score  # mutant advantage
 ```
 
 `shuffled.` and `self.` prefixes work the same way for shuffled-decoy and self-proteome contexts.
@@ -204,7 +206,7 @@ rank_by = Affinity.score - wt.Affinity.score  # mutant advantage
 ```python
 from topiary import Len, Count, wt
 
-rank_by = Count("C") - wt.Count("C")   # gained/lost cysteines vs wildtype
+sort_by = Count("C") - wt.Count("C")   # gained/lost cysteines vs wildtype
 ```
 
 ## Expression data
@@ -329,7 +331,7 @@ topiary \
   --mhc-predictor netmhcpan mhcflurry \
   --mhc-alleles HLA-A*02:01 \
   --filter-by "ba <= 500" \
-  --rank-by "mean(affinity['netmhcpan'].logistic(350, 150), affinity['mhcflurry'].logistic(350, 150))" \
+  --sort-by "mean(affinity['netmhcpan'].logistic(350, 150), affinity['mhcflurry'].logistic(350, 150))" \
   --output-csv results.csv
 ```
 
@@ -341,7 +343,7 @@ topiary \
   --mhc-predictor netmhcpan \
   --mhc-alleles HLA-A*02:01,HLA-B*07:02 \
   --filter-by "ba <= 500 | el.rank <= 2" \
-  --rank-by "0.6 * affinity.descending_cdf(500, 200) + 0.4 * presentation.score" \
+  --sort-by "0.6 * affinity.descending_cdf(500, 200) + 0.4 * presentation.score" \
   --only-novel-epitopes \
   --output-csv epitopes.csv
 ```
@@ -366,7 +368,7 @@ topiary \
   --mhc-alleles HLA-A*02:01 \
   --transcript-expression kallisto/abundance.tsv \
   --filter-by "ba <= 500" \
-  --rank-by "affinity.descending_cdf(500, 200) + 0.1 * transcript_tpm.log1p()" \
+  --sort-by "affinity.descending_cdf(500, 200) + 0.1 * transcript_tpm.log1p()" \
   --output-csv results.csv
 
 # Variant-level read support from isovar
@@ -447,6 +449,14 @@ Specify one or more predictors with `--mhc-predictor` and alleles with `--mhc-al
 
 All predictors come from [mhctools](https://github.com/openvax/mhctools).
 
+With `mhctools 3.5.0`, upstream predictor parsing now supports multiple
+predictors in one CLI invocation, so commands like
+`--mhc-predictor netmhcpan42 bigmhc-el` are supported directly. Topiary keeps
+its higher-level `--filter-by` / `--sort-by` DSL on top of that lower-level
+predictor interface. NetChop and Pepsickle behavior also follows the upstream
+`mhctools 3.5.0` changes: improved NetChop error handling and Pepsickle's
+epitope-focused model selection.
+
 | CLI name | Predicts |
 |----------|----------|
 | `netmhcpan` | affinity + presentation (auto-detects installed version) |
@@ -492,7 +502,7 @@ df = add_peptide_properties(df, groups=["manufacturability"])
 
 # Properties become ranking signals
 score = Affinity.logistic(350, 150) - 0.1 * Column("cysteine_count")
-# CLI: --rank-by "affinity.logistic(350, 150) - 0.1 * cysteine_count"
+# CLI: --sort-by "affinity.logistic(350, 150) - 0.1 * cysteine_count"
 ```
 
 Named groups:

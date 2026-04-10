@@ -93,7 +93,7 @@ score = (
 On the CLI, filter by property values:
 
 ```bash
---ranking "affinity <= 500 & column(cysteine_count) <= 1"
+--filter-by "affinity <= 500 & column(cysteine_count) <= 1"
 ```
 
 ## Comparing mutant vs wildtype properties
