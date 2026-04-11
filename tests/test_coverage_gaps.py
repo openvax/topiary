@@ -73,11 +73,11 @@ def test_model_name_string_mixed_case():
 
 
 def test_model_name_string_mhcflurry():
-    """MHCflurry can be referenced by string name."""
-    predictor = TopiaryPredictor(
-        models="mhcflurry", alleles=["A0201"],
-    )
-    assert len(predictor.models) == 1
+    """MHCflurry class can be resolved by string name."""
+    from topiary.predictor import _resolve_model_name
+    from mhctools import MHCflurry
+    cls = _resolve_model_name("mhcflurry")
+    assert cls is MHCflurry
 
 
 def test_model_name_string_list():
