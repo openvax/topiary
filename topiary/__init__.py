@@ -37,7 +37,7 @@ from .sequence_helpers import (
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "4.11.0"
+__version__ = "4.11.1"
 
 __all__ = [
     "TopiaryPredictor",

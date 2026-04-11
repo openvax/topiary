@@ -8,7 +8,9 @@
 
 # Topiary
 
-Predict which peptides from protein sequences will be presented by MHC molecules, making them potential T-cell epitopes. Used in cancer immunotherapy research to find mutant peptides (neoantigens) that the immune system could target.
+Topiary predicts, filters, and ranks MHC-presented peptides from any antigen source. It wraps multiple binding predictors (NetMHCpan, MHCflurry, etc.) with a composable filtering and ranking DSL, expression-aware prioritization, and wide/long serialization.
+
+Applications include personalized cancer vaccine design (peptide, mRNA, or DNA), viral epitope mapping, and characterizing T-cell responses.
 
 ## Installation
 
