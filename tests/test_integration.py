@@ -15,7 +15,7 @@ from topiary.sources import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-ALLELES = ["A0201"]
+ALLELES = ["A0301"]
 
 # Small set of genes for fast tests
 GENES = ["BRAF", "TP53"]

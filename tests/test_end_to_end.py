@@ -31,27 +31,32 @@ ALLELES = ["A0201", "B0702"]
 # ---------------------------------------------------------------------------
 
 
-def test_peptide_csv_full_pipeline():
-    path = _tmpfile("name,peptide\npep1,SIINFEKLA\npep2,ELAGIGILT\npep3,AAAAAKVAA\n")
-    seqs = read_peptide_csv(path)
+@pytest.mark.parametrize("content,suffix,reader,alleles", [
+    ("name,peptide\npep1,SIINFEKLA\npep2,ELAGIGILT\npep3,AAAAAKVAA\n",
+     ".csv", read_peptide_csv, ALLELES),
+    (">braf\nMASIINFEKLGGGLLLAAA\n>tp53\nMRKKLLLQQQRRREEEYYY\n",
+     ".fasta", read_fasta, ALLELES),
+    (">pep1\nSIINFEKLA\n>pep2\nELAGIGILT\n",
+     ".fasta", read_peptide_fasta, ["A0201"]),
+    ("name,sequence\nbraf,MASIINFEKLGGGLLL\n",
+     ".csv", read_sequence_csv, ["A0201"]),
+], ids=["peptide_csv", "fasta", "peptide_fasta", "sequence_csv"])
+def test_input_format_full_pipeline(content, suffix, reader, alleles):
+    path = _tmpfile(content, suffix)
+    seqs = reader(path)
     os.unlink(path)
 
-    # No filter — this test checks schema, not filtering
     predictor = TopiaryPredictor(
-        models=[RandomBindingPredictor, RandomBindingPredictor],
-        alleles=ALLELES,
+        models=RandomBindingPredictor, alleles=alleles,
     )
     df = predictor.predict_from_named_sequences(seqs)
 
-    # Verify output schema
     for col in [
         "peptide", "kind", "score", "value", "affinity",
         "prediction_method_name", "source_sequence_name",
         "peptide_length", "peptide_offset",
     ]:
         assert col in df.columns, f"Missing column: {col}"
-
-    # Two models → results from both
     assert len(df) > 0
 
     # Affinity column: non-NaN for pMHC_affinity rows, NaN otherwise
@@ -63,41 +68,55 @@ def test_peptide_csv_full_pipeline():
         assert non_aff_rows["affinity"].isna().all()
 
 
-def test_fasta_full_pipeline():
+def test_fasta_source_names():
+    """FASTA reader preserves sequence names through the pipeline."""
     path = _tmpfile(">braf\nMASIINFEKLGGGLLLAAA\n>tp53\nMRKKLLLQQQRRREEEYYY\n", ".fasta")
     seqs = read_fasta(path)
     os.unlink(path)
 
-    predictor = TopiaryPredictor(
-        models=RandomBindingPredictor, alleles=ALLELES,
-    )
+    predictor = TopiaryPredictor(models=RandomBindingPredictor, alleles=ALLELES)
     df = predictor.predict_from_named_sequences(seqs)
-    assert len(df) > 0
     assert set(df["source_sequence_name"].unique()) == {"braf", "tp53"}
 
 
-def test_peptide_fasta_full_pipeline():
-    path = _tmpfile(">pep1\nSIINFEKLA\n>pep2\nELAGIGILT\n", ".fasta")
-    seqs = read_peptide_fasta(path)
-    os.unlink(path)
+# ---------------------------------------------------------------------------
+# End-to-end: mouse H-2 and Class II DQ alleles
+# ---------------------------------------------------------------------------
 
+
+def test_pipeline_mouse_h2_alleles():
+    """Mouse H-2 alleles work through the full pipeline."""
     predictor = TopiaryPredictor(
-        models=RandomBindingPredictor, alleles=["A0201"],
+        models=RandomBindingPredictor, alleles=["H-2-Kb", "H-2-Db"],
     )
-    df = predictor.predict_from_named_sequences(seqs)
+    df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGGLLLAAA"})
     assert len(df) > 0
+    alleles_in_output = set(df["allele"].unique())
+    assert any("H-2" in a for a in alleles_in_output)
 
 
-def test_sequence_csv_full_pipeline():
-    path = _tmpfile("name,sequence\nbraf,MASIINFEKLGGGLLL\n")
-    seqs = read_sequence_csv(path)
-    os.unlink(path)
-
+def test_pipeline_class2_dq_allele():
+    """Class II DQ alleles work through the full pipeline."""
     predictor = TopiaryPredictor(
-        models=RandomBindingPredictor, alleles=["A0201"],
+        models=RandomBindingPredictor,
+        alleles=["HLA-DQA1*01:02-DQB1*06:02"],
     )
-    df = predictor.predict_from_named_sequences(seqs)
+    df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGGLLLAAA"})
     assert len(df) > 0
+    alleles_in_output = set(df["allele"].unique())
+    assert any("DQ" in a for a in alleles_in_output)
+
+
+def test_pipeline_mixed_species_alleles():
+    """Mixed human and mouse alleles in one prediction."""
+    predictor = TopiaryPredictor(
+        models=RandomBindingPredictor,
+        alleles=["A0201", "H-2-Kb"],
+    )
+    df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
+    assert len(df) > 0
+    alleles = set(df["allele"].unique())
+    assert len(alleles) == 2
 
 
 # ---------------------------------------------------------------------------

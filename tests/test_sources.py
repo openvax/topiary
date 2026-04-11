@@ -80,11 +80,11 @@ def test_predictor_with_alleles_and_model_classes():
 
     predictor = TopiaryPredictor(
         models=[RandomBindingPredictor],
-        alleles=["A0201"],
+        alleles=["A*03:01"],
         filter=Affinity <= 500,
     )
     assert len(predictor.models) == 1
-    assert "HLA-A*02:01" in predictor.models[0].alleles
+    assert "HLA-A*03:01" in predictor.models[0].alleles
 
 
 def test_predictor_filter_and_sort_by_separate():
@@ -92,7 +92,7 @@ def test_predictor_filter_and_sort_by_separate():
     from topiary import TopiaryPredictor, Affinity, Presentation
 
     predictor = TopiaryPredictor(
-        models=RandomBindingPredictor(alleles=["A0201"]),
+        models=RandomBindingPredictor(alleles=["A*03:01"]),
         filter=Affinity <= 500,
         sort_by=[Presentation.score, Affinity.score],
     )
