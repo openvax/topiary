@@ -147,9 +147,7 @@ def to_wide(df):
     else:
         work["_model_key"] = model_col
 
-    work["_kind_short"] = work["kind"].apply(
-        lambda k: _kind_short_name(k) if hasattr(k, "name") or isinstance(k, str) else str(k)
-    )
+    work["_kind_short"] = work["kind"].apply(_kind_short_name)
 
     # Build model→version metadata for .attrs.
     model_versions = {}
@@ -179,6 +177,17 @@ def to_wide(df):
         return work[group_cols].drop_duplicates().reset_index(drop=True)
 
     melted = pd.concat(records, ignore_index=True)
+
+    # Check for duplicates that would silently collapse in the pivot.
+    dup_check = melted.groupby(group_cols + ["_wide_col"]).size()
+    n_dupes = (dup_check > 1).sum()
+    if n_dupes > 0:
+        warnings.warn(
+            f"{n_dupes} duplicate (group, model, kind) entries found; "
+            "keeping first value",
+            UserWarning,
+            stacklevel=2,
+        )
 
     # Pivot: group keys as index, wide column names as columns.
     wide = melted.pivot_table(
@@ -270,9 +279,7 @@ def from_wide(df, metadata=None):
     result = pd.concat(long_rows, ignore_index=True)
 
     # Reconstruct the affinity convenience column.
-    is_affinity = result["kind"].apply(
-        lambda k: _kind_name(k) if hasattr(k, "name") else str(k)
-    ) == "pMHC_affinity"
+    is_affinity = result["kind"].apply(_kind_name) == "pMHC_affinity"
     result["affinity"] = np.where(is_affinity, result["value"], np.nan)
 
     return result

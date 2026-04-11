@@ -8,8 +8,6 @@ A topiary TSV/CSV file may begin with ``#key=value`` comment lines::
     #form=long
     #model:netmhcpan=4.1b
     #model:mhcflurry=2.1.1
-    #filter_by=affinity <= 500
-    #sort_by=presentation.score
     peptide\\tallele\\tkind\\t...
 
 Standard tools (``pd.read_csv(comment="#")``) skip these lines and read
@@ -148,8 +146,12 @@ def _write_delimited(df, path, sep, metadata, index):
             .first()
             .items()
         ):
-            if pd.notna(version) and str(version):
-                metadata.models[str(method).lower()] = str(version)
+            version_str = str(version).strip() if pd.notna(version) else ""
+            if version_str:
+                metadata.models[str(method)] = version_str
+            else:
+                # Record model even without version
+                metadata.models[str(method)] = ""
 
     comment_block = _format_comment_block(metadata)
 

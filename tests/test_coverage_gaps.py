@@ -49,6 +49,51 @@ def test_no_models_raises():
         TopiaryPredictor()
 
 
+# ---------------------------------------------------------------------------
+# String model names
+# ---------------------------------------------------------------------------
+
+
+def test_model_name_string_lowercase():
+    """Can create predictor with lowercase string model name."""
+    predictor = TopiaryPredictor(
+        models="randombindingpredictor", alleles=["A0201"],
+    )
+    df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
+    assert len(df) > 0
+
+
+def test_model_name_string_mixed_case():
+    """Case-insensitive model name matching."""
+    predictor = TopiaryPredictor(
+        models="RandomBindingPredictor", alleles=["A0201"],
+    )
+    df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
+    assert len(df) > 0
+
+
+def test_model_name_string_mhcflurry():
+    """MHCflurry can be referenced by string name."""
+    predictor = TopiaryPredictor(
+        models="mhcflurry", alleles=["A0201"],
+    )
+    assert len(predictor.models) == 1
+
+
+def test_model_name_string_list():
+    """List of string model names."""
+    predictor = TopiaryPredictor(
+        models=["randombindingpredictor", "randombindingpredictor"],
+        alleles=["A0201"],
+    )
+    assert len(predictor.models) == 2
+
+
+def test_model_name_string_unknown_raises():
+    with pytest.raises(ValueError, match="Unknown model name"):
+        TopiaryPredictor(models="nonexistent_model", alleles=["A0201"])
+
+
 def test_mhc_model_backward_compat_property():
     predictor = TopiaryPredictor(
         mhc_model=RandomBindingPredictor(alleles=["A0201"]),

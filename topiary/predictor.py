@@ -44,6 +44,33 @@ _JOIN_COLUMNS = {
 }
 
 
+def _resolve_model_name(name):
+    """Resolve a string model name to an mhctools predictor class.
+
+    Supports case-insensitive matching against mhctools class names,
+    e.g. ``"netmhcpan41"`` → ``NetMHCpan41``, ``"mhcflurry"`` → ``MHCflurry``.
+    """
+    import inspect
+    import mhctools
+
+    lookup = {}
+    for attr_name, obj in inspect.getmembers(mhctools):
+        if inspect.isclass(obj) and hasattr(obj, "predict_peptides_dataframe"):
+            lookup[attr_name.lower()] = obj
+
+    key = name.lower().replace("-", "").replace("_", "").replace(" ", "")
+    cls = lookup.get(key)
+    if cls is None:
+        # Try with underscores/hyphens preserved
+        cls = lookup.get(name.lower())
+    if cls is None:
+        available = sorted(lookup.keys())
+        raise ValueError(
+            f"Unknown model name {name!r}. Available: {available}"
+        )
+    return cls
+
+
 def _transcript_expression_dict_from_data(expression_data):
     """Extract a transcript_id -> expression dict from new-style expression data.
 
@@ -215,6 +242,9 @@ class TopiaryPredictor(object):
 
         self.models = []
         for m in raw_models:
+            if isinstance(m, str):
+                # String name — look up in mhctools
+                m = _resolve_model_name(m)
             if isinstance(m, type):
                 # It's a class — instantiate with alleles
                 if alleles is None:

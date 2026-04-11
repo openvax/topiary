@@ -1,7 +1,5 @@
 """Tests for topiary.io — read/write with comment-block metadata."""
 
-import math
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -281,3 +279,139 @@ class TestEdgeCases:
                 assert not line.startswith(",")
                 assert not line.startswith("\t,")
                 break
+
+
+# ---------------------------------------------------------------------------
+# Full round-trip integration tests with real predictor
+# ---------------------------------------------------------------------------
+
+
+class TestRoundTripIntegration:
+    """End-to-end: predict → to_wide → to_tsv → read_tsv → from_wide → verify."""
+
+    def test_predict_to_wide_tsv_roundtrip(self, tmp_path):
+        from mhctools import RandomBindingPredictor
+        from topiary import TopiaryPredictor
+        from topiary.wide import to_wide, from_wide
+
+        predictor = TopiaryPredictor(
+            models=RandomBindingPredictor, alleles=["A0201"],
+        )
+        long_orig = predictor.predict_from_named_sequences(
+            {"prot": "MASIINFEKLGGGLLLAAA"}
+        )
+        assert len(long_orig) > 0
+
+        # Long → wide
+        wide = to_wide(long_orig)
+        assert "kind" not in wide.columns
+
+        # Wide → TSV → read back
+        path = tmp_path / "roundtrip.wide.tsv"
+        to_tsv(wide, path)
+        wide_read, meta = read_tsv(path)
+        assert meta.form == "wide"
+        assert len(wide_read) == len(wide)
+
+        # Read back → long
+        long_back = from_wide(wide_read, metadata=meta)
+        assert "kind" in long_back.columns
+        assert len(long_back) == len(long_orig)
+
+        # Values round-trip correctly
+        orig_values = sorted(long_orig["value"].dropna().tolist())
+        back_values = sorted(long_back["value"].dropna().tolist())
+        assert orig_values == pytest.approx(back_values)
+
+    def test_predict_long_tsv_roundtrip(self, tmp_path):
+        from mhctools import RandomBindingPredictor
+        from topiary import TopiaryPredictor
+
+        predictor = TopiaryPredictor(
+            models=RandomBindingPredictor, alleles=["A0201"],
+        )
+        long_orig = predictor.predict_from_named_sequences(
+            {"prot": "MASIINFEKLGGGLLLAAA"}
+        )
+
+        # Long → TSV → read back
+        path = tmp_path / "roundtrip.tsv"
+        to_tsv(long_orig, path)
+        long_read, meta = read_tsv(path)
+        assert meta.form == "long"
+        assert len(long_read) == len(long_orig)
+        assert list(long_read["peptide"]) == list(long_orig["peptide"])
+
+    def test_predict_wide_csv_roundtrip(self, tmp_path):
+        from mhctools import RandomBindingPredictor
+        from topiary import TopiaryPredictor
+        from topiary.wide import to_wide, from_wide
+
+        predictor = TopiaryPredictor(
+            models=RandomBindingPredictor, alleles=["A0201", "B0702"],
+        )
+        long_orig = predictor.predict_from_named_sequences(
+            {"braf": "MASIINFEKLGGG", "tp53": "MRKKLLQQREEY"}
+        )
+        wide = to_wide(long_orig)
+
+        path = tmp_path / "roundtrip.wide.csv"
+        to_csv(wide, path)
+        wide_read, meta = read_csv(path)
+        long_back = from_wide(wide_read, metadata=meta)
+
+        assert set(long_back["kind"].unique()) == set(long_orig["kind"].unique())
+        assert len(long_back) == len(long_orig)
+
+    def test_from_wide_to_wide_roundtrip(self, tmp_path):
+        """Reverse direction: from_wide then to_wide should be identity."""
+        from topiary.wide import to_wide, from_wide
+
+        wide_orig = pd.DataFrame({
+            "peptide": ["SIINFEKL", "ELAGIGILT"],
+            "allele": ["HLA-A*02:01", "HLA-A*02:01"],
+            "source_sequence_name": ["prot1", "prot1"],
+            "netmhcpan_affinity_value": [120.0, 5000.0],
+            "netmhcpan_affinity_score": [0.85, 0.3],
+            "netmhcpan_affinity_rank": [0.5, 15.0],
+        })
+        long = from_wide(wide_orig)
+        wide_back = to_wide(long)
+
+        assert "netmhcpan_affinity_value" in wide_back.columns
+        assert len(wide_back) == 2
+        vals = sorted(wide_back["netmhcpan_affinity_value"].tolist())
+        assert vals == pytest.approx([120.0, 5000.0])
+
+    def test_sample_name_survives_roundtrip(self):
+        """sample_name column from mhctools should survive wide/long."""
+        from topiary.wide import to_wide, from_wide
+
+        df = pd.DataFrame([
+            dict(
+                peptide="SIINFEKL", allele="HLA-A*02:01",
+                sample_name="patient_01",
+                kind="pMHC_affinity", score=0.85, value=120.0,
+                percentile_rank=0.5, affinity=120.0,
+                prediction_method_name="netmhcpan", predictor_version="4.1b",
+            ),
+        ])
+        wide = to_wide(df)
+        assert "sample_name" in wide.columns
+        long = from_wide(wide)
+        assert "sample_name" in long.columns
+        assert long.iloc[0]["sample_name"] == "patient_01"
+
+    def test_model_versions_in_metadata_after_write(self, tmp_path):
+        """Model versions auto-extracted on write, available on read."""
+        from mhctools import RandomBindingPredictor
+        from topiary import TopiaryPredictor
+
+        predictor = TopiaryPredictor(
+            models=RandomBindingPredictor, alleles=["A0201"],
+        )
+        df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
+        path = tmp_path / "models.tsv"
+        to_tsv(df, path)
+        _, meta = read_tsv(path)
+        assert len(meta.models) > 0
