@@ -30,17 +30,13 @@ class TestParseCommentBlock:
             "#form=long\n",
             "#model:netmhcpan=4.1b\n",
             "#model:mhcflurry=2.1.1\n",
-            "#filter_by=affinity <= 500\n",
-            "#sort_by=presentation.score\n",
             "peptide\tallele\n",
         ]
         meta, n = _parse_comment_block(lines)
-        assert n == 6
+        assert n == 4
         assert meta.topiary_version == "4.11.0"
         assert meta.form == "long"
         assert meta.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
-        assert meta.filter_by == "affinity <= 500"
-        assert meta.sort_by == "presentation.score"
 
     def test_unknown_keys_in_extra(self):
         lines = [
@@ -99,15 +95,11 @@ class TestFormatCommentBlock:
             topiary_version="4.11.0",
             form="long",
             models={"netmhcpan": "4.1b"},
-            filter_by="affinity <= 500",
-            sort_by="presentation.score",
         )
         block = _format_comment_block(meta)
         assert "#topiary_version=4.11.0" in block
         assert "#form=long" in block
         assert "#model:netmhcpan=4.1b" in block
-        assert "#filter_by=affinity <= 500" in block
-        assert "#sort_by=presentation.score" in block
 
     def test_empty_metadata(self):
         meta = Metadata()
@@ -124,8 +116,6 @@ class TestFormatCommentBlock:
             topiary_version="4.11.0",
             form="wide",
             models={"netmhcpan": "4.1b", "mhcflurry": "2.1.1"},
-            filter_by="affinity <= 500 | presentation.rank <= 2",
-            sort_by="presentation.score",
             extra={"source": "lens-v1.9"},
         )
         block = _format_comment_block(meta)
@@ -134,8 +124,6 @@ class TestFormatCommentBlock:
         assert parsed.topiary_version == meta.topiary_version
         assert parsed.form == meta.form
         assert dict(parsed.models) == dict(meta.models)
-        assert parsed.filter_by == meta.filter_by
-        assert parsed.sort_by == meta.sort_by
         assert dict(parsed.extra) == dict(meta.extra)
 
 
@@ -196,16 +184,13 @@ class TestReadWriteTSV:
     def test_metadata_preserved(self, tmp_path):
         df = _sample_long_df()
         meta = Metadata(
-            filter_by="affinity <= 500",
-            sort_by="presentation.score",
-            extra={"source": "test"},
+            extra={"source": "test", "patient": "PT01"},
         )
         path = tmp_path / "out.tsv"
         to_tsv(df, path, metadata=meta)
         _, meta2 = read_tsv(path)
-        assert meta2.filter_by == "affinity <= 500"
-        assert meta2.sort_by == "presentation.score"
         assert meta2.extra.get("source") == "test"
+        assert meta2.extra.get("patient") == "PT01"
 
     def test_model_versions_auto_extracted(self, tmp_path):
         df = _sample_long_df()
@@ -264,8 +249,6 @@ class TestEdgeCases:
             topiary_version="4.11.0",
             form="wide",
             models={"netmhcpan": "4.1b", "mhcflurry": "2.1.1"},
-            filter_by="affinity <= 500 | presentation.rank <= 2",
-            sort_by="presentation.score",
             extra={"source": "lens-v1.9", "patient": "PT01"},
         )
         df = pd.DataFrame({"peptide": ["A"], "netmhcpan_affinity_value": [100]})
@@ -275,8 +258,6 @@ class TestEdgeCases:
         assert meta2.topiary_version == "4.11.0"
         assert meta2.form == "wide"
         assert meta2.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
-        assert meta2.filter_by == "affinity <= 500 | presentation.rank <= 2"
-        assert meta2.sort_by == "presentation.score"
         assert meta2.extra == {"source": "lens-v1.9", "patient": "PT01"}
 
     def test_pandas_read_csv_with_comment_hash(self, tmp_path):

@@ -32,8 +32,6 @@ class Metadata:
     topiary_version: str = None
     form: str = None
     models: dict = dataclass_field(default_factory=OrderedDict)
-    filter_by: str = None
-    sort_by: str = None
     extra: dict = dataclass_field(default_factory=OrderedDict)
 
 
@@ -63,10 +61,6 @@ def _parse_comment_block(lines):
             meta.topiary_version = value
         elif key == "form":
             meta.form = value
-        elif key == "filter_by":
-            meta.filter_by = value
-        elif key == "sort_by":
-            meta.sort_by = value
         elif key.startswith("model:"):
             model_name = key[len("model:"):]
             meta.models[model_name] = value
@@ -85,10 +79,6 @@ def _format_comment_block(meta):
         lines.append(f"#form={meta.form}")
     for model_name, version in meta.models.items():
         lines.append(f"#model:{model_name}={version}")
-    if meta.filter_by:
-        lines.append(f"#filter_by={meta.filter_by}")
-    if meta.sort_by:
-        lines.append(f"#sort_by={meta.sort_by}")
     for key, value in meta.extra.items():
         lines.append(f"#{key}={value}")
     return "\n".join(lines)
