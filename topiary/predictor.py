@@ -44,6 +44,43 @@ _JOIN_COLUMNS = {
 }
 
 
+def _build_model_lookup():
+    """Build a lowercase name → mhctools predictor class mapping."""
+    import inspect
+    import mhctools
+
+    lookup = {}
+    for attr_name, obj in inspect.getmembers(mhctools):
+        if inspect.isclass(obj) and hasattr(obj, "predict_peptides_dataframe"):
+            lookup[attr_name.lower()] = obj
+    return lookup
+
+
+_MODEL_LOOKUP = None
+
+
+def _resolve_model_name(name):
+    """Resolve a string model name to an mhctools predictor class.
+
+    Supports case-insensitive matching against mhctools class names,
+    e.g. ``"netmhcpan41"`` → ``NetMHCpan41``, ``"mhcflurry"`` → ``MHCflurry``.
+    """
+    global _MODEL_LOOKUP
+    if _MODEL_LOOKUP is None:
+        _MODEL_LOOKUP = _build_model_lookup()
+
+    key = name.lower().replace("-", "").replace("_", "").replace(" ", "")
+    cls = _MODEL_LOOKUP.get(key)
+    if cls is None:
+        cls = _MODEL_LOOKUP.get(name.lower())
+    if cls is None:
+        available = sorted(_MODEL_LOOKUP.keys())
+        raise ValueError(
+            f"Unknown model name {name!r}. Available: {available}"
+        )
+    return cls
+
+
 def _transcript_expression_dict_from_data(expression_data):
     """Extract a transcript_id -> expression dict from new-style expression data.
 
@@ -215,6 +252,9 @@ class TopiaryPredictor(object):
 
         self.models = []
         for m in raw_models:
+            if isinstance(m, str):
+                # String name — look up in mhctools
+                m = _resolve_model_name(m)
             if isinstance(m, type):
                 # It's a class — instantiate with alleles
                 if alleles is None:
