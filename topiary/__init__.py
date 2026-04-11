@@ -34,8 +34,10 @@ from .sequence_helpers import (
     contains_mutant_residues,
     protein_subsequences_around_mutations,
 )
+from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
+from .wide import detect_form, from_wide, to_wide
 
-__version__ = "4.10.0"
+__version__ = "4.11.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -64,4 +66,12 @@ __all__ = [
     "check_padding_around_mutation",
     "peptide_mutation_interval",
     "protein_subsequences_around_mutations",
+    "Metadata",
+    "read_csv",
+    "read_tsv",
+    "to_csv",
+    "to_tsv",
+    "detect_form",
+    "from_wide",
+    "to_wide",
 ]
