@@ -2,6 +2,7 @@
 
 import pandas as pd
 
+from topiary.cli import args as cli_args
 from topiary.cli.args import create_arg_parser, _build_ranking_strategy
 from topiary.ranking import (
     Expr,
@@ -39,6 +40,16 @@ def test_sort_by_simple_affinity_kind_name_uses_raw_value():
     assert isinstance(strategy.sort_by[0], Field)
     assert repr(strategy.sort_by[0]) == "affinity.value"
     assert strategy.sort_direction == "auto"
+
+
+def test_sort_by_string_style_affinity_kind_uses_raw_value(monkeypatch):
+    monkeypatch.setattr(
+        cli_args,
+        "_resolve_qualified_kind",
+        lambda text: ("pMHC_affinity", None),
+    )
+    expr = cli_args._parse_sort_expr("ba")
+    assert repr(expr) == "affinity.value"
 
 
 def test_sort_by_simple_presentation_kind_name_uses_score():

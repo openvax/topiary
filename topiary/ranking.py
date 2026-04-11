@@ -35,6 +35,72 @@ from mhctools import Kind
 
 
 # ---------------------------------------------------------------------------
+# mhctools Kind compatibility
+# ---------------------------------------------------------------------------
+
+
+def _kind_name(kind):
+    """Return the canonical mhctools kind name.
+
+    Supports both enum-style kinds (``Kind.pMHC_affinity.name``) and the
+    string constants used by mhctools 3.7.0+.
+    """
+    return getattr(kind, "name", str(kind))
+
+
+def _kind_value(kind):
+    """Return the DataFrame ``kind`` value for a kind constant."""
+    return getattr(kind, "value", kind)
+
+
+def _kind_short_name(kind):
+    """Return the DSL short name for a kind."""
+    return _kind_name(kind).lower().replace("pmhc_", "")
+
+
+def _kind_matches(left, right):
+    """Check whether two kind constants refer to the same prediction kind."""
+    return _kind_value(left) == _kind_value(right)
+
+
+def _iter_known_kinds(kind_source=Kind):
+    """Enumerate mhctools kind constants across enum and string-class APIs."""
+    try:
+        candidates = list(kind_source)
+    except TypeError:
+        candidates = [
+            value
+            for name, value in vars(kind_source).items()
+            if not name.startswith("_") and isinstance(value, str)
+        ]
+
+    seen = set()
+    kinds = []
+    for kind in candidates:
+        name = _kind_name(kind)
+        if name in seen:
+            continue
+        seen.add(name)
+        kinds.append(kind)
+    return kinds
+
+
+def _build_kind_aliases(kind_source=Kind):
+    """Build parser aliases for the currently installed mhctools Kind API."""
+    aliases = {}
+    for kind in _iter_known_kinds(kind_source):
+        name = _kind_name(kind).lower()
+        aliases[name] = kind
+        aliases[_kind_short_name(kind)] = kind
+    # Extra convenience aliases
+    aliases["el"] = kind_source.pMHC_presentation
+    aliases["ba"] = kind_source.pMHC_affinity
+    aliases["aff"] = kind_source.pMHC_affinity
+    aliases["ic50"] = kind_source.pMHC_affinity
+    return aliases
+
+
+# ---------------------------------------------------------------------------
 # Expression tree — composable, evaluable against a group DataFrame
 # ---------------------------------------------------------------------------
 
@@ -561,7 +627,7 @@ class Field(Expr):
 
     __slots__ = ("kind", "field", "method", "scope")
 
-    def __init__(self, kind: Kind, field: str, method: Optional[str] = None,
+    def __init__(self, kind, field: str, method: Optional[str] = None,
                  scope: str = ""):
         self.kind = kind
         self.field = field
@@ -571,7 +637,7 @@ class Field(Expr):
     def evaluate(self, group_df):
         if group_df.empty or "kind" not in group_df.columns:
             return float("nan")
-        kind_rows = group_df[group_df["kind"] == self.kind.value]
+        kind_rows = group_df[group_df["kind"] == _kind_value(self.kind)]
         if kind_rows.empty:
             return float("nan")
         col = "prediction_method_name"
@@ -584,14 +650,14 @@ class Field(Expr):
                 if matched.empty:
                     available = sorted(kind_rows[col].dropna().unique())
                     raise _method_not_found_error(
-                        self.kind.name, self.method, available
+                        _kind_name(self.kind), self.method, available
                     )
                 kind_rows = matched
             # If column doesn't exist, keep all rows (legacy data)
         elif col in kind_rows.columns:
             methods = kind_rows[col].dropna().unique()
             if len(methods) > 1:
-                kind_name = self.kind.name
+                kind_name = _kind_name(self.kind)
                 method_list = ", ".join(sorted(methods))
                 raise ValueError(
                     f"Ambiguous: multiple models produce {kind_name} "
@@ -610,7 +676,7 @@ class Field(Expr):
         return float(val)
 
     def __repr__(self):
-        kind_name = self.kind.name.lower().replace("pmhc_", "")
+        kind_name = _kind_short_name(self.kind)
         # Map internal field names to DSL names
         if self.field == "percentile_rank":
             field_str = "rank"
@@ -696,7 +762,7 @@ class KindAccessor:
 
     __slots__ = ("kind", "method", "scope")
 
-    def __init__(self, kind: Kind, method: Optional[str] = None,
+    def __init__(self, kind, method: Optional[str] = None,
                  scope: str = ""):
         self.kind = kind
         self.method = method
@@ -960,7 +1026,7 @@ class EpitopeFilter:
         Affinity["netmhcpan"] <= 500  # only filters NetMHCpan rows
     """
 
-    kind: Kind
+    kind: object
     max_value: Optional[float] = None
     min_value: Optional[float] = None
     max_percentile_rank: Optional[float] = None
@@ -1157,7 +1223,7 @@ def _method_matches(row, method):
 
 
 def _row_passes_filter(row, filt):
-    if row["kind"] != filt.kind.value:
+    if row["kind"] != _kind_value(filt.kind):
         return False
     if not _method_matches(row, filt.method):
         return False
@@ -1209,7 +1275,7 @@ def _group_passes(group_df, strategy):
             results.append(passed)
         else:
             # EpitopeFilter
-            kind_rows = group_df[group_df["kind"] == item.kind.value]
+            kind_rows = group_df[group_df["kind"] == _kind_value(item.kind)]
             if item.method is not None and not kind_rows.empty:
                 col = "prediction_method_name"
                 if col in kind_rows.columns:
@@ -1224,7 +1290,7 @@ def _group_passes(group_df, strategy):
                             kind_rows[col].dropna().unique()
                         )
                         raise _method_not_found_error(
-                            item.kind.name, item.method, available
+                            _kind_name(item.kind), item.method, available
                         )
                     kind_rows = matched
             if kind_rows.empty:
@@ -1246,7 +1312,7 @@ def _infer_sort_direction(expr):
     if isinstance(expr, Field):
         if expr.field == "percentile_rank":
             return "asc"
-        if expr.kind == Kind.pMHC_affinity and expr.field == "value":
+        if _kind_matches(expr.kind, Kind.pMHC_affinity) and expr.field == "value":
             return "asc"
     return "desc"
 
@@ -1388,17 +1454,7 @@ def apply_ranking_strategy(df, strategy):
 # ---------------------------------------------------------------------------
 
 # Lowercase aliases for Kind names and short names
-_KIND_ALIASES = {}
-for _k in Kind:
-    _KIND_ALIASES[_k.name.lower()] = _k
-    # short aliases: "affinity" -> pMHC_affinity, "presentation" -> pMHC_presentation
-    short = _k.name.lower().replace("pmhc_", "")
-    _KIND_ALIASES[short] = _k
-# Extra convenience aliases
-_KIND_ALIASES["el"] = Kind.pMHC_presentation
-_KIND_ALIASES["ba"] = Kind.pMHC_affinity
-_KIND_ALIASES["aff"] = Kind.pMHC_affinity
-_KIND_ALIASES["ic50"] = Kind.pMHC_affinity
+_KIND_ALIASES = _build_kind_aliases()
 
 _FIELD_ALIASES = {
     "value": "value", "val": "value", "ic50": "value",
@@ -1409,7 +1465,7 @@ _FIELD_ALIASES = {
 
 
 def _resolve_kind(name):
-    """Resolve a kind alias to a Kind enum value.
+    """Resolve a kind alias to an mhctools kind constant.
 
     Accepts plain kind names (``"affinity"``, ``"ba"``) or
     tool-qualified names (``"netmhcpan_affinity"``).

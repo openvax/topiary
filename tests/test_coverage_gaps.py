@@ -14,7 +14,9 @@ from topiary.ranking import (
     Field,
     KindAccessor,
     RankingStrategy,
+    _build_kind_aliases,
     _gauss_cdf,
+    _iter_known_kinds,
     apply_ranking_strategy,
     parse_filter,
     parse_ranking,
@@ -138,6 +140,53 @@ def test_custom_kind_accessor():
     custom = KindAccessor(Kind.tap_transport)
     f = custom.score >= 0.3
     assert f.kind == Kind.tap_transport
+
+
+def test_field_supports_string_style_kind_constants():
+    df = pd.DataFrame([
+        {
+            "source_sequence_name": "var1",
+            "peptide": "SIINFEKL",
+            "peptide_offset": 0,
+            "allele": "A",
+            "kind": "pMHC_affinity",
+            "value": 85.3,
+            "score": 0.8,
+            "percentile_rank": 0.4,
+        }
+    ])
+    field = Field("pMHC_affinity", "value")
+    assert field.evaluate(df) == 85.3
+    assert repr(field) == "affinity.value"
+
+
+def test_iter_known_kinds_supports_string_constant_kind_class():
+    class FakeKind:
+        pMHC_affinity = "pMHC_affinity"
+        pMHC_presentation = "pMHC_presentation"
+        antigen_processing = "antigen_processing"
+        tap_transport = "tap_transport"
+
+    assert _iter_known_kinds(FakeKind) == [
+        "pMHC_affinity",
+        "pMHC_presentation",
+        "antigen_processing",
+        "tap_transport",
+    ]
+
+
+def test_build_kind_aliases_supports_string_constant_kind_class():
+    class FakeKind:
+        pMHC_affinity = "pMHC_affinity"
+        pMHC_presentation = "pMHC_presentation"
+        antigen_processing = "antigen_processing"
+
+    aliases = _build_kind_aliases(FakeKind)
+    assert aliases["pmhc_affinity"] == "pMHC_affinity"
+    assert aliases["affinity"] == "pMHC_affinity"
+    assert aliases["ba"] == "pMHC_affinity"
+    assert aliases["el"] == "pMHC_presentation"
+    assert aliases["antigen_processing"] == "antigen_processing"
 
 
 # ---------------------------------------------------------------------------
