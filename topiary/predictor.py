@@ -44,12 +44,8 @@ _JOIN_COLUMNS = {
 }
 
 
-def _resolve_model_name(name):
-    """Resolve a string model name to an mhctools predictor class.
-
-    Supports case-insensitive matching against mhctools class names,
-    e.g. ``"netmhcpan41"`` → ``NetMHCpan41``, ``"mhcflurry"`` → ``MHCflurry``.
-    """
+def _build_model_lookup():
+    """Build a lowercase name → mhctools predictor class mapping."""
     import inspect
     import mhctools
 
@@ -57,14 +53,28 @@ def _resolve_model_name(name):
     for attr_name, obj in inspect.getmembers(mhctools):
         if inspect.isclass(obj) and hasattr(obj, "predict_peptides_dataframe"):
             lookup[attr_name.lower()] = obj
+    return lookup
+
+
+_MODEL_LOOKUP = None
+
+
+def _resolve_model_name(name):
+    """Resolve a string model name to an mhctools predictor class.
+
+    Supports case-insensitive matching against mhctools class names,
+    e.g. ``"netmhcpan41"`` → ``NetMHCpan41``, ``"mhcflurry"`` → ``MHCflurry``.
+    """
+    global _MODEL_LOOKUP
+    if _MODEL_LOOKUP is None:
+        _MODEL_LOOKUP = _build_model_lookup()
 
     key = name.lower().replace("-", "").replace("_", "").replace(" ", "")
-    cls = lookup.get(key)
+    cls = _MODEL_LOOKUP.get(key)
     if cls is None:
-        # Try with underscores/hyphens preserved
-        cls = lookup.get(name.lower())
+        cls = _MODEL_LOOKUP.get(name.lower())
     if cls is None:
-        available = sorted(lookup.keys())
+        available = sorted(_MODEL_LOOKUP.keys())
         raise ValueError(
             f"Unknown model name {name!r}. Available: {available}"
         )

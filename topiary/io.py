@@ -65,6 +65,18 @@ def _parse_comment_block(lines):
         else:
             meta.extra[key] = value
 
+    # Also parse bare #model:name lines (no =, version-less).
+    # These were skipped by the "=" check above, so re-scan.
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith("#"):
+            break
+        content = stripped[1:]
+        if "=" not in content and content.startswith("model:"):
+            model_name = content[len("model:"):]
+            if model_name and model_name not in meta.models:
+                meta.models[model_name] = ""
+
     return meta, n
 
 
@@ -76,7 +88,10 @@ def _format_comment_block(meta):
     if meta.form:
         lines.append(f"#form={meta.form}")
     for model_name, version in meta.models.items():
-        lines.append(f"#model:{model_name}={version}")
+        if version:
+            lines.append(f"#model:{model_name}={version}")
+        else:
+            lines.append(f"#model:{model_name}")
     for key, value in meta.extra.items():
         lines.append(f"#{key}={value}")
     return "\n".join(lines)

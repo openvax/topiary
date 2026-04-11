@@ -5,6 +5,7 @@ Wide form: one row per (peptide, allele, source), prediction columns become
 ``{model}_{kind}_{field}`` (e.g. ``netmhcpan_affinity_value``).
 """
 
+import functools
 import warnings
 
 import numpy as np
@@ -32,12 +33,13 @@ LONG_TO_WIDE_FIELD = {
 WIDE_TO_LONG_FIELD = {v: k for k, v in LONG_TO_WIDE_FIELD.items()}
 
 
+@functools.lru_cache(maxsize=1)
 def _known_kind_short_names():
     """Return known kind short names sorted longest-first (for suffix matching)."""
     names = set()
     for kind in _iter_known_kinds():
         names.add(_kind_short_name(kind))
-    return sorted(names, key=len, reverse=True)
+    return tuple(sorted(names, key=len, reverse=True))
 
 
 def _kind_short_to_canonical(short_name):
@@ -179,7 +181,10 @@ def to_wide(df):
     melted = pd.concat(records, ignore_index=True)
 
     # Check for duplicates that would silently collapse in the pivot.
-    dup_check = melted.groupby(group_cols + ["_wide_col"]).size()
+    # Fill NaN with sentinel to avoid pandas groupby NaN-skipping.
+    dup_cols = group_cols + ["_wide_col"]
+    dup_df = melted[dup_cols].fillna("__nan__")
+    dup_check = dup_df.groupby(dup_cols).size()
     n_dupes = (dup_check > 1).sum()
     if n_dupes > 0:
         warnings.warn(
