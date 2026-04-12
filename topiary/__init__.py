@@ -35,9 +35,10 @@ from .sequence_helpers import (
     protein_subsequences_around_mutations,
 )
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
+from .result import TopiaryResult, concat
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "4.11.2"
+__version__ = "4.12.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -74,4 +75,6 @@ __all__ = [
     "detect_form",
     "from_wide",
     "to_wide",
+    "TopiaryResult",
+    "concat",
 ]
