@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "topiary"
 requires-python = ">=3.9"
 authors = [{name = "Alex Rubinsteyn"}, {name = "Tavi Nathanson"}]
-description = "Predict cancer epitopes from cancer sequence data"
+description = "Predict, filter, and rank MHC-presented peptides from any antigen source"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

@@ -40,12 +40,22 @@ class TestParseCommentBlock:
         lines = [
             "#topiary_version=4.11.0\n",
             "#custom_key=custom_value\n",
-            "#source=lens-v1.9\n",
+            "#other_key=other_value\n",
             "peptide\n",
         ]
         meta, n = _parse_comment_block(lines)
         assert n == 3
-        assert meta.extra == {"custom_key": "custom_value", "source": "lens-v1.9"}
+        assert meta.extra == {"custom_key": "custom_value", "other_key": "other_value"}
+
+    def test_source_lines(self):
+        lines = [
+            "#source=patient01.tsv\n",
+            "#source=patient02.tsv\n",
+            "peptide\n",
+        ]
+        meta, n = _parse_comment_block(lines)
+        assert n == 2
+        assert meta.sources == ["patient01.tsv", "patient02.tsv"]
 
     def test_no_comments(self):
         lines = ["peptide\tallele\n", "SIINFEKL\tHLA-A*02:01\n"]
@@ -105,16 +115,23 @@ class TestFormatCommentBlock:
         assert block == ""
 
     def test_extra_keys_preserved(self):
-        meta = Metadata(extra={"source": "lens-v1.9"})
+        meta = Metadata(extra={"custom_key": "custom_value"})
         block = _format_comment_block(meta)
-        assert "#source=lens-v1.9" in block
+        assert "#custom_key=custom_value" in block
+
+    def test_sources_formatted(self):
+        meta = Metadata(sources=["patient01.tsv", "patient02.tsv"])
+        block = _format_comment_block(meta)
+        assert "#source=patient01.tsv" in block
+        assert "#source=patient02.tsv" in block
 
     def test_format_parse_roundtrip(self):
         meta = Metadata(
             topiary_version="4.11.0",
             form="wide",
             models={"netmhcpan": "4.1b", "mhcflurry": "2.1.1"},
-            extra={"source": "lens-v1.9"},
+            sources=["lens-v1.9.tsv"],
+            extra={"custom_key": "custom_value"},
         )
         block = _format_comment_block(meta)
         lines = [line + "\n" for line in block.split("\n")] + ["data\n"]
@@ -122,6 +139,7 @@ class TestFormatCommentBlock:
         assert parsed.topiary_version == meta.topiary_version
         assert parsed.form == meta.form
         assert dict(parsed.models) == dict(meta.models)
+        assert parsed.sources == meta.sources
         assert dict(parsed.extra) == dict(meta.extra)
 
 
@@ -161,7 +179,8 @@ class TestReadWriteTSV:
         df = _sample_long_df()
         path = tmp_path / "out.tsv"
         to_tsv(df, path)
-        df2, meta = read_tsv(path)
+        result = read_tsv(path)
+        df2, meta = result.df, result.metadata
         assert meta.form == "long"
         assert meta.topiary_version is not None
         assert meta.models.get("netmhcpan") == "4.1b"
@@ -174,7 +193,8 @@ class TestReadWriteTSV:
         wide = to_wide(df)
         path = tmp_path / "out.wide.tsv"
         to_tsv(wide, path)
-        df2, meta = read_tsv(path)
+        result = read_tsv(path)
+        df2, meta = result.df, result.metadata
         assert meta.form == "wide"
         assert "netmhcpan_affinity_value" in df2.columns
         assert len(df2) == len(wide)
@@ -182,19 +202,20 @@ class TestReadWriteTSV:
     def test_metadata_preserved(self, tmp_path):
         df = _sample_long_df()
         meta = Metadata(
-            extra={"source": "test", "patient": "PT01"},
+            sources=["test_cohort"],
+            extra={"patient": "PT01"},
         )
         path = tmp_path / "out.tsv"
         to_tsv(df, path, metadata=meta)
-        _, meta2 = read_tsv(path)
-        assert meta2.extra.get("source") == "test"
+        meta2 = read_tsv(path).metadata
+        assert "test_cohort" in meta2.sources
         assert meta2.extra.get("patient") == "PT01"
 
     def test_model_versions_auto_extracted(self, tmp_path):
         df = _sample_long_df()
         path = tmp_path / "out.tsv"
         to_tsv(df, path)
-        _, meta = read_tsv(path)
+        meta = read_tsv(path).metadata
         assert meta.models.get("netmhcpan") == "4.1b"
 
 
@@ -203,7 +224,8 @@ class TestReadWriteCSV:
         df = _sample_long_df()
         path = tmp_path / "out.csv"
         to_csv(df, path)
-        df2, meta = read_csv(path)
+        result = read_csv(path)
+        df2, meta = result.df, result.metadata
         assert meta.form == "long"
         assert len(df2) == len(df)
         assert df2.iloc[0]["value"] == pytest.approx(120.0)
@@ -219,7 +241,8 @@ class TestEdgeCases:
         path = tmp_path / "plain.tsv"
         df = pd.DataFrame({"peptide": ["SIINFEKL"], "allele": ["A"]})
         df.to_csv(path, sep="\t", index=False)
-        df2, meta = read_tsv(path)
+        result = read_tsv(path)
+        df2, meta = result.df, result.metadata
         assert meta.topiary_version is None
         assert meta.models == {}
         assert len(df2) == 1
@@ -228,7 +251,8 @@ class TestEdgeCases:
         df = pd.DataFrame(columns=["peptide", "allele", "kind"])
         path = tmp_path / "empty.tsv"
         to_tsv(df, path)
-        df2, meta = read_tsv(path)
+        result = read_tsv(path)
+        df2, meta = result.df, result.metadata
         assert len(df2) == 0
         assert meta.form == "long"
 
@@ -238,7 +262,8 @@ class TestEdgeCases:
             f.write("#topiary_version=4.11.0\n")
             f.write("#form=long\n")
             f.write("peptide\tallele\tkind\n")
-        df, meta = read_tsv(path)
+        result = read_tsv(path)
+        df, meta = result.df, result.metadata
         assert len(df) == 0
         assert meta.topiary_version == "4.11.0"
 
@@ -247,16 +272,20 @@ class TestEdgeCases:
             topiary_version="4.11.0",
             form="wide",
             models={"netmhcpan": "4.1b", "mhcflurry": "2.1.1"},
-            extra={"source": "lens-v1.9", "patient": "PT01"},
+            sources=["lens-v1.9.tsv"],
+            extra={"patient": "PT01"},
         )
         df = pd.DataFrame({"peptide": ["A"], "netmhcpan_affinity_value": [100]})
         path = tmp_path / "full.tsv"
         to_tsv(df, path, metadata=meta)
-        _, meta2 = read_tsv(path)
+        result = read_tsv(path)
+        meta2 = result.metadata
         assert meta2.topiary_version == "4.11.0"
         assert meta2.form == "wide"
         assert meta2.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
-        assert meta2.extra == {"source": "lens-v1.9", "patient": "PT01"}
+        # The read function appends the filename to sources too
+        assert "lens-v1.9.tsv" in meta2.sources
+        assert meta2.extra == {"patient": "PT01"}
 
     def test_pandas_read_csv_with_comment_hash(self, tmp_path):
         """Standard pandas can still read our files (losing metadata)."""
@@ -309,7 +338,8 @@ class TestRoundTripIntegration:
         # Wide → TSV → read back
         path = tmp_path / "roundtrip.wide.tsv"
         to_tsv(wide, path)
-        wide_read, meta = read_tsv(path)
+        read_result = read_tsv(path)
+        wide_read, meta = read_result.df, read_result.metadata
         assert meta.form == "wide"
         assert len(wide_read) == len(wide)
 
@@ -337,7 +367,8 @@ class TestRoundTripIntegration:
         # Long → TSV → read back
         path = tmp_path / "roundtrip.tsv"
         to_tsv(long_orig, path)
-        long_read, meta = read_tsv(path)
+        read_result = read_tsv(path)
+        long_read, meta = read_result.df, read_result.metadata
         assert meta.form == "long"
         assert len(long_read) == len(long_orig)
         assert list(long_read["peptide"]) == list(long_orig["peptide"])
@@ -357,7 +388,8 @@ class TestRoundTripIntegration:
 
         path = tmp_path / "roundtrip.wide.csv"
         to_csv(wide, path)
-        wide_read, meta = read_csv(path)
+        read_result = read_csv(path)
+        wide_read, meta = read_result.df, read_result.metadata
         long_back = from_wide(wide_read, metadata=meta)
 
         assert set(long_back["kind"].unique()) == set(long_orig["kind"].unique())
@@ -413,5 +445,5 @@ class TestRoundTripIntegration:
         df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
         path = tmp_path / "models.tsv"
         to_tsv(df, path)
-        _, meta = read_tsv(path)
+        meta = read_tsv(path).metadata
         assert len(meta.models) > 0

@@ -250,6 +250,25 @@ class Expr:
     def __gt__(self, threshold):
         return self.__ge__(threshold)
 
+    # -- string serialization --
+
+    def to_expr_string(self):
+        """Parseable DSL expression string.
+
+        The result round-trips through :func:`parse_expr`:
+        ``parse_expr(e.to_expr_string())`` produces a functionally
+        equivalent Expr.
+        """
+        return repr(self)
+
+    def to_ast_string(self):
+        """Canonical structural AST string for debugging / hashing.
+
+        Unambiguous but not necessarily parseable back through
+        :func:`parse_expr`.  Override in subclasses.
+        """
+        return repr(self)
+
 
 class _Const(Expr):
     """A constant scalar value."""
@@ -266,6 +285,9 @@ class _Const(Expr):
         if v == int(v):
             return str(int(v))
         return repr(v)
+
+    def to_ast_string(self):
+        return f"Const({_fmt_num(self.val)})"
 
 
 def _fmt_num(v):
@@ -325,6 +347,10 @@ class _BinOp(Expr):
             right = f"({right})"
         return f"{left} {sym} {right}"
 
+    def to_ast_string(self):
+        sym = _OP_SYMBOLS.get(self.op, "?")
+        return f"BinOp({self.left.to_ast_string()}, {sym!r}, {self.right.to_ast_string()})"
+
 
 class _NormExpr(Expr):
     """Gaussian CDF normalization of an inner expression."""
@@ -346,6 +372,12 @@ class _NormExpr(Expr):
     def __repr__(self):
         return f"{repr(self.inner)}.ascending_cdf({_fmt_num(self.mean)}, {_fmt_num(self.std)})"
 
+    def to_ast_string(self):
+        return (
+            f"AscendingCDF({self.inner.to_ast_string()}, "
+            f"mean={_fmt_num(self.mean)}, std={_fmt_num(self.std)})"
+        )
+
 
 class _SurvivalExpr(Expr):
     """Survival function (1 - Gaussian CDF) of an inner expression."""
@@ -366,6 +398,12 @@ class _SurvivalExpr(Expr):
 
     def __repr__(self):
         return f"{repr(self.inner)}.descending_cdf({_fmt_num(self.mean)}, {_fmt_num(self.std)})"
+
+    def to_ast_string(self):
+        return (
+            f"DescendingCDF({self.inner.to_ast_string()}, "
+            f"mean={_fmt_num(self.mean)}, std={_fmt_num(self.std)})"
+        )
 
 
 class _LogisticExpr(Expr):
@@ -390,6 +428,12 @@ class _LogisticExpr(Expr):
 
     def __repr__(self):
         return f"{repr(self.inner)}.logistic({_fmt_num(self.midpoint)}, {_fmt_num(self.width)})"
+
+    def to_ast_string(self):
+        return (
+            f"Logistic({self.inner.to_ast_string()}, "
+            f"midpoint={_fmt_num(self.midpoint)}, width={_fmt_num(self.width)})"
+        )
 
 
 _UNARY_NAMES = {
@@ -424,6 +468,10 @@ class _UnaryOp(Expr):
             return f"{repr(self.inner)}.{name}()"
         return f"{repr(self.inner)}.<?>()"
 
+    def to_ast_string(self):
+        name = _UNARY_NAMES.get(self.fn, "<?>")
+        return f"UnaryOp({self.inner.to_ast_string()}, {name!r})"
+
 
 class _ClipExpr(Expr):
     """Clamp an inner expression to [lo, hi]."""
@@ -448,6 +496,12 @@ class _ClipExpr(Expr):
         if self.lo == 0 and self.hi is None:
             return f"{repr(self.inner)}.hinge()"
         return f"{repr(self.inner)}.clip({_fmt_num(self.lo)}, {_fmt_num(self.hi)})"
+
+    def to_ast_string(self):
+        return (
+            f"Clip({self.inner.to_ast_string()}, "
+            f"lo={_fmt_num(self.lo)}, hi={_fmt_num(self.hi)})"
+        )
 
 
 def _as_expr(obj):
@@ -485,6 +539,10 @@ class _AggExpr(Expr):
     def __repr__(self):
         args = ", ".join(repr(e) for e in self.exprs)
         return f"{self.name}({args})"
+
+    def to_ast_string(self):
+        args = ", ".join(e.to_ast_string() for e in self.exprs)
+        return f"Agg({self.name!r}, {args})"
 
 
 def mean(*exprs):
@@ -564,6 +622,9 @@ class Column(Expr):
 
     def __repr__(self):
         return f"column({self.col_name})"
+
+    def to_ast_string(self):
+        return f"Column({self.col_name!r})"
 
     def evaluate(self, group_df):
         if group_df.empty:
@@ -690,6 +751,15 @@ class Field(Expr):
         # Prepend scope prefix
         scope_str = self.scope.rstrip("_") + "." if self.scope else ""
         return f"{scope_str}{accessor}.{field_str}"
+
+    def to_ast_string(self):
+        kind_name = _kind_short_name(self.kind)
+        parts = [f"kind={kind_name}", f"field={self.field!r}"]
+        if self.method:
+            parts.append(f"method={self.method!r}")
+        if self.scope:
+            parts.append(f"scope={self.scope!r}")
+        return f"Field({', '.join(parts)})"
 
     # -- filter comparisons (only valid on unscoped Field) --
 
@@ -1047,6 +1117,44 @@ class EpitopeFilter:
     def rank_by(self, *exprs: Expr) -> RankingStrategy:
         return self.sort_by(*exprs)
 
+    def to_expr_string(self) -> str:
+        """Parseable DSL expression string.
+
+        Multiple thresholds on the same filter produce an ANDed expression.
+        """
+        kind = _kind_short_name(self.kind)
+        accessor = f"{kind}[{self.method!r}]" if self.method else kind
+        clauses = []
+        if self.max_value is not None:
+            clauses.append(f"{accessor}.value <= {_fmt_num(self.max_value)}")
+        if self.min_value is not None:
+            clauses.append(f"{accessor}.value >= {_fmt_num(self.min_value)}")
+        if self.max_percentile_rank is not None:
+            clauses.append(f"{accessor}.rank <= {_fmt_num(self.max_percentile_rank)}")
+        if self.min_percentile_rank is not None:
+            clauses.append(f"{accessor}.rank >= {_fmt_num(self.min_percentile_rank)}")
+        if self.max_score is not None:
+            clauses.append(f"{accessor}.score <= {_fmt_num(self.max_score)}")
+        if self.min_score is not None:
+            clauses.append(f"{accessor}.score >= {_fmt_num(self.min_score)}")
+        if not clauses:
+            return accessor
+        if len(clauses) == 1:
+            return clauses[0]
+        return " & ".join(f"({c})" for c in clauses)
+
+    def to_ast_string(self) -> str:
+        kind = _kind_short_name(self.kind)
+        parts = [f"kind={kind}"]
+        for attr in ("max_value", "min_value", "max_percentile_rank",
+                     "min_percentile_rank", "min_score", "max_score"):
+            v = getattr(self, attr)
+            if v is not None:
+                parts.append(f"{attr}={_fmt_num(v)}")
+        if self.method:
+            parts.append(f"method={self.method!r}")
+        return f"EpitopeFilter({', '.join(parts)})"
+
 
 @dataclass(frozen=True)
 class ColumnFilter:
@@ -1073,6 +1181,26 @@ class ColumnFilter:
 
     def rank_by(self, *exprs: Expr) -> "RankingStrategy":
         return self.sort_by(*exprs)
+
+    def to_expr_string(self) -> str:
+        clauses = []
+        if self.max_value is not None:
+            clauses.append(f"{self.col_name} <= {_fmt_num(self.max_value)}")
+        if self.min_value is not None:
+            clauses.append(f"{self.col_name} >= {_fmt_num(self.min_value)}")
+        if not clauses:
+            return self.col_name
+        if len(clauses) == 1:
+            return clauses[0]
+        return " & ".join(f"({c})" for c in clauses)
+
+    def to_ast_string(self) -> str:
+        parts = [f"col_name={self.col_name!r}"]
+        if self.max_value is not None:
+            parts.append(f"max_value={_fmt_num(self.max_value)}")
+        if self.min_value is not None:
+            parts.append(f"min_value={_fmt_num(self.min_value)}")
+        return f"ColumnFilter({', '.join(parts)})"
 
 
 @dataclass(frozen=True)
@@ -1101,6 +1229,30 @@ class ExprFilter:
 
     def rank_by(self, *exprs: Expr) -> "RankingStrategy":
         return self.sort_by(*exprs)
+
+    def to_expr_string(self) -> str:
+        # The DSL parser does not allow parentheses inside filter
+        # expressions, but <= / >= bind looser than arithmetic so we
+        # don't need them: "a + 1 <= 5" parses as "(a + 1) <= 5".
+        inner = self.expr.to_expr_string()
+        clauses = []
+        if self.max_value is not None:
+            clauses.append(f"{inner} <= {_fmt_num(self.max_value)}")
+        if self.min_value is not None:
+            clauses.append(f"{inner} >= {_fmt_num(self.min_value)}")
+        if not clauses:
+            return inner
+        if len(clauses) == 1:
+            return clauses[0]
+        return " & ".join(f"({c})" for c in clauses)
+
+    def to_ast_string(self) -> str:
+        parts = [f"expr={self.expr.to_ast_string()}"]
+        if self.max_value is not None:
+            parts.append(f"max_value={_fmt_num(self.max_value)}")
+        if self.min_value is not None:
+            parts.append(f"min_value={_fmt_num(self.min_value)}")
+        return f"ExprFilter({', '.join(parts)})"
 
 
 class SortSpec(list):
@@ -1156,6 +1308,52 @@ class RankingStrategy:
 
     def rank_by(self, *exprs: Expr) -> RankingStrategy:
         return self.sort_by(*exprs)
+
+    def to_expr_string(self) -> str:
+        """Filter portion as a parseable DSL expression string.
+
+        Sort expressions are not included (they have no inline DSL syntax;
+        pass ``sort_by`` to the caller separately).
+        """
+        if not self.filters:
+            return ""
+        parts = [_filter_child_to_expr(f, self.require_all) for f in self.filters]
+        op = " & " if self.require_all else " | "
+        return op.join(parts)
+
+    def to_ast_string(self) -> str:
+        filter_strs = [_filter_to_ast(f) for f in self.filters]
+        op = "AND" if self.require_all else "OR"
+        sort_strs = [e.to_ast_string() for e in list(self.sort_by)]
+        parts = [f"op={op!r}"]
+        if filter_strs:
+            parts.append(f"filters=[{', '.join(filter_strs)}]")
+        if sort_strs:
+            parts.append(f"sort_by=[{', '.join(sort_strs)}]")
+        return f"RankingStrategy({', '.join(parts)})"
+
+
+def _filter_child_to_expr(f, parent_require_all):
+    """Stringify a child filter inside a RankingStrategy, parenthesizing
+    when the child's own combinator differs from the parent's (so that
+    ``(A | B) & C`` doesn't flatten to ``A | B & C``)."""
+    s = _filter_to_expr(f)
+    if isinstance(f, RankingStrategy) and f.require_all != parent_require_all:
+        return f"({s})"
+    return s
+
+
+def _filter_to_expr(f):
+    """Dispatch to_expr_string for any filter-like object."""
+    if hasattr(f, "to_expr_string"):
+        return f.to_expr_string()
+    return repr(f)
+
+
+def _filter_to_ast(f):
+    if hasattr(f, "to_ast_string"):
+        return f.to_ast_string()
+    return repr(f)
 
 
 def _combine(left, right, require_all):
