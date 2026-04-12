@@ -190,6 +190,16 @@ class DSLNode:
     def eval(self, ctx: EvalContext) -> pd.Series:
         raise NotImplementedError
 
+    def child_nodes(self) -> "list[DSLNode]":
+        """Direct DSLNode children of this node.
+
+        Leaves return ``[]``. Composite nodes return their sub-nodes in
+        a stable order.  Used by generic tree walkers (e.g. column
+        validation) so adding a new node type doesn't require touching
+        every walker.
+        """
+        return []
+
     def to_expr_string(self) -> str:
         """Parseable DSL expression string.
 
@@ -562,32 +572,7 @@ class Field(DSLNode):
             parts.append(f"scope={self.scope!r}")
         return f"Field({', '.join(parts)})"
 
-    # -- scoped fields cannot be used directly in filters --
-
-    def _check_scope_for_filter(self):
-        if self.scope:
-            scope_name = self.scope.rstrip("_")
-            raise TypeError(
-                f"Scoped fields ({scope_name}.*) can't be used in filters. "
-                f"Use them in sorting expressions instead, e.g.: "
-                f"sort_by=[Affinity.score - {scope_name}.Affinity.score]"
-            )
-
-    def __le__(self, other):
-        self._check_scope_for_filter()
-        return super().__le__(other)
-
-    def __ge__(self, other):
-        self._check_scope_for_filter()
-        return super().__ge__(other)
-
-    def __lt__(self, other):
-        self._check_scope_for_filter()
-        return super().__lt__(other)
-
-    def __gt__(self, other):
-        self._check_scope_for_filter()
-        return super().__gt__(other)
+    # (Scoped fields cannot appear in filters — guarded in Comparison.__init__)
 
 
 class Len(DSLNode):
@@ -685,6 +670,9 @@ class BinOp(DSLNode):
         with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
             return self.op(a, b)
 
+    def child_nodes(self):
+        return [self.left, self.right]
+
     def __repr__(self):
         sym = _OP_SYMBOLS.get(self.op, "?")
         left_str = repr(self.left)
@@ -730,6 +718,9 @@ class UnaryOp(DSLNode):
     def __init__(self, inner: DSLNode, fn):
         self.inner = inner
         self.fn = fn
+
+    def child_nodes(self):
+        return [self.inner]
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         vals = self.inner.eval(ctx)
@@ -793,6 +784,9 @@ class NormExpr(DSLNode):
         self.mean = float(mean)
         self.std = float(std)
 
+    def child_nodes(self):
+        return [self.inner]
+
     def eval(self, ctx: EvalContext) -> pd.Series:
         vals = self.inner.eval(ctx)
         if self.std == 0:
@@ -823,6 +817,9 @@ class SurvivalExpr(DSLNode):
         self.mean = float(mean)
         self.std = float(std)
 
+    def child_nodes(self):
+        return [self.inner]
+
     def eval(self, ctx: EvalContext) -> pd.Series:
         vals = self.inner.eval(ctx)
         if self.std == 0:
@@ -852,6 +849,9 @@ class LogisticExpr(DSLNode):
         self.inner = inner
         self.midpoint = float(midpoint)
         self.width = float(width)
+
+    def child_nodes(self):
+        return [self.inner]
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         vals = self.inner.eval(ctx)
@@ -886,6 +886,9 @@ class ClipExpr(DSLNode):
         self.inner = inner
         self.lo = lo
         self.hi = hi
+
+    def child_nodes(self):
+        return [self.inner]
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         vals = self.inner.eval(ctx)
@@ -930,6 +933,9 @@ class AggExpr(DSLNode):
     def __init__(self, exprs, name):
         self.exprs = list(exprs)
         self.name = name
+
+    def child_nodes(self):
+        return list(self.exprs)
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         if not self.exprs:
@@ -1026,9 +1032,20 @@ class Comparison(DSLNode):
     __slots__ = ("left", "op", "right")
 
     def __init__(self, left: DSLNode, op, right: DSLNode):
+        for side in (left, right):
+            if isinstance(side, Field) and side.scope:
+                scope_name = side.scope.rstrip("_")
+                raise TypeError(
+                    f"Scoped fields ({scope_name}.*) can't be used in filters. "
+                    f"Use them in sorting expressions instead, e.g.: "
+                    f"sort_by=[Affinity.score - {scope_name}.Affinity.score]"
+                )
         self.left = left
         self.op = op
         self.right = right
+
+    def child_nodes(self):
+        return [self.left, self.right]
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         a = self.left.eval(ctx)
@@ -1076,6 +1093,9 @@ class BoolOp(DSLNode):
     def __init__(self, op, children):
         self.op = op
         self.children = list(children)
+
+    def child_nodes(self):
+        return list(self.children)
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         # Policy: NaN is treated as False.  Naive `astype(bool)` coerces
