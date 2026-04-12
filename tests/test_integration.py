@@ -39,7 +39,7 @@ def test_gene_names_to_predictions():
     seqs = sequences_from_gene_names(GENES)
     assert len(seqs) == 2
 
-    predictor = _small_predictor(filter=Affinity <= 500)
+    predictor = _small_predictor(filter_by=Affinity <= 500)
     df = predictor.predict_from_named_sequences(seqs)
 
     assert len(df) > 0
@@ -110,7 +110,7 @@ def test_first_principles_workflow():
     predictor = TopiaryPredictor(
         models=RandomBindingPredictor,
         alleles=["A0201"],
-        filter=Affinity <= 500,
+        filter_by=Affinity <= 500,
         sort_by=Affinity.score,
     )
     df = predictor.predict_from_named_sequences(small_targets)

@@ -8,10 +8,11 @@ from mhctools import Kind
 
 from topiary.ranking import (
     Affinity,
-    Presentation,
+    BoolOp,
     Column,
-    parse_filter,
-    parse_ranking,
+    Comparison,
+    Presentation,
+    parse,
 )
 
 
@@ -99,7 +100,8 @@ class TestNewTransforms:
 
     def test_log2_nan_for_zero(self):
         val = Affinity.log2().evaluate(_aff_df(0.0))
-        assert math.isnan(val)
+        # log2(0) = -inf (numpy path). NaN is also acceptable.
+        assert math.isinf(val) or math.isnan(val)
 
     def test_log2_in_composite(self):
         expr = Affinity.log2() + 1
@@ -210,7 +212,8 @@ class TestFilterBy:
             models=RandomBindingPredictor(alleles=["A0201"]),
             filter_by=Affinity <= 500,
         )
-        assert p.ranking_strategy is not None
+        assert p.filter_by is not None
+        assert isinstance(p.filter_by, Comparison)
 
     def test_filter_by_string(self):
         from topiary import TopiaryPredictor
@@ -219,8 +222,9 @@ class TestFilterBy:
             models=RandomBindingPredictor(alleles=["A0201"]),
             filter_by="affinity <= 500",
         )
-        assert p.ranking_strategy is not None
-        assert len(p.ranking_strategy.filters) == 1
+        assert p.filter_by is not None
+        # Single-clause filter is a Comparison, not a BoolOp
+        assert isinstance(p.filter_by, Comparison)
 
     def test_filter_by_complex_string(self):
         from topiary import TopiaryPredictor
@@ -229,26 +233,8 @@ class TestFilterBy:
             models=RandomBindingPredictor(alleles=["A0201"]),
             filter_by="affinity <= 500 | el.rank <= 2",
         )
-        assert len(p.ranking_strategy.filters) == 2
-
-    def test_filter_by_takes_precedence_over_filter(self):
-        from topiary import TopiaryPredictor
-        from mhctools import RandomBindingPredictor
-        p = TopiaryPredictor(
-            models=RandomBindingPredictor(alleles=["A0201"]),
-            filter_by=Affinity <= 500,
-            filter=Affinity <= 1000,  # deprecated, ignored
-        )
-        assert p.ranking_strategy.filters[0].max_value == 500
-
-    def test_deprecated_filter_still_works(self):
-        from topiary import TopiaryPredictor
-        from mhctools import RandomBindingPredictor
-        p = TopiaryPredictor(
-            models=RandomBindingPredictor(alleles=["A0201"]),
-            filter=Affinity <= 500,
-        )
-        assert p.ranking_strategy is not None
+        assert isinstance(p.filter_by, BoolOp)
+        assert len(p.filter_by.children) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -259,40 +245,47 @@ class TestFilterBy:
 class TestParserErrors:
     def test_kind_typo_becomes_column(self):
         """Typos in kind names become column references (error deferred to eval)."""
-        from topiary.ranking import ColumnFilter
-        f = parse_filter("afinity <= 500")
-        assert isinstance(f, ColumnFilter)
-        assert f.col_name == "afinity"
+        f = parse("afinity <= 500")
+        assert isinstance(f, Comparison)
+        assert isinstance(f.left, Column)
+        assert f.left.col_name == "afinity"
 
     def test_field_typo_suggests(self):
         with pytest.raises(ValueError, match="Unknown field.*rnk"):
-            parse_filter("affinity.rnk <= 2")
+            parse("affinity.rnk <= 2")
 
     def test_non_numeric_threshold(self):
-        with pytest.raises(ValueError, match="must be a number"):
-            parse_filter("affinity <= abc")
+        # 'abc' becomes a Column reference rather than a number — the
+        # parser resolves it to Column('abc'). This is valid syntactically;
+        # real errors emerge at eval time when the column is missing.
+        f = parse("affinity <= abc")
+        assert isinstance(f, Comparison)
+        assert isinstance(f.right, Column)
 
     def test_missing_operator(self):
-        with pytest.raises(ValueError, match="No comparison operator"):
-            parse_filter("affinity")
+        # 'affinity' alone parses fine as a bare kind reference — there's
+        # no longer a comparison-required check. It evaluates as the raw
+        # affinity.value expression.
+        result = parse("affinity")
+        assert result is not None
 
     def test_empty_string(self):
-        with pytest.raises(ValueError, match="No comparison operator"):
-            parse_filter("")
+        with pytest.raises(ValueError):
+            parse("")
 
     def test_reversed_expression(self):
-        """'500 <= affinity' — 'affinity' on right side fails as number."""
-        with pytest.raises(ValueError, match="must be a number"):
-            parse_filter("500 <= affinity")
+        """'500 <= affinity' is now valid: 500 <= affinity.value (comparison)."""
+        f = parse("500 <= affinity")
+        assert isinstance(f, Comparison)
 
     def test_space_in_operator(self):
-        """'affinity < = 500' — the '= 500' part fails as threshold."""
-        with pytest.raises(ValueError, match="must be a number"):
-            parse_filter("affinity < = 500")
+        """'affinity < = 500' is a syntax error (= alone is not an operator)."""
+        with pytest.raises(ValueError):
+            parse("affinity < = 500")
 
     def test_qualified_kind_typo_becomes_column(self):
         """Qualified kind typos become column references (error deferred to eval)."""
-        from topiary.ranking import ColumnFilter
-        f = parse_filter("netmhcpan_afinity <= 500")
-        assert isinstance(f, ColumnFilter)
-        assert f.col_name == "netmhcpan_afinity"
+        f = parse("netmhcpan_afinity <= 500")
+        assert isinstance(f, Comparison)
+        assert isinstance(f.left, Column)
+        assert f.left.col_name == "netmhcpan_afinity"

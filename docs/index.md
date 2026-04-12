@@ -46,7 +46,7 @@ from mhctools import NetMHCpan
 predictor = TopiaryPredictor(
     models=NetMHCpan,
     alleles=["HLA-A*02:01", "HLA-B*07:02"],
-    filter=(Affinity <= 500) | (Presentation.rank <= 2.0),
+    filter_by=(Affinity <= 500) | (Presentation.rank <= 2.0),
     sort_by=Presentation.score,
 )
 

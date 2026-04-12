@@ -1,6 +1,23 @@
 # Ranking DSL
 
-Topiary's ranking system uses composable expressions to filter and rank MHC binding predictions. Expressions are built with Python operators and evaluated lazily against groups of prediction rows.
+Topiary's ranking system uses composable expressions — a single `DSLNode` tree — to filter and rank MHC binding predictions. Every expression evaluates vectorized across peptide-allele groups.
+
+## Applying expressions
+
+Two top-level entry points operate on a predictions DataFrame:
+
+```python
+from topiary import apply_filter, apply_sort, Affinity, Presentation
+
+df = apply_filter(df, (Affinity <= 500) | (Presentation.rank <= 2.0))
+df = apply_sort(df, [Presentation.score, Affinity.score])
+```
+
+`apply_filter` expects a boolean-valued expression (a `Comparison` or `BoolOp`). It errors if the evaluated Series contains values outside `{True, False, 0, 1, NaN}` — e.g. passing `Affinity.score` directly — pointing you at `<=` / `>=`.
+
+`apply_sort` accepts a list of expressions as lexicographic tiebreakers. NaN values fall through to the next key instead of forcing an order.
+
+`TopiaryPredictor(filter_by=..., sort_by=[...])` applies them automatically during prediction.
 
 ## Prediction kinds
 
@@ -39,6 +56,20 @@ Presentation.score >= 0.5     # presentation score >= 0.5
 (Affinity <= 500) | (Presentation.rank <= 2.0)
 (Affinity <= 500) & (Presentation.score >= 0.5)
 ```
+
+## Boolean-as-number composition
+
+Comparisons return a boolean Series and still participate in arithmetic — `True` acts as 1, `False` as 0. This makes piecewise scoring natural:
+
+```python
+# Full score when strong binder, half score otherwise
+(Affinity <= 500) * Affinity.score + (Affinity > 500) * 0.5 * Affinity.score
+
+# Penalty for low expression
+Affinity.score - 0.3 * (Column("gene_tpm") < 1)
+```
+
+Because the result is numeric (not boolean), don't pass it straight to `apply_filter` — wrap it with a comparison, e.g. `(... composite ...) >= 0.5`.
 
 ## Transforms
 
@@ -176,6 +207,34 @@ count('C') - wt.count('C')   # gained/lost cysteines vs wildtype
 count('KR') >= 2              # filter: at least 2 basic residues
 ```
 
+## Method + version qualification
+
+`Affinity["netmhcpan"]` filters to rows whose `prediction_method_name` contains the substring (case-insensitive). To disambiguate further, pass a tuple with an exact `predictor_version`:
+
+```python
+Affinity["netmhcpan", "4.1b"].value    # only NetMHCpan v4.1b rows
+```
+
+In the string DSL, both forms work:
+
+```
+affinity['netmhcpan'].value <= 500
+affinity['netmhcpan', '4.1b'].value <= 500
+```
+
+## Parsing strings
+
+A single `parse()` function takes a DSL string and returns a `DSLNode`:
+
+```python
+from topiary import parse, apply_filter
+
+node = parse("affinity <= 500 | el.rank <= 2")
+df = apply_filter(df, node)
+```
+
+`parse` handles the full grammar — arithmetic, comparisons, boolean combinators, transforms, aggregations, scoped fields.
+
 ## String form (CLI)
 
 The `--filter-by` flag and `--sort-by` flag accept string expressions:
@@ -209,7 +268,8 @@ while all other sort expressions sort descending.
 
 ```python
 from topiary import (
-    TopiaryPredictor, Affinity, Presentation, Column, wt,
+    TopiaryPredictor, Affinity, Presentation, Column,
+    apply_filter, apply_sort,
 )
 from topiary.properties import add_peptide_properties
 from mhctools import NetMHCpan, MHCflurry
@@ -240,4 +300,8 @@ score = (
     # Immunogenicity
     + 0.05 * Column("tcr_aromaticity")
 )
+
+# Filter to plausible binders, then sort by composite score
+df = apply_filter(df, (Affinity <= 500) | (Presentation.rank <= 2.0))
+df = apply_sort(df, [score])
 ```

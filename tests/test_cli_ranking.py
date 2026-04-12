@@ -1,14 +1,18 @@
-"""CLI integration tests for --sort-by expression parsing via _build_ranking_strategy."""
+"""CLI integration tests for --sort-by / --filter-by parsing via _build_filter_and_sort."""
 
 import pandas as pd
 
 from topiary.cli import args as cli_args
-from topiary.cli.args import create_arg_parser, _build_ranking_strategy
+from topiary.cli.args import create_arg_parser, _build_filter_and_sort
 from topiary.ranking import (
-    Expr,
+    Affinity,
+    BinOp,
+    BoolOp,
+    Comparison,
+    DSLNode,
     Field,
-    RankingStrategy,
-    apply_ranking_strategy,
+    apply_filter,
+    apply_sort,
 )
 
 
@@ -34,12 +38,12 @@ def _make_args(sort_by, extra_args=None):
 
 def test_sort_by_simple_affinity_kind_name_uses_raw_value():
     args = _make_args("pMHC_affinity")
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 1
-    assert isinstance(strategy.sort_by[0], Field)
-    assert repr(strategy.sort_by[0]) == "affinity.value"
-    assert strategy.sort_direction == "auto"
+    filter_by, sort_by, sort_direction = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 1
+    assert isinstance(sort_by[0], Field)
+    assert repr(sort_by[0]) == "affinity.value"
+    assert sort_direction == "auto"
 
 
 def test_sort_by_string_style_affinity_kind_uses_raw_value(monkeypatch):
@@ -54,19 +58,19 @@ def test_sort_by_string_style_affinity_kind_uses_raw_value(monkeypatch):
 
 def test_sort_by_simple_presentation_kind_name_uses_score():
     args = _make_args("pMHC_presentation")
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 1
-    assert isinstance(strategy.sort_by[0], Field)
-    assert repr(strategy.sort_by[0]) == "presentation.score"
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 1
+    assert isinstance(sort_by[0], Field)
+    assert repr(sort_by[0]) == "presentation.score"
 
 
 def test_sort_by_comma_separated_kinds():
     args = _make_args("pMHC_presentation,pMHC_affinity")
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 2
-    assert [repr(expr) for expr in strategy.sort_by] == [
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 2
+    assert [repr(expr) for expr in sort_by] == [
         "presentation.score",
         "affinity.value",
     ]
@@ -79,44 +83,44 @@ def test_sort_by_comma_separated_kinds():
 
 def test_sort_by_arithmetic_expression():
     args = _make_args("0.5 * affinity.score + 0.5 * presentation.score")
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 1
-    assert isinstance(strategy.sort_by[0], Expr)
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 1
+    assert isinstance(sort_by[0], DSLNode)
+    assert isinstance(sort_by[0], BinOp)
 
 
 def test_sort_by_transform_expression():
     args = _make_args("affinity.descending_cdf(500, 200)")
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 1
-    expr = strategy.sort_by[0]
-    assert isinstance(expr, Expr)
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 1
+    assert isinstance(sort_by[0], DSLNode)
 
 
 def test_sort_by_composite_expression():
     text = "0.6 * affinity.descending_cdf(500, 200) + 0.4 * presentation.score.ascending_cdf(0.5, 0.3)"
     args = _make_args(text)
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 1
-    assert isinstance(strategy.sort_by[0], Expr)
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 1
+    assert isinstance(sort_by[0], DSLNode)
 
 
 def test_sort_by_parenthesized_expression():
     args = _make_args("(affinity.score + presentation.score) * 0.5")
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 1
-    assert isinstance(strategy.sort_by[0], Expr)
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 1
+    assert isinstance(sort_by[0], DSLNode)
 
 
 def test_sort_by_aggregation_expression():
     args = _make_args("mean(affinity.score, presentation.score)")
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 1
-    assert isinstance(strategy.sort_by[0], Expr)
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 1
+    assert isinstance(sort_by[0], DSLNode)
 
 
 def test_sort_by_negation_expression():
@@ -128,18 +132,18 @@ def test_sort_by_negation_expression():
         direct_inputs=False,
     )
     args = parser.parse_args(["--sort-by=-affinity.value"])
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 1
-    assert isinstance(strategy.sort_by[0], Expr)
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 1
+    assert isinstance(sort_by[0], DSLNode)
 
 
 def test_sort_by_power_expression():
     args = _make_args("affinity.value ** 2")
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 1
-    assert isinstance(strategy.sort_by[0], Expr)
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 1
+    assert isinstance(sort_by[0], DSLNode)
 
 
 # ---------------------------------------------------------------------------
@@ -149,21 +153,21 @@ def test_sort_by_power_expression():
 
 def test_sort_by_dot_transform_no_operators():
     """affinity.descending_cdf(500, 200) has parens so it hits the is_expr path,
-    but verify it still produces a valid Expr."""
+    but verify it still produces a valid DSLNode."""
     args = _make_args("affinity.descending_cdf(500, 200)")
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 1
-    assert isinstance(strategy.sort_by[0], Expr)
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 1
+    assert isinstance(sort_by[0], DSLNode)
 
 
 def test_sort_by_comma_separated_expression_and_transform():
     args = _make_args("presentation.score,gene_tpm.log()")
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.sort_by) == 2
-    assert isinstance(strategy.sort_by[0], Expr)
-    assert isinstance(strategy.sort_by[1], Expr)
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert len(sort_by) == 2
+    assert isinstance(sort_by[0], DSLNode)
+    assert isinstance(sort_by[1], DSLNode)
 
 
 # ---------------------------------------------------------------------------
@@ -188,8 +192,8 @@ PEPTIDE_A_ROWS = [
 def test_sort_by_expression_evaluates_correctly():
     """End-to-end: parse via CLI, then evaluate expression against data."""
     args = _make_args("0.5 * affinity.score + 0.5 * presentation.score")
-    strategy = _build_ranking_strategy(args)
-    expr = strategy.sort_by[0]
+    _, sort_by, _ = _build_filter_and_sort(args)
+    expr = sort_by[0]
     df = pd.DataFrame(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     expected = 0.5 * 0.8 + 0.5 * 0.92
@@ -198,8 +202,8 @@ def test_sort_by_expression_evaluates_correctly():
 
 def test_sort_by_expression_with_transform_evaluates():
     args = _make_args("affinity.descending_cdf(500, 200)")
-    strategy = _build_ranking_strategy(args)
-    expr = strategy.sort_by[0]
+    _, sort_by, _ = _build_filter_and_sort(args)
+    expr = sort_by[0]
     df = pd.DataFrame(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     # IC50=120, mean=500, std=200 → descending CDF should be high
@@ -207,14 +211,15 @@ def test_sort_by_expression_with_transform_evaluates():
 
 
 # ---------------------------------------------------------------------------
-# No --sort-by → None
+# No --sort-by → empty list (and no filter)
 # ---------------------------------------------------------------------------
 
 
-def test_no_sort_by_returns_none():
+def test_no_sort_by_and_no_filters_returns_empty():
     args = _make_args(None)
-    strategy = _build_ranking_strategy(args)
-    assert strategy is None
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert filter_by is None
+    assert sort_by == []
 
 
 # ---------------------------------------------------------------------------
@@ -227,10 +232,10 @@ def test_sort_by_with_ic50_cutoff():
         "affinity.score",
         extra_args=["--ic50-cutoff", "500"],
     )
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.filters) == 1
-    assert len(strategy.sort_by) == 1
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    # ic50_cutoff produces a single Comparison
+    assert isinstance(filter_by, Comparison)
+    assert len(sort_by) == 1
 
 
 def test_sort_by_with_presentation_cutoff():
@@ -238,22 +243,21 @@ def test_sort_by_with_presentation_cutoff():
         "0.5 * affinity.score + 0.5 * presentation.score",
         extra_args=["--presentation-cutoff", "2.0"],
     )
-    strategy = _build_ranking_strategy(args)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.filters) == 1
-    assert len(strategy.sort_by) == 1
-    assert isinstance(strategy.sort_by[0], Expr)
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert isinstance(filter_by, Comparison)
+    assert len(sort_by) == 1
+    assert isinstance(sort_by[0], DSLNode)
 
 
 def test_sort_direction_explicit_desc():
     args = _make_args("ba", extra_args=["--sort-direction", "desc"])
-    strategy = _build_ranking_strategy(args)
-    assert strategy.sort_direction == "desc"
+    _, _, sort_direction = _build_filter_and_sort(args)
+    assert sort_direction == "desc"
 
 
 def test_sort_direction_auto_affinity_sorts_low_to_high():
     args = _make_args("ba")
-    strategy = _build_ranking_strategy(args)
+    _, sort_by, sort_direction = _build_filter_and_sort(args)
     df = pd.DataFrame([
         dict(
             source_sequence_name="v1", peptide="AAA", peptide_offset=0,
@@ -266,14 +270,14 @@ def test_sort_direction_auto_affinity_sorts_low_to_high():
             percentile_rank=0.1,
         ),
     ])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_sort(df, sort_by, sort_direction=sort_direction)
     assert list(result["peptide"]) == ["BBB", "AAA"]
 
 
 def test_sort_direction_auto_presentation_rank_sorts_ascending():
     args = _make_args("presentation.rank")
-    strategy = _build_ranking_strategy(args)
-    assert strategy.sort_direction == "auto"
+    _, sort_by, sort_direction = _build_filter_and_sort(args)
+    assert sort_direction == "auto"
     df = pd.DataFrame([
         dict(
             source_sequence_name="v1", peptide="AAA", peptide_offset=0,
@@ -286,13 +290,13 @@ def test_sort_direction_auto_presentation_rank_sorts_ascending():
             percentile_rank=0.1,
         ),
     ])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_sort(df, sort_by, sort_direction=sort_direction)
     assert list(result["peptide"]) == ["BBB", "AAA"]
 
 
 def test_sort_by_comma_separated_keys_breaks_ties():
     args = _make_args("presentation.score,gene_tpm.log()")
-    strategy = _build_ranking_strategy(args)
+    _, sort_by, sort_direction = _build_filter_and_sort(args)
     df = pd.DataFrame([
         dict(
             source_sequence_name="v1", peptide="AAA", peptide_offset=0,
@@ -305,13 +309,13 @@ def test_sort_by_comma_separated_keys_breaks_ties():
             percentile_rank=1.0, gene_tpm=10.0,
         ),
     ])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_sort(df, sort_by, sort_direction=sort_direction)
     assert list(result["peptide"]) == ["BBB", "AAA"]
 
 
 def test_sort_by_comma_separated_keys_fall_through_on_missing():
     args = _make_args("presentation.score,gene_tpm.log()")
-    strategy = _build_ranking_strategy(args)
+    _, sort_by, sort_direction = _build_filter_and_sort(args)
     df = pd.DataFrame([
         dict(
             source_sequence_name="v1", peptide="AAA", peptide_offset=0,
@@ -329,5 +333,40 @@ def test_sort_by_comma_separated_keys_fall_through_on_missing():
             percentile_rank=1.0, gene_tpm=100.0,
         ),
     ])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_sort(df, sort_by, sort_direction=sort_direction)
     assert list(result["peptide"]) == ["CCC", "BBB", "AAA"]
+
+
+# ---------------------------------------------------------------------------
+# Filter-only paths (no sort)
+# ---------------------------------------------------------------------------
+
+
+def test_ic50_cutoff_only_produces_comparison_filter():
+    args = _make_args(None, extra_args=["--ic50-cutoff", "500"])
+    filter_by, sort_by, _ = _build_filter_and_sort(args)
+    assert isinstance(filter_by, Comparison)
+    assert sort_by == []
+
+
+def test_multiple_cutoffs_combine_with_or_by_default():
+    import operator
+    args = _make_args(
+        None,
+        extra_args=["--ic50-cutoff", "500", "--presentation-cutoff", "2.0"],
+    )
+    filter_by, _, _ = _build_filter_and_sort(args)
+    assert isinstance(filter_by, BoolOp)
+    # Default filter_logic is "any" -> or_
+    assert filter_by.op is operator.or_
+    assert len(filter_by.children) == 2
+
+
+def test_filter_by_string_is_parsed():
+    import operator
+    args = _make_args(
+        None, extra_args=["--filter-by", "affinity <= 500 | el.rank <= 2"],
+    )
+    filter_by, _, _ = _build_filter_and_sort(args)
+    assert isinstance(filter_by, BoolOp)
+    assert filter_by.op is operator.or_

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from topiary.predictor import _attach_expression_data
-from topiary.ranking import Column, parse_expr
+from topiary.ranking import Column, parse
 
 
 def _make_prediction_df():
@@ -131,7 +131,7 @@ def test_expression_column_in_dsl():
     df = _make_prediction_df()
     df["gene_tpm"] = [42.5, 42.5, 15.3]
 
-    expr = parse_expr("gene_tpm")
+    expr = parse("gene_tpm")
     assert isinstance(expr, Column)
     assert expr.evaluate(df) == 42.5
 
@@ -140,7 +140,7 @@ def test_expression_column_with_transform():
     df = _make_prediction_df()
     df["gene_tpm"] = [42.5, 42.5, 15.3]
 
-    expr = parse_expr("gene_tpm.log()")
+    expr = parse("gene_tpm.log()")
     val = expr.evaluate(df)
     assert abs(val - math.log(42.5)) < 1e-9
 
@@ -149,7 +149,7 @@ def test_expression_in_composite_ranking():
     df = _make_prediction_df()
     df["gene_tpm"] = [42.5, 42.5, 15.3]
 
-    expr = parse_expr("0.5 * affinity.score + 0.5 * gene_tpm.log().ascending_cdf(2, 1)")
+    expr = parse("0.5 * affinity.score + 0.5 * gene_tpm.log().ascending_cdf(2, 1)")
     val = expr.evaluate(df)
     assert isinstance(val, float)
     assert not math.isnan(val)
@@ -160,29 +160,29 @@ def test_isovar_columns_in_dsl():
     df["num_alt_reads"] = [15, 15, 8]
     df["fraction_alt_reads"] = [0.143, 0.143, 0.145]
 
-    expr = parse_expr("num_alt_reads")
+    expr = parse("num_alt_reads")
     assert expr.evaluate(df) == 15.0
 
-    expr2 = parse_expr("fraction_alt_reads")
+    expr2 = parse("fraction_alt_reads")
     assert abs(expr2.evaluate(df) - 0.143) < 1e-6
 
 
 def test_expression_column_repr_roundtrip():
     """Unknown identifiers produce Column with round-trippable repr."""
-    expr = parse_expr("gene_tpm")
+    expr = parse("gene_tpm")
     assert repr(expr) == "column(gene_tpm)"
-    expr2 = parse_expr(repr(expr))
+    expr2 = parse(repr(expr))
     assert isinstance(expr2, Column)
     assert expr2.col_name == "gene_tpm"
 
 
 def test_expression_transform_repr_roundtrip():
-    expr = parse_expr("gene_tpm.log()")
+    expr = parse("gene_tpm.log()")
     text = repr(expr)
     assert "gene_tpm" in text
     assert "log" in text
     # Round-trip
-    expr2 = parse_expr(text)
+    expr2 = parse(text)
     df = _make_prediction_df()
     df["gene_tpm"] = [42.5, 42.5, 15.3]
     assert abs(expr.evaluate(df) - expr2.evaluate(df)) < 1e-9

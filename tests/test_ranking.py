@@ -1,6 +1,7 @@
 """Unit tests for topiary.ranking — filtering, ranking, and composite scoring."""
 
 import math
+import operator
 
 import pandas as pd
 import pytest
@@ -8,25 +9,26 @@ from mhctools import Kind
 
 from topiary.ranking import (
     Affinity,
+    BinOp,
+    BoolOp,
     Column,
+    Comparison,
+    Const,
     Count,
-    EpitopeFilter,
     Field,
     KindAccessor,
     Len,
     Presentation,
-    RankingStrategy,
     Stability,
-    _Const,
-    affinity_filter,
-    apply_ranking_strategy,
+    UnaryOp,
+    apply_filter,
+    apply_sort,
     geomean,
     maximum,
     mean,
     median,
     minimum,
-    parse_expr,
-    presentation_filter,
+    parse,
     wt,
 )
 
@@ -77,16 +79,14 @@ def _two_peptide_df():
 
 def test_affinity_filter_ic50():
     df = _two_peptide_df()
-    strategy = RankingStrategy(filters=[affinity_filter(ic50_cutoff=500)])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, Affinity.value <= 500)
     assert set(result["peptide"]) == {"SIINFEKL"}
     assert len(result) == 2
 
 
 def test_affinity_filter_percentile():
     df = _two_peptide_df()
-    strategy = RankingStrategy(filters=[affinity_filter(percentile_cutoff=1.0)])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, Affinity.rank <= 1.0)
     assert set(result["peptide"]) == {"SIINFEKL"}
 
 
@@ -97,15 +97,13 @@ def test_affinity_filter_percentile():
 
 def test_presentation_filter_rank():
     df = _two_peptide_df()
-    strategy = RankingStrategy(filters=[presentation_filter(max_rank=1.0)])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, Presentation.rank <= 1.0)
     assert set(result["peptide"]) == {"SIINFEKL"}
 
 
 def test_presentation_filter_score():
     df = _two_peptide_df()
-    strategy = RankingStrategy(filters=[presentation_filter(min_score=0.5)])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, Presentation.score >= 0.5)
     assert set(result["peptide"]) == {"SIINFEKL"}
 
 
@@ -116,31 +114,22 @@ def test_presentation_filter_score():
 
 def test_or_logic():
     df = _two_peptide_df()
-    strategy = RankingStrategy(
-        filters=[affinity_filter(ic50_cutoff=500), presentation_filter(min_score=0.01)],
-        require_all=False,
-    )
-    result = apply_ranking_strategy(df, strategy)
+    filt = (Affinity.value <= 500) | (Presentation.score >= 0.01)
+    result = apply_filter(df, filt)
     assert set(result["peptide"]) == {"SIINFEKL", "ELAGIGIL"}
 
 
 def test_and_logic():
     df = _two_peptide_df()
-    strategy = RankingStrategy(
-        filters=[affinity_filter(ic50_cutoff=500), presentation_filter(min_score=0.5)],
-        require_all=True,
-    )
-    result = apply_ranking_strategy(df, strategy)
+    filt = (Affinity.value <= 500) & (Presentation.score >= 0.5)
+    result = apply_filter(df, filt)
     assert set(result["peptide"]) == {"SIINFEKL"}
 
 
 def test_and_logic_nothing_passes():
     df = _two_peptide_df()
-    strategy = RankingStrategy(
-        filters=[affinity_filter(ic50_cutoff=10), presentation_filter(min_score=0.99)],
-        require_all=True,
-    )
-    result = apply_ranking_strategy(df, strategy)
+    filt = (Affinity.value <= 10) & (Presentation.score >= 0.99)
+    result = apply_filter(df, filt)
     assert len(result) == 0
 
 
@@ -151,8 +140,7 @@ def test_and_logic_nothing_passes():
 
 def test_sort_by_presentation_score():
     df = _two_peptide_df()
-    strategy = RankingStrategy(sort_by=[Presentation.score])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_sort(df, [Presentation.score])
     assert result.iloc[0]["peptide"] == "SIINFEKL"
 
 
@@ -166,8 +154,7 @@ def test_sort_by_with_fallback():
              percentile_rank=15.0),
     ]
     df = _make_df(rows)
-    strategy = RankingStrategy(sort_by=[Presentation.score, Affinity.score])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_sort(df, [Presentation.score, Affinity.score])
     assert result.iloc[0]["peptide"] == "AAA"
 
 
@@ -178,33 +165,46 @@ def test_sort_by_with_fallback():
 
 def test_no_filters_passthrough():
     df = _two_peptide_df()
-    result = apply_ranking_strategy(df, RankingStrategy())
+    result = apply_filter(df, None)
     assert len(result) == len(df)
 
 
 def test_empty_df():
     df = pd.DataFrame()
-    result = apply_ranking_strategy(df, RankingStrategy(filters=[affinity_filter(ic50_cutoff=500)]))
+    result = apply_filter(df, Affinity.value <= 500)
     assert len(result) == 0
 
 
 # ---------------------------------------------------------------------------
-# Tests: convenience constructors
+# Tests: convenience constructors (now operator expressions)
 # ---------------------------------------------------------------------------
 
 
 def test_affinity_filter_constructor():
-    f = affinity_filter(ic50_cutoff=500, percentile_cutoff=2.0)
-    assert f.kind == Kind.pMHC_affinity
-    assert f.max_value == 500
-    assert f.max_percentile_rank == 2.0
+    """Building an AND of value + percentile cutoffs via operator syntax."""
+    f = (Affinity.value <= 500) & (Affinity.rank <= 2.0)
+    assert isinstance(f, BoolOp)
+    assert f.op is operator.and_
+    value_cmp, rank_cmp = f.children
+    assert isinstance(value_cmp, Comparison)
+    assert value_cmp.left.kind == Kind.pMHC_affinity
+    assert value_cmp.right.val == 500
+    assert isinstance(rank_cmp, Comparison)
+    assert rank_cmp.left.field == "percentile_rank"
+    assert rank_cmp.right.val == 2.0
 
 
 def test_presentation_filter_constructor():
-    f = presentation_filter(max_rank=2.0, min_score=0.5)
-    assert f.kind == Kind.pMHC_presentation
-    assert f.max_percentile_rank == 2.0
-    assert f.min_score == 0.5
+    f = (Presentation.rank <= 2.0) & (Presentation.score >= 0.5)
+    assert isinstance(f, BoolOp)
+    assert f.op is operator.and_
+    rank_cmp, score_cmp = f.children
+    assert rank_cmp.left.kind == Kind.pMHC_presentation
+    assert rank_cmp.left.field == "percentile_rank"
+    assert rank_cmp.right.val == 2.0
+    assert score_cmp.left.field == "score"
+    assert score_cmp.op is operator.ge
+    assert score_cmp.right.val == 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -219,8 +219,7 @@ def test_variant_column_grouping():
              score=0.8, value=120.0, percentile_rank=0.5),
     ]
     df = _make_df(rows)
-    strategy = RankingStrategy(filters=[affinity_filter(ic50_cutoff=500)])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, Affinity.value <= 500)
     assert len(result) == 1
 
 
@@ -231,41 +230,47 @@ def test_variant_column_grouping():
 
 def test_operator_affinity_value_le():
     filt = Affinity.value <= 500
-    assert isinstance(filt, EpitopeFilter)
-    assert filt.kind == Kind.pMHC_affinity
-    assert filt.max_value == 500
+    assert isinstance(filt, Comparison)
+    assert filt.op is operator.le
+    assert filt.left.kind == Kind.pMHC_affinity
+    assert filt.left.field == "value"
+    assert filt.right.val == 500
 
 
 def test_operator_affinity_rank_le():
     filt = Affinity.rank <= 2.0
-    assert isinstance(filt, EpitopeFilter)
-    assert filt.max_percentile_rank == 2.0
+    assert isinstance(filt, Comparison)
+    assert filt.op is operator.le
+    assert filt.left.field == "percentile_rank"
+    assert filt.right.val == 2.0
 
 
 def test_operator_presentation_score_ge():
     filt = Presentation.score >= 0.5
-    assert isinstance(filt, EpitopeFilter)
-    assert filt.kind == Kind.pMHC_presentation
-    assert filt.min_score == 0.5
+    assert isinstance(filt, Comparison)
+    assert filt.op is operator.ge
+    assert filt.left.kind == Kind.pMHC_presentation
+    assert filt.left.field == "score"
+    assert filt.right.val == 0.5
 
 
 def test_operator_or():
     strategy = (Affinity.value <= 500) | (Presentation.rank <= 2.0)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.filters) == 2
-    assert strategy.require_all is False
+    assert isinstance(strategy, BoolOp)
+    assert strategy.op is operator.or_
+    assert len(strategy.children) == 2
 
 
 def test_operator_and():
     strategy = (Affinity.value <= 500) & (Presentation.rank <= 2.0)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.filters) == 2
-    assert strategy.require_all is True
+    assert isinstance(strategy, BoolOp)
+    assert strategy.op is operator.and_
+    assert len(strategy.children) == 2
 
 
 def test_operator_or_applied():
     df = _two_peptide_df()
-    result = apply_ranking_strategy(
+    result = apply_filter(
         df, (Affinity.value <= 500) | (Presentation.score >= 0.01)
     )
     assert set(result["peptide"]) == {"SIINFEKL", "ELAGIGIL"}
@@ -273,7 +278,7 @@ def test_operator_or_applied():
 
 def test_operator_and_applied():
     df = _two_peptide_df()
-    result = apply_ranking_strategy(
+    result = apply_filter(
         df, (Affinity.value <= 500) & (Presentation.score >= 0.5)
     )
     assert set(result["peptide"]) == {"SIINFEKL"}
@@ -281,15 +286,16 @@ def test_operator_and_applied():
 
 def test_operator_sort_by():
     df = _two_peptide_df()
-    strategy = (Affinity.value <= 50000).sort_by(Presentation.score, Affinity.score)
-    result = apply_ranking_strategy(df, strategy)
+    filtered = apply_filter(df, Affinity.value <= 50000)
+    result = apply_sort(filtered, [Presentation.score, Affinity.score])
     assert result.iloc[0]["peptide"] == "SIINFEKL"
 
 
 def test_operator_chained_or():
     strategy = (Affinity.value <= 500) | (Presentation.rank <= 2.0) | (Stability.score >= 0.5)
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.filters) == 3
+    assert isinstance(strategy, BoolOp)
+    assert strategy.op is operator.or_
+    assert len(strategy.children) == 3
 
 
 def test_single_filter_as_ranking_param():
@@ -298,10 +304,10 @@ def test_single_filter_as_ranking_param():
 
     predictor = TopiaryPredictor(
         models=RandomBindingPredictor(alleles=["A0201"], default_peptide_lengths=[9]),
-        filter=Affinity.value <= 500,
+        filter_by=Affinity.value <= 500,
     )
-    assert predictor.ranking_strategy is not None
-    assert len(predictor.ranking_strategy.filters) == 1
+    assert predictor.filter_by is not None
+    assert isinstance(predictor.filter_by, Comparison)
 
 
 # ---------------------------------------------------------------------------
@@ -312,8 +318,11 @@ def test_single_filter_as_ranking_param():
 def test_custom_kind_accessor():
     custom = KindAccessor(Kind.proteasome_cleavage)
     filt = custom.score >= 0.5
-    assert filt.kind == Kind.proteasome_cleavage
-    assert filt.min_score == 0.5
+    assert isinstance(filt, Comparison)
+    assert filt.left.kind == Kind.proteasome_cleavage
+    assert filt.left.field == "score"
+    assert filt.op is operator.ge
+    assert filt.right.val == 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +333,6 @@ def test_custom_kind_accessor():
 def test_field_multiply():
     expr = 0.5 * Affinity.score
     df = _make_df(PEPTIDE_A_ROWS)
-    group = df[df["kind"] == "pMHC_affinity"]
     val = expr.evaluate(df)
     assert abs(val - 0.4) < 1e-9
 
@@ -384,8 +392,8 @@ def test_composite_norm_ranking():
         0.5 * (1 - Affinity.value.norm(mean=500, std=200))
         + 0.5 * Presentation.score.norm(mean=0.5, std=0.3)
     )
-    strategy = (Affinity.value <= 50000).sort_by(composite)
-    result = apply_ranking_strategy(df, strategy)
+    filtered = apply_filter(df, Affinity.value <= 50000)
+    result = apply_sort(filtered, [composite])
     # Peptide A: low IC50 (good) + high presentation (good) → higher composite
     assert result.iloc[0]["peptide"] == "SIINFEKL"
 
@@ -405,14 +413,16 @@ def test_norm_missing_kind_returns_nan():
 
 def test_kind_accessor_le_default_value():
     filt = Affinity <= 500
-    assert isinstance(filt, EpitopeFilter)
-    assert filt.kind == Kind.pMHC_affinity
-    assert filt.max_value == 500
+    assert isinstance(filt, Comparison)
+    assert filt.op is operator.le
+    assert filt.left.kind == Kind.pMHC_affinity
+    assert filt.left.field == "value"
+    assert filt.right.val == 500
 
 
 def test_kind_accessor_default_applied():
     df = _two_peptide_df()
-    result = apply_ranking_strategy(df, (Affinity <= 500) | (Presentation.rank <= 2.0))
+    result = apply_filter(df, (Affinity <= 500) | (Presentation.rank <= 2.0))
     assert set(result["peptide"]) == {"SIINFEKL"}
 
 
@@ -422,64 +432,68 @@ def test_kind_accessor_default_applied():
 
 
 def test_parse_filter_simple():
-    from topiary.ranking import parse_filter
-    f = parse_filter("affinity <= 500")
-    assert f.kind == Kind.pMHC_affinity
-    assert f.max_value == 500
+    from topiary.ranking import parse
+    f = parse("affinity <= 500")
+    assert isinstance(f, Comparison)
+    assert f.left.kind == Kind.pMHC_affinity
+    assert f.right.val == 500
 
 
 def test_parse_filter_with_field():
-    from topiary.ranking import parse_filter
-    f = parse_filter("presentation.rank <= 2.0")
-    assert f.kind == Kind.pMHC_presentation
-    assert f.max_percentile_rank == 2.0
+    from topiary.ranking import parse
+    f = parse("presentation.rank <= 2.0")
+    assert isinstance(f, Comparison)
+    assert f.left.kind == Kind.pMHC_presentation
+    assert f.left.field == "percentile_rank"
+    assert f.right.val == 2.0
 
 
 def test_parse_filter_score_ge():
-    from topiary.ranking import parse_filter
-    f = parse_filter("presentation.score >= 0.5")
-    assert f.kind == Kind.pMHC_presentation
-    assert f.min_score == 0.5
+    from topiary.ranking import parse
+    f = parse("presentation.score >= 0.5")
+    assert isinstance(f, Comparison)
+    assert f.left.kind == Kind.pMHC_presentation
+    assert f.left.field == "score"
+    assert f.op is operator.ge
+    assert f.right.val == 0.5
 
 
 def test_parse_filter_aliases():
-    from topiary.ranking import parse_filter
+    from topiary.ranking import parse
     # "ic50" -> pMHC_affinity, "el" -> pMHC_presentation
-    f1 = parse_filter("ic50 <= 500")
-    assert f1.kind == Kind.pMHC_affinity
-    f2 = parse_filter("el.rank <= 2")
-    assert f2.kind == Kind.pMHC_presentation
+    f1 = parse("ic50 <= 500")
+    assert f1.left.kind == Kind.pMHC_affinity
+    f2 = parse("el.rank <= 2")
+    assert f2.left.kind == Kind.pMHC_presentation
 
 
 def test_parse_ranking_or():
-    from topiary.ranking import parse_ranking
-    strategy = parse_ranking("affinity <= 500 | presentation.rank <= 2")
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.filters) == 2
-    assert strategy.require_all is False
+    from topiary.ranking import parse
+    strategy = parse("affinity <= 500 | presentation.rank <= 2")
+    assert isinstance(strategy, BoolOp)
+    assert strategy.op is operator.or_
+    assert len(strategy.children) == 2
 
 
 def test_parse_ranking_and():
-    from topiary.ranking import parse_ranking
-    strategy = parse_ranking("affinity <= 500 & presentation.score >= 0.5")
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.filters) == 2
-    assert strategy.require_all is True
+    from topiary.ranking import parse
+    strategy = parse("affinity <= 500 & presentation.score >= 0.5")
+    assert isinstance(strategy, BoolOp)
+    assert strategy.op is operator.and_
+    assert len(strategy.children) == 2
 
 
 def test_parse_ranking_single():
-    from topiary.ranking import parse_ranking
-    f = parse_ranking("affinity <= 500")
-    assert isinstance(f, EpitopeFilter)
+    from topiary.ranking import parse
+    f = parse("affinity <= 500")
+    assert isinstance(f, Comparison)
 
 
 def test_parse_ranking_applied():
-    from topiary.ranking import parse_ranking
+    from topiary.ranking import parse
     df = _two_peptide_df()
-    strategy = parse_ranking("affinity <= 500 | presentation.rank <= 1")
-    if isinstance(strategy, EpitopeFilter):
-        strategy = RankingStrategy(filters=[strategy])
-    result = apply_ranking_strategy(df, strategy)
+    strategy = parse("affinity <= 500 | presentation.rank <= 1")
+    result = apply_filter(df, strategy)
     assert set(result["peptide"]) == {"SIINFEKL"}
 
 
@@ -576,46 +590,59 @@ def test_composite_with_clip_and_log():
 
 def test_value_ge_filter():
     filt = Affinity.value >= 100
-    assert isinstance(filt, EpitopeFilter)
-    assert filt.min_value == 100
+    assert isinstance(filt, Comparison)
+    assert filt.op is operator.ge
+    assert filt.left.field == "value"
+    assert filt.right.val == 100
 
 
 def test_rank_ge_filter():
     filt = Affinity.rank >= 1.0
-    assert isinstance(filt, EpitopeFilter)
-    assert filt.min_percentile_rank == 1.0
+    assert isinstance(filt, Comparison)
+    assert filt.op is operator.ge
+    assert filt.left.field == "percentile_rank"
+    assert filt.right.val == 1.0
 
 
 def test_gt_delegates_to_ge():
     filt = Presentation.score > 0.5
-    assert isinstance(filt, EpitopeFilter)
-    assert filt.min_score == 0.5
+    assert isinstance(filt, Comparison)
+    assert filt.op is operator.gt
+    assert filt.left.field == "score"
+    assert filt.right.val == 0.5
 
 
 def test_lt_delegates_to_le():
     filt = Affinity < 500
-    assert isinstance(filt, EpitopeFilter)
-    assert filt.max_value == 500
+    assert isinstance(filt, Comparison)
+    assert filt.op is operator.lt
+    assert filt.left.field == "value"
+    assert filt.right.val == 500
 
 
 def test_ge_filter_applied():
     """Keep only weak binders (IC50 >= 1000)."""
     df = _two_peptide_df()
-    strategy = RankingStrategy(filters=[Affinity.value >= 1000])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, Affinity.value >= 1000)
     assert set(result["peptide"]) == {"ELAGIGIL"}
 
 
 def test_parse_filter_value_ge():
-    from topiary.ranking import parse_filter
-    f = parse_filter("affinity >= 100")
-    assert f.min_value == 100
+    from topiary.ranking import parse
+    f = parse("affinity >= 100")
+    assert isinstance(f, Comparison)
+    assert f.op is operator.ge
+    assert f.left.field == "value"
+    assert f.right.val == 100
 
 
 def test_parse_filter_rank_ge():
-    from topiary.ranking import parse_filter
-    f = parse_filter("presentation.rank >= 5")
-    assert f.min_percentile_rank == 5.0
+    from topiary.ranking import parse
+    f = parse("presentation.rank >= 5")
+    assert isinstance(f, Comparison)
+    assert f.op is operator.ge
+    assert f.left.field == "percentile_rank"
+    assert f.right.val == 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -624,7 +651,7 @@ def test_parse_filter_rank_ge():
 
 
 def test_combine_mixed_operators_nesting():
-    """(A | B) & C must be AND( OR(A, B), C ), not AND(A, B, C)."""
+    """(A | B) & C must preserve semantic AND(OR(A, B), C), not AND(A, B, C)."""
     df = _two_peptide_df()
     # A: affinity <= 500 (only peptide A passes)
     # B: affinity >= 1000 (only peptide B passes)
@@ -632,15 +659,17 @@ def test_combine_mixed_operators_nesting():
     # C: presentation.score >= 0.5 (only peptide A passes)
     # (A | B) & C: only peptide A should pass
     strategy = ((Affinity.value <= 500) | (Affinity.value >= 1000)) & (Presentation.score >= 0.5)
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, strategy)
     assert set(result["peptide"]) == {"SIINFEKL"}
 
 
 def test_combine_same_operator_flattens():
     """A | B | C should flatten to OR(A, B, C), not OR(OR(A, B), C)."""
     strategy = (Affinity.value <= 500) | (Presentation.rank <= 2.0) | (Stability.score >= 0.5)
-    assert len(strategy.filters) == 3
-    assert all(isinstance(f, EpitopeFilter) for f in strategy.filters)
+    assert isinstance(strategy, BoolOp)
+    assert strategy.op is operator.or_
+    assert len(strategy.children) == 3
+    assert all(isinstance(f, Comparison) for f in strategy.children)
 
 
 def test_norm_std_zero_returns_nan():
@@ -650,24 +679,34 @@ def test_norm_std_zero_returns_nan():
 
 
 def test_field_evaluate_missing_column():
-    from topiary.ranking import Field
     expr = Field(Kind.pMHC_affinity, "nonexistent_column")
     df = _make_df(PEPTIDE_A_ROWS)
     assert math.isnan(expr.evaluate(df))
 
 
 def test_parse_filter_with_parentheses():
-    from topiary.ranking import parse_filter
-    f = parse_filter("(affinity <= 500)")
-    assert f.kind == Kind.pMHC_affinity
-    assert f.max_value == 500
+    from topiary.ranking import parse
+    f = parse("(affinity <= 500)")
+    assert isinstance(f, Comparison)
+    assert f.left.kind == Kind.pMHC_affinity
+    assert f.right.val == 500
 
 
-def test_parse_ranking_mixed_operators_raises():
-    import pytest
-    from topiary.ranking import parse_ranking
-    with pytest.raises(ValueError, match="Cannot mix"):
-        parse_ranking("affinity <= 500 | presentation.rank <= 2 & stability.score >= 0.5")
+def test_parse_ranking_mixed_operators():
+    """Mixed | and & are now allowed: & binds tighter than |."""
+    from topiary.ranking import parse
+    # affinity <= 500 | (presentation.rank <= 2 & stability.score >= 0.5)
+    strategy = parse(
+        "affinity <= 500 | presentation.rank <= 2 & stability.score >= 0.5"
+    )
+    assert isinstance(strategy, BoolOp)
+    assert strategy.op is operator.or_
+    # children: [Comparison(affinity <= 500), BoolOp(and_, [...])]
+    assert len(strategy.children) == 2
+    left, right = strategy.children
+    assert isinstance(left, Comparison)
+    assert isinstance(right, BoolOp)
+    assert right.op is operator.and_
 
 
 # ---------------------------------------------------------------------------
@@ -708,26 +747,24 @@ def test_bracket_qualified_field_evaluate():
 
 def test_bracket_qualified_filter():
     f = Affinity["netmhcpan"] <= 500
-    assert f.method == "netmhcpan"
-    assert f.kind == Kind.pMHC_affinity
-    assert f.max_value == 500
+    assert isinstance(f, Comparison)
+    assert f.left.method == "netmhcpan"
+    assert f.left.kind == Kind.pMHC_affinity
+    assert f.right.val == 500
 
 
 def test_bracket_qualified_ranking_apply():
     df = _multi_model_df()
     # Filter: only keep if mhcflurry affinity <= 200 (it's 350, so should drop)
-    strategy = RankingStrategy(filters=[Affinity["mhcflurry"] <= 200])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, Affinity["mhcflurry"] <= 200)
     assert len(result) == 0
 
     # Filter: netmhcpan affinity <= 200 (it's 120, so should keep)
-    strategy = RankingStrategy(filters=[Affinity["netmhcpan"] <= 200])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, Affinity["netmhcpan"] <= 200)
     assert len(result) == 3  # all rows for this group kept
 
 
 def test_unqualified_ambiguity_raises():
-    import pytest
     df = _multi_model_df()
     with pytest.raises(ValueError, match="Ambiguous.*multiple models"):
         Affinity.value.evaluate(df)
@@ -802,30 +839,34 @@ def test_resolve_qualified_kind_tool_plus_underscore_kind():
 
 
 def test_parse_filter_tool_qualified():
-    from topiary.ranking import parse_filter
-    f = parse_filter("netmhcpan_affinity <= 500")
-    assert f.kind == Kind.pMHC_affinity
-    assert f.method == "netmhcpan"
-    assert f.max_value == 500.0
+    from topiary.ranking import parse
+    f = parse("netmhcpan_affinity <= 500")
+    assert isinstance(f, Comparison)
+    assert f.left.kind == Kind.pMHC_affinity
+    assert f.left.method == "netmhcpan"
+    assert f.right.val == 500.0
 
 
 def test_parse_filter_tool_qualified_with_field():
-    from topiary.ranking import parse_filter
-    f = parse_filter("mhcflurry_el.rank <= 2")
-    assert f.kind == Kind.pMHC_presentation
-    assert f.method == "mhcflurry"
-    assert f.max_percentile_rank == 2.0
+    from topiary.ranking import parse
+    f = parse("mhcflurry_el.rank <= 2")
+    assert isinstance(f, Comparison)
+    assert f.left.kind == Kind.pMHC_presentation
+    assert f.left.method == "mhcflurry"
+    assert f.left.field == "percentile_rank"
+    assert f.right.val == 2.0
 
 
 def test_parse_ranking_tool_qualified():
-    from topiary.ranking import parse_ranking
-    strategy = parse_ranking(
+    from topiary.ranking import parse
+    strategy = parse(
         "netmhcpan_affinity <= 500 | mhcflurry_el.rank <= 2"
     )
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.filters) == 2
-    assert strategy.filters[0].method == "netmhcpan"
-    assert strategy.filters[1].method == "mhcflurry"
+    assert isinstance(strategy, BoolOp)
+    assert strategy.op is operator.or_
+    assert len(strategy.children) == 2
+    assert strategy.children[0].left.method == "netmhcpan"
+    assert strategy.children[1].left.method == "mhcflurry"
 
 
 # ---------------------------------------------------------------------------
@@ -834,45 +875,55 @@ def test_parse_ranking_tool_qualified():
 
 
 def test_parse_filter_column_fallback_ge():
-    """Unknown identifiers in filters become ColumnFilter — e.g. gene_tpm >= 5."""
-    from topiary.ranking import parse_filter, ColumnFilter
-    f = parse_filter("gene_tpm >= 5")
-    assert isinstance(f, ColumnFilter)
-    assert f.col_name == "gene_tpm"
-    assert f.min_value == 5.0
+    """Unknown identifiers in filters become Column references — e.g. gene_tpm >= 5."""
+    from topiary.ranking import parse
+    f = parse("gene_tpm >= 5")
+    assert isinstance(f, Comparison)
+    assert isinstance(f.left, Column)
+    assert f.left.col_name == "gene_tpm"
+    assert f.op is operator.ge
+    assert f.right.val == 5.0
 
 
 def test_parse_filter_column_fallback_le():
-    from topiary.ranking import parse_filter, ColumnFilter
-    f = parse_filter("variant_num_alt_reads <= 100")
-    assert isinstance(f, ColumnFilter)
-    assert f.col_name == "variant_num_alt_reads"
-    assert f.max_value == 100.0
+    from topiary.ranking import parse
+    f = parse("variant_num_alt_reads <= 100")
+    assert isinstance(f, Comparison)
+    assert isinstance(f.left, Column)
+    assert f.left.col_name == "variant_num_alt_reads"
+    assert f.op is operator.le
+    assert f.right.val == 100.0
 
 
 def test_parse_ranking_with_column_filter():
     """Column filters work inside compound --filter-by strings."""
-    from topiary.ranking import parse_ranking, ColumnFilter
-    strategy = parse_ranking("ba <= 500 & gene_tpm >= 5")
-    assert isinstance(strategy, RankingStrategy)
-    assert len(strategy.filters) == 2
-    assert strategy.filters[0].kind == Kind.pMHC_affinity
-    assert isinstance(strategy.filters[1], ColumnFilter)
-    assert strategy.filters[1].col_name == "gene_tpm"
+    from topiary.ranking import parse
+    strategy = parse("ba <= 500 & gene_tpm >= 5")
+    assert isinstance(strategy, BoolOp)
+    assert strategy.op is operator.and_
+    assert len(strategy.children) == 2
+    first, second = strategy.children
+    assert isinstance(first, Comparison)
+    assert first.left.kind == Kind.pMHC_affinity
+    assert isinstance(second, Comparison)
+    assert isinstance(second.left, Column)
+    assert second.left.col_name == "gene_tpm"
 
 
 def test_parse_filter_column_with_transform():
     """Transformed columns in filters: gene_tpm.log() >= 1."""
-    from topiary.ranking import parse_filter, ExprFilter
-    f = parse_filter("gene_tpm.log() >= 1")
-    assert isinstance(f, ExprFilter)
-    assert f.min_value == 1.0
+    from topiary.ranking import parse
+    f = parse("gene_tpm.log() >= 1")
+    assert isinstance(f, Comparison)
+    assert isinstance(f.left, UnaryOp)
+    assert isinstance(f.left.inner, Column)
+    assert f.left.inner.col_name == "gene_tpm"
+    assert f.op is operator.ge
+    assert f.right.val == 1.0
 
 
 def test_expr_filter_evaluates():
-    """ExprFilter evaluates its expr and compares against threshold."""
-    import pandas as pd
-    from topiary.ranking import ExprFilter, Column, apply_ranking_strategy
+    """Column >= threshold filters rows by per-group column value."""
     df = pd.DataFrame([
         {"source_sequence_name": "s1", "peptide": "AAA", "peptide_offset": 0,
          "allele": "A", "kind": "pMHC_affinity", "score": 0.5, "value": 100,
@@ -881,29 +932,28 @@ def test_expr_filter_evaluates():
          "allele": "A", "kind": "pMHC_affinity", "score": 0.5, "value": 100,
          "percentile_rank": 1, "gene_tpm": 1.0},
     ])
-    strategy = RankingStrategy(
-        filters=[ExprFilter(Column("gene_tpm"), min_value=5.0)]
-    )
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, Column("gene_tpm") >= 5.0)
     assert len(result) == 1
     assert result.iloc[0]["peptide"] == "AAA"
 
 
 def test_column_comparison_python_api():
-    """Column('gene_tpm') >= 5 works in Python API."""
-    from topiary.ranking import Column, ColumnFilter
+    """Column('gene_tpm') >= 5 returns a Comparison."""
     f = Column("gene_tpm") >= 5
-    assert isinstance(f, ColumnFilter)
-    assert f.col_name == "gene_tpm"
-    assert f.min_value == 5.0
+    assert isinstance(f, Comparison)
+    assert isinstance(f.left, Column)
+    assert f.left.col_name == "gene_tpm"
+    assert f.op is operator.ge
+    assert f.right.val == 5.0
 
 
 def test_compound_expr_filter_python_api():
-    """(Affinity.score + 1) <= 5 returns ExprFilter."""
-    from topiary.ranking import ExprFilter
+    """(Affinity.score + 1) <= 5 returns a Comparison with a BinOp on the left."""
     f = (Affinity.score + 1) <= 5
-    assert isinstance(f, ExprFilter)
-    assert f.max_value == 5.0
+    assert isinstance(f, Comparison)
+    assert isinstance(f.left, BinOp)
+    assert f.op is operator.le
+    assert f.right.val == 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -913,7 +963,6 @@ def test_compound_expr_filter_python_api():
 
 def test_qualified_nonexistent_method_raises():
     """Qualifying with a method that doesn't exist in data → ValueError."""
-    import pytest
     df = _multi_model_df()
     with pytest.raises(ValueError, match="No pMHC_affinity predictions from method"):
         Affinity["nonexistent_tool"].value.evaluate(df)
@@ -921,7 +970,6 @@ def test_qualified_nonexistent_method_raises():
 
 def test_qualified_nonexistent_method_shows_available():
     """Error message lists available methods."""
-    import pytest
     df = _multi_model_df()
     with pytest.raises(ValueError, match="Available.*mhcflurry.*netmhcpan"):
         Affinity["totally_wrong"].value.evaluate(df)
@@ -929,7 +977,6 @@ def test_qualified_nonexistent_method_shows_available():
 
 def test_qualified_typo_suggests_correction():
     """Close misspellings get 'Did you mean' suggestions."""
-    import pytest
     df = _multi_model_df()
     with pytest.raises(ValueError, match="Did you mean.*netmhcpan"):
         Affinity["netmhcapn"].value.evaluate(df)
@@ -937,11 +984,9 @@ def test_qualified_typo_suggests_correction():
 
 def test_qualified_typo_in_filter_suggests_correction():
     """Same suggestion works in the filter path."""
-    import pytest
     df = _multi_model_df()
-    strategy = RankingStrategy(filters=[Affinity["mchflurry"] <= 500])
     with pytest.raises(ValueError, match="Did you mean.*mhcflurry"):
-        apply_ranking_strategy(df, strategy)
+        apply_filter(df, Affinity["mchflurry"] <= 500)
 
 
 def test_method_match_is_case_insensitive():
@@ -1061,21 +1106,18 @@ def test_sort_by_qualified_field():
             prediction_method_name="netmhcpan",
         ),
     ])
-    strategy = RankingStrategy(sort_by=[Affinity["netmhcpan"].score])
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_sort(df, [Affinity["netmhcpan"].score])
     # BBB has higher score (0.9) so should come first
     assert result.iloc[0]["peptide"] == "BBB"
 
 
 def test_resolve_qualified_kind_unknown_raises():
-    import pytest
     from topiary.ranking import _resolve_qualified_kind
     with pytest.raises(ValueError, match="Unknown prediction kind"):
         _resolve_qualified_kind("totally_bogus_nonsense")
 
 
 def test_resolve_qualified_kind_empty_raises():
-    import pytest
     from topiary.ranking import _resolve_qualified_kind
     with pytest.raises(ValueError):
         _resolve_qualified_kind("")
@@ -1099,12 +1141,12 @@ def test_filter_or_across_models():
     ])
     # netmhcpan passes, mhcflurry doesn't — OR should keep
     strategy = (Affinity["netmhcpan"] <= 500) | (Affinity["mhcflurry"] <= 500)
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, strategy)
     assert len(result) == 2  # both rows for the group kept
 
     # AND should fail (mhcflurry doesn't pass)
     strategy = (Affinity["netmhcpan"] <= 500) & (Affinity["mhcflurry"] <= 500)
-    result = apply_ranking_strategy(df, strategy)
+    result = apply_filter(df, strategy)
     assert len(result) == 0
 
 
@@ -1122,34 +1164,34 @@ def test_bracket_on_kind_accessor_returns_new_accessor():
 
 
 def test_parse_expr_number():
-    expr = parse_expr("42.5")
-    assert isinstance(expr, _Const)
+    expr = parse("42.5")
+    assert isinstance(expr, Const)
     assert expr.val == 42.5
 
 
 def test_parse_expr_kind_accessor_defaults_to_value():
-    expr = parse_expr("affinity")
+    expr = parse("affinity")
     assert isinstance(expr, Field)
     assert expr.kind == Kind.pMHC_affinity
     assert expr.field == "value"
 
 
 def test_parse_expr_kind_field():
-    expr = parse_expr("affinity.score")
+    expr = parse("affinity.score")
     assert isinstance(expr, Field)
     assert expr.kind == Kind.pMHC_affinity
     assert expr.field == "score"
 
 
 def test_parse_expr_kind_rank():
-    expr = parse_expr("presentation.rank")
+    expr = parse("presentation.rank")
     assert isinstance(expr, Field)
     assert expr.kind == Kind.pMHC_presentation
     assert expr.field == "percentile_rank"
 
 
 def test_parse_expr_arithmetic():
-    expr = parse_expr("0.5 * affinity.score + 0.5 * presentation.score")
+    expr = parse("0.5 * affinity.score + 0.5 * presentation.score")
     # evaluate against a group
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
@@ -1158,7 +1200,7 @@ def test_parse_expr_arithmetic():
 
 
 def test_parse_expr_descending_cdf():
-    expr = parse_expr("affinity.descending_cdf(500, 200)")
+    expr = parse("affinity.descending_cdf(500, 200)")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     # IC50=120, mean=500, std=200 → descending CDF should be high (close to 1)
@@ -1166,7 +1208,7 @@ def test_parse_expr_descending_cdf():
 
 
 def test_parse_expr_ascending_cdf():
-    expr = parse_expr("presentation.score.ascending_cdf(0.5, 0.3)")
+    expr = parse("presentation.score.ascending_cdf(0.5, 0.3)")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     # score=0.92, mean=0.5, std=0.3 → ascending CDF should be high
@@ -1174,7 +1216,7 @@ def test_parse_expr_ascending_cdf():
 
 
 def test_parse_expr_logistic():
-    expr = parse_expr("affinity.logistic(350, 150)")
+    expr = parse("affinity.logistic(350, 150)")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     # IC50=120 < midpoint=350 → score > 0.5
@@ -1182,21 +1224,21 @@ def test_parse_expr_logistic():
 
 
 def test_parse_expr_log():
-    expr = parse_expr("affinity.value.log()")
+    expr = parse("affinity.value.log()")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert abs(val - math.log(120.0)) < 1e-9
 
 
 def test_parse_expr_log2():
-    expr = parse_expr("affinity.value.log2()")
+    expr = parse("affinity.value.log2()")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert abs(val - math.log2(120.0)) < 1e-9
 
 
 def test_parse_expr_clip():
-    expr = parse_expr("affinity.value.clip(100, 200)")
+    expr = parse("affinity.value.clip(100, 200)")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert val == 120.0  # 120 is within [100, 200]
@@ -1207,21 +1249,21 @@ def test_parse_expr_clip():
 
 
 def test_parse_expr_hinge():
-    expr = parse_expr("affinity.value.hinge()")
+    expr = parse("affinity.value.hinge()")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert val == 120.0
 
 
 def test_parse_expr_sqrt():
-    expr = parse_expr("affinity.value.sqrt()")
+    expr = parse("affinity.value.sqrt()")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert abs(val - math.sqrt(120.0)) < 1e-9
 
 
 def test_parse_expr_negation():
-    expr = parse_expr("-affinity.value")
+    expr = parse("-affinity.value")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert val == -120.0
@@ -1229,26 +1271,26 @@ def test_parse_expr_negation():
 
 def test_parse_expr_abs():
     # abs of a negated expression
-    expr = parse_expr("abs(-affinity.value)")
+    expr = parse("abs(-affinity.value)")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert val == 120.0
 
     # abs of a positive expression
-    expr2 = parse_expr("abs(affinity.value)")
+    expr2 = parse("abs(affinity.value)")
     val2 = expr2.evaluate(df)
     assert val2 == 120.0
 
 
 def test_parse_expr_power():
-    expr = parse_expr("affinity.value ** 2")
+    expr = parse("affinity.value ** 2")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert abs(val - 120.0 ** 2) < 1e-6
 
 
 def test_parse_expr_parentheses():
-    expr = parse_expr("(affinity.score + presentation.score) * 0.5")
+    expr = parse("(affinity.score + presentation.score) * 0.5")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     expected = (0.8 + 0.92) * 0.5
@@ -1256,7 +1298,7 @@ def test_parse_expr_parentheses():
 
 
 def test_parse_expr_mean():
-    expr = parse_expr("mean(affinity.score, presentation.score)")
+    expr = parse("mean(affinity.score, presentation.score)")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     expected = (0.8 + 0.92) / 2
@@ -1264,27 +1306,27 @@ def test_parse_expr_mean():
 
 
 def test_parse_expr_minimum():
-    expr = parse_expr("minimum(affinity.score, presentation.score)")
+    expr = parse("minimum(affinity.score, presentation.score)")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert val == 0.8
 
 
 def test_parse_expr_maximum():
-    expr = parse_expr("maximum(affinity.score, presentation.score)")
+    expr = parse("maximum(affinity.score, presentation.score)")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert val == 0.92
 
 
 def test_parse_expr_column():
-    expr = parse_expr("column(hydrophobicity)")
+    expr = parse("column(hydrophobicity)")
     assert isinstance(expr, Column)
     assert expr.col_name == "hydrophobicity"
 
 
 def test_parse_expr_column_in_arithmetic():
-    expr = parse_expr("0.5 * affinity.score - 0.2 * column(cysteine_count)")
+    expr = parse("0.5 * affinity.score - 0.2 * column(cysteine_count)")
     df = _make_df(PEPTIDE_A_ROWS)
     df["cysteine_count"] = 1
     val = expr.evaluate(df)
@@ -1293,14 +1335,14 @@ def test_parse_expr_column_in_arithmetic():
 
 
 def test_parse_expr_bracket_qualification():
-    expr = parse_expr('affinity["netmhcpan"].score')
+    expr = parse('affinity["netmhcpan"].score')
     assert isinstance(expr, Field)
     assert expr.method == "netmhcpan"
 
 
 def test_parse_expr_norm_alias():
     """norm() is an alias for ascending_cdf()"""
-    expr = parse_expr("affinity.norm(500, 200)")
+    expr = parse("affinity.norm(500, 200)")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     # IC50=120 with mean=500, std=200 → ascending CDF
@@ -1314,7 +1356,7 @@ def test_parse_expr_complex_composite():
         "0.6 * affinity.descending_cdf(500, 200) + "
         "0.4 * presentation.score.ascending_cdf(0.5, 0.3)"
     )
-    expr = parse_expr(text)
+    expr = parse(text)
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert isinstance(val, float)
@@ -1328,7 +1370,7 @@ def test_parse_expr_complex_composite():
 
 def _eval_both(ast_expr, text, df):
     """Evaluate both the Python AST and the parsed string expression."""
-    parsed = parse_expr(text)
+    parsed = parse(text)
     ast_val = ast_expr.evaluate(df)
     parsed_val = parsed.evaluate(df)
     return ast_val, parsed_val
@@ -1662,7 +1704,7 @@ def test_equiv_operator_precedence():
 
 def test_equiv_right_associative_power():
     """2 ** 3 ** 2 should be 2 ** (3 ** 2) = 512, not (2 ** 3) ** 2 = 64."""
-    expr = parse_expr("2 ** 3 ** 2")
+    expr = parse("2 ** 3 ** 2")
     df = _make_df(PEPTIDE_A_ROWS)
     val = expr.evaluate(df)
     assert abs(val - 512.0) < 1e-9
@@ -1675,7 +1717,7 @@ def test_equiv_subtraction_vs_negation():
     ast_neg = Affinity.score + (-Presentation.score)
     sub_val = ast_sub.evaluate(df)
     neg_val = ast_neg.evaluate(df)
-    parsed_val = parse_expr("affinity.score - presentation.score").evaluate(df)
+    parsed_val = parse("affinity.score - presentation.score").evaluate(df)
     assert abs(sub_val - neg_val) < 1e-9
     assert abs(sub_val - parsed_val) < 1e-9
 
@@ -1948,7 +1990,6 @@ def test_parse_underscore_qualified_ba():
 
 def test_parse_underscore_qualified_el():
     df = _make_df(WT_ROWS)
-    ast_expr = Presentation["netmhcpan"].value
     # presentation value is NaN, so use score
     _assert_equiv(Presentation["netmhcpan"].score, "netmhcpan_el.score", df)
 
@@ -1994,9 +2035,9 @@ def test_parse_underscore_qualified_in_arithmetic():
 
 def _assert_roundtrip(text, df, tol=1e-9):
     """Parse text, repr it, re-parse, compare evaluation."""
-    expr1 = parse_expr(text)
+    expr1 = parse(text)
     text2 = repr(expr1)
-    expr2 = parse_expr(text2)
+    expr2 = parse(text2)
     v1 = expr1.evaluate(df)
     v2 = expr2.evaluate(df)
     assert abs(v1 - v2) < tol, (
@@ -2157,14 +2198,14 @@ LEN_ROWS = [
 
 def test_len_default():
     df = _make_df(LEN_ROWS)
-    expr = parse_expr("len")
+    expr = parse("len")
     assert isinstance(expr, Len)
     assert expr.evaluate(df) == 8.0
 
 
 def test_len_wt_scope():
     df = _make_df(LEN_ROWS)
-    expr = parse_expr("wt.len")
+    expr = parse("wt.len")
     assert isinstance(expr, Len)
     assert expr.scope == "wt_"
     assert expr.evaluate(df) == 8.0
@@ -2172,48 +2213,48 @@ def test_len_wt_scope():
 
 def test_len_missing_column_nan():
     df = _make_df(PEPTIDE_A_ROWS)
-    expr = parse_expr("wt.len")
+    expr = parse("wt.len")
     assert math.isnan(expr.evaluate(df))
 
 
 def test_len_in_arithmetic():
     df = _make_df(LEN_ROWS)
-    expr = parse_expr("len - 9")
+    expr = parse("len - 9")
     assert expr.evaluate(df) == -1.0
 
 
 def test_len_repr_roundtrip():
-    expr = parse_expr("len")
+    expr = parse("len")
     assert repr(expr) == "len"
-    expr2 = parse_expr(repr(expr))
+    expr2 = parse(repr(expr))
     assert isinstance(expr2, Len)
 
 
 def test_len_wt_repr_roundtrip():
-    expr = parse_expr("wt.len")
+    expr = parse("wt.len")
     assert repr(expr) == "wt.len"
-    expr2 = parse_expr(repr(expr))
+    expr2 = parse(repr(expr))
     assert isinstance(expr2, Len)
     assert expr2.scope == "wt_"
 
 
 def test_count_single_aa():
     df = _make_df(LEN_ROWS)
-    expr = parse_expr("count('K')")
+    expr = parse("count('K')")
     assert isinstance(expr, Count)
     assert expr.evaluate(df) == 1.0  # SIINFEKL has one K
 
 
 def test_count_multiple_aa():
     df = _make_df(LEN_ROWS)
-    expr = parse_expr("count('KL')")
+    expr = parse("count('KL')")
     # SIINFEKL: K=1, L=1
     assert expr.evaluate(df) == 2.0
 
 
 def test_count_wt_scope():
     df = _make_df(LEN_ROWS)
-    expr = parse_expr("wt.count('K')")
+    expr = parse("wt.count('K')")
     assert expr.scope == "wt_"
     # wt_peptide = SIINFEAL: no K
     assert expr.evaluate(df) == 0.0
@@ -2221,37 +2262,37 @@ def test_count_wt_scope():
 
 def test_count_cysteine():
     df = _make_df(LEN_ROWS)
-    expr = parse_expr("count('C')")
+    expr = parse("count('C')")
     # SIINFEKL has no C
     assert expr.evaluate(df) == 0.0
 
 
 def test_count_in_arithmetic():
     df = _make_df(LEN_ROWS)
-    expr = parse_expr("count('K') - wt.count('K')")
+    expr = parse("count('K') - wt.count('K')")
     # SIINFEKL has K=1, SIINFEAL has K=0
     assert expr.evaluate(df) == 1.0
 
 
 def test_count_double_quote():
     df = _make_df(LEN_ROWS)
-    expr = parse_expr('count("KR")')
+    expr = parse('count("KR")')
     # SIINFEKL: K=1, R=0
     assert expr.evaluate(df) == 1.0
 
 
 def test_count_repr_roundtrip():
-    expr = parse_expr("count('C')")
+    expr = parse("count('C')")
     assert repr(expr) == "count('C')"
-    expr2 = parse_expr(repr(expr))
+    expr2 = parse(repr(expr))
     assert isinstance(expr2, Count)
     assert expr2.chars == "C"
 
 
 def test_count_wt_repr_roundtrip():
-    expr = parse_expr("wt.count('KR')")
+    expr = parse("wt.count('KR')")
     assert repr(expr) == "wt.count('KR')"
-    expr2 = parse_expr(repr(expr))
+    expr2 = parse(repr(expr))
     assert isinstance(expr2, Count)
     assert expr2.chars == "KR"
     assert expr2.scope == "wt_"
@@ -2259,7 +2300,7 @@ def test_count_wt_repr_roundtrip():
 
 def test_count_missing_peptide_nan():
     df = _make_df(PEPTIDE_A_ROWS)
-    expr = parse_expr("wt.count('C')")
+    expr = parse("wt.count('C')")
     assert math.isnan(expr.evaluate(df))
 
 
@@ -2320,13 +2361,13 @@ def test_scope_unknown_attr_raises():
 def test_reserved_keyword_in_parser():
     """Context keywords can't be used as kind names."""
     with pytest.raises(ValueError, match="reserved context keyword"):
-        parse_expr("wt")
+        parse("wt")
 
 
 def test_reserved_keyword_no_dot_raises():
     """Context keyword without dot raises."""
     with pytest.raises(ValueError, match="reserved context keyword"):
-        parse_expr("self")
+        parse("self")
 
 
 # ---------------------------------------------------------------------------
@@ -2393,20 +2434,20 @@ SELF_ROWS = [
 
 
 def test_shuffled_scope_parse():
-    expr = parse_expr("shuffled.affinity.score")
+    expr = parse("shuffled.affinity.score")
     assert isinstance(expr, Field)
     assert expr.scope == "shuffled_"
 
 
 def test_shuffled_scope_evaluate():
     df = _make_df(SHUFFLED_ROWS)
-    expr = parse_expr("shuffled.affinity.score")
+    expr = parse("shuffled.affinity.score")
     assert expr.evaluate(df) == 0.2
 
 
 def test_shuffled_scope_differential():
     df = _make_df(SHUFFLED_ROWS)
-    expr = parse_expr("affinity.score - shuffled.affinity.score")
+    expr = parse("affinity.score - shuffled.affinity.score")
     assert abs(expr.evaluate(df) - 0.6) < 1e-9
 
 
@@ -2421,13 +2462,13 @@ def test_shuffled_scope_python_api():
 
 def test_shuffled_len():
     df = _make_df(SHUFFLED_ROWS)
-    expr = parse_expr("shuffled.len")
+    expr = parse("shuffled.len")
     assert expr.evaluate(df) == 8.0
 
 
 def test_shuffled_count():
     df = _make_df(SHUFFLED_ROWS)
-    expr = parse_expr("shuffled.count('K')")
+    expr = parse("shuffled.count('K')")
     # KLFINISE has K=1
     assert expr.evaluate(df) == 1.0
 
@@ -2438,20 +2479,20 @@ def test_shuffled_repr_roundtrip():
 
 
 def test_self_scope_parse():
-    expr = parse_expr("self.affinity.score")
+    expr = parse("self.affinity.score")
     assert isinstance(expr, Field)
     assert expr.scope == "self_"
 
 
 def test_self_scope_evaluate():
     df = _make_df(SELF_ROWS)
-    expr = parse_expr("self.affinity.score")
+    expr = parse("self.affinity.score")
     assert expr.evaluate(df) == 0.6
 
 
 def test_self_scope_differential():
     df = _make_df(SELF_ROWS)
-    expr = parse_expr("affinity.score - self.affinity.score")
+    expr = parse("affinity.score - self.affinity.score")
     assert abs(expr.evaluate(df) - 0.2) < 1e-9
 
 
@@ -2477,23 +2518,23 @@ def test_self_repr_roundtrip():
 def test_nested_scope_rejected():
     """wt.wt.affinity should be rejected."""
     with pytest.raises(ValueError, match="reserved context keyword"):
-        parse_expr("wt.wt.affinity")
+        parse("wt.wt.affinity")
 
 
 def test_count_empty_string_rejected():
     """count('') should raise ValueError."""
     with pytest.raises(ValueError, match="at least one amino acid"):
-        parse_expr("count('')")
+        parse("count('')")
 
 
 def test_count_lowercase_normalized():
     """count('k') should be treated as count('K')."""
     df = _make_df(LEN_ROWS)
-    expr = parse_expr("count('k')")
+    expr = parse("count('k')")
     assert expr.chars == "K"
     assert expr.evaluate(df) == 1.0
 
 
 def test_shuffled_reserved_keyword_no_dot():
     with pytest.raises(ValueError, match="reserved context keyword"):
-        parse_expr("shuffled")
+        parse("shuffled")

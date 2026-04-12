@@ -41,15 +41,13 @@ class TopiaryResult:
         Files / tags that contributed rows.
     filter_by_str : str, optional
         Human-readable filter expression.
-    filter_by_ast : DSL filter object, optional
-        Parsed filter. Currently a ``RankingStrategy``, ``EpitopeFilter``,
-        ``ColumnFilter``, or ``ExprFilter`` instance — whatever
-        :func:`topiary.ranking.parse_ranking` returns. Must support ``&``
-        for ANDing with additional filters via :meth:`filter_by`.
+    filter_by_ast : DSLNode, optional
+        Parsed filter — a :class:`topiary.ranking.DSLNode` (typically a
+        :class:`Comparison` or :class:`BoolOp`). Supports ``&`` for
+        ANDing with additional filters via :meth:`filter_by`.
     sort_by_str : str, optional
-    sort_by_ast : Expr, optional
-        Parsed sort expression. Currently a ``topiary.ranking.Expr``
-        subclass.
+    sort_by_ast : DSLNode or list of DSLNode, optional
+        Parsed sort expression(s).
     extra : dict, optional
         Unknown comment-block keys, preserved on round-trip.
     """
@@ -159,46 +157,38 @@ class TopiaryResult:
 
         Parameters
         ----------
-        expr : str or DSL filter object
-            A string like ``"affinity <= 500"`` or an object like
+        expr : str or DSLNode
+            A string like ``"affinity <= 500"`` or a DSL node like
             ``Affinity <= 500``.
 
         Returns
         -------
         TopiaryResult
-            New result with rows filtered and filter_by_str / filter_by_ast
-            updated (ANDed with any previous filter).
+            New result with rows filtered and filter_by_str /
+            filter_by_ast updated (ANDed with any previous filter).
         """
-        from .ranking import (
-            parse_ranking, apply_ranking_strategy,
-            RankingStrategy, EpitopeFilter, ColumnFilter, ExprFilter,
-        )
+        from .ranking import DSLNode, KindAccessor, apply_filter, parse
 
         if isinstance(expr, str):
             new_str = expr
-            new_ast = parse_ranking(expr)
-        elif isinstance(expr, (EpitopeFilter, ColumnFilter, ExprFilter, RankingStrategy)):
+            new_ast = parse(expr)
+        elif isinstance(expr, KindAccessor):
+            new_ast = expr.value
+            new_str = new_ast.to_expr_string()
+        elif isinstance(expr, DSLNode):
             new_ast = expr
-            new_str = _dsl_filter_to_string(expr)
+            new_str = expr.to_expr_string()
         else:
             raise TypeError(
-                f"filter_by expects a string or DSL filter object, "
+                f"filter_by expects a string or DSLNode, "
                 f"got {type(expr).__name__}"
             )
 
-        # Coerce to RankingStrategy for applying.
-        if isinstance(new_ast, (EpitopeFilter, ColumnFilter, ExprFilter)):
-            strategy = RankingStrategy(filters=[new_ast])
-        else:
-            strategy = new_ast
-
-        # Apply to df.
         if self.df.empty:
             filtered_df = self.df
         else:
-            filtered_df = apply_ranking_strategy(self.df, strategy)
+            filtered_df = apply_filter(self.df, new_ast)
 
-        # Combine with existing filter.
         if self.filter_by_ast is not None:
             combined_ast = self.filter_by_ast & new_ast
             combined_str = _combine_filter_str(self.filter_by_str, new_str)
@@ -216,35 +206,51 @@ class TopiaryResult:
 
         Parameters
         ----------
-        expr : str or Expr object
-            A string like ``"presentation.score"`` or an ``Expr`` object.
+        expr : str, DSLNode, or list of DSLNode
+            Sort expression(s).
 
         Returns
         -------
         TopiaryResult
-            New result with rows sorted and sort_by_str / sort_by_ast updated.
+            New result with rows sorted.
         """
-        from .ranking import (
-            Expr, RankingStrategy, apply_ranking_strategy, parse_expr,
-        )
+        from .ranking import DSLNode, KindAccessor, apply_sort, parse
 
         if isinstance(expr, str):
             new_str = expr
-            new_ast = parse_expr(expr)
-        elif isinstance(expr, Expr):
+            new_ast = parse(expr)
+            sort_nodes = [new_ast]
+        elif isinstance(expr, KindAccessor):
+            new_ast = expr.value
+            new_str = new_ast.to_expr_string()
+            sort_nodes = [new_ast]
+        elif isinstance(expr, DSLNode):
             new_ast = expr
-            new_str = repr(expr)
+            new_str = expr.to_expr_string()
+            sort_nodes = [new_ast]
+        elif isinstance(expr, (list, tuple)):
+            sort_nodes = [
+                e.value if isinstance(e, KindAccessor) else e
+                for e in expr
+            ]
+            for n in sort_nodes:
+                if not isinstance(n, DSLNode):
+                    raise TypeError(
+                        f"sort_by list must contain DSLNode values, "
+                        f"got {type(n).__name__}"
+                    )
+            new_ast = sort_nodes
+            new_str = ", ".join(n.to_expr_string() for n in sort_nodes)
         else:
             raise TypeError(
-                f"sort_by expects a string or Expr object, "
+                f"sort_by expects a string, DSLNode, or list, "
                 f"got {type(expr).__name__}"
             )
 
         if self.df.empty:
             sorted_df = self.df
         else:
-            strategy = RankingStrategy(filters=[], sort_by=[new_ast])
-            sorted_df = apply_ranking_strategy(self.df, strategy)
+            sorted_df = apply_sort(self.df, sort_nodes)
 
         kwargs = self._field_kwargs()
         kwargs["sort_by_str"] = new_str
@@ -314,46 +320,13 @@ def _combine_filter_str(old, new):
     return f"({old}) & ({new})"
 
 
-def _dsl_filter_to_string(filt):
-    """Convert a DSL filter object into a parseable string.
+def _dsl_filter_to_string(node):
+    """Convert a DSLNode into a parseable string via its to_expr_string."""
+    from .ranking import DSLNode
 
-    Handles the common ``EpitopeFilter`` and ``RankingStrategy`` cases.
-    Falls back to ``repr()`` for unknown types (not guaranteed to round-trip).
-    """
-    from .ranking import (
-        EpitopeFilter, ColumnFilter, ExprFilter, RankingStrategy,
-        _kind_short_name,
-    )
-
-    if isinstance(filt, EpitopeFilter):
-        kind = _kind_short_name(filt.kind)
-        prefix = f"{kind}[{filt.method!r}]" if filt.method else kind
-        clauses = []
-        if filt.max_value is not None:
-            clauses.append(f"{prefix}.value <= {filt.max_value}")
-        if filt.min_value is not None:
-            clauses.append(f"{prefix}.value >= {filt.min_value}")
-        if filt.max_percentile_rank is not None:
-            clauses.append(f"{prefix}.rank <= {filt.max_percentile_rank}")
-        if filt.min_percentile_rank is not None:
-            clauses.append(f"{prefix}.rank >= {filt.min_percentile_rank}")
-        if filt.max_score is not None:
-            clauses.append(f"{prefix}.score <= {filt.max_score}")
-        if filt.min_score is not None:
-            clauses.append(f"{prefix}.score >= {filt.min_score}")
-        return " & ".join(clauses) if clauses else prefix
-
-    if isinstance(filt, RankingStrategy):
-        if not filt.filters:
-            return ""
-        sub_strs = [_dsl_filter_to_string(f) for f in filt.filters]
-        op = " & " if filt.require_all else " | "
-        return op.join(f"({s})" for s in sub_strs)
-
-    if isinstance(filt, (ColumnFilter, ExprFilter)):
-        return repr(filt)
-
-    return repr(filt)
+    if isinstance(node, DSLNode):
+        return node.to_expr_string()
+    return repr(node)
 
 
 def concat(results):

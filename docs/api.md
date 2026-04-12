@@ -6,8 +6,9 @@
 |-----------|------|-------------|
 | `models` | class, instance, or list | Predictor model(s). Classes require `alleles`. |
 | `alleles` | list of str | HLA alleles. Used to construct model classes. |
-| `filter` | EpitopeFilter or RankingStrategy | Which peptide-allele groups to keep. |
-| `sort_by` | Expr or list of Expr | How to sort surviving groups. |
+| `filter_by` | DSLNode or str | Boolean filter expression (e.g. `Affinity <= 500` or `"affinity <= 500 \| el.rank <= 2"`). |
+| `sort_by` | DSLNode or list of DSLNode | Sort expression(s). Lexicographic tiebreakers; NaN falls through. |
+| `sort_direction` | "auto", "asc", or "desc" | Direction for sort keys (auto infers per-key). |
 | `padding_around_mutation` | int | Residues around mutation for candidate epitopes. |
 | `only_novel_epitopes` | bool | Drop peptides without mutated residues. |
 | `min_gene_expression` | float | Minimum gene FPKM (variant inputs). |
@@ -56,21 +57,32 @@ Reference any DataFrame column in expressions:
 
 ```python
 Column("charge")                  # reads 'charge' column
-Column("cysteine_count") <= 2     # creates ColumnFilter
+Column("cysteine_count") <= 2     # returns a Comparison (boolean DSL node)
 ```
 
 Errors with close-match suggestions when column doesn't exist. Raises `TypeError` for non-numeric columns.
 
-## ColumnFilter
+## DSL tree
 
-Filter on arbitrary DataFrame columns. Created by `Column() <= N` or `parse_filter("column(name) <= N")`:
+Every DSL expression is a `DSLNode`. The tree is composed of:
 
-```python
-ColumnFilter(col_name="cysteine_count", max_value=2)
-ColumnFilter(col_name="hydrophobicity", min_value=-0.5)
-```
+| Leaf | Produces |
+|------|----------|
+| `Const(v)` | Constant scalar |
+| `Column(name)` | Per-group first-row of that column |
+| `Field(kind, field, method=None, version=None, scope="")` | Per-group first-row of `{scope}{field}` for rows matching `kind` (and `method` / `version` if given) |
+| `Len(scope="")` | Peptide length |
+| `Count(chars, scope="")` | Amino-acid character count |
 
-Supports `|` (OR) and `&` (AND) combination with `EpitopeFilter`.
+| Composite | Purpose |
+|-----------|---------|
+| `BinOp(left, right, op)` | Elementwise `+`, `-`, `*`, `/`, `**` |
+| `UnaryOp(inner, fn)` | `abs`, `log`, `log2`, `log10`, `log1p`, `exp`, `sqrt` |
+| `NormExpr`, `SurvivalExpr`, `LogisticExpr`, `ClipExpr`, `AggExpr` | Gaussian CDF / survival, logistic, clip, aggregate |
+| `Comparison(left, op, right)` | `<=`, `>=`, `<`, `>`, `==`, `!=` → boolean Series |
+| `BoolOp(op, children)` | `&`, `\|`, `~` over boolean children |
+
+Boolean and numeric nodes compose freely — `(Affinity <= 500) * Affinity.score` is valid.
 
 ## wt (scope prefix)
 
@@ -146,12 +158,14 @@ minimum(Affinity["netmhcpan"].value, Affinity["mhcflurry"].value)
 
 | Expression | Creates |
 |------------|---------|
-| `Affinity <= 500` | `EpitopeFilter(kind=pMHC_affinity, max_value=500)` |
-| `Affinity.rank <= 2` | `EpitopeFilter(kind=pMHC_affinity, max_percentile_rank=2)` |
-| `Affinity.score >= 0.5` | `EpitopeFilter(kind=pMHC_affinity, min_score=0.5)` |
-| `Column("x") <= 2` | `ColumnFilter(col_name="x", max_value=2)` |
+| `Affinity <= 500` | `Comparison(Field(pMHC_affinity, "value"), <=, 500)` |
+| `Affinity.rank <= 2` | `Comparison(Field(pMHC_affinity, "percentile_rank"), <=, 2)` |
+| `Affinity.score >= 0.5` | `Comparison(Field(pMHC_affinity, "score"), >=, 0.5)` |
+| `Column("x") <= 2` | `Comparison(Column("x"), <=, 2)` |
+| `(A) \| (B)` | `BoolOp(\|, [A, B])` |
+| `(A) & (B)` | `BoolOp(&, [A, B])` |
 
-Combine with `|` (OR) and `&` (AND). Chain with `.sort_by()`.
+Apply with `apply_filter(df, node)` and `apply_sort(df, [nodes])`.
 
 ## String parsing
 
@@ -168,25 +182,20 @@ Combine with `|` (OR) and `&` (AND). Chain with `.sort_by()`.
 
 Prefix with tool name and underscore: `netmhcpan_affinity`, `mhcflurry_el`, `netmhcpan_ba`.
 
-### parse_filter examples
+### parse
+
+The unified DSL parser. Returns a `DSLNode`.
 
 | String | Result |
 |--------|--------|
-| `"affinity <= 500"` | `EpitopeFilter(pMHC_affinity, max_value=500)` |
-| `"netmhcpan_ba <= 500"` | `EpitopeFilter(pMHC_affinity, max_value=500, method="netmhcpan")` |
-| `"mhcflurry_el.rank <= 2"` | `EpitopeFilter(pMHC_presentation, max_percentile_rank=2, method="mhcflurry")` |
-| `"column(cysteine_count) <= 2"` | `ColumnFilter("cysteine_count", max_value=2)` |
+| `"affinity <= 500"` | `Comparison(Field(pMHC_affinity, "value"), <=, 500)` |
+| `"netmhcpan_ba <= 500"` | `Comparison(Field(pMHC_affinity, "value", method="netmhcpan"), <=, 500)` |
+| `"affinity['netmhcpan', '4.1b'].value <= 500"` | `Comparison(Field(..., method="netmhcpan", version="4.1b"), <=, 500)` |
+| `"column(cysteine_count) <= 2"` | `Comparison(Column("cysteine_count"), <=, 2)` |
+| `"a <= 500 \| b <= 2"` | `BoolOp(\|, [Comparison(a), Comparison(b)])` |
+| `"a <= 500 & b <= 2"` | `BoolOp(&, [Comparison(a), Comparison(b)])` |
 
-### parse_ranking
-
-Combines filters with `|` (OR) or `&` (AND):
-
-```python
-parse_ranking("affinity <= 500 | presentation.rank <= 2")
-parse_ranking("netmhcpan_ba <= 500 & column(cysteine_count) <= 2")
-```
-
-Mixing `|` and `&` in one string is not supported; use the Python API for complex nesting.
+Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use parentheses for the other grouping.
 
 ## Input functions
 
