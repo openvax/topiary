@@ -17,6 +17,17 @@ from .wide import detect_form
 class TopiaryResult:
     """A prediction DataFrame bundled with its provenance and pipeline state.
 
+    Delegates common DataFrame operations so most code that worked on a
+    bare DataFrame continues to work.  **Follows pandas conventions for
+    iteration / membership**:
+
+    - ``"peptide" in result`` checks whether ``"peptide"`` is a *column*,
+      not a row value.  Use ``"SIINFEKL" in result.df["peptide"].values``
+      for row-value membership.
+    - ``for x in result`` iterates column *names*, matching
+      ``for x in df``.  Use ``result.iterrows()`` or ``result.df.values``
+      for row iteration.
+
     Parameters
     ----------
     df : pandas.DataFrame
@@ -30,11 +41,15 @@ class TopiaryResult:
         Files / tags that contributed rows.
     filter_by_str : str, optional
         Human-readable filter expression.
-    filter_by_ast : object, optional
-        Parsed filter (RankingStrategy, EpitopeFilter, etc.).
+    filter_by_ast : DSL filter object, optional
+        Parsed filter. Currently a ``RankingStrategy``, ``EpitopeFilter``,
+        ``ColumnFilter``, or ``ExprFilter`` instance — whatever
+        :func:`topiary.ranking.parse_ranking` returns. Must support ``&``
+        for ANDing with additional filters via :meth:`filter_by`.
     sort_by_str : str, optional
-    sort_by_ast : object, optional
-        Parsed sort Expr.
+    sort_by_ast : Expr, optional
+        Parsed sort expression. Currently a ``topiary.ranking.Expr``
+        subclass.
     extra : dict, optional
         Unknown comment-block keys, preserved on round-trip.
     """
@@ -132,7 +147,7 @@ class TopiaryResult:
 
     def to_long(self):
         from .wide import from_wide
-        long_df = from_wide(self.df, metadata=self._as_metadata())
+        long_df = from_wide(self.df, metadata=self.metadata)
         kwargs = self._field_kwargs()
         kwargs["form"] = "long"
         return TopiaryResult(long_df, **kwargs)
@@ -240,13 +255,31 @@ class TopiaryResult:
 
     def to_tsv(self, path):
         from .io import to_tsv as _to_tsv
-        _to_tsv(self.df, path, metadata=self._as_metadata())
+        _to_tsv(self.df, path, metadata=self.metadata)
 
     def to_csv(self, path):
         from .io import to_csv as _to_csv
-        _to_csv(self.df, path, metadata=self._as_metadata())
+        _to_csv(self.df, path, metadata=self.metadata)
 
-    # -- Internal helpers --------------------------------------------------
+    # -- Accessors / helpers ----------------------------------------------
+
+    @property
+    def metadata(self):
+        """A fresh :class:`Metadata` built from this result's fields.
+
+        Useful for passing to functions that expect a ``Metadata`` (e.g.
+        :func:`to_tsv`, :func:`from_wide`) and for serializing the
+        comment-block without touching private internals.
+        """
+        return Metadata(
+            topiary_version=self.topiary_version,
+            form=self.form,
+            models=OrderedDict(self.models),
+            sources=list(self.sources),
+            filter_by=self.filter_by_str,
+            sort_by=self.sort_by_str,
+            extra=OrderedDict(self.extra),
+        )
 
     def _field_kwargs(self):
         """Return kwargs dict for reconstructing a copy."""
@@ -261,23 +294,6 @@ class TopiaryResult:
             sort_by_ast=self.sort_by_ast,
             extra=OrderedDict(self.extra),
         )
-
-    def _as_metadata(self):
-        """Build a Metadata for serialization / legacy APIs."""
-        return Metadata(
-            topiary_version=self.topiary_version,
-            form=self.form,
-            models=OrderedDict(self.models),
-            sources=list(self.sources),
-            filter_by=self.filter_by_str,
-            sort_by=self.sort_by_str,
-            extra=OrderedDict(self.extra),
-        )
-
-    # Backward-compat: tests and older code access `.metadata`.
-    @property
-    def metadata(self):
-        return self._as_metadata()
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +417,17 @@ def concat(results):
     else:
         filter_by_str = None
         filter_by_ast = None
+        if any(r.filter_by_str for r in results):
+            present = sorted({r.filter_by_str for r in results if r.filter_by_str})
+            warnings.warn(
+                "Dropping filter_by metadata: inputs to concat() have "
+                f"differing filter history (found: {present}).  The rows are "
+                "still filtered per their individual histories, but the "
+                "combined result has no single filter expression that "
+                "describes all of them.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     sort_strs = {r.sort_by_str for r in results}
     if len(sort_strs) == 1 and None not in sort_strs:
@@ -409,6 +436,15 @@ def concat(results):
     else:
         sort_by_str = None
         sort_by_ast = None
+        if any(r.sort_by_str for r in results):
+            present = sorted({r.sort_by_str for r in results if r.sort_by_str})
+            warnings.warn(
+                "Dropping sort_by metadata: inputs to concat() have "
+                f"differing sort history (found: {present}).  The concatenated "
+                "rows are no longer in a consistent sort order.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     df = pd.concat([r.df for r in results], ignore_index=True)
 

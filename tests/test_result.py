@@ -323,6 +323,271 @@ class TestConcat:
 
 
 # ---------------------------------------------------------------------------
+# filter_by() method
+# ---------------------------------------------------------------------------
+
+
+def _multi_row_df():
+    """Long-form DataFrame with two peptides × two kinds each."""
+    rows = []
+    for peptide, affinity_val, pres_rank in [
+        ("SIINFEKL",  120.0,  0.3),
+        ("ELAGIGILT", 5000.0, 15.0),
+        ("AAAAAAAA",  300.0,  1.5),
+    ]:
+        for kind, value, score, rank in [
+            ("pMHC_affinity",     affinity_val, 0.8,  0.5),
+            ("pMHC_presentation", 0.9,          0.92, pres_rank),
+        ]:
+            rows.append(dict(
+                peptide=peptide,
+                allele="HLA-A*02:01",
+                source_sequence_name="prot1",
+                peptide_offset=0,
+                kind=kind,
+                score=score,
+                value=value,
+                percentile_rank=rank,
+                affinity=value if kind == "pMHC_affinity" else float("nan"),
+                prediction_method_name="netmhcpan",
+                predictor_version="4.1b",
+            ))
+    return pd.DataFrame(rows)
+
+
+class TestFilterBy:
+    def test_string_filter_reduces_rows(self):
+        r = TopiaryResult(_multi_row_df())
+        n_before = len(r)
+        filtered = r.filter_by("affinity <= 500")
+        assert len(filtered) < n_before
+        assert len(filtered) > 0
+
+    def test_string_filter_records_history(self):
+        r = TopiaryResult(_multi_row_df())
+        filtered = r.filter_by("affinity <= 500")
+        assert filtered.filter_by_str == "affinity <= 500"
+        assert filtered.filter_by_ast is not None
+
+    def test_filter_ands_with_existing(self):
+        r = TopiaryResult(_multi_row_df())
+        r2 = r.filter_by("affinity <= 1000")
+        r3 = r2.filter_by("presentation.rank <= 2")
+        # ANDed — both clauses in metadata
+        assert "affinity <= 1000" in r3.filter_by_str
+        assert "presentation.rank <= 2" in r3.filter_by_str
+        assert "&" in r3.filter_by_str
+
+    def test_dsl_object_filter(self):
+        from topiary import Affinity
+        r = TopiaryResult(_multi_row_df())
+        filtered = r.filter_by(Affinity <= 500)
+        assert len(filtered) < len(r)
+        # AST captured
+        assert filtered.filter_by_ast is not None
+        # String form round-trippable (recognizable DSL syntax)
+        assert "affinity" in filtered.filter_by_str.lower()
+
+    def test_dsl_object_and_string_equivalent(self):
+        from topiary import Affinity
+        df = _multi_row_df()
+        a = TopiaryResult(df).filter_by(Affinity <= 500)
+        b = TopiaryResult(df).filter_by("affinity <= 500")
+        assert len(a) == len(b)
+
+    def test_invalid_type_raises(self):
+        r = TopiaryResult(_multi_row_df())
+        with pytest.raises(TypeError, match="filter_by expects"):
+            r.filter_by(500)
+
+    def test_filter_on_empty_df_is_noop(self):
+        df = pd.DataFrame(columns=_multi_row_df().columns)
+        r = TopiaryResult(df)
+        filtered = r.filter_by("affinity <= 500")
+        assert filtered.empty
+        # History still recorded
+        assert filtered.filter_by_str == "affinity <= 500"
+
+    def test_filter_preserves_other_metadata(self):
+        r = TopiaryResult(
+            _multi_row_df(),
+            models={"netmhcpan": "4.1b"},
+            sources=["patient01"],
+        )
+        filtered = r.filter_by("affinity <= 500")
+        assert filtered.models == {"netmhcpan": "4.1b"}
+        assert filtered.sources == ["patient01"]
+
+    def test_filter_roundtrip_through_tsv(self, tmp_path):
+        r = TopiaryResult(_multi_row_df()).filter_by("affinity <= 500")
+        path = tmp_path / "filtered.tsv"
+        r.to_tsv(path)
+        r_back = read_tsv(path)
+        assert r_back.filter_by_str == r.filter_by_str
+
+    def test_filter_returns_new_result(self):
+        """filter_by must not mutate the original."""
+        r = TopiaryResult(_multi_row_df())
+        n_before = len(r)
+        _ = r.filter_by("affinity <= 500")
+        assert len(r) == n_before
+        assert r.filter_by_str is None
+
+
+# ---------------------------------------------------------------------------
+# sort_by() method
+# ---------------------------------------------------------------------------
+
+
+class TestSortBy:
+    def test_string_sort_reorders(self):
+        r = TopiaryResult(_multi_row_df())
+        sorted_r = r.sort_by("affinity.score")
+        # Can't easily check exact order without knowing DSL semantics,
+        # but the result should have same rows reordered.
+        assert len(sorted_r) == len(r)
+
+    def test_string_sort_records_history(self):
+        r = TopiaryResult(_multi_row_df())
+        sorted_r = r.sort_by("affinity.score")
+        assert sorted_r.sort_by_str == "affinity.score"
+        assert sorted_r.sort_by_ast is not None
+
+    def test_sort_replaces_history(self):
+        r = TopiaryResult(_multi_row_df())
+        r2 = r.sort_by("affinity.score")
+        r3 = r2.sort_by("presentation.score")
+        # sort_by REPLACES, doesn't combine
+        assert r3.sort_by_str == "presentation.score"
+
+    def test_dsl_object_sort(self):
+        from topiary import Presentation
+        r = TopiaryResult(_multi_row_df())
+        sorted_r = r.sort_by(Presentation.score)
+        assert sorted_r.sort_by_str == "presentation.score"
+        assert sorted_r.sort_by_ast is not None
+
+    def test_invalid_type_raises(self):
+        r = TopiaryResult(_multi_row_df())
+        with pytest.raises(TypeError, match="sort_by expects"):
+            r.sort_by(42)
+
+    def test_sort_on_empty_df_is_noop(self):
+        df = pd.DataFrame(columns=_multi_row_df().columns)
+        r = TopiaryResult(df)
+        sorted_r = r.sort_by("affinity.score")
+        assert sorted_r.empty
+        assert sorted_r.sort_by_str == "affinity.score"
+
+    def test_sort_preserves_other_metadata(self):
+        r = TopiaryResult(
+            _multi_row_df(),
+            models={"netmhcpan": "4.1b"},
+            sources=["patient01"],
+            filter_by_str="affinity <= 1000",
+        )
+        sorted_r = r.sort_by("affinity.score")
+        assert sorted_r.models == {"netmhcpan": "4.1b"}
+        assert sorted_r.sources == ["patient01"]
+        assert sorted_r.filter_by_str == "affinity <= 1000"
+
+    def test_sort_roundtrip_through_tsv(self, tmp_path):
+        r = TopiaryResult(_multi_row_df()).sort_by("affinity.score")
+        path = tmp_path / "sorted.tsv"
+        r.to_tsv(path)
+        r_back = read_tsv(path)
+        assert r_back.sort_by_str == r.sort_by_str
+
+    def test_sort_returns_new_result(self):
+        r = TopiaryResult(_multi_row_df())
+        _ = r.sort_by("affinity.score")
+        assert r.sort_by_str is None
+
+
+class TestFilterSortComposition:
+    def test_filter_then_sort(self):
+        r = (
+            TopiaryResult(_multi_row_df())
+            .filter_by("affinity <= 1000")
+            .sort_by("affinity.score")
+        )
+        assert r.filter_by_str == "affinity <= 1000"
+        assert r.sort_by_str == "affinity.score"
+
+    def test_sort_then_filter(self):
+        r = (
+            TopiaryResult(_multi_row_df())
+            .sort_by("affinity.score")
+            .filter_by("affinity <= 1000")
+        )
+        assert r.filter_by_str == "affinity <= 1000"
+        assert r.sort_by_str == "affinity.score"
+
+
+# ---------------------------------------------------------------------------
+# concat warnings for dropped filter/sort history
+# ---------------------------------------------------------------------------
+
+
+class TestConcatHistoryDrop:
+    def _make_r(self, value, source_tag, filter_str=None, sort_str=None):
+        df = pd.DataFrame([dict(
+            peptide="SIINFEKL", allele="HLA-A*02:01",
+            kind="pMHC_affinity", score=0.8, value=value,
+            percentile_rank=0.5, affinity=value,
+            prediction_method_name="netmhcpan",
+            predictor_version="4.1b",
+            source=source_tag,
+        )])
+        return TopiaryResult(
+            df,
+            form="long",
+            models={"netmhcpan": "4.1b"},
+            sources=[source_tag],
+            filter_by_str=filter_str,
+            sort_by_str=sort_str,
+        )
+
+    def test_matching_filters_preserved_silently(self, recwarn):
+        r1 = self._make_r(100, "p1", filter_str="affinity <= 500")
+        r2 = self._make_r(200, "p2", filter_str="affinity <= 500")
+        combined = concat([r1, r2])
+        assert combined.filter_by_str == "affinity <= 500"
+        # No warning about filter/sort drop
+        filter_warnings = [w for w in recwarn.list if "Dropping" in str(w.message)]
+        assert not filter_warnings
+
+    def test_differing_filters_warn_and_drop(self):
+        r1 = self._make_r(100, "p1", filter_str="affinity <= 500")
+        r2 = self._make_r(200, "p2", filter_str="affinity <= 1000")
+        with pytest.warns(UserWarning, match="Dropping filter_by metadata"):
+            combined = concat([r1, r2])
+        assert combined.filter_by_str is None
+
+    def test_one_has_filter_one_doesnt_warns(self):
+        r1 = self._make_r(100, "p1", filter_str="affinity <= 500")
+        r2 = self._make_r(200, "p2", filter_str=None)
+        with pytest.warns(UserWarning, match="Dropping filter_by metadata"):
+            combined = concat([r1, r2])
+        assert combined.filter_by_str is None
+
+    def test_differing_sorts_warn_and_drop(self):
+        r1 = self._make_r(100, "p1", sort_str="affinity.score")
+        r2 = self._make_r(200, "p2", sort_str="presentation.score")
+        with pytest.warns(UserWarning, match="Dropping sort_by metadata"):
+            combined = concat([r1, r2])
+        assert combined.sort_by_str is None
+
+    def test_matching_sorts_preserved_silently(self, recwarn):
+        r1 = self._make_r(100, "p1", sort_str="affinity.score")
+        r2 = self._make_r(200, "p2", sort_str="affinity.score")
+        combined = concat([r1, r2])
+        assert combined.sort_by_str == "affinity.score"
+        sort_warnings = [w for w in recwarn.list if "Dropping sort_by" in str(w.message)]
+        assert not sort_warnings
+
+
+# ---------------------------------------------------------------------------
 # Real predictor integration
 # ---------------------------------------------------------------------------
 
