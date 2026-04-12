@@ -22,12 +22,11 @@ from .filters import (
     filter_silent_and_noncoding_effects,
 )
 from .ranking import (
-    ColumnFilter,
-    EpitopeFilter,
-    ExprFilter,
-    RankingStrategy,
-    affinity_filter,
-    apply_ranking_strategy,
+    DSLNode,
+    KindAccessor,
+    apply_filter,
+    apply_sort,
+    parse,
 )
 from .sequence_helpers import (
     check_padding_around_mutation,
@@ -161,6 +160,30 @@ def _attach_expression_data(df, expression_data):
     return df
 
 
+def _coerce_filter_node(expr):
+    """Return a DSLNode for *expr* (string → parsed, KindAccessor → .value)."""
+    if expr is None:
+        return None
+    if isinstance(expr, str):
+        return parse(expr)
+    if isinstance(expr, KindAccessor):
+        return expr.value
+    if isinstance(expr, DSLNode):
+        return expr
+    raise TypeError(
+        f"Expected a DSL expression or string, got {type(expr).__name__}"
+    )
+
+
+def _coerce_sort_nodes(expr):
+    """Return a list[DSLNode] for *expr*."""
+    if expr is None:
+        return []
+    if isinstance(expr, (list, tuple)):
+        return [_coerce_filter_node(e) for e in expr]
+    return [_coerce_filter_node(expr)]
+
+
 class TopiaryPredictor(object):
     def __init__(
         self,
@@ -168,20 +191,14 @@ class TopiaryPredictor(object):
         alleles=None,
         filter_by=None,
         sort_by=None,
-        rank_by=None,
+        sort_direction="auto",
         padding_around_mutation=None,
         only_novel_epitopes=False,
         min_gene_expression=0.0,
         min_transcript_expression=0.0,
         raise_on_error=True,
-        # backward-compat aliases
-        filter=None,
         mhc_model=None,
         mhc_models=None,
-        ic50_cutoff=None,
-        percentile_cutoff=None,
-        ranking=None,
-        ranking_strategy=None,
     ):
         """
         Parameters
@@ -201,23 +218,27 @@ class TopiaryPredictor(object):
             HLA alleles. When provided, model classes in ``models`` are
             instantiated with these alleles.
 
-        filter_by : EpitopeFilter, RankingStrategy, or str
-            Which peptide-allele groups to keep. Accepts expression objects
-            or a string that will be parsed::
+        filter_by : DSLNode or str, optional
+            Boolean filter expression. Accepts a parsed DSL node or a
+            string that will be parsed::
 
                 filter_by=(Affinity <= 500) | (Presentation.rank <= 2.0)
                 filter_by="affinity <= 500 | el.rank <= 2"
 
-        sort_by : Expr or list of Expr, optional
-            How to sort surviving groups. Multiple expressions act as
-            lexicographic tie breakers, and missing values fall through to
-            later expressions::
+        sort_by : DSLNode or list of DSLNode, optional
+            Sort expression(s). Multiple expressions act as
+            lexicographic tie breakers with missing values falling
+            through to later keys::
 
                 sort_by=[Presentation.score, Affinity.score]
 
-            Or a composite expression::
+            Or a composite::
 
                 sort_by=0.5 * Affinity.score + 0.5 * Presentation.score
+
+        sort_direction : "auto", "asc", or "desc"
+            Direction for every sort key; "auto" infers per-key
+            (asc for percentile_rank and raw affinity, desc otherwise).
 
         padding_around_mutation : int, optional
             Residues around a mutation to include in candidate epitopes.
@@ -234,14 +255,7 @@ class TopiaryPredictor(object):
         raise_on_error : bool
             Raise on variant-effect errors vs. skip.
 
-        filter : deprecated alias for ``filter_by``
-        mhc_model : deprecated alias for ``models``
-        mhc_models : deprecated alias for ``models``
-        ic50_cutoff : deprecated, use ``filter_by=Affinity <= X``
-        percentile_cutoff : deprecated, use ``filter_by=Affinity.rank <= X``
-        ranking : deprecated alias for ``filter_by``
-        ranking_strategy : deprecated alias for ``filter_by``
-        rank_by : deprecated alias for ``sort_by``
+        mhc_model, mhc_models : legacy aliases for ``models``.
         """
         # --- model setup ---
         raw_models = models or mhc_models or (mhc_model and [mhc_model])
@@ -253,10 +267,8 @@ class TopiaryPredictor(object):
         self.models = []
         for m in raw_models:
             if isinstance(m, str):
-                # String name — look up in mhctools
                 m = _resolve_model_name(m)
             if isinstance(m, type):
-                # It's a class — instantiate with alleles
                 if alleles is None:
                     raise ValueError(
                         f"alleles required when passing model class {m.__name__}"
@@ -274,42 +286,11 @@ class TopiaryPredictor(object):
             epitope_lengths=sorted(all_lengths),
         )
 
-        # --- filter / ranking ---
-        effective_filter = filter_by or filter or ranking or ranking_strategy
-        if isinstance(effective_filter, str):
-            from .ranking import parse_ranking
-            effective_filter = parse_ranking(effective_filter)
-        if isinstance(effective_filter, (EpitopeFilter, ColumnFilter, ExprFilter)):
-            effective_filter = RankingStrategy(filters=[effective_filter])
-        if effective_filter is not None:
-            self.ranking_strategy = effective_filter
-        elif ic50_cutoff or percentile_cutoff:
-            self.ranking_strategy = RankingStrategy(
-                filters=[affinity_filter(ic50_cutoff, percentile_cutoff)],
-            )
-        else:
-            self.ranking_strategy = None
+        # --- filter / sort ---
+        self.filter_by = _coerce_filter_node(filter_by)
+        self.sort_by = _coerce_sort_nodes(sort_by)
+        self.sort_direction = sort_direction
 
-        # Attach sort_by to strategy if provided separately
-        if sort_by is not None and rank_by is not None:
-            raise ValueError("Pass only one of sort_by or rank_by")
-
-        effective_sort = sort_by if sort_by is not None else rank_by
-        if effective_sort is not None:
-            if not isinstance(effective_sort, (list, tuple)):
-                effective_sort = [effective_sort]
-            if self.ranking_strategy is None:
-                self.ranking_strategy = RankingStrategy(sort_by=list(effective_sort))
-            else:
-                self.ranking_strategy = RankingStrategy(
-                    filters=list(self.ranking_strategy.filters),
-                    require_all=self.ranking_strategy.require_all,
-                    sort_by=list(effective_sort),
-                    sort_direction=self.ranking_strategy.sort_direction,
-                )
-
-        self.ic50_cutoff = ic50_cutoff
-        self.percentile_cutoff = percentile_cutoff
         self.min_transcript_expression = min_transcript_expression
         self.min_gene_expression = min_gene_expression
         self.only_novel_epitopes = only_novel_epitopes
@@ -433,9 +414,13 @@ class TopiaryPredictor(object):
         return df
 
     def _apply_filter(self, df):
-        """Apply ranking strategy filter/sort if configured."""
-        if self.ranking_strategy and not df.empty:
-            df = apply_ranking_strategy(df, self.ranking_strategy)
+        """Apply filter and sort if configured."""
+        if df.empty:
+            return df
+        if self.filter_by is not None:
+            df = apply_filter(df, self.filter_by)
+        if self.sort_by:
+            df = apply_sort(df, self.sort_by, sort_direction=self.sort_direction)
         return df
 
     def predict_from_sequences(self, sequences):
@@ -619,13 +604,16 @@ class TopiaryPredictor(object):
         if expression_data:
             df = _attach_expression_data(df, expression_data)
 
-        # --- Apply ranking/filtering ---
+        # --- Apply filtering + sorting ---
         # (after annotation + expression join so all columns are available)
-        if self.ranking_strategy:
-            df = apply_ranking_strategy(df, self.ranking_strategy)
+        if self.filter_by is not None:
+            before = len(df)
+            df = apply_filter(df, self.filter_by)
             logging.info(
-                "Kept %d predictions after applying ranking strategy" % len(df)
+                "Kept %d/%d predictions after applying filter" % (len(df), before)
             )
+        if self.sort_by:
+            df = apply_sort(df, self.sort_by, sort_direction=self.sort_direction)
 
         if self.only_novel_epitopes:
             df = df[df.contains_mutant_residues]

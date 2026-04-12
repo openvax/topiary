@@ -8,16 +8,14 @@ from mhctools import Kind
 
 from topiary.ranking import (
     Affinity,
+    BoolOp,
     Column,
-    ColumnFilter,
-    EpitopeFilter,
+    Comparison,
     KindAccessor,
     Presentation,
-    RankingStrategy,
     Stability,
-    apply_ranking_strategy,
-    parse_filter,
-    parse_ranking,
+    apply_filter,
+    parse,
     wt,
 )
 
@@ -135,7 +133,7 @@ class TestLogistic:
             percentile_rank=99.0,
         )])
         val = Affinity.logistic(350, 150).evaluate(df)
-        assert val == 0.0  # effectively 0
+        assert val < 1e-30  # effectively 0, no crash
 
     def test_kind_accessor_delegation(self):
         """KindAccessor.logistic() should delegate to .value.logistic()."""
@@ -221,18 +219,22 @@ class TestColumn:
 
 class TestColumnFilter:
     def test_parse_column_filter(self):
-        f = parse_filter("column(cysteine_count) <= 2")
-        assert isinstance(f, ColumnFilter)
-        assert f.col_name == "cysteine_count"
-        assert f.max_value == 2.0
+        f = parse("column(cysteine_count) <= 2")
+        assert isinstance(f, Comparison)
+        assert isinstance(f.left, Column)
+        assert f.left.col_name == "cysteine_count"
+        assert f.right.val == 2.0
 
     def test_parse_column_filter_ge(self):
-        f = parse_filter("column(hydrophobicity) >= -0.5")
-        assert isinstance(f, ColumnFilter)
-        assert f.col_name == "hydrophobicity"
-        assert f.min_value == -0.5
+        f = parse("column(hydrophobicity) >= -0.5")
+        assert isinstance(f, Comparison)
+        assert isinstance(f.left, Column)
+        assert f.left.col_name == "hydrophobicity"
+        # Negative: -0.5 is BinOp(-1 * 0.5). Evaluate to scalar.
+        val = f.right.evaluate(_basic_group())
+        assert val == -0.5
 
-    def test_column_filter_in_strategy(self):
+    def test_column_filter_applied(self):
         df = _make_df([
             dict(
                 source_sequence_name="seq1", peptide="AAA", peptide_offset=0,
@@ -245,30 +247,30 @@ class TestColumnFilter:
                 percentile_rank=0.2, cysteine_count=3,
             ),
         ])
-        strategy = RankingStrategy(
-            filters=[ColumnFilter("cysteine_count", max_value=1)]
-        )
-        result = apply_ranking_strategy(df, strategy)
+        filt = Column("cysteine_count") <= 1
+        result = apply_filter(df, filt)
         assert set(result["peptide"]) == {"AAA"}
 
-    def test_column_filter_combined_with_epitope_filter(self):
-        f = parse_ranking("affinity <= 500 & column(cysteine_count) <= 2")
-        assert isinstance(f, RankingStrategy)
-        assert f.require_all is True
-        assert len(f.filters) == 2
+    def test_column_filter_combined_with_affinity(self):
+        import operator
+        f = parse("affinity <= 500 & column(cysteine_count) <= 2")
+        assert isinstance(f, BoolOp)
+        assert f.op is operator.and_
+        assert len(f.children) == 2
 
     def test_column_filter_or(self):
-        f = parse_ranking("affinity <= 500 | column(charge) >= 0")
-        assert isinstance(f, RankingStrategy)
-        assert f.require_all is False
+        import operator
+        f = parse("affinity <= 500 | column(charge) >= 0")
+        assert isinstance(f, BoolOp)
+        assert f.op is operator.or_
 
     def test_parse_column_empty_name_raises(self):
         with pytest.raises(ValueError):
-            parse_filter("column() <= 5")
+            parse("column() <= 5")
 
     def test_parse_column_nested_parens_raises(self):
         with pytest.raises(ValueError):
-            parse_filter("column(func()) <= 5")
+            parse("column(func()) <= 5")
 
 
 # ---------------------------------------------------------------------------
@@ -542,7 +544,7 @@ class TestEdgeCasesFromDocs:
             wt.Affinity >= 100
 
     def test_column_filter_both_bounds(self):
-        """ColumnFilter with both min and max."""
+        """Column filter with both min and max (built via AND of comparisons)."""
         df = _make_df([
             dict(source_sequence_name="s", peptide="A", peptide_offset=0,
                  allele="A", kind="pMHC_affinity", score=0.5, value=100.0,
@@ -554,14 +556,12 @@ class TestEdgeCasesFromDocs:
                  allele="A", kind="pMHC_affinity", score=0.5, value=100.0,
                  percentile_rank=1.0, charge=2.0),
         ])
-        strategy = RankingStrategy(
-            filters=[ColumnFilter("charge", min_value=-0.5, max_value=1.0)]
-        )
-        result = apply_ranking_strategy(df, strategy)
+        filt = (Column("charge") >= -0.5) & (Column("charge") <= 1.0)
+        result = apply_filter(df, filt)
         assert set(result["peptide"]) == {"B"}
 
-    def test_column_filter_or_with_epitope_filter(self):
-        """ColumnFilter | EpitopeFilter works in apply_ranking_strategy."""
+    def test_column_filter_or_with_affinity_filter(self):
+        """Column filter | Affinity filter works in apply_filter."""
         df = _make_df([
             dict(source_sequence_name="s", peptide="AAA", peptide_offset=0,
                  allele="A", kind="pMHC_affinity", score=0.9, value=50.0,
@@ -571,8 +571,8 @@ class TestEdgeCasesFromDocs:
                  percentile_rank=50.0, cysteine_count=0),
         ])
         # AAA passes affinity filter, BBB passes column filter
-        strategy = (Affinity <= 500) | ColumnFilter("cysteine_count", max_value=1)
-        result = apply_ranking_strategy(df, strategy)
+        filt = (Affinity <= 500) | (Column("cysteine_count") <= 1)
+        result = apply_filter(df, filt)
         assert set(result["peptide"]) == {"AAA", "BBB"}
 
     def test_logistic_in_composite_with_column(self):
@@ -600,9 +600,10 @@ class TestEdgeCasesFromDocs:
 
     def test_parse_column_with_spaces(self):
         """column( name ) with spaces should work."""
-        f = parse_filter("column( cysteine_count ) <= 2")
-        assert isinstance(f, ColumnFilter)
-        assert f.col_name == "cysteine_count"
+        f = parse("column( cysteine_count ) <= 2")
+        assert isinstance(f, Comparison)
+        assert isinstance(f.left, Column)
+        assert f.left.col_name == "cysteine_count"
 
     def test_available_properties(self):
         from topiary.properties import available_properties

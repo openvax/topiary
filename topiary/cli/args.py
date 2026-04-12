@@ -52,17 +52,12 @@ from ..sources import (
 from ..predictor import TopiaryPredictor
 from ..ranking import (
     Affinity,
-    ColumnFilter,
-    EpitopeFilter,
-    ExprFilter,
+    BoolOp,
     KindAccessor,
-    RankingStrategy,
+    Presentation,
     _kind_matches,
     _resolve_qualified_kind,
-    affinity_filter,
-    parse_expr,
-    parse_ranking,
-    presentation_filter,
+    parse,
 )
 
 
@@ -232,49 +227,59 @@ def create_arg_parser(
 arg_parser = create_arg_parser()
 
 
-def _build_ranking_strategy(args):
-    """Build a RankingStrategy from CLI args, or return None."""
+def _build_filter_and_sort(args):
+    """Build a (filter_by, sort_by, sort_direction) triple from CLI args.
+
+    Returns ``(None, [], direction)`` when nothing is configured.
+    """
+    import operator as _op
+
     ranking_text = getattr(args, "filter_by", None)
     has_presentation = getattr(args, "presentation_cutoff", None) is not None
     has_sort_by = getattr(args, "sort_by", None) is not None
     sort_direction = getattr(args, "sort_direction", "auto")
     filter_logic = getattr(args, "filter_logic", "any")
+    combine_op = _op.and_ if filter_logic == "all" else _op.or_
 
-    filters = []
-    require_all = (filter_logic == "all")
-
+    filter_clauses = []
     if ranking_text:
-        result = parse_ranking(ranking_text)
-        if isinstance(result, RankingStrategy):
-            filters.extend(result.filters)
-            require_all = result.require_all
-        elif isinstance(result, (EpitopeFilter, ColumnFilter, ExprFilter)):
-            filters.append(result)
-        else:
-            filters.append(result)
+        filter_clauses.append(parse(ranking_text))
     else:
-        if args.ic50_cutoff or args.percentile_cutoff:
-            filters.append(affinity_filter(
-                ic50_cutoff=args.ic50_cutoff,
-                percentile_cutoff=args.percentile_cutoff,
-            ))
+        if args.ic50_cutoff is not None:
+            filter_clauses.append(Affinity.value <= args.ic50_cutoff)
+        if args.percentile_cutoff is not None:
+            filter_clauses.append(Affinity.rank <= args.percentile_cutoff)
         if has_presentation:
-            filters.append(presentation_filter(max_rank=args.presentation_cutoff))
+            filter_clauses.append(Presentation.rank <= args.presentation_cutoff)
+
+    if not filter_clauses:
+        filter_by = None
+    elif len(filter_clauses) == 1:
+        filter_by = filter_clauses[0]
+    else:
+        filter_by = BoolOp(combine_op, filter_clauses)
+        # Flatten same-op chains for a cleaner string form
+        filter_by = _flatten_boolop(filter_by)
 
     sort_by = []
     if has_sort_by:
         for item in _split_top_level_commas(args.sort_by.strip()):
             sort_by.append(_parse_sort_expr(item))
 
-    if not filters and not sort_by:
-        return None
+    return filter_by, sort_by, sort_direction
 
-    return RankingStrategy(
-        filters=filters,
-        require_all=require_all,
-        sort_by=sort_by,
-        sort_direction=sort_direction,
-    )
+
+def _flatten_boolop(node):
+    """Flatten BoolOp(op, [BoolOp(op, [...]), ...]) into a single BoolOp."""
+    if not isinstance(node, BoolOp):
+        return node
+    flat = []
+    for c in node.children:
+        if isinstance(c, BoolOp) and c.op is node.op:
+            flat.extend(c.children)
+        else:
+            flat.append(c)
+    return BoolOp(node.op, flat)
 
 
 def _split_top_level_commas(text):
@@ -327,7 +332,7 @@ def _parse_sort_expr(text):
             return accessor.value
         return accessor.score
 
-    return parse_expr(text)
+    return parse(text)
 
 
 def _looks_like_plain_kind_name(text):
@@ -502,14 +507,14 @@ def predict_epitopes_from_args(args):
     """
     model_instances = predictors_from_args(args)
 
-    ranking_strategy = _build_ranking_strategy(args)
+    filter_by, sort_by, sort_direction = _build_filter_and_sort(args)
 
     predictor = TopiaryPredictor(
         models=model_instances,
         padding_around_mutation=args.padding_around_mutation,
-        ic50_cutoff=args.ic50_cutoff,
-        percentile_cutoff=args.percentile_cutoff,
-        ranking_strategy=ranking_strategy,
+        filter_by=filter_by,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
         min_transcript_expression=args.rna_min_transcript_expression,
         min_gene_expression=args.rna_min_gene_expression,
         only_novel_epitopes=args.only_novel_epitopes,

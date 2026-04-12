@@ -1,5 +1,51 @@
 # Changelog
 
+## 5.0.0
+
+**Breaking changes (DSL refactor,
+[#111](https://github.com/openvax/topiary/issues/111)):**
+
+- Filter leaves (`EpitopeFilter`, `ColumnFilter`, `ExprFilter`) and the
+  composite (`RankingStrategy`, `SortSpec`) are removed. Every DSL
+  expression is now a single `DSLNode` tree whose `.eval(ctx)` returns
+  a `pandas.Series` indexed by peptide-allele group tuples.
+- `Affinity <= 500` (and friends) now returns a `Comparison` node;
+  `A | B` / `A & B` returns a `BoolOp`. Both classes inherit the full
+  arithmetic operator set, so boolean-as-number composition
+  (`(Affinity <= 500) * Affinity.score`) is allowed.
+- `apply_ranking_strategy` is split into `apply_filter(df, node)` and
+  `apply_sort(df, sort_nodes, sort_direction="auto")`.
+- `parse_ranking`, `parse_filter`, `parse_expr` are collapsed into a
+  single `parse()` that returns a `DSLNode`. The parser uses standard
+  precedence for `&` / `|` (`&` binds tighter); mixed-operator strings
+  are now accepted.
+- `TopiaryPredictor` kwargs: `ranking_strategy`, `ranking`, `filter`,
+  `rank_by`, `ic50_cutoff`, and `percentile_cutoff` are removed. Use
+  `filter_by=` (a `DSLNode` or string) and `sort_by=` (a `DSLNode` or
+  list).  The `TopiaryPredictor.ranking_strategy` property is replaced
+  by the separate `.filter_by` / `.sort_by` attributes.
+- `Field` gains an optional `version` parameter;
+  `Affinity["netmhcpan", "4.1b"]` filters on both
+  `prediction_method_name` and `predictor_version`.
+- Ambiguity semantics tightened — unqualified `Affinity.value` on a
+  DataFrame that contains multiple `prediction_method_name` values
+  raises `ValueError` pointing at `Affinity["modelname"]`.
+  Previously the old filter silently passed if *any* row satisfied the
+  threshold.
+- `apply_filter` now errors when the evaluated Series contains values
+  outside `{True, False, 0, 1, 0.0, 1.0, NaN}`, pointing the user at
+  `<=` / `>=`. NaN still maps to `False`.
+
+**New:**
+
+- `EvalContext`, `DSLNode`, `Const`, `Column`, `Field`, `BinOp`,
+  `UnaryOp`, `NormExpr`, `SurvivalExpr`, `LogisticExpr`, `ClipExpr`,
+  `AggExpr`, `Comparison`, `BoolOp` exported from `topiary.ranking`.
+- `apply_filter`, `apply_sort`, `parse` exported as the top-level DSL
+  entry points.
+- Every `DSLNode` has a `to_expr_string()` that round-trips through
+  `parse()`.
+
 ## 4.12.0
 
 **Breaking changes:**
@@ -26,13 +72,12 @@
 - `Metadata` gains a `sources: list[str]` field; the comment block
   supports multiple `#source=...` lines.
 
-**Deprecations (to be removed in 5.0 alongside the DSL refactor,
+**Deprecations (removed in 5.0 alongside the DSL refactor,
 [#111](https://github.com/openvax/topiary/issues/111)):**
 
 - `EpitopeFilter`, `ColumnFilter`, `ExprFilter`, `RankingStrategy`
-  will be replaced with a unified `Comparison` / `BoolOp` DSL tree.
-  Their `to_expr_string()` and `to_ast_string()` methods, added in
-  this release, are a stopgap for round-tripping filter metadata.
+  replaced by a unified `Comparison` / `BoolOp` DSL tree. See the 5.0.0
+  entry above for migration details.
 
 ## 4.9.0
 

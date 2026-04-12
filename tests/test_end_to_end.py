@@ -13,7 +13,7 @@ from mhctools import RandomBindingPredictor
 
 from topiary import Affinity, Presentation, TopiaryPredictor
 from topiary.inputs import exclude_by, read_fasta, read_peptide_csv, read_peptide_fasta, read_sequence_csv, slice_regions
-from topiary.ranking import RankingStrategy, apply_ranking_strategy, parse_ranking
+from topiary.ranking import apply_filter, parse
 
 
 def _tmpfile(content, suffix=".csv"):
@@ -205,7 +205,7 @@ def test_filter_removes_non_matching_rows():
     )
     predictor_impossible = TopiaryPredictor(
         models=RandomBindingPredictor, alleles=["A0201"],
-        filter=(Affinity <= 0) & (Affinity.value >= 99999),
+        filter_by=(Affinity <= 0) & (Affinity.value >= 99999),
     )
     seqs = {"prot": "MASIINFEKLGGGLLLAAA"}
     df_all = predictor_unfiltered.predict_from_named_sequences(seqs)
@@ -221,8 +221,7 @@ def test_sort_by_sorts_output():
         models=RandomBindingPredictor, alleles=["A0201"],
         sort_by=Affinity.score,
     )
-    assert predictor.ranking_strategy is not None
-    assert len(predictor.ranking_strategy.sort_by) == 1
+    assert len(predictor.sort_by) == 1
     df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGGLLLAAA"})
     assert len(df) > 0
     # Affinity rows should be sorted by score descending (best first)
@@ -236,7 +235,7 @@ def test_sort_by_sorts_output():
 def test_compound_filter_or():
     predictor = TopiaryPredictor(
         models=RandomBindingPredictor, alleles=["A0201"],
-        filter=(Affinity <= 500) | (Affinity.score >= 0.0),  # very permissive
+        filter_by=(Affinity <= 500) | (Affinity.score >= 0.0),  # very permissive
     )
     df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
     assert len(df) > 0
@@ -247,14 +246,13 @@ def test_compound_filter_or():
 # ---------------------------------------------------------------------------
 
 
-def test_ic50_cutoff_backward_compat():
+def test_ic50_cutoff_as_filter_by():
     predictor = TopiaryPredictor(
         mhc_model=RandomBindingPredictor(alleles=["A0201"]),
-        ic50_cutoff=500,
+        filter_by=Affinity.value <= 500,
     )
     df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
-    # ic50_cutoff should create a ranking strategy internally
-    assert predictor.ranking_strategy is not None
+    assert predictor.filter_by is not None
 
 
 def test_mhc_model_backward_compat():
@@ -272,15 +270,10 @@ def test_mhc_model_backward_compat():
 
 
 def test_parse_ranking_string_applied():
-    strategy = parse_ranking("affinity <= 500")
-    if isinstance(strategy, RankingStrategy):
-        rs = strategy
-    else:
-        rs = RankingStrategy(filters=[strategy])
-
+    filter_node = parse("affinity <= 500")
     predictor = TopiaryPredictor(
         models=RandomBindingPredictor, alleles=["A0201"],
-        filter=rs,
+        filter_by=filter_node,
     )
     df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
     # Just verify it runs without error

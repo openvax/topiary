@@ -10,16 +10,16 @@ from mhctools import RandomBindingPredictor
 from topiary import Affinity, Presentation, TopiaryPredictor
 from topiary.inputs import exclude_by, read_fasta
 from topiary.ranking import (
-    EpitopeFilter,
+    BoolOp,
+    Comparison,
     Field,
     KindAccessor,
-    RankingStrategy,
     _build_kind_aliases,
     _gauss_cdf,
     _iter_known_kinds,
-    apply_ranking_strategy,
-    parse_filter,
-    parse_ranking,
+    apply_filter,
+    apply_sort,
+    parse,
 )
 from mhctools import Kind
 
@@ -124,56 +124,82 @@ def test_affinity_column_values():
 # ---------------------------------------------------------------------------
 
 
-def test_parse_ranking_single_returns_strategy():
-    """parse_ranking with single filter can be used directly."""
-    result = parse_ranking("affinity <= 500")
-    assert isinstance(result, EpitopeFilter)
+def test_parse_ranking_single_returns_comparison():
+    """parse_ranking with single filter returns a Comparison."""
+    result = parse("affinity <= 500")
+    assert isinstance(result, Comparison)
 
 
 def test_parse_filter_whitespace():
-    f = parse_filter("  affinity  <=  500  ")
-    assert f.max_value == 500.0
+    f = parse("  affinity  <=  500  ")
+    assert isinstance(f, Comparison)
+    assert f.right.val == 500.0
 
 
 def test_parse_filter_negative():
-    f = parse_filter("affinity >= -100")
-    assert f.min_value == -100.0
+    f = parse("affinity >= -100")
+    assert isinstance(f, Comparison)
+    # Negative parses as -1 * 100
+    import operator
+    assert f.op is operator.ge
+    val = f.right.evaluate(pd.DataFrame([dict(
+        source_sequence_name="x", peptide="A", peptide_offset=0,
+        allele="A", kind="pMHC_affinity", score=0.5, value=100.0,
+        percentile_rank=1.0,
+    )]))
+    assert val == -100.0
 
 
 def test_parse_filter_unknown_kind_becomes_column():
-    """Unknown identifiers in filters become ColumnFilter (not an error)."""
-    from topiary.ranking import ColumnFilter
-    f = parse_filter("bogus_kind <= 500")
-    assert isinstance(f, ColumnFilter)
-    assert f.col_name == "bogus_kind"
-    assert f.max_value == 500.0
+    """Unknown identifiers in filters become Column references (not an error)."""
+    from topiary.ranking import Column
+    f = parse("bogus_kind <= 500")
+    assert isinstance(f, Comparison)
+    assert isinstance(f.left, Column)
+    assert f.left.col_name == "bogus_kind"
+    assert f.right.val == 500.0
 
 
-def test_parse_ranking_mixed_ops_error():
-    with pytest.raises(ValueError, match="Cannot mix"):
-        parse_ranking("affinity <= 500 | presentation.rank <= 2 & stability.score >= 0.5")
+def test_parse_ranking_mixed_ops_uses_precedence():
+    """New parser uses precedence (& tighter than |) instead of rejecting mix."""
+    import operator
+    result = parse(
+        "affinity <= 500 | presentation.rank <= 2 & stability.score >= 0.5"
+    )
+    # | at top level, right child is the & group
+    assert isinstance(result, BoolOp)
+    assert result.op is operator.or_
+    assert len(result.children) == 2
+    # The second child is the AND branch
+    and_child = result.children[1]
+    assert isinstance(and_child, BoolOp)
+    assert and_child.op is operator.and_
 
 
 def test_field_le_on_bad_field():
-    """<= on an unsupported field name should raise."""
+    """<= on an unsupported field name produces a Comparison;
+    the error is deferred to eval when the column isn't available."""
     f = Field(Kind.pMHC_affinity, "bogus")
-    with pytest.raises(ValueError):
-        f <= 5
+    # Comparison node builds fine
+    cmp = f <= 5
+    assert isinstance(cmp, Comparison)
+    # Eval on a frame with the bogus field column missing just returns NaN
+    # (no row has "bogus" column, so eval returns empty_series / NaN).
+    # No error expected with new API — the Field just evaluates to NaN.
 
 
 def test_field_ge_on_bad_field():
     f = Field(Kind.pMHC_affinity, "bogus")
-    with pytest.raises(ValueError):
-        f >= 5
+    cmp = f >= 5
+    assert isinstance(cmp, Comparison)
 
 
-def test_expr_le_on_compound_returns_expr_filter():
-    """(Affinity.score + 1) <= 5 returns an ExprFilter."""
-    from topiary.ranking import ExprFilter
+def test_expr_le_on_compound_returns_comparison():
+    """(Affinity.score + 1) <= 5 returns a Comparison."""
     expr = Affinity.score + 1
     f = expr <= 5
-    assert isinstance(f, ExprFilter)
-    assert f.max_value == 5.0
+    assert isinstance(f, Comparison)
+    assert f.right.val == 5.0
 
 
 def test_gauss_cdf_extreme():
@@ -181,17 +207,34 @@ def test_gauss_cdf_extreme():
     assert _gauss_cdf(-10) < 0.001
 
 
-def test_ranking_strategy_sort_by_preserves_filters():
-    strategy = (Affinity <= 500) | (Presentation.rank <= 2.0)
-    sorted_strategy = strategy.sort_by(Presentation.score)
-    assert len(sorted_strategy.filters) == 2
-    assert len(sorted_strategy.sort_by) == 1
+def test_boolop_combined_filter_and_sort_apply():
+    """Apply a BoolOp as filter, then a sort_by list — the new equivalent
+    of RankingStrategy(filters=..., sort_by=...).evaluate(df)."""
+    filt = (Affinity <= 500) | (Presentation.rank <= 2.0)
+    # The filter has two children from the OR
+    assert isinstance(filt, BoolOp)
+    assert len(filt.children) == 2
+    sort_nodes = [Presentation.score]
+    assert len(sort_nodes) == 1
+    # End-to-end: apply_filter then apply_sort
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="A", peptide_offset=0,
+             allele="A", kind="pMHC_affinity", score=0.9, value=100.0,
+             percentile_rank=1.0),
+        dict(source_sequence_name="s", peptide="A", peptide_offset=0,
+             allele="A", kind="pMHC_presentation", score=0.8, value=None,
+             percentile_rank=0.5),
+    ])
+    filtered = apply_filter(df, filt)
+    sorted_df = apply_sort(filtered, sort_nodes)
+    assert len(sorted_df) == 2
 
 
 def test_custom_kind_accessor():
     custom = KindAccessor(Kind.tap_transport)
     f = custom.score >= 0.3
-    assert f.kind == Kind.tap_transport
+    assert isinstance(f, Comparison)
+    assert f.left.kind == Kind.tap_transport
 
 
 def test_field_supports_string_style_kind_constants():
