@@ -10,7 +10,7 @@
 
 Topiary predicts, filters, and ranks MHC-presented peptides from any antigen source. It wraps multiple binding predictors (NetMHCpan, MHCflurry, etc.) with a composable filtering and ranking DSL, expression-aware prioritization, and wide/long serialization.
 
-Applications include personalized cancer vaccine design (peptide, mRNA, or DNA), viral epitope mapping, and characterizing T-cell responses.
+Applications include personalized cancer vaccine design, viral epitope mapping, and characterizing T-cell responses.
 
 ## Installation
 
