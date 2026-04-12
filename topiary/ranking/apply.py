@@ -10,18 +10,9 @@ import pandas as pd
 from mhctools import Kind
 
 from .nodes import (
-    AggExpr,
-    BinOp,
-    BoolOp,
-    ClipExpr,
     Column,
-    Comparison,
     EvalContext,
     Field,
-    LogisticExpr,
-    NormExpr,
-    SurvivalExpr,
-    UnaryOp,
     _kind_matches,
 )
 
@@ -55,7 +46,12 @@ def _check_boolean_like(values: pd.Series):
 
 
 def _collect_column_names(node):
-    """Walk a DSLNode tree and return all explicit Column references."""
+    """Walk a DSLNode tree and return all explicit Column references.
+
+    Uses ``DSLNode.child_nodes()`` so adding a new node type doesn't
+    require touching this walker — new composites just need to
+    implement ``child_nodes()``.
+    """
     names = set()
     stack = [node]
     while stack:
@@ -64,19 +60,7 @@ def _collect_column_names(node):
             continue
         if isinstance(n, Column):
             names.add(n.col_name)
-        elif isinstance(n, BinOp):
-            stack.append(n.left)
-            stack.append(n.right)
-        elif isinstance(n, Comparison):
-            stack.append(n.left)
-            stack.append(n.right)
-        elif isinstance(n, BoolOp):
-            stack.extend(n.children)
-        elif isinstance(n, AggExpr):
-            stack.extend(n.exprs)
-        elif isinstance(n, (UnaryOp, NormExpr, SurvivalExpr,
-                            LogisticExpr, ClipExpr)):
-            stack.append(n.inner)
+        stack.extend(n.child_nodes())
     return names
 
 
@@ -128,7 +112,10 @@ def apply_filter(df, node):
 
     _validate_columns(df, node)
     ctx = EvalContext(df)
-    values = node.eval(ctx)
+    # Reindex defensively so a misbehaving node (index mismatch) surfaces
+    # as NaN → False rather than silently picking up rows from a
+    # different MultiIndex alignment.
+    values = node.eval(ctx).reindex(ctx.group_index)
     _check_boolean_like(values)
     mask = values.fillna(False).astype(bool)
 

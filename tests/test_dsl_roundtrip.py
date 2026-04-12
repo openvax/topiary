@@ -457,6 +457,29 @@ class TestVectorizedEval:
         sorted_df = apply_sort(df, [Presentation.score, Affinity.score])
         assert sorted_df.iloc[0]["peptide"] == "AAA"
 
+    def test_child_nodes_generic_walk(self):
+        """DSLNode.child_nodes() exposes direct children uniformly — used by
+        generic walkers like column validation."""
+        from topiary.ranking.apply import _collect_column_names
+        node = (
+            0.5 * Affinity.score
+            + 0.3 * (Column("gene_tpm").log1p())
+            - 0.2 * Column("cysteine_count")
+        )
+        names = _collect_column_names(node)
+        assert names == {"gene_tpm", "cysteine_count"}
+
+    def test_child_nodes_inside_comparison_and_bool(self):
+        """Column references inside comparisons and BoolOps are also found."""
+        from topiary.ranking.apply import _collect_column_names
+        node = (
+            (Column("gene_tpm") >= 5)
+            & (Column("cysteine_count") <= 2)
+            | (Column("hydrophobicity") > 0)
+        )
+        names = _collect_column_names(node)
+        assert names == {"gene_tpm", "cysteine_count", "hydrophobicity"}
+
     def test_sort_stability(self):
         """Two groups tied on every sort key must retain input order."""
         df = pd.DataFrame([

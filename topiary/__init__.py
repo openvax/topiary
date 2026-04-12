@@ -43,7 +43,7 @@ from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
 from .result import TopiaryResult, concat
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.0.0"
+__version__ = "5.0.1"
 
 __all__ = [
     "TopiaryPredictor",

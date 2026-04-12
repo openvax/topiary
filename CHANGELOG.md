@@ -1,5 +1,21 @@
 # Changelog
 
+## 5.0.1
+
+Polish pass on the v5.0.0 DSL refactor — no user-visible behavior
+changes, just internal cleanup.
+
+- `DSLNode.child_nodes()` — new abstract method on every node type.
+  Generic tree walkers (column validation, future AST rewriters) no
+  longer need a per-node `isinstance` ladder.  `_collect_column_names`
+  now uses it.
+- The scoped-field filter guard moves from four per-operator overrides
+  on `Field` (`__le__` / `__ge__` / `__lt__` / `__gt__`) into a single
+  check in `Comparison.__init__`.  Same error, less surface area.
+- `apply_filter` now reindexes the evaluated Series to
+  `ctx.group_index` before masking, so an index mismatch surfaces as
+  NaN → False rather than as misaligned row selection.
+
 ## 5.0.0
 
 **Breaking changes (DSL refactor,
