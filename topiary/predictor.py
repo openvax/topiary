@@ -423,6 +423,120 @@ class TopiaryPredictor(object):
             df = apply_sort(df, self.sort_by, sort_direction=self.sort_direction)
         return df
 
+    def predict_from_antigens(self, fragments):
+        """Predict MHC binding for peptides derived from a collection of
+        :class:`AntigenFragment`.
+
+        Each fragment's ``sequence`` is scanned with the configured
+        models' sliding windows.  Fragment-level metadata
+        (``source_type``, ``variant``, ``effect``, ``effect_type``,
+        ``gene``, ``gene_id``, ``transcript_id``,
+        ``gene_expression``, ``transcript_expression``, and every
+        annotation key) is propagated onto each prediction row.
+        ``fragment_id`` is threaded through so downstream code
+        (vaxrank, vaccine-window selection) can group peptides back to
+        their source fragment.
+
+        Additional computed columns on the output:
+        - ``overlaps_target`` (bool / NaN) — whether the peptide
+          overlaps any interval in ``fragment.target_intervals``.
+          NaN when ``target_intervals is None``.
+        - ``contains_mutant_residues`` (bool / NaN) — backwards-compat
+          alias: True iff the fragment's ``source_type`` starts with
+          ``variant`` and the peptide overlaps a target interval.
+        - ``wt_peptide`` / ``wt_peptide_length`` — derived by slicing
+          ``fragment.effective_baseline`` at the mutant peptide's
+          offset (germline precedence, falls back to reference).
+          ``None`` / NaN when no baseline is present or the mutant
+          peptide's coordinates don't map cleanly.
+
+        WT model predictions (``wt_value``, ``wt_score``, etc.) are
+        **not populated** in this release — populate them externally
+        or wait for a follow-up PR.  The DSL's ``wt.*`` scope returns
+        NaN for those columns until they're written.
+        """
+        fragments = list(fragments)
+        if not fragments:
+            return pd.DataFrame()
+
+        name_to_seq = {f.fragment_id: f.sequence for f in fragments}
+        df = self._predict_raw(name_to_seq)
+        if df.empty:
+            return df
+
+        df = df.rename(columns={"source_sequence_name": "fragment_id"})
+        # Keep source_sequence_name populated for any code path that
+        # still looks at it; fragment_id is the canonical group key.
+        df["source_sequence_name"] = df["fragment_id"]
+
+        by_id = {f.fragment_id: f for f in fragments}
+
+        def _map_attr(attr):
+            return df["fragment_id"].map(
+                lambda fid, a=attr: getattr(by_id[fid], a, None) if fid in by_id else None
+            )
+
+        for attr in (
+            "source_type", "variant", "effect", "effect_type",
+            "gene", "gene_id", "transcript_id",
+            "gene_expression", "transcript_expression",
+        ):
+            df[attr] = _map_attr(attr)
+
+        def _overlaps(row):
+            f = by_id.get(row["fragment_id"])
+            if f is None or f.target_intervals is None:
+                return None
+            return f.peptide_overlaps_target(
+                int(row["peptide_offset"]), int(row["peptide_length"])
+            )
+
+        df["overlaps_target"] = df.apply(_overlaps, axis=1)
+
+        def _contains_mutant(row):
+            f = by_id.get(row["fragment_id"])
+            if f is None or not f.source_type or not f.source_type.startswith("variant"):
+                return None
+            if f.target_intervals is None:
+                return None
+            return f.peptide_overlaps_target(
+                int(row["peptide_offset"]), int(row["peptide_length"])
+            )
+
+        df["contains_mutant_residues"] = df.apply(_contains_mutant, axis=1)
+
+        def _wt_peptide(row):
+            f = by_id.get(row["fragment_id"])
+            if f is None:
+                return None
+            base = f.effective_baseline
+            if base is None:
+                return None
+            start = int(row["peptide_offset"])
+            end = start + int(row["peptide_length"])
+            if end > len(base):
+                return None
+            return base[start:end]
+
+        df["wt_peptide"] = df.apply(_wt_peptide, axis=1)
+        df["wt_peptide_length"] = df["wt_peptide"].map(
+            lambda p: len(p) if isinstance(p, str) else None
+        )
+
+        all_annotation_keys = set()
+        for f in fragments:
+            all_annotation_keys.update(f.annotations.keys())
+        for key in sorted(all_annotation_keys):
+            if key in df.columns:
+                continue
+            df[key] = df["fragment_id"].map(
+                lambda fid, k=key: by_id[fid].annotations.get(k)
+                if fid in by_id else None
+            )
+
+        df = self._apply_filter(df)
+        return df.reset_index(drop=True)
+
     def predict_from_sequences(self, sequences):
         """
         Predict MHC ligands for sub-sequences of each input sequence.

@@ -56,6 +56,7 @@ from .nodes import (
     mean,
     median,
     minimum,
+    self_nearest,
     self_scope,
     shuffled,
     wt,
@@ -92,6 +93,7 @@ __all__ = [
     "wt",
     "shuffled",
     "self_scope",
+    "self_nearest",
     # Aggregations
     "mean",
     "geomean",

@@ -1,5 +1,49 @@
 # Changelog
 
+## 5.2.0
+
+**New features (core abstraction for antigens from any origin):**
+
+- `AntigenFragment` — a universal record for a protein/peptide sequence
+  with source-type, target-region, and comparator metadata. Carries
+  variants, structural variants, ERVs, CTAs, viral proteins, allergens,
+  autoantigens, and synthetic constructs through one pipeline. Free-form
+  `source_type` tag (recommended vocabulary documented, not enforced);
+  `target_intervals: list[tuple[int, int]]` for disjoint regions
+  (breakpoints of tandem duplications, non-self regions of ERVs, etc.);
+  `reference_sequence` + `germline_sequence` with germline-precedence
+  `effective_baseline`. Equality/hash keyed on `fragment_id` (stable
+  human-readable prefix + SHA-1 hash). Convenience constructors
+  `from_variant`, `from_junction`. Stdlib-only serialization:
+  `to_dict` / `from_dict` / `to_json` / `from_json`.
+- `topiary.read_antigens(path)` / `write_antigens(fragments, path)` /
+  `iter_antigens(path)` — TSV IO with JSON-serialized list/dict columns.
+- `TopiaryPredictor.predict_from_antigens(fragments)` — new entry point
+  that scans each fragment's sequence, propagates every fragment field
+  (including arbitrary annotations) onto prediction rows, threads
+  `fragment_id` through for downstream grouping (vaxrank vaccine-window
+  selection), and emits an `overlaps_target` column computed from each
+  peptide's position vs. the fragment's target intervals. Backwards-compat
+  `contains_mutant_residues` alias for `source_type` prefixed with
+  `variant`. `wt_peptide` derived by slicing `effective_baseline`;
+  model-side WT predictions deferred to a follow-up PR.
+- `self_nearest` — reserved DSL scope for cross-reactivity filtering
+  ("closest peptide in essential healthy tissues"). Topiary does not
+  compute these columns — producers populate via BLAST / edit distance
+  against a healthy-tissue proteome with their own "self" definition.
+  The scope reads `self_nearest_*` columns when present, returns NaN
+  otherwise. See `docs/antigens.md` for the reserved column namespace.
+- `fragment_id` is now preferred over `variant` as the group key in the
+  DSL's group-by logic (falls back to `variant`, then
+  `source_sequence_name`).
+
+**Internal:**
+
+- New module `topiary/antigen.py` (dataclass + helpers) and
+  `topiary/io_antigen.py` (TSV IO).
+- 63 new tests covering identity, serialization, geometry,
+  `predict_from_antigens` propagation, `self_nearest` scope reads.
+
 ## 5.1.0
 
 **New features:**

@@ -1,5 +1,6 @@
 from .predictor import TopiaryPredictor
 from .ranking import (
+    self_nearest,
     Affinity,
     BinOp,
     BoolOp,
@@ -40,12 +41,14 @@ from .sequence_helpers import (
     contains_mutant_residues,
     protein_subsequences_around_mutations,
 )
+from .antigen import AntigenFragment, make_fragment_id
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
+from .io_antigen import read_antigens, write_antigens, iter_antigens
 from .io_lens import detect_lens_version, read_lens
 from .result import TopiaryResult, concat
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.1.0"
+__version__ = "5.2.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -79,6 +82,7 @@ __all__ = [
     "median",
     "minimum",
     "parse",
+    "self_nearest",
     "self_scope",
     "shuffled",
     "wt",
@@ -86,6 +90,11 @@ __all__ = [
     "check_padding_around_mutation",
     "peptide_mutation_interval",
     "protein_subsequences_around_mutations",
+    "AntigenFragment",
+    "make_fragment_id",
+    "read_antigens",
+    "write_antigens",
+    "iter_antigens",
     "Metadata",
     "detect_lens_version",
     "read_csv",

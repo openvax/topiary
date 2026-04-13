@@ -114,7 +114,15 @@ _GROUP_KEYS = ["source_sequence_name", "peptide", "peptide_offset", "allele"]
 _GROUP_KEYS_VARIANT = ["variant", "peptide", "peptide_offset", "allele"]
 
 
+_GROUP_KEYS_FRAGMENT = ["fragment_id", "peptide", "peptide_offset", "allele"]
+
+
 def _pick_group_keys(df):
+    # fragment_id is the most specific identity (from predict_from_antigens);
+    # variant is for the legacy varcode pipeline; source_sequence_name is the
+    # generic fallback.
+    if "fragment_id" in df.columns:
+        return list(_GROUP_KEYS_FRAGMENT)
     if "variant" in df.columns:
         return list(_GROUP_KEYS_VARIANT)
     return list(_GROUP_KEYS)
@@ -1391,6 +1399,14 @@ class Scope:
 wt = Scope("wt")
 shuffled = Scope("shuffled")
 self_scope = Scope("self")
+
+# Reserved DSL scope for "nearest-self healthy-tissue peptide" data.
+# Topiary does not compute these columns — producers populate them
+# externally (via BLAST / edit distance against a healthy-tissue
+# proteome, with a producer-chosen definition of "self").  The scope
+# reads ``self_nearest_*`` columns; when absent, evaluates to NaN.
+# See docs/antigens.md for the reserved column namespace.
+self_nearest = Scope("self_nearest")
 
 
 # =============================================================================
