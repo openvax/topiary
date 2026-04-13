@@ -201,6 +201,20 @@ class TestWtPeptide:
         aff = df[df["kind"] == "pMHC_affinity"]
         assert (aff["wt_peptide_length"] == 8).all()
 
+    def test_wt_peptide_none_for_length_changing_baseline(self):
+        """Indels / frameshifts where baseline and mutant differ in length
+        can't be sliced with mutant coordinates — wt_peptide stays None
+        until coordinate remapping lands."""
+        f = AntigenFragment.from_variant(
+            sequence="MAAGVTDVGMAV",                # 12 aa — post-indel
+            reference_sequence="MAAGVTDVGMA",        # 11 aa — pre-indel
+            mutation_start=10, mutation_end=12,
+            inframe=True,
+        )
+        df = _predictor().predict_from_antigens([f])
+        aff = df[df["kind"] == "pMHC_affinity"]
+        assert aff["wt_peptide"].isna().all()
+
 
 # ---------------------------------------------------------------------------
 # Multiple fragments & fragment_id as group key
@@ -289,6 +303,70 @@ class TestSelfNearestScope:
         df["self_nearest_edit_distance"] = 4.0
         result = apply_filter(df, Column("self_nearest_edit_distance") >= 3)
         assert len(result) == len(df)
+
+    def test_self_nearest_parses_from_dsl_string(self):
+        """parse("self_nearest.affinity.score") yields a node that reads
+        self_nearest_score — matches the Python-side Scope("self_nearest")."""
+        from topiary.ranking import EvalContext, parse
+        node = parse("self_nearest.affinity.score")
+        f = AntigenFragment(
+            fragment_id="x__00000000", sequence="MAAVTDVGMAV",
+        )
+        df = _predictor().predict_from_antigens([f])
+        df["self_nearest_score"] = 0.7
+        s = node.eval(EvalContext(df))
+        assert (s == 0.7).all()
+
+    def test_self_nearest_parses_in_sort_expression(self):
+        """parse("affinity.score - self_nearest.affinity.score") composes."""
+        from topiary.ranking import parse
+        node = parse("affinity.score - self_nearest.affinity.score")
+        f = AntigenFragment(
+            fragment_id="x__00000000", sequence="MAAVTDVGMAV",
+        )
+        df = _predictor().predict_from_antigens([f])
+        df["self_nearest_score"] = 0.2
+        result = apply_sort(df, [node])
+        assert len(result) == len(df)
+
+
+# ---------------------------------------------------------------------------
+# only_novel_epitopes flag
+# ---------------------------------------------------------------------------
+
+
+class TestOnlyNovelEpitopes:
+    def test_only_novel_drops_non_mutant_rows(self):
+        """When only_novel_epitopes=True, keep only rows with
+        contains_mutant_residues == True (parallels predict_from_mutation_effects)."""
+        f = AntigenFragment.from_variant(
+            sequence="MAAGVTDVGMAVATGSWDSFLKIWN",
+            mutation_start=11, mutation_end=12, inframe=True,
+        )
+        pred = TopiaryPredictor(
+            models=RandomBindingPredictor(
+                alleles=[ALLELE], default_peptide_lengths=[9],
+            ),
+            only_novel_epitopes=True,
+        )
+        df = pred.predict_from_antigens([f])
+        assert df["contains_mutant_residues"].astype(bool).all()
+
+    def test_only_novel_drops_non_variant_fragments(self):
+        """Fragments whose source_type isn't a variant have NaN
+        contains_mutant_residues and are dropped when only_novel is on."""
+        erv = AntigenFragment(
+            fragment_id="erv__00000000", source_type="erv",
+            sequence="MLGMNMLLITLFLLLPLSMLKGEPWEGCLHCTH",
+        )
+        pred = TopiaryPredictor(
+            models=RandomBindingPredictor(
+                alleles=[ALLELE], default_peptide_lengths=[9],
+            ),
+            only_novel_epitopes=True,
+        )
+        df = pred.predict_from_antigens([erv])
+        assert df.empty
 
 
 # ---------------------------------------------------------------------------

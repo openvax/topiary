@@ -483,7 +483,8 @@ class Field(DSLNode):
         Exact match against ``predictor_version`` (string-compared).
     scope : str
         Column-name prefix for alternate peptide contexts
-        (``""``, ``"wt_"``, ``"shuffled_"``, ``"self_"``).
+        (``""``, ``"wt_"``, ``"shuffled_"``, ``"self_"``,
+        ``"self_nearest_"``).
     """
 
     __slots__ = ("kind", "field", "method", "version", "scope")
@@ -1363,7 +1364,7 @@ Processing = KindAccessor(Kind.antigen_processing)
 # Scope — alternate peptide context (wt, shuffled, self)
 # =============================================================================
 
-_CONTEXT_KEYWORDS = {"wt", "shuffled", "self"}
+_CONTEXT_KEYWORDS = {"wt", "shuffled", "self", "self_nearest"}
 
 
 class Scope:

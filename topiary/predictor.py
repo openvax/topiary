@@ -447,8 +447,10 @@ class TopiaryPredictor(object):
         - ``wt_peptide`` / ``wt_peptide_length`` — derived by slicing
           ``fragment.effective_baseline`` at the mutant peptide's
           offset (germline precedence, falls back to reference).
-          ``None`` / NaN when no baseline is present or the mutant
-          peptide's coordinates don't map cleanly.
+          Only populated when the baseline is the same length as the
+          mutant sequence (substitution-compatible); indels and
+          frameshifts yield ``None`` until coordinate remapping lands.
+          ``None`` / NaN when no baseline is present.
 
         WT model predictions (``wt_value``, ``wt_score``, etc.) are
         **not populated** in this release — populate them externally
@@ -512,6 +514,11 @@ class TopiaryPredictor(object):
             base = f.effective_baseline
             if base is None:
                 return None
+            # Only meaningful for substitution-compatible fragments where
+            # mutant and baseline coordinates align 1:1.  Indels and
+            # frameshifts need explicit remapping, which PR A does not do.
+            if len(base) != len(f.sequence):
+                return None
             start = int(row["peptide_offset"])
             end = start + int(row["peptide_length"])
             if end > len(base):
@@ -535,6 +542,10 @@ class TopiaryPredictor(object):
             )
 
         df = self._apply_filter(df)
+
+        if self.only_novel_epitopes:
+            df = df[df["contains_mutant_residues"].eq(True)]
+
         return df.reset_index(drop=True)
 
     def predict_from_sequences(self, sequences):
