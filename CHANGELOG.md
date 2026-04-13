@@ -1,5 +1,29 @@
 # Changelog
 
+## 5.1.0
+
+**New features:**
+
+- `topiary.read_lens(path)` — load LENS (Landscape of Effective
+  Neoantigens Software) reports into Topiary's wide-form schema.
+  Handles the three observed schema variants (v1.4, v1.5.1, v1.9-dev)
+  with column-based version detection. Binding columns are remapped to
+  `{model}_{kind}_{field}`; per-model versions populate
+  `Metadata.models`. LENS-specific columns (`erv_*`, `priority_score_*`,
+  `b2m_*`, `hla_allele_*`, etc.) pass through as annotations and remain
+  accessible via `Column("…")` in the DSL. See
+  [#110](https://github.com/openvax/topiary/issues/110). Known losses:
+  `peptide_offset` set to 0 (LENS doesn't record it);
+  `contains_mutant_residues` / `mutation_start_in_peptide` left NaN
+  (LENS's `mut_aa_pos` semantics are ambiguous); `n_flank` / `c_flank`
+  derived from `pep_context` only for SNV / SPLICE / FUSION.
+- `DSLNode.logistic_normalized(midpoint, width)` — logistic sigmoid
+  rescaled to reach 1 as `x → -∞`, so the output is a proper
+  `[0, 1]` score.  `.logistic(...)` is unchanged.
+  ([#116](https://github.com/openvax/topiary/issues/116))
+- Allele normalization uses `mhcgnomes` unconditionally (Class I,
+  Class II, mouse all supported).
+
 ## 5.0.1
 
 Polish pass on the v5.0.0 DSL refactor — no user-visible behavior

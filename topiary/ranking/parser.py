@@ -56,7 +56,7 @@ _AGGREGATION_FUNCS = {
 }
 
 _TRANSFORM_NAMES = {
-    "ascending_cdf", "descending_cdf", "norm", "logistic",
+    "ascending_cdf", "descending_cdf", "norm", "logistic", "logistic_normalized",
     "clip", "hinge", "log", "log2", "log10", "log1p", "exp", "sqrt",
 }
 
