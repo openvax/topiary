@@ -16,6 +16,10 @@ from unittest.mock import MagicMock
 
 from mhctools import RandomBindingPredictor
 from topiary import TopiaryPredictor
+
+# Intentional import of private symbols — these regression tests pin the
+# implementation-detail plumbing (annotation keys, effect→fragment
+# adapter) that the refactor relies on.  Moves break tests deliberately.
 from topiary.predictor import (
     _MUTATION_END_KEY,
     _MUTATION_START_KEY,
@@ -251,3 +255,61 @@ class TestFragmentFromEffect:
         assert frag is not None
         # Subsequence should not contain the '*' character
         assert "*" not in frag.sequence
+
+    def test_premature_stop_source_type(self):
+        """PrematureStop effects map to the documented ``variant:stop_gain``."""
+        effect = _make_mock_effect(cls_name="PrematureStop")
+        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        assert frag.source_type == "variant:stop_gain"
+
+    def test_multi_residue_substitution_becomes_indel(self):
+        """Block substitutions (span > 1) collapse to the documented
+        ``variant:indel`` rather than introducing a new vocabulary term."""
+        effect = _make_mock_effect(
+            mutation_start=10, mutation_end=13,   # 3-residue block
+            cls_name="Substitution",
+        )
+        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        assert frag.source_type == "variant:indel"
+
+    def test_unknown_effect_class_falls_back_to_lowercase(self):
+        """Unlisted effect classes yield ``variant:<classname_lower>``
+        so new varcode effect types remain representable without a
+        Topiary change."""
+        effect = _make_mock_effect(cls_name="SomeNovelEffect")
+        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        assert frag.source_type == "variant:somenoveleffect"
+
+
+# ---------------------------------------------------------------------------
+# Legacy expression-dict plumbing
+# ---------------------------------------------------------------------------
+
+
+class TestExpressionDictPlumbing:
+    """Regression: legacy gene_expression_dict / transcript_expression_dict
+    still propagate into the column output through the refactored path."""
+
+    def test_transcript_expression_dict_populates_column(self):
+        expr_dict = {
+            transcript_id: 42.0
+            for v in cancer_test_variants
+            for transcript_id in v.transcript_ids
+        }
+        df = _predictor().predict_from_variants(
+            cancer_test_variants, transcript_expression_dict=expr_dict,
+        )
+        assert "transcript_expression" in df.columns
+        assert (df["transcript_expression"] == 42.0).all()
+
+    def test_gene_expression_dict_populates_column(self):
+        expr_dict = {
+            gene_id: 7.5
+            for v in cancer_test_variants
+            for gene_id in v.gene_ids
+        }
+        df = _predictor().predict_from_variants(
+            cancer_test_variants, gene_expression_dict=expr_dict,
+        )
+        assert "gene_expression" in df.columns
+        assert (df["gene_expression"] == 7.5).all()

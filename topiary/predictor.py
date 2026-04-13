@@ -182,16 +182,48 @@ def _coerce_sort_nodes(expr):
     return [_coerce_filter_node(expr)]
 
 
-_FRAMESHIFT_EFFECT_TYPES = frozenset({
-    "FrameShift", "FrameShiftTruncation", "StartLoss", "ExonLoss",
-})
-
-# Annotation key used to plumb the per-effect subsequence start offset
-# through predict_from_antigens so the legacy variant path can rebase
-# peptide_offset back to absolute protein coordinates.
+# Annotation keys used to plumb per-effect bookkeeping through
+# _build_antigen_rows so the legacy variant path can rebase
+# peptide_offset and derive mutation_start/end_in_peptide.  Leading
+# underscore marks them as implementation detail — they're stripped
+# from the returned DataFrame.
 _SUBSEQ_OFFSET_KEY = "_subsequence_offset"
 _MUTATION_START_KEY = "_mutation_start_in_protein"
 _MUTATION_END_KEY = "_mutation_end_in_protein"
+
+# Effect-class → source_type mapping.  Unlisted classes fall through
+# to ``variant:<classname_lowered>`` — source_type is documented as
+# free-form, so producers / downstream tools can always read the raw
+# class name when they need more resolution.
+_EFFECT_SOURCE_TYPES = {
+    "Substitution": "variant:snv",       # collapses to indel if span > 1
+    "ComplexSubstitution": "variant:indel",
+    "Insertion": "variant:indel",
+    "Deletion": "variant:indel",
+    "FrameShift": "variant:frameshift",
+    "FrameShiftTruncation": "variant:frameshift",
+    "PrematureStop": "variant:stop_gain",
+    "StopLoss": "variant:stop_loss",
+    "StartLoss": "variant:start_loss",
+    "ExonLoss": "variant:exon_loss",
+    "AlternateStartCodon": "variant:alternate_start",
+}
+
+
+def _source_type_from_effect(effect, mutation_span):
+    """Pick a source_type string for *effect*.  Aligns with the
+    vocabulary documented in ``docs/antigens.md``; unknown effect
+    classes fall back to ``variant:<lowered_classname>`` so any future
+    varcode effect type remains representable without a Topiary change.
+    """
+    cls = type(effect).__name__
+    # Multi-residue Substitution / ComplexSubstitution → indel per docs
+    # (single-residue Substitution stays SNV).
+    if cls == "Substitution" and mutation_span != 1:
+        return "variant:indel"
+    if cls in _EFFECT_SOURCE_TYPES:
+        return _EFFECT_SOURCE_TYPES[cls]
+    return f"variant:{cls.lower()}"
 
 
 def _fragment_from_effect(
@@ -214,48 +246,33 @@ def _fragment_from_effect(
     if not protein_seq:
         return None
 
-    mutation_start_full = effect.aa_mutation_start_offset
-    mutation_end_full = effect.aa_mutation_end_offset
-    seq_start = max(0, mutation_start_full - padding_around_mutation)
+    mut_start = effect.aa_mutation_start_offset
+    mut_end = effect.aa_mutation_end_offset
+    seq_start = max(0, mut_start - padding_around_mutation)
     first_stop = protein_seq.find("*")
     if first_stop < 0:
         first_stop = len(protein_seq)
-    seq_end = min(first_stop, mutation_end_full + padding_around_mutation)
+    seq_end = min(first_stop, mut_end + padding_around_mutation)
     subsequence = protein_seq[seq_start:seq_end]
 
-    mutation_start_rel = mutation_start_full - seq_start
-    mutation_end_rel = mutation_end_full - seq_start
-
     # reference_sequence only meaningful when pre- and post-mutation
-    # proteins align 1:1 (substitution-compatible).  Indels / frameshifts
-    # need coordinate remapping — leave None, matching the same
-    # restriction applied to wt_peptide derivation.
+    # proteins align 1:1.  Indels / frameshifts need coordinate
+    # remapping — leave None, matching the wt_peptide restriction.
     original_protein = getattr(effect, "original_protein_sequence", None)
     reference_subseq = None
     if original_protein and len(original_protein) == len(protein_seq):
         reference_subseq = original_protein[seq_start:seq_end]
 
-    cls = type(effect).__name__
-    if cls in _FRAMESHIFT_EFFECT_TYPES:
-        source_type = "variant:frameshift"
-    elif cls in ("Substitution", "ComplexSubstitution"):
-        span = mutation_end_full - mutation_start_full
-        source_type = "variant:snv" if span == 1 else "variant:substitution"
-    elif cls in ("Insertion", "Deletion"):
-        source_type = "variant:indel"
-    else:
-        source_type = "variant:other"
-
     return AntigenFragment.from_variant(
         sequence=subsequence,
         reference_sequence=reference_subseq,
-        mutation_start=mutation_start_rel,
-        mutation_end=mutation_end_rel,
+        mutation_start=mut_start - seq_start,
+        mutation_end=mut_end - seq_start,
         inframe=True,  # use effect-reported interval directly
-        source_type=source_type,
+        source_type=_source_type_from_effect(effect, mut_end - mut_start),
         variant=effect.variant.short_description,
         effect=effect.short_description,
-        effect_type=cls,
+        effect_type=type(effect).__name__,
         gene=effect.gene_name,
         gene_id=effect.gene_id,
         transcript_id=effect.transcript_id,
@@ -264,8 +281,8 @@ def _fragment_from_effect(
         transcript_expression=transcript_expression,
         annotations={
             _SUBSEQ_OFFSET_KEY: seq_start,
-            _MUTATION_START_KEY: mutation_start_full,
-            _MUTATION_END_KEY: mutation_end_full,
+            _MUTATION_START_KEY: mut_start,
+            _MUTATION_END_KEY: mut_end,
         },
     )
 
@@ -279,53 +296,53 @@ def _add_legacy_mutation_columns(df, fragments):
     :func:`_fragment_from_effect` (carries the needed offsets in
     ``annotations``).
     """
-    by_id = {f.fragment_id: f for f in fragments}
-
-    def _subseq_offset(fid):
-        f = by_id.get(fid)
-        if f is None:
-            return 0
-        return f.annotations.get(_SUBSEQ_OFFSET_KEY, 0)
-
     df = df.copy()
-    df["peptide_offset"] = df.apply(
-        lambda row: int(row["peptide_offset"])
-        + _subseq_offset(row["fragment_id"]),
-        axis=1,
+
+    # Vectorized rebase: Series-map fragment_id → offset, then add.
+    def _ann(key):
+        lookup = {
+            f.fragment_id: f.annotations.get(key) for f in fragments
+        }
+        return df["fragment_id"].map(lookup)
+
+    df["peptide_offset"] = (
+        df["peptide_offset"].astype(int) + _ann(_SUBSEQ_OFFSET_KEY).fillna(0).astype(int)
     )
 
-    def _mut_interval(row):
-        f = by_id.get(row["fragment_id"])
-        if f is None:
-            return (None, None)
-        mut_start = f.annotations.get(_MUTATION_START_KEY)
-        mut_end = f.annotations.get(_MUTATION_END_KEY)
-        if mut_start is None or mut_end is None:
-            return (None, None)
-        peptide_start = int(row["peptide_offset"])
-        peptide_length = int(row["peptide_length"])
-        # Overlap check — empty / non-overlapping → None pair.
-        if peptide_start >= mut_end or peptide_start + peptide_length <= mut_start:
+    mut_start = _ann(_MUTATION_START_KEY)
+    mut_end = _ann(_MUTATION_END_KEY)
+    peptide_start = df["peptide_offset"].astype(int)
+    peptide_length = df["peptide_length"].astype(int)
+    peptide_end = peptide_start + peptide_length
+
+    overlaps = (
+        mut_start.notna()
+        & mut_end.notna()
+        & (peptide_start < mut_end)
+        & (peptide_end > mut_start)
+    )
+
+    def _interval(row):
+        if not row["_overlap"]:
             return (None, None)
         return peptide_mutation_interval(
-            peptide_start_in_protein=peptide_start,
-            peptide_length=peptide_length,
-            mutation_start_in_protein=mut_start,
-            mutation_end_in_protein=mut_end,
+            peptide_start_in_protein=int(row["peptide_offset"]),
+            peptide_length=int(row["peptide_length"]),
+            mutation_start_in_protein=int(row["_mut_start"]),
+            mutation_end_in_protein=int(row["_mut_end"]),
         )
 
-    intervals = df.apply(_mut_interval, axis=1, result_type="expand")
+    tmp = df.assign(_overlap=overlaps, _mut_start=mut_start, _mut_end=mut_end)
+    intervals = tmp.apply(_interval, axis=1, result_type="expand")
     df["mutation_start_in_peptide"] = intervals[0]
     df["mutation_end_in_peptide"] = intervals[1]
 
-    # Drop the per-row internal bookkeeping keys that leaked in via the
-    # annotations-flattening step; these are implementation detail for
-    # the legacy path, not public columns.
-    df = df.drop(
+    # Drop the private annotation keys that the row-builder flattened
+    # into columns — they're implementation detail for this path.
+    return df.drop(
         columns=[_SUBSEQ_OFFSET_KEY, _MUTATION_START_KEY, _MUTATION_END_KEY],
         errors="ignore",
     )
-    return df
 
 
 class TopiaryPredictor(object):
@@ -601,6 +618,22 @@ class TopiaryPredictor(object):
         or wait for a follow-up PR.  The DSL's ``wt.*`` scope returns
         NaN for those columns until they're written.
         """
+        df = self._build_antigen_rows(fragments)
+        if df.empty:
+            return df
+        df = self._apply_filter(df)
+        if self.only_novel_epitopes:
+            df = df[df["contains_mutant_residues"].eq(True)]
+        return df.reset_index(drop=True)
+
+    def _build_antigen_rows(self, fragments):
+        """Run models on *fragments* and overlay all fragment-derived
+        columns, without applying filter / sort / ``only_novel_epitopes``.
+
+        Callers that need backward-compat post-processing (e.g. the
+        legacy variant path rebasing ``peptide_offset`` to absolute
+        protein coords) can intercept here and filter afterwards.
+        """
         fragments = list(fragments)
         if not fragments:
             return pd.DataFrame()
@@ -685,12 +718,7 @@ class TopiaryPredictor(object):
                 if fid in by_id else None
             )
 
-        df = self._apply_filter(df)
-
-        if self.only_novel_epitopes:
-            df = df[df["contains_mutant_residues"].eq(True)]
-
-        return df.reset_index(drop=True)
+        return df
 
     def predict_from_sequences(self, sequences):
         """
@@ -788,29 +816,26 @@ class TopiaryPredictor(object):
             logging.warning("No candidates for MHC binding prediction")
             return pd.DataFrame()
 
-        df = self.predict_from_antigens(fragments)
+        # Build raw rows without filter/sort so the legacy post-processing
+        # (peptide_offset rebase + mutation_start/end_in_peptide) can run
+        # before user filter expressions evaluate.
+        df = self._build_antigen_rows(fragments)
         logging.info(
             "MHC predictor returned %d peptide binding predictions" % (len(df))
         )
         if df.empty:
             return df
 
-        # Rebase peptide_offset from fragment-local (subsequence) coords
-        # to absolute protein coords, and derive
-        # mutation_start_in_peptide / mutation_end_in_peptide for the
-        # legacy column contract.
         df = _add_legacy_mutation_columns(df, fragments)
-
-        # Legacy API emits the `variant` column (alias of fragment_id
-        # for this path — each fragment is 1:1 with an effect).
-        # source_sequence_name was the fragment_id; keep variant as the
-        # effect's variant.short_description, which _fragment_from_effect
-        # already populates.
 
         if expression_data:
             df = _attach_expression_data(df, expression_data)
 
-        return df
+        df = self._apply_filter(df)
+        if self.only_novel_epitopes:
+            df = df[df["contains_mutant_residues"].eq(True)]
+
+        return df.reset_index(drop=True)
 
     def predict_from_variants(
         self, variants, transcript_expression_dict=None, gene_expression_dict=None,

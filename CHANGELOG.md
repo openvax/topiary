@@ -1,5 +1,43 @@
 # Changelog
 
+## 5.3.0
+
+**Refactor (predict_from_variants now builds on AntigenFragment):**
+
+- `predict_from_mutation_effects` builds a list of `AntigenFragment`s
+  from varcode effects (via the new `_fragment_from_effect` adapter)
+  and delegates to a shared `_build_antigen_rows` step — one prediction
+  pipeline instead of two. The ~60-line row-by-row metadata loop is gone.
+- New fragment-derived columns (`fragment_id`, `source_type`,
+  `overlaps_target`, `wt_peptide` / `wt_peptide_length`) now flow
+  through the variant path alongside the legacy columns.
+- Legacy column contract preserved: absolute `peptide_offset`,
+  `mutation_start_in_peptide` / `mutation_end_in_peptide`,
+  `transcript_name`, `contains_mutant_residues`, `only_novel_epitopes`,
+  and legacy `gene_expression_dict` / `transcript_expression_dict`
+  plumbing all behave identically to 5.2.0.
+- `source_type` classification aligned with `docs/antigens.md`
+  vocabulary: `PrematureStop` → `variant:stop_gain`, multi-residue
+  `Substitution` → `variant:indel`, unlisted effect classes fall back
+  to `variant:<classname_lowered>`.
+- Filter / sort now run after `peptide_offset` rebasing on the variant
+  path, so filter expressions referencing `peptide_offset` see absolute
+  protein coordinates (matches 5.1.x behavior).
+
+**New field:**
+
+- `AntigenFragment.transcript_name` — human-readable transcript label
+  alongside `transcript_id`. Threaded through `from_dict`, `from_variant`,
+  `from_junction`, and the TSV IO schema.
+
+**Internal:**
+
+- New `TopiaryPredictor._build_antigen_rows(fragments)` — fragment
+  scanning + metadata overlay without filter / sort.  Public entry
+  points layer filter / sort / `only_novel_epitopes` on top.
+- 18 new regression tests covering legacy column contract, expression-
+  dict plumbing, and the effect→fragment source_type classifier.
+
 ## 5.2.0
 
 **New features (core abstraction for antigens from any origin):**
