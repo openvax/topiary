@@ -70,8 +70,10 @@ class AntigenFragment:
         free-form identifier (``chr:pos:ref>alt``, HGVS, strain name);
         ``effect`` is typically HGVS protein notation; ``effect_type``
         is a coarse label (``Substitution``, ``FrameShift``, etc.).
-    gene, gene_id, transcript_id : str, optional
-        Source gene / transcript identifiers.
+    gene, gene_id, transcript_id, transcript_name : str, optional
+        Source gene / transcript identifiers.  ``transcript_name`` is
+        the human-readable label (e.g. ``"BRAF-204"``) alongside the
+        Ensembl id.
     gene_expression, transcript_expression : float, optional
         Expression evidence carried forward into prediction rows.
     annotations : dict
@@ -95,6 +97,7 @@ class AntigenFragment:
     gene: Optional[str] = None
     gene_id: Optional[str] = None
     transcript_id: Optional[str] = None
+    transcript_name: Optional[str] = None
 
     gene_expression: Optional[float] = None
     transcript_expression: Optional[float] = None
@@ -180,7 +183,7 @@ class AntigenFragment:
             "fragment_id", "source_type", "sequence",
             "reference_sequence", "germline_sequence", "target_intervals",
             "variant", "effect", "effect_type",
-            "gene", "gene_id", "transcript_id",
+            "gene", "gene_id", "transcript_id", "transcript_name",
             "gene_expression", "transcript_expression", "annotations",
         }
         unknown = set(d.keys()) - known
@@ -205,6 +208,7 @@ class AntigenFragment:
             gene=d.get("gene"),
             gene_id=d.get("gene_id"),
             transcript_id=d.get("transcript_id"),
+            transcript_name=d.get("transcript_name"),
             gene_expression=d.get("gene_expression"),
             transcript_expression=d.get("transcript_expression"),
             annotations=dict(d.get("annotations") or {}),
@@ -258,6 +262,7 @@ class AntigenFragment:
         gene: Optional[str] = None,
         gene_id: Optional[str] = None,
         transcript_id: Optional[str] = None,
+        transcript_name: Optional[str] = None,
         **extra_kwargs,
     ) -> "AntigenFragment":
         """Build a fragment for a variant-derived antigen.
@@ -292,6 +297,7 @@ class AntigenFragment:
             gene=gene,
             gene_id=gene_id,
             transcript_id=transcript_id,
+            transcript_name=transcript_name,
             gene_expression=extra_kwargs.pop("gene_expression", None),
             transcript_expression=extra_kwargs.pop("transcript_expression", None),
             annotations=extra_kwargs.pop("annotations", {}) or {},
@@ -312,6 +318,7 @@ class AntigenFragment:
         gene: Optional[str] = None,
         gene_id: Optional[str] = None,
         transcript_id: Optional[str] = None,
+        transcript_name: Optional[str] = None,
         **extra_kwargs,
     ) -> "AntigenFragment":
         """Build a fragment for a fusion / splice / cryptic-exon /
@@ -349,6 +356,7 @@ class AntigenFragment:
             gene=gene,
             gene_id=gene_id,
             transcript_id=transcript_id,
+            transcript_name=transcript_name,
             gene_expression=extra_kwargs.pop("gene_expression", None),
             transcript_expression=extra_kwargs.pop("transcript_expression", None),
             annotations=extra_kwargs.pop("annotations", {}) or {},
