@@ -205,6 +205,8 @@ Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use
 | `read_peptide_fasta(path)` | FASTA of peptides | `{name: peptide}` |
 | `read_peptide_csv(path)` | CSV with `peptide` col | `{name: peptide}` |
 | `read_sequence_csv(path)` | CSV with `sequence` col | `{name: sequence}` |
+| `read_tsv(path)` / `read_csv(path)` | Topiary-format table with comment-block metadata | `TopiaryResult` |
+| `read_lens(path)` | LENS report (v1.4 / v1.5.1 / v1.9) | `TopiaryResult` (wide form) |
 | `slice_regions(seqs, regions)` | Sequences + intervals | `{name:start-end: subseq}` |
 | `exclude_by(df, ref, mode)` | DataFrame + ref sequences | Filtered DataFrame |
 

@@ -327,8 +327,18 @@ class DSLNode:
         return SurvivalExpr(self, mean, std)
 
     def logistic(self, midpoint=0.0, width=1.0):
-        """Logistic sigmoid: lower input → higher output."""
+        """Logistic sigmoid: lower input → higher output.
+
+        Returns the raw sigmoid ``1/(1+exp((x-m)/w))`` whose max
+        approaches 1 only as ``x → -∞``. Use
+        :meth:`logistic_normalized` when you want a proper ``[0, 1]``
+        binder-quality score that reaches 1 for arbitrarily good inputs.
+        """
         return LogisticExpr(self, midpoint, width)
+
+    def logistic_normalized(self, midpoint=0.0, width=1.0):
+        """Logistic rescaled to ``[0, 1]``: reaches 1 as ``x → -∞``."""
+        return LogisticNormalizedExpr(self, midpoint, width)
 
     def clip(self, lo=None, hi=None):
         """Clamp value to [lo, hi]. None = unbounded."""
@@ -877,6 +887,55 @@ class LogisticExpr(DSLNode):
         )
 
 
+class LogisticNormalizedExpr(DSLNode):
+    """Logistic sigmoid rescaled so the range is [0, 1].
+
+    Standard logistic ``1/(1+exp((x-m)/w))`` caps below 1 at the
+    asymptote — at ``(m=350, w=150)`` the max is ~0.912, only reaching
+    1 as ``x → -∞``.  This node divides by that cap so the output
+    approaches 1 as the input approaches ``-∞`` and is exactly
+    ``0.5`` at ``x = m`` (as with the raw logistic), giving a proper
+    binder-quality score in ``[0, 1]``.
+
+    Equivalent to: ``raw_logistic(x, m, w) / raw_logistic(-∞, m, w)``.
+    """
+
+    __slots__ = ("inner", "midpoint", "width")
+
+    def __init__(self, inner: DSLNode, midpoint, width):
+        self.inner = inner
+        self.midpoint = float(midpoint)
+        self.width = float(width)
+
+    def child_nodes(self):
+        return [self.inner]
+
+    def eval(self, ctx: EvalContext) -> pd.Series:
+        vals = self.inner.eval(ctx)
+        if self.width == 0:
+            return pd.Series(np.nan, index=vals.index)
+        z = (vals - self.midpoint) / self.width
+        z_clipped = z.clip(lower=-700, upper=700)
+        with np.errstate(over="ignore"):
+            raw = 1.0 / (1.0 + np.exp(z_clipped))
+            # Normalizer: the raw logistic's asymptotic maximum.
+            # raw(-inf, m, w) = 1 / (1 + exp(-m/w)).
+            norm = 1.0 / (1.0 + math.exp(-self.midpoint / self.width))
+        return raw / norm
+
+    def __repr__(self):
+        return (
+            f"{repr(self.inner)}.logistic_normalized"
+            f"({_fmt_num(self.midpoint)}, {_fmt_num(self.width)})"
+        )
+
+    def to_ast_string(self):
+        return (
+            f"LogisticNormalized({self.inner.to_ast_string()}, "
+            f"midpoint={_fmt_num(self.midpoint)}, width={_fmt_num(self.width)})"
+        )
+
+
 class ClipExpr(DSLNode):
     """Clamp an inner expression to [lo, hi]."""
 
@@ -1255,6 +1314,9 @@ class KindAccessor:
 
     def logistic(self, midpoint=0.0, width=1.0):
         return self.value.logistic(midpoint, width)
+
+    def logistic_normalized(self, midpoint=0.0, width=1.0):
+        return self.value.logistic_normalized(midpoint, width)
 
     def clip(self, lo=None, hi=None):
         return self.value.clip(lo, hi)

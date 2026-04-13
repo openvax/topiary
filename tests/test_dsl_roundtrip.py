@@ -244,6 +244,44 @@ class TestTransforms:
     def test_logistic(self):
         _assert_roundtrips(Affinity.logistic(350, 150))
 
+    def test_logistic_normalized(self):
+        _assert_roundtrips(Affinity.logistic_normalized(350, 150))
+
+    def test_logistic_normalized_reaches_one(self):
+        """Normalized variant approaches 1 for arbitrarily good (low IC50)."""
+        df = pd.DataFrame([
+            dict(source_sequence_name="s", peptide="A", peptide_offset=0,
+                 allele="A", kind="pMHC_affinity",
+                 score=0.9, value=0.0, percentile_rank=0.0),
+        ])
+        raw = Affinity.logistic(350, 150).evaluate(df)
+        normed = Affinity.logistic_normalized(350, 150).evaluate(df)
+        assert raw < 0.92   # raw sigmoid caps below 1
+        assert normed == pytest.approx(1.0)
+
+    def test_logistic_vs_normalized_ratio_is_constant(self):
+        """normalized(x) / raw(x) is the normalizer, independent of x."""
+        df = pd.DataFrame([
+            dict(source_sequence_name=f"s{i}", peptide="A", peptide_offset=0,
+                 allele="A", kind="pMHC_affinity",
+                 score=0.5, value=float(v), percentile_rank=1.0)
+            for i, v in enumerate([50, 200, 500, 1000, 5000])
+        ])
+        ctx = EvalContext(df)
+        raw = Affinity.logistic(350, 150).eval(ctx).to_numpy()
+        normed = Affinity.logistic_normalized(350, 150).eval(ctx).to_numpy()
+        ratios = normed / raw
+        assert np.allclose(ratios, ratios[0])
+        expected_cap = 1.0 / (1.0 + math.exp(-350 / 150))
+        assert ratios[0] == pytest.approx(1.0 / expected_cap)
+
+    def test_parse_logistic_normalized(self):
+        from topiary.ranking import LogisticNormalizedExpr
+        node = parse("affinity.logistic_normalized(350, 150)")
+        assert isinstance(node, LogisticNormalizedExpr)
+        assert node.midpoint == 350.0
+        assert node.width == 150.0
+
     def test_log(self):
         _assert_roundtrips(Affinity.value.log())
 
