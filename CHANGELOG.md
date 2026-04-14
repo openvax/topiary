@@ -15,6 +15,26 @@
 - `read_antigens` / `write_antigens` / `iter_antigens` →
   `read_fragments` / `write_fragments` / `iter_fragments`.
 
+**Downstream migration checklist:**
+
+- `from topiary import AntigenFragment` → `from topiary import ProteinFragment`.
+- `from topiary.antigen import …` / `from topiary.io_antigen import …` →
+  `from topiary.protein_fragment import …` /
+  `from topiary.io_protein_fragment import …`.
+- `predictor.predict_from_antigens(fragments)` →
+  `predictor.predict_from_fragments(fragments)`.
+- `topiary.read_antigens(path)` / `write_antigens(fragments, path)` /
+  `iter_antigens(path)` → `read_fragments` / `write_fragments` /
+  `iter_fragments`.
+- TSV files written by 5.2.x `write_antigens` remain readable by
+  5.4.0 `read_fragments`: the new `transcript_name` column is
+  optional and defaults to `None` when missing.  TSVs written by
+  5.4.0 are **not** readable by ≤5.2.x (the old reader rejects
+  unknown columns).
+- Unaffected surface: `TopiaryPredictor`, `EvalContext`, `apply_filter`,
+  `predict_from_variants` / `predict_from_mutation_effects` / the
+  legacy column contract.
+
 **Refactor (predict_from_variants now builds on ProteinFragment):**
 
 - `predict_from_mutation_effects` builds a list of `ProteinFragment`s
