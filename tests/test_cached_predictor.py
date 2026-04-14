@@ -2,11 +2,13 @@
 round-trips, fallback + version enforcement, and integration with
 :class:`TopiaryPredictor`."""
 
+import numpy as np
 import pandas as pd
 import pytest
 from mhctools import RandomBindingPredictor
 
 from topiary import CachedPredictor, TopiaryPredictor
+from topiary.cached import mhcflurry_composite_version
 
 
 ALLELES = ["HLA-A*02:01"]
@@ -73,9 +75,9 @@ class TestConstruction:
         with pytest.raises(ValueError, match="missing required columns"):
             CachedPredictor(df)
 
-    def test_empty_df_raises(self):
+    def test_empty_df_and_no_fallback_raises(self):
         df = pd.DataFrame(columns=list(_row().keys()))
-        with pytest.raises(ValueError, match="empty DataFrame"):
+        with pytest.raises(ValueError, match="either .df. .* or .fallback."):
             CachedPredictor(df)
 
 
@@ -231,8 +233,173 @@ class TestFallback:
             _df([_row(predictor_name="random", predictor_version="1.0")]),
             fallback=_matched_fallback(name="mhcflurry", version="1.0"),
         )
+        with pytest.raises(ValueError, match="predictor_name mismatch"):
+            cache.predict_peptides_dataframe(["GILGFVFTL"])
+
+
+# ---------------------------------------------------------------------------
+# Null / empty version rejection
+# ---------------------------------------------------------------------------
+
+
+class TestNullVersionRejection:
+    def test_none_version_rejected(self):
+        row = _row()
+        row["predictor_version"] = None
+        with pytest.raises(ValueError, match="must be a non-empty string"):
+            CachedPredictor(_df([row]))
+
+    def test_nan_version_rejected(self):
+        row = _row()
+        row["predictor_version"] = np.nan
+        with pytest.raises(ValueError, match="must be a non-empty string"):
+            CachedPredictor(_df([row]))
+
+    def test_empty_string_version_rejected(self):
+        row = _row()
+        row["predictor_version"] = ""
+        with pytest.raises(ValueError, match="must be a non-empty string"):
+            CachedPredictor(_df([row]))
+
+    def test_none_predictor_name_rejected(self):
+        row = _row()
+        row["prediction_method_name"] = None
+        with pytest.raises(ValueError, match="must be a non-empty string"):
+            CachedPredictor(_df([row]))
+
+
+# ---------------------------------------------------------------------------
+# Empty cache + fallback — lazy identity discovery
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyCacheWithFallback:
+    def test_empty_cache_plus_fallback_discovers_identity(self):
+        cache = CachedPredictor(
+            fallback=_matched_fallback(name="random", version="3.0"),
+        )
+        # Pre-query: identity is unset
+        assert cache.prediction_method_name is None
+        assert cache.predictor_version is None
+        # First query: identity is adopted from fallback output
+        out = cache.predict_peptides_dataframe(["SIINFEKLA"])
+        assert len(out) == 1
+        assert cache.prediction_method_name == "random"
+        assert cache.predictor_version == "3.0"
+
+    def test_empty_cache_plus_fallback_caches_results(self):
+        cache = CachedPredictor(
+            fallback=_matched_fallback(name="random", version="3.0"),
+        )
+        cache.predict_peptides_dataframe(["SIINFEKLA"])
+        assert ("SIINFEKLA", "HLA-A*02:01", 9) in cache._index
+
+    def test_empty_df_value_and_no_fallback_still_raises(self):
+        empty = pd.DataFrame(columns=list(_row().keys()))
+        with pytest.raises(ValueError, match="either .df. .* or .fallback."):
+            CachedPredictor(empty)
+
+
+# ---------------------------------------------------------------------------
+# Version equivalence (also_accept_versions)
+# ---------------------------------------------------------------------------
+
+
+class TestAlsoAcceptVersions:
+    def test_equivalent_version_accepted(self):
+        cache = CachedPredictor.from_dataframe(
+            _df([_row(predictor_version="2.2.0rc2")]),
+            fallback=_matched_fallback(name="random", version="2.2.0"),
+            also_accept_versions={"2.2.0"},
+        )
+        out = cache.predict_peptides_dataframe(["GILGFVFTL"])
+        assert len(out) == 1
+        # Cache's own identity doesn't change — only acceptance widens.
+        assert cache.predictor_version == "2.2.0rc2"
+
+    def test_non_equivalent_version_still_rejects(self):
+        cache = CachedPredictor.from_dataframe(
+            _df([_row(predictor_version="2.2.0rc2")]),
+            fallback=_matched_fallback(name="random", version="1.0"),
+            also_accept_versions={"2.2.0"},  # different version in set
+        )
         with pytest.raises(ValueError, match="version mismatch"):
             cache.predict_peptides_dataframe(["GILGFVFTL"])
+
+    def test_default_empty_set_is_strict(self):
+        cache = CachedPredictor.from_dataframe(
+            _df([_row(predictor_version="2.2.0rc2")]),
+            fallback=_matched_fallback(name="random", version="2.2.0"),
+        )
+        with pytest.raises(ValueError, match="version mismatch"):
+            cache.predict_peptides_dataframe(["GILGFVFTL"])
+
+
+# ---------------------------------------------------------------------------
+# mhcflurry_composite_version helper + auto-default in from_mhcflurry
+# ---------------------------------------------------------------------------
+
+
+class TestMhcflurryCompositeVersion:
+    """Tests use stubbed mhcflurry / mhcflurry.downloads modules to
+    avoid importing tensorflow (which collides with pandas' libomp on
+    macOS and isn't needed to verify the helper's composition logic)."""
+
+    @staticmethod
+    def _stub_mhcflurry(monkeypatch, *, version="2.2.1", release="2.2.0"):
+        import sys
+        import types
+        fake_mhcflurry = types.ModuleType("mhcflurry")
+        fake_mhcflurry.__version__ = version
+        fake_downloads = types.ModuleType("mhcflurry.downloads")
+        fake_downloads.get_current_release = lambda: release
+        fake_mhcflurry.downloads = fake_downloads
+        monkeypatch.setitem(sys.modules, "mhcflurry", fake_mhcflurry)
+        monkeypatch.setitem(sys.modules, "mhcflurry.downloads", fake_downloads)
+
+    def test_returns_composite_string(self, monkeypatch):
+        self._stub_mhcflurry(monkeypatch, version="2.2.1", release="2.2.0")
+        assert mhcflurry_composite_version() == "2.2.1+release-2.2.0"
+
+    def test_raises_when_mhcflurry_missing(self, monkeypatch):
+        import sys
+        monkeypatch.setitem(sys.modules, "mhcflurry", None)
+        with pytest.raises(RuntimeError, match="not installed"):
+            mhcflurry_composite_version()
+
+    def test_raises_when_release_missing(self, monkeypatch):
+        self._stub_mhcflurry(monkeypatch, release="")
+        with pytest.raises(RuntimeError, match="no active model release"):
+            mhcflurry_composite_version()
+
+    def test_from_mhcflurry_autocomposes_version(self, monkeypatch, tmp_path):
+        self._stub_mhcflurry(monkeypatch, version="2.2.1", release="2.2.0")
+        df = pd.DataFrame([{
+            "peptide": "SIINFEKLA",
+            "allele": "HLA-A*02:01",
+            "mhcflurry_affinity": 100.0,
+        }])
+        path = tmp_path / "mhcflurry.csv"
+        df.to_csv(path, index=False)
+        cache = CachedPredictor.from_mhcflurry(path)  # no predictor_version
+        assert cache.prediction_method_name == "mhcflurry"
+        assert cache.predictor_version == "2.2.1+release-2.2.0"
+
+    def test_from_mhcflurry_explicit_version_overrides_autocompose(
+        self, monkeypatch, tmp_path,
+    ):
+        # Even with mhcflurry stubbed in, an explicit predictor_version wins.
+        self._stub_mhcflurry(monkeypatch, version="2.2.1", release="2.2.0")
+        df = pd.DataFrame([{
+            "peptide": "SIINFEKLA", "allele": "HLA-A*02:01",
+            "mhcflurry_affinity": 100.0,
+        }])
+        path = tmp_path / "mhcflurry.csv"
+        df.to_csv(path, index=False)
+        cache = CachedPredictor.from_mhcflurry(
+            path, predictor_version="custom-label",
+        )
+        assert cache.predictor_version == "custom-label"
 
 
 # ---------------------------------------------------------------------------

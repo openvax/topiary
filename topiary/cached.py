@@ -68,13 +68,38 @@ class CachedPredictor:
         cache's.
     """
 
-    def __init__(self, df: pd.DataFrame, fallback=None):
+    def __init__(
+        self,
+        df: Optional[pd.DataFrame] = None,
+        fallback=None,
+        *,
+        also_accept_versions: Optional[Iterable[str]] = None,
+    ):
+        self.fallback = fallback
+        self.also_accept_versions = (
+            frozenset(also_accept_versions) if also_accept_versions else frozenset()
+        )
+        self._fallback_verified = False
+
+        # Empty-cache + fallback: (name, version) discovered lazily on
+        # the first fallback call.
+        if df is None or len(df) == 0:
+            if fallback is None:
+                raise ValueError(
+                    "CachedPredictor: pass either `df` (pre-loaded rows) "
+                    "or `fallback` (a live predictor).  An empty cache "
+                    "with no fallback has no way to answer queries."
+                )
+            self._df = pd.DataFrame(columns=list(_CACHE_COLUMNS))
+            self.prediction_method_name = None
+            self.predictor_version = None
+            self._index = {}
+            return
+
         self._df = self._normalize(df)
         self.prediction_method_name, self.predictor_version = \
             self._unique_version_pair(self._df)
         self._index = self._build_index(self._df)
-        self.fallback = fallback
-        self._fallback_verified = False
 
     # --- normalization + invariants ---------------------------------
 
@@ -87,6 +112,20 @@ class CachedPredictor:
                 f"{sorted(missing)}.  Provide them in the DataFrame or "
                 f"pass predictor_name / predictor_version to the loader."
             )
+        # Reject null / empty identity columns before coercing to str
+        # ("".astype(str) → "", "None" etc. pass a naive check).
+        for col in ("prediction_method_name", "predictor_version"):
+            na_mask = df[col].isna() | (
+                df[col].astype(str).str.strip().isin(["", "None", "nan", "NaN"])
+            )
+            if na_mask.any():
+                raise ValueError(
+                    f"CachedPredictor: column {col!r} must be a non-empty "
+                    f"string on every row (got {int(na_mask.sum())} "
+                    f"null/empty value(s)).  Silent None/NaN would mask "
+                    f"the version invariant — supply a value via the "
+                    f"loader's predictor_name / predictor_version args."
+                )
         keep = [c for c in _CACHE_COLUMNS if c in df.columns]
         out = df[keep].copy()
         out["peptide"] = out["peptide"].astype(str)
@@ -152,27 +191,40 @@ class CachedPredictor:
         self, peptides: Iterable[str],
     ) -> pd.DataFrame:
         """Return one row per ``(peptide, allele)`` for each input peptide
-        crossed with every allele in the cache.
+        crossed with every allele in the cache (or in the fallback, if set).
 
-        Misses go to ``self.fallback`` if set, else raise ``KeyError``.
+        Misses are resolved through ``self.fallback`` (which merges into
+        the cache) if set; else raise ``KeyError``.
         """
         peptides = [str(p) for p in peptides]
-        cache_alleles = self._cache_alleles()
-        rows = []
-        misses = []
+        query_alleles = self._cache_alleles()
+        if self.fallback is not None:
+            query_alleles = sorted(
+                set(query_alleles)
+                | set(getattr(self.fallback, "alleles", []))
+            )
+
+        # Identify peptides with at least one missing (peptide, allele).
+        missed_peptides = set()
         for peptide in peptides:
             length = len(peptide)
-            for allele in cache_alleles:
-                row = self._index.get((peptide, allele, length))
-                if row is None:
-                    misses.append(peptide)
-                    break  # defer: fallback call covers all alleles at once
-                rows.append(row)
+            for allele in query_alleles:
+                if (peptide, allele, length) not in self._index:
+                    missed_peptides.add(peptide)
+                    break
 
-        if misses:
-            missed_unique = sorted(set(misses))
-            fb_rows = self._fallback_resolve(missed_unique)
-            rows.extend(fb_rows)
+        # Resolve misses through fallback (populates self._index in place).
+        if missed_peptides:
+            self._fallback_resolve(sorted(missed_peptides))
+
+        # Assemble output from the (updated) cache.
+        rows = []
+        for peptide in peptides:
+            length = len(peptide)
+            for allele in query_alleles:
+                row = self._index.get((peptide, allele, length))
+                if row is not None:
+                    rows.append(row)
 
         if not rows:
             return pd.DataFrame(columns=list(_CACHE_COLUMNS))
@@ -231,10 +283,12 @@ class CachedPredictor:
 
     # --- fallback resolution ----------------------------------------
 
-    def _fallback_resolve(self, peptides):
-        """Run the fallback on ``peptides`` (missed peptide strings),
-        verify the version invariant, merge the results into the cache,
-        and return the new row dicts for the requested peptides."""
+    def _fallback_resolve(self, peptides) -> None:
+        """Run the fallback on ``peptides``, verify the version invariant,
+        and merge results into ``self._df`` and ``self._index``.
+
+        No return value — the caller re-reads from ``self._index``.
+        """
         if self.fallback is None:
             missed_preview = peptides[:5]
             extra = "" if len(peptides) <= 5 else \
@@ -262,11 +316,17 @@ class CachedPredictor:
                 str(r["peptide"]), str(r["allele"]), int(r["peptide_length"]),
             )
             self._index[key] = r.to_dict()
-        self._df = pd.concat([self._df, new_rows], ignore_index=True) \
-            .drop_duplicates(
-                subset=["peptide", "allele", "peptide_length"], keep="last",
-            )
-        return [r.to_dict() for _, r in new_rows.iterrows()]
+        # Empty-cache mode: self._df is an empty all-NA frame from
+        # __init__; concatenating through it trips a pandas FutureWarning.
+        # Assign directly instead when there's nothing to preserve.
+        if len(self._df) == 0:
+            self._df = new_rows.copy()
+        else:
+            self._df = pd.concat([self._df, new_rows], ignore_index=True) \
+                .drop_duplicates(
+                    subset=["peptide", "allele", "peptide_length"],
+                    keep="last",
+                )
 
     @staticmethod
     def _conform_predictor_output(df: pd.DataFrame) -> pd.DataFrame:
@@ -291,15 +351,31 @@ class CachedPredictor:
         if self._fallback_verified:
             return
         fb_pair = self._unique_version_pair(fb_df)
+
+        # Empty-cache mode: adopt the fallback's identity on first call.
+        if self.prediction_method_name is None:
+            self.prediction_method_name, self.predictor_version = fb_pair
+            self._fallback_verified = True
+            return
+
         cache_pair = (self.prediction_method_name, self.predictor_version)
-        if fb_pair != cache_pair:
+        # Names must match exactly — different predictors are different.
+        if fb_pair[0] != cache_pair[0]:
+            raise ValueError(
+                f"CachedPredictor fallback predictor_name mismatch: "
+                f"cache={cache_pair[0]!r}, fallback={fb_pair[0]!r}."
+            )
+        # Versions match if equal OR in the caller's equivalence set.
+        if (fb_pair[1] != cache_pair[1]
+                and fb_pair[1] not in self.also_accept_versions):
             raise ValueError(
                 f"CachedPredictor fallback version mismatch: cache="
-                f"({cache_pair[0]!r}, {cache_pair[1]!r}), "
-                f"fallback=({fb_pair[0]!r}, {fb_pair[1]!r}).  Mixing model "
-                f"versions is not allowed — use a fallback whose "
-                f"(prediction_method_name, predictor_version) matches the "
-                f"cache."
+                f"({cache_pair[0]!r}, {cache_pair[1]!r}), fallback="
+                f"({fb_pair[0]!r}, {fb_pair[1]!r}).  Mixing versions is "
+                f"not allowed by default — pass "
+                f"also_accept_versions={{{fb_pair[1]!r}}} at cache "
+                f"construction to opt in to treating these as "
+                f"interchangeable."
             )
         self._fallback_verified = True
 
@@ -330,6 +406,7 @@ class CachedPredictor:
         prediction_method_name: Optional[str] = None,
         predictor_version: Optional[str] = None,
         fallback=None,
+        also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Construct from an in-memory DataFrame.
 
@@ -349,11 +426,14 @@ class CachedPredictor:
             df = df.rename(columns={"length": "peptide_length"})
         if "peptide_length" not in df.columns and "peptide" in df.columns:
             df["peptide_length"] = df["peptide"].str.len()
-        return cls(df, fallback=fallback)
+        return cls(
+            df, fallback=fallback, also_accept_versions=also_accept_versions,
+        )
 
     @classmethod
     def from_topiary_output(
         cls, path, *, fallback=None,
+        also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Load a DataFrame previously written by topiary's prediction
         output (Parquet or TSV/CSV).  The expected columns match
@@ -366,7 +446,10 @@ class CachedPredictor:
             df = pd.read_csv(path_str, sep="\t")
         else:
             df = pd.read_csv(path_str)
-        return cls.from_dataframe(df, fallback=fallback)
+        return cls.from_dataframe(
+            df, fallback=fallback,
+            also_accept_versions=also_accept_versions,
+        )
 
     @classmethod
     def from_tsv(
@@ -378,6 +461,7 @@ class CachedPredictor:
         prediction_method_name: Optional[str] = None,
         predictor_version: Optional[str] = None,
         fallback=None,
+        also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Generic tab- or comma-delimited loader for third-party
         prediction output.
@@ -395,6 +479,7 @@ class CachedPredictor:
             prediction_method_name=prediction_method_name,
             predictor_version=predictor_version,
             fallback=fallback,
+            also_accept_versions=also_accept_versions,
         )
 
     @classmethod
@@ -402,16 +487,30 @@ class CachedPredictor:
         cls,
         path,
         *,
-        predictor_version: str,
+        predictor_version: Optional[str] = None,
         fallback=None,
+        also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
-        """Load mhcflurry-predict CSV output.  Maps mhcflurry's
-        ``mhcflurry_affinity`` / ``mhcflurry_affinity_percentile`` /
+        """Load mhcflurry-predict CSV output.
+
+        Maps mhcflurry's ``mhcflurry_affinity`` /
+        ``mhcflurry_affinity_percentile`` /
         ``mhcflurry_presentation_score`` columns onto the cache's
         canonical ``affinity`` / ``percentile_rank`` / ``score``.
 
-        ``predictor_version`` is required — mhcflurry's CSV doesn't
-        embed it and the version invariant must be satisfied."""
+        **mhcflurry-specific version note.** Unlike NetMHCpan (which
+        bakes models into the binary), mhcflurry fetches model weights
+        separately via ``mhcflurry-downloads fetch``.  Two systems with
+        the same package version can produce different predictions if
+        they have different model bundles installed.  The cache's
+        ``predictor_version`` must capture both.
+
+        When ``predictor_version`` is omitted, the loader auto-composes
+        it via :func:`mhcflurry_composite_version` — e.g.
+        ``"2.2.1+release-2.2.0"``.  Users never have to enumerate the
+        installed model bundle manually.  Pass an explicit string only
+        when you need a custom label.
+        """
         df = pd.read_csv(path)
         col_map = {}
         if "mhcflurry_affinity" in df.columns:
@@ -421,9 +520,63 @@ class CachedPredictor:
         if "mhcflurry_presentation_score" in df.columns:
             col_map["mhcflurry_presentation_score"] = "score"
         df = df.rename(columns=col_map)
+        if predictor_version is None:
+            predictor_version = mhcflurry_composite_version()
         return cls.from_dataframe(
             df,
             prediction_method_name="mhcflurry",
             predictor_version=predictor_version,
             fallback=fallback,
+            also_accept_versions=also_accept_versions,
         )
+
+
+def mhcflurry_composite_version() -> str:
+    """Compose mhcflurry's package version + active model-release
+    identifier into a single string for :attr:`CachedPredictor.predictor_version`.
+
+    Returns a string like ``"2.2.1+release-2.2.0"`` — the Python
+    package version joined to the mhcflurry model-data release
+    currently installed via ``mhcflurry-downloads fetch``.  Two
+    systems whose :func:`mhcflurry_composite_version` outputs match
+    should produce interchangeable mhcflurry predictions.
+
+    The helper introspects the locally-installed mhcflurry; the user
+    never has to enumerate model bundles manually.
+
+    Raises
+    ------
+    RuntimeError
+        If mhcflurry isn't installed, or no model release is configured
+        (run ``mhcflurry-downloads fetch`` first).
+    """
+    try:
+        import mhcflurry
+        import mhcflurry.downloads
+    except ImportError as e:
+        raise RuntimeError(
+            "mhcflurry is not installed — cannot derive a composite "
+            "version.  Install mhcflurry or pass predictor_version "
+            "explicitly."
+        ) from e
+    pkg = getattr(mhcflurry, "__version__", None)
+    if not pkg:
+        raise RuntimeError(
+            "mhcflurry is installed but exposes no __version__; cannot "
+            "derive a composite version — pass predictor_version "
+            "explicitly."
+        )
+    try:
+        release = mhcflurry.downloads.get_current_release()
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not read mhcflurry's current model release: {e!r}.  "
+            f"Pass predictor_version explicitly."
+        ) from e
+    if not release:
+        raise RuntimeError(
+            "mhcflurry has no active model release.  Run "
+            "`mhcflurry-downloads fetch` or pass predictor_version "
+            "explicitly."
+        )
+    return f"{pkg}+release-{release}"
