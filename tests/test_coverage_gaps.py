@@ -49,6 +49,24 @@ def test_no_models_raises():
         TopiaryPredictor()
 
 
+def test_bare_predictor_instance_autowraps():
+    """``models=`` accepts a bare mhctools predictor instance (no list)."""
+    instance = RandomBindingPredictor(
+        alleles=["HLA-A*02:01"], default_peptide_lengths=[9],
+    )
+    predictor = TopiaryPredictor(models=instance)
+    assert predictor.models == [instance]
+    df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
+    assert len(df) > 0
+
+
+def test_bare_predictor_class_autowraps():
+    """``models=`` accepts a bare predictor class (no list)."""
+    predictor = TopiaryPredictor(models=RandomBindingPredictor, alleles=["A0201"])
+    assert len(predictor.models) == 1
+    assert isinstance(predictor.models[0], RandomBindingPredictor)
+
+
 # ---------------------------------------------------------------------------
 # String model names
 # ---------------------------------------------------------------------------
