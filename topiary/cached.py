@@ -3,8 +3,8 @@
 Plugs into :class:`topiary.TopiaryPredictor` alongside live mhctools
 predictors.  Supports three producer paths:
 
-1. External predictor output files (mhcflurry CSV today; NetMHCpan
-   `.xls` and others via follow-up loaders).
+1. External predictor output files (mhcflurry CSV, NetMHC-family
+   stdout captures, generic TSV/CSV with column mapping).
 2. Topiary's own saved predictions (``predict_*`` output round-tripped
    through Parquet / TSV).
 3. Caller-supplied DataFrames (programmatic / in-memory construction).
@@ -29,6 +29,7 @@ Fallback semantics
 """
 from __future__ import annotations
 
+import re
 from typing import Iterable, Mapping, Optional
 
 import pandas as pd
@@ -580,6 +581,224 @@ class CachedPredictor:
             fallback=fallback,
             also_accept_versions=also_accept_versions,
         )
+
+    # --- NetMHC-family loaders ---
+    # Thin adapters over mhctools.parsing.*_stdout functions.  They
+    # read an NetMHC-tool stdout capture, run the mhctools parser,
+    # convert the resulting list[BindingPrediction] into a DataFrame
+    # shaped for the cache, and hand off to from_dataframe.
+
+    @classmethod
+    def from_netmhcpan_stdout(
+        cls,
+        path,
+        *,
+        mode: str = "binding_affinity",
+        predictor_version: Optional[str] = None,
+        fallback=None,
+        also_accept_versions: Optional[Iterable[str]] = None,
+    ) -> "CachedPredictor":
+        """Load a NetMHCpan stdout capture (2.8 / 3 / 4 / 4.1).
+
+        Uses ``mhctools.parsing.parse_netmhcpan_stdout`` which auto-
+        detects the version.  ``mode`` picks between
+        ``"binding_affinity"`` (default) and ``"elution_score"`` for
+        NetMHCpan 4+; ignored on earlier versions.  When
+        ``predictor_version`` is omitted, the version string is
+        parsed from the stdout preamble (e.g. ``"4.1b"``).
+        """
+        from mhctools.parsing import parse_netmhcpan_stdout
+        text = _read_text(path)
+        preds = parse_netmhcpan_stdout(text, mode=mode)
+        if predictor_version is None:
+            predictor_version = _version_from_header(text) or "unknown"
+        return cls.from_dataframe(
+            _bindings_to_dataframe(preds),
+            prediction_method_name="netmhcpan",
+            predictor_version=predictor_version,
+            fallback=fallback,
+            also_accept_versions=also_accept_versions,
+        )
+
+    @classmethod
+    def from_netmhc_stdout(
+        cls,
+        path,
+        *,
+        version: str = "4",
+        predictor_version: Optional[str] = None,
+        fallback=None,
+        also_accept_versions: Optional[Iterable[str]] = None,
+    ) -> "CachedPredictor":
+        """Load a classic NetMHC stdout capture (3 / 4 / 4.1).
+
+        ``version`` selects the parser: ``"3"``, ``"4"``, or ``"4.1"``.
+        """
+        from mhctools import parsing as _p
+        parsers = {
+            "3": _p.parse_netmhc3_stdout,
+            "4": _p.parse_netmhc4_stdout,
+            "4.1": _p.parse_netmhc41_stdout,
+        }
+        if version not in parsers:
+            raise ValueError(
+                f"NetMHC version {version!r} not supported — choose "
+                f"from {sorted(parsers)}."
+            )
+        text = _read_text(path)
+        preds = parsers[version](text)
+        if predictor_version is None:
+            predictor_version = _version_from_header(text) or version
+        return cls.from_dataframe(
+            _bindings_to_dataframe(preds),
+            prediction_method_name="netmhc",
+            predictor_version=predictor_version,
+            fallback=fallback,
+            also_accept_versions=also_accept_versions,
+        )
+
+    @classmethod
+    def from_netmhcpan_cons_stdout(
+        cls,
+        path,
+        *,
+        predictor_version: Optional[str] = None,
+        fallback=None,
+        also_accept_versions: Optional[Iterable[str]] = None,
+    ) -> "CachedPredictor":
+        """Load a NetMHCcons stdout capture (consensus of multiple
+        methods)."""
+        from mhctools.parsing import parse_netmhccons_stdout
+        text = _read_text(path)
+        preds = parse_netmhccons_stdout(text)
+        if predictor_version is None:
+            predictor_version = _version_from_header(text) or "unknown"
+        return cls.from_dataframe(
+            _bindings_to_dataframe(preds),
+            prediction_method_name="netmhccons",
+            predictor_version=predictor_version,
+            fallback=fallback,
+            also_accept_versions=also_accept_versions,
+        )
+
+    @classmethod
+    def from_netmhciipan_stdout(
+        cls,
+        path,
+        *,
+        version: str = "4.3",
+        mode: str = "elution_score",
+        predictor_version: Optional[str] = None,
+        fallback=None,
+        also_accept_versions: Optional[Iterable[str]] = None,
+    ) -> "CachedPredictor":
+        """Load a NetMHCIIpan stdout capture (class II).
+
+        ``version`` selects the parser: ``"legacy"``, ``"4"``, or
+        ``"4.3"`` (default — latest).  ``mode`` picks between
+        ``"elution_score"`` (default, NetMHCIIpan 4+) and
+        ``"binding_affinity"``.
+        """
+        from mhctools import parsing as _p
+        parsers = {
+            "legacy": _p.parse_netmhciipan_stdout,
+            "4": _p.parse_netmhciipan4_stdout,
+            "4.3": _p.parse_netmhciipan43_stdout,
+        }
+        if version not in parsers:
+            raise ValueError(
+                f"NetMHCIIpan version {version!r} not supported — "
+                f"choose from {sorted(parsers)}."
+            )
+        text = _read_text(path)
+        parser = parsers[version]
+        # The legacy parser doesn't take mode; guard the call.
+        if version == "legacy":
+            preds = parser(text)
+        else:
+            preds = parser(text, mode=mode)
+        if predictor_version is None:
+            predictor_version = _version_from_header(text) or version
+        return cls.from_dataframe(
+            _bindings_to_dataframe(preds),
+            prediction_method_name="netmhciipan",
+            predictor_version=predictor_version,
+            fallback=fallback,
+            also_accept_versions=also_accept_versions,
+        )
+
+    @classmethod
+    def from_netmhcstabpan_stdout(
+        cls,
+        path,
+        *,
+        predictor_version: Optional[str] = None,
+        fallback=None,
+        also_accept_versions: Optional[Iterable[str]] = None,
+    ) -> "CachedPredictor":
+        """Load a NetMHCstabpan stdout capture (pMHC stability)."""
+        from mhctools.parsing import parse_netmhcstabpan
+        text = _read_text(path)
+        preds = parse_netmhcstabpan(text)
+        if predictor_version is None:
+            predictor_version = _version_from_header(text) or "unknown"
+        return cls.from_dataframe(
+            _bindings_to_dataframe(preds),
+            prediction_method_name="netmhcstabpan",
+            predictor_version=predictor_version,
+            fallback=fallback,
+            also_accept_versions=also_accept_versions,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers used by the NetMHC loaders
+# ---------------------------------------------------------------------------
+
+
+def _read_text(path) -> str:
+    with open(path, "r") as f:
+        return f.read()
+
+
+def _bindings_to_dataframe(preds) -> pd.DataFrame:
+    """Convert an mhctools ``list[BindingPrediction]`` into a DataFrame
+    shaped for :class:`CachedPredictor`.  Uses ``length`` (the
+    mhctools attribute name) → ``peptide_length``.
+    """
+    rows = [
+        {
+            "peptide": p.peptide,
+            "allele": p.allele,
+            "peptide_length": p.length,
+            "score": p.score,
+            "affinity": p.affinity,
+            "percentile_rank": p.percentile_rank,
+            "value": getattr(p, "value", None),
+            # prediction_method_name is set per-loader by from_dataframe's
+            # backfill from the classmethod's caller.  Left unset here so
+            # the classmethod's explicit value wins.
+        }
+        for p in preds
+    ]
+    return pd.DataFrame(rows)
+
+
+# NetMHC-family tools embed their version in the stdout preamble,
+# e.g. "NetMHCpan version 4.1b" or "# NetMHCstabpan version 1.0".
+# Capture the token after "version" (ignoring surrounding whitespace
+# and case) — this is the stamp we put in predictor_version.
+_NETMHC_VERSION_RE = re.compile(
+    r"(?:NetMHCpan|NetMHCIIpan|NetMHCcons|NetMHCstabpan|NetMHC)\s+version\s+(\S+)",
+    re.IGNORECASE,
+)
+
+
+def _version_from_header(text: str) -> Optional[str]:
+    """Parse a NetMHC-family version string (e.g. ``"4.1b"``) from
+    the stdout preamble.  Returns ``None`` if no version line found."""
+    m = _NETMHC_VERSION_RE.search(text[:2000])
+    return m.group(1) if m else None
 
 
 def mhcflurry_composite_version() -> str:

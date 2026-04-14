@@ -36,6 +36,11 @@ pre-computed table. Pass as `models=cache` to `TopiaryPredictor`. See
 |--------|--------|
 | `CachedPredictor.from_topiary_output(path)` | Parquet / TSV / CSV previously written from a topiary run. |
 | `CachedPredictor.from_mhcflurry(path)` | mhcflurry-predict CSV output. `predictor_version` auto-composed from the installed mhcflurry when omitted. |
+| `CachedPredictor.from_netmhcpan_stdout(path, mode=...)` | NetMHCpan stdout capture (auto-detects 2.8 / 3 / 4 / 4.1). |
+| `CachedPredictor.from_netmhc_stdout(path, version=...)` | Classic NetMHC stdout (3 / 4 / 4.1). |
+| `CachedPredictor.from_netmhcpan_cons_stdout(path)` | NetMHCcons stdout. |
+| `CachedPredictor.from_netmhciipan_stdout(path, version=...)` | NetMHCIIpan stdout (legacy / 4 / 4.3). |
+| `CachedPredictor.from_netmhcstabpan_stdout(path)` | NetMHCstabpan stdout (pMHC stability). |
 | `CachedPredictor.from_tsv(path, columns=..., prediction_method_name=..., predictor_version=...)` | Generic tab- or comma-delimited. |
 | `CachedPredictor.from_dataframe(df, ...)` | In-memory DataFrame. |
 | `CachedPredictor(fallback=live_predictor)` | Empty cache, lazy identity discovery — pure read-through over a live model. |
