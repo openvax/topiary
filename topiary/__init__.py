@@ -41,6 +41,7 @@ from .sequence_helpers import (
     contains_mutant_residues,
     protein_subsequences_around_mutations,
 )
+from .cached import CachedPredictor
 from .protein_fragment import ProteinFragment, make_fragment_id
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
 from .io_protein_fragment import read_fragments, write_fragments, iter_fragments
@@ -52,6 +53,7 @@ __version__ = "5.4.0"
 
 __all__ = [
     "TopiaryPredictor",
+    "CachedPredictor",
     "Affinity",
     "BinOp",
     "BoolOp",
