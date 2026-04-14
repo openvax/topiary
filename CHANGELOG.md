@@ -48,8 +48,15 @@
 - New `TopiaryPredictor._build_fragment_rows(fragments)` — fragment
   scanning + metadata overlay without filter / sort.  Public entry
   points layer filter / sort / `only_novel_epitopes` on top.
+  Underscore-prefixed annotation keys are reserved for internal
+  plumbing and never surface as DataFrame columns.
 - 18 new regression tests covering legacy column contract, expression-
-  dict plumbing, and the effect→fragment source_type classifier.
+  dict plumbing, and the effect→fragment source_type classifier —
+  including a parametrized grid pinning every entry of the documented
+  `source_type` vocabulary (`variant:snv`, `variant:indel`,
+  `variant:frameshift`, `variant:stop_gain`, `variant:stop_loss`,
+  `variant:start_loss`, `variant:exon_loss`, `variant:alternate_start`,
+  plus the `variant:<classname_lowered>` fallback).
 - `tests/test_frameshift_fragments.py` — new regression suite (75
   cases) pinning `_fragment_from_effect` behavior on varcode
   `FrameShift` / `FrameShiftTruncation` effects: target_intervals

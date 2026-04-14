@@ -14,6 +14,7 @@ These tests assert:
 
 from unittest.mock import MagicMock
 
+import pytest
 from mhctools import RandomBindingPredictor
 from topiary import TopiaryPredictor
 
@@ -279,6 +280,39 @@ class TestFragmentFromEffect:
         effect = _make_mock_effect(cls_name="SomeNovelEffect")
         frag = _fragment_from_effect(effect, padding_around_mutation=8)
         assert frag.source_type == "variant:somenoveleffect"
+
+    @pytest.mark.parametrize(
+        "cls_name,mutation_span,expected_source_type",
+        [
+            # Single-residue Substitution is SNV; multi-residue collapses to indel.
+            ("Substitution", 1, "variant:snv"),
+            ("Substitution", 3, "variant:indel"),
+            ("ComplexSubstitution", 1, "variant:indel"),
+            ("Insertion", 1, "variant:indel"),
+            ("Deletion", 1, "variant:indel"),
+            ("FrameShift", 1, "variant:frameshift"),
+            ("FrameShiftTruncation", 1, "variant:frameshift"),
+            ("PrematureStop", 1, "variant:stop_gain"),
+            ("StopLoss", 1, "variant:stop_loss"),
+            ("StartLoss", 1, "variant:start_loss"),
+            ("ExonLoss", 1, "variant:exon_loss"),
+            ("AlternateStartCodon", 1, "variant:alternate_start"),
+            # Fallback: unlisted classes become variant:<classname_lower>.
+            ("SomeFutureEffect", 1, "variant:somefutureeffect"),
+        ],
+    )
+    def test_source_type_vocabulary(
+        self, cls_name, mutation_span, expected_source_type,
+    ):
+        """Pin the documented source_type vocabulary across every effect
+        class in ``_EFFECT_SOURCE_TYPES`` plus the free-form fallback."""
+        effect = _make_mock_effect(
+            mutation_start=10,
+            mutation_end=10 + mutation_span,
+            cls_name=cls_name,
+        )
+        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        assert frag.source_type == expected_source_type
 
 
 # ---------------------------------------------------------------------------

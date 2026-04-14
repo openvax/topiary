@@ -268,7 +268,9 @@ def _fragment_from_effect(
         reference_sequence=reference_subseq,
         mutation_start=mut_start - seq_start,
         mutation_end=mut_end - seq_start,
-        inframe=True,  # use effect-reported interval directly
+        # varcode FrameShift sets aa_mutation_end_offset == len(mutant_protein_sequence),
+        # so inframe=True yields the correct target_intervals for frameshifts too.
+        inframe=True,
         source_type=_source_type_from_effect(effect, mut_end - mut_start),
         variant=effect.variant.short_description,
         effect=effect.short_description,
@@ -336,13 +338,7 @@ def _add_legacy_mutation_columns(df, fragments):
     intervals = tmp.apply(_interval, axis=1, result_type="expand")
     df["mutation_start_in_peptide"] = intervals[0]
     df["mutation_end_in_peptide"] = intervals[1]
-
-    # Drop the private annotation keys that the row-builder flattened
-    # into columns — they're implementation detail for this path.
-    return df.drop(
-        columns=[_SUBSEQ_OFFSET_KEY, _MUTATION_START_KEY, _MUTATION_END_KEY],
-        errors="ignore",
-    )
+    return df
 
 
 class TopiaryPredictor(object):
@@ -711,6 +707,11 @@ class TopiaryPredictor(object):
         for f in fragments:
             all_annotation_keys.update(f.annotations.keys())
         for key in sorted(all_annotation_keys):
+            # Underscore-prefixed keys are reserved for internal plumbing
+            # (e.g. the variant path stashes subsequence/mutation offsets
+            # here before rebasing); never surface them as output columns.
+            if key.startswith("_"):
+                continue
             if key in df.columns:
                 continue
             df[key] = df["fragment_id"].map(
