@@ -78,7 +78,11 @@ class ProteinFragment:
         Expression evidence carried forward into prediction rows.
     annotations : dict
         Tool-specific signals that don't fit the above fields.
-        Serialized as JSON in TSV IO; carried through prediction.
+        Serialized as JSON in TSV IO; carried through prediction as
+        additional output columns.  Underscore-prefixed keys are
+        reserved for internal plumbing and are **not** surfaced as
+        columns — use them for short-lived bookkeeping that should
+        not leak into user-facing output.
     """
 
     fragment_id: str

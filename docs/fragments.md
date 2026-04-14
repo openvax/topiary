@@ -39,7 +39,7 @@ Output DataFrame columns, beyond the standard prediction fields:
 | `overlaps_target` | `True` / `False` / NaN — whether the peptide overlaps any of the fragment's target intervals |
 | `contains_mutant_residues` | Backwards-compat alias — `True` iff `source_type.startswith("variant")` AND `overlaps_target` is True |
 | `wt_peptide`, `wt_peptide_length` | Derived by slicing `effective_baseline` at the peptide's offset. Only populated for substitution-compatible fragments (baseline and `sequence` the same length); `None` otherwise or when no baseline exists. |
-| *(each annotation key)* | Flattened from every fragment's `annotations` dict |
+| *(each annotation key)* | Flattened from every fragment's `annotations` dict. Underscore-prefixed keys (e.g. `_subsequence_offset`) are reserved for internal plumbing and never surface as columns. |
 
 ## source_type vocabulary (recommended, not enforced)
 
