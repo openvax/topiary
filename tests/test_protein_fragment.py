@@ -1,4 +1,4 @@
-"""Tests for topiary.antigen (AntigenFragment + helpers)."""
+"""Tests for topiary.protein_fragment (ProteinFragment + helpers)."""
 
 import json
 import tempfile
@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from topiary import AntigenFragment, make_fragment_id
-from topiary.antigen import _sanitize_prefix, _default_prefix, collect_annotations
-from topiary.io_antigen import read_antigens, write_antigens, iter_antigens
+from topiary import ProteinFragment, make_fragment_id
+from topiary.protein_fragment import _sanitize_prefix, _default_prefix, collect_annotations
+from topiary.io_protein_fragment import read_fragments, write_fragments, iter_fragments
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ class TestIdentity:
             target_intervals=[(2, 3)],
         )
         kwargs.update(overrides)
-        return AntigenFragment(**kwargs)
+        return ProteinFragment(**kwargs)
 
     def test_equality_by_id(self):
         a = self._sample()
@@ -104,7 +104,7 @@ class TestIdentity:
 
 class TestSerialization:
     def _rich(self):
-        return AntigenFragment(
+        return ProteinFragment(
             fragment_id="BRAF_p.V600E__abcdef01",
             source_type="variant:snv",
             sequence="MAAVTDVGMAV",
@@ -130,14 +130,14 @@ class TestSerialization:
 
     def test_dict_roundtrip(self):
         f = self._rich()
-        f2 = AntigenFragment.from_dict(f.to_dict())
+        f2 = ProteinFragment.from_dict(f.to_dict())
         assert f == f2
         assert f2.target_intervals == [(10, 11)]  # restored as tuples
         assert f2.annotations == f.annotations
 
     def test_json_roundtrip(self):
         f = self._rich()
-        f2 = AntigenFragment.from_json(f.to_json())
+        f2 = ProteinFragment.from_json(f.to_json())
         assert f == f2
         assert f2.sequence == f.sequence
         assert f2.target_intervals == [(10, 11)]
@@ -146,17 +146,17 @@ class TestSerialization:
         f = self._rich()
         s = f.to_json(indent=2)
         assert "\n" in s
-        assert AntigenFragment.from_json(s) == f
+        assert ProteinFragment.from_json(s) == f
 
     def test_from_dict_rejects_unknown_keys(self):
-        with pytest.raises(ValueError, match="Unknown AntigenFragment field"):
-            AntigenFragment.from_dict({
+        with pytest.raises(ValueError, match="Unknown ProteinFragment field"):
+            ProteinFragment.from_dict({
                 "fragment_id": "x__00000000", "sequence": "M",
                 "bogus_field": 1,
             })
 
     def test_from_dict_missing_optional_defaults(self):
-        f = AntigenFragment.from_dict({
+        f = ProteinFragment.from_dict({
             "fragment_id": "x__00000000", "sequence": "M",
         })
         assert f.source_type is None
@@ -164,15 +164,15 @@ class TestSerialization:
         assert f.annotations == {}
 
     def test_none_target_intervals_serializes(self):
-        f = AntigenFragment(fragment_id="x__00000000", sequence="M")
+        f = ProteinFragment(fragment_id="x__00000000", sequence="M")
         d = f.to_dict()
         assert d["target_intervals"] is None
-        f2 = AntigenFragment.from_dict(d)
+        f2 = ProteinFragment.from_dict(d)
         assert f2.target_intervals is None
 
     def test_empty_target_intervals(self):
-        f = AntigenFragment(fragment_id="x__00000000", sequence="M", target_intervals=[])
-        f2 = AntigenFragment.from_json(f.to_json())
+        f = ProteinFragment(fragment_id="x__00000000", sequence="M", target_intervals=[])
+        f2 = ProteinFragment.from_json(f.to_json())
         assert f2.target_intervals == []
 
 
@@ -183,7 +183,7 @@ class TestSerialization:
 
 class TestStringification:
     def test_str_is_compact(self):
-        f = AntigenFragment(
+        f = ProteinFragment(
             fragment_id="BRAF_p.V600E__abcdef01",
             source_type="variant:snv",
             sequence="MAAVTDVGMAV",
@@ -198,10 +198,10 @@ class TestStringification:
         assert "gene=BRAF" in s
 
     def test_repr_unambiguous(self):
-        f = AntigenFragment(fragment_id="x__00000000", sequence="M")
+        f = ProteinFragment(fragment_id="x__00000000", sequence="M")
         r = repr(f)
         # dataclass-generated repr contains class name and fragment_id
-        assert "AntigenFragment" in r
+        assert "ProteinFragment" in r
         assert "fragment_id='x__00000000'" in r
 
 
@@ -212,7 +212,7 @@ class TestStringification:
 
 class TestOverlaps:
     def _f(self, intervals):
-        return AntigenFragment(
+        return ProteinFragment(
             fragment_id="x__00000000",
             sequence="A" * 20,
             target_intervals=intervals,
@@ -258,7 +258,7 @@ class TestOverlaps:
 
 class TestClassmethods:
     def test_from_variant_inframe_snv(self):
-        f = AntigenFragment.from_variant(
+        f = ProteinFragment.from_variant(
             sequence="MAAVTDVGMAV",
             mutation_start=10, mutation_end=11,
             inframe=True,
@@ -270,7 +270,7 @@ class TestClassmethods:
         assert f.fragment_id.startswith("BRAF_p.Ala290Val")
 
     def test_from_variant_inframe_indel(self):
-        f = AntigenFragment.from_variant(
+        f = ProteinFragment.from_variant(
             sequence="MAAVTDVGMAV",
             mutation_start=8, mutation_end=11,
             inframe=True,
@@ -279,7 +279,7 @@ class TestClassmethods:
         assert f.target_intervals == [(8, 11)]
 
     def test_from_variant_frameshift(self):
-        f = AntigenFragment.from_variant(
+        f = ProteinFragment.from_variant(
             sequence="MAAVTDVGMAV",  # length 11
             mutation_start=5, mutation_end=5,
             inframe=False,
@@ -289,7 +289,7 @@ class TestClassmethods:
         assert f.target_intervals == [(5, 11)]
 
     def test_from_junction_crossing_only(self):
-        f = AntigenFragment.from_junction(
+        f = ProteinFragment.from_junction(
             sequence="AAAAAABBBBBB",
             junction_position=6,
             novel_downstream=False,
@@ -299,7 +299,7 @@ class TestClassmethods:
         assert f.target_intervals == [(5, 7)]  # junction ± 1
 
     def test_from_junction_novel_downstream(self):
-        f = AntigenFragment.from_junction(
+        f = ProteinFragment.from_junction(
             sequence="AAAAAABBBBBB",  # length 12
             junction_position=6,
             novel_downstream=True,
@@ -308,7 +308,7 @@ class TestClassmethods:
 
     def test_from_variant_fragment_id_prefix(self):
         # Provide all three fields; prefix should concatenate
-        f = AntigenFragment.from_variant(
+        f = ProteinFragment.from_variant(
             sequence="ABC", mutation_start=1, mutation_end=2, inframe=True,
             gene="GENE", effect="p.Ala1Val", variant="chr1:100",
         )
@@ -325,21 +325,21 @@ class TestClassmethods:
 
 class TestEffectiveBaseline:
     def test_germline_takes_precedence(self):
-        f = AntigenFragment(
+        f = ProteinFragment(
             fragment_id="x__00000000", sequence="M",
             reference_sequence="REF", germline_sequence="GERM",
         )
         assert f.effective_baseline == "GERM"
 
     def test_fallback_to_reference(self):
-        f = AntigenFragment(
+        f = ProteinFragment(
             fragment_id="x__00000000", sequence="M",
             reference_sequence="REF", germline_sequence=None,
         )
         assert f.effective_baseline == "REF"
 
     def test_both_none(self):
-        f = AntigenFragment(fragment_id="x__00000000", sequence="M")
+        f = ProteinFragment(fragment_id="x__00000000", sequence="M")
         assert f.effective_baseline is None
 
 
@@ -351,7 +351,7 @@ class TestEffectiveBaseline:
 class TestTsvIo:
     def _fragments(self):
         return [
-            AntigenFragment.from_variant(
+            ProteinFragment.from_variant(
                 sequence="MAAVTDVGMAV",
                 reference_sequence="MAAVTDVGMAA",
                 mutation_start=10, mutation_end=11,
@@ -360,7 +360,7 @@ class TestTsvIo:
                 variant="chr7:140753336",
                 annotations={"vaf": 0.42, "ccf": 0.9},
             ),
-            AntigenFragment(
+            ProteinFragment(
                 fragment_id="erv_Hsap38.chr7__abcdef01",
                 source_type="erv",
                 sequence="MLGMNMLL",
@@ -372,8 +372,8 @@ class TestTsvIo:
     def test_roundtrip(self, tmp_path):
         frags = self._fragments()
         p = tmp_path / "antigens.tsv"
-        write_antigens(frags, p)
-        loaded = read_antigens(p)
+        write_fragments(frags, p)
+        loaded = read_fragments(p)
         for a, b in zip(frags, loaded):
             assert a == b
             assert a.sequence == b.sequence
@@ -383,7 +383,7 @@ class TestTsvIo:
     def test_file_is_tsv(self, tmp_path):
         frags = self._fragments()
         p = tmp_path / "antigens.tsv"
-        write_antigens(frags, p)
+        write_fragments(frags, p)
         first_line = p.read_text().splitlines()[0]
         assert "\t" in first_line
         assert first_line.startswith("fragment_id\t")
@@ -394,23 +394,23 @@ class TestTsvIo:
             "fragment_id\tsequence\tfoobar\n"
             "x__00000000\tM\tvalue\n"
         )
-        with pytest.raises(ValueError, match="Unknown antigen-TSV column"):
-            read_antigens(p)
+        with pytest.raises(ValueError, match="Unknown fragment-TSV column"):
+            read_fragments(p)
 
     def test_missing_optional_columns(self, tmp_path):
         p = tmp_path / "minimal.tsv"
         p.write_text("fragment_id\tsequence\nx__00000000\tMAVS\n")
-        loaded = read_antigens(p)
+        loaded = read_fragments(p)
         assert len(loaded) == 1
         assert loaded[0].sequence == "MAVS"
         assert loaded[0].annotations == {}
         assert loaded[0].target_intervals is None
 
-    def test_iter_antigens(self, tmp_path):
+    def test_iter_fragments(self, tmp_path):
         frags = self._fragments()
         p = tmp_path / "antigens.tsv"
-        write_antigens(frags, p)
-        streamed = list(iter_antigens(p))
+        write_fragments(frags, p)
+        streamed = list(iter_fragments(p))
         assert len(streamed) == len(frags)
         for a, b in zip(frags, streamed):
             assert a == b
@@ -433,9 +433,9 @@ class TestUtilities:
 
     def test_collect_annotations(self):
         frags = [
-            AntigenFragment(fragment_id="a__00000000", sequence="M",
+            ProteinFragment(fragment_id="a__00000000", sequence="M",
                             annotations={"x": 1, "y": 2}),
-            AntigenFragment(fragment_id="b__00000000", sequence="M",
+            ProteinFragment(fragment_id="b__00000000", sequence="M",
                             annotations={"y": 3, "z": 4}),
         ]
         assert collect_annotations(frags) == {"x", "y", "z"}

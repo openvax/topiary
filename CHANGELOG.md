@@ -1,5 +1,91 @@
 # Changelog
 
+## 5.4.0
+
+**Breaking rename (no back-compat alias):**
+
+- `AntigenFragment` → `ProteinFragment`. Describes what the object is
+  (a slice of some protein — natural, chimeric, foreign, or designed)
+  rather than what it's used for. Matches Isovar's convention.
+- `topiary/antigen.py` → `topiary/protein_fragment.py`;
+  `topiary/io_antigen.py` → `topiary/io_protein_fragment.py`;
+  `docs/antigens.md` → `docs/fragments.md`.
+- `TopiaryPredictor.predict_from_antigens(fragments)` →
+  `predict_from_fragments(fragments)`.
+- `read_antigens` / `write_antigens` / `iter_antigens` →
+  `read_fragments` / `write_fragments` / `iter_fragments`.
+
+**Downstream migration checklist:**
+
+- `from topiary import AntigenFragment` → `from topiary import ProteinFragment`.
+- `from topiary.antigen import …` / `from topiary.io_antigen import …` →
+  `from topiary.protein_fragment import …` /
+  `from topiary.io_protein_fragment import …`.
+- `predictor.predict_from_antigens(fragments)` →
+  `predictor.predict_from_fragments(fragments)`.
+- `topiary.read_antigens(path)` / `write_antigens(fragments, path)` /
+  `iter_antigens(path)` → `read_fragments` / `write_fragments` /
+  `iter_fragments`.
+- TSV files written by 5.2.x `write_antigens` remain readable by
+  5.4.0 `read_fragments`: the new `transcript_name` column is
+  optional and defaults to `None` when missing.  TSVs written by
+  5.4.0 are **not** readable by ≤5.2.x (the old reader rejects
+  unknown columns).
+- Unaffected surface: `TopiaryPredictor`, `EvalContext`, `apply_filter`,
+  `predict_from_variants` / `predict_from_mutation_effects` / the
+  legacy column contract.
+
+**Refactor (predict_from_variants now builds on ProteinFragment):**
+
+- `predict_from_mutation_effects` builds a list of `ProteinFragment`s
+  from varcode effects (via the new `_fragment_from_effect` adapter)
+  and delegates to a shared `_build_fragment_rows` step — one prediction
+  pipeline instead of two. The ~60-line row-by-row metadata loop is gone.
+- New fragment-derived columns (`fragment_id`, `source_type`,
+  `overlaps_target`, `wt_peptide` / `wt_peptide_length`) now flow
+  through the variant path alongside the legacy columns.
+- Legacy column contract preserved: absolute `peptide_offset`,
+  `mutation_start_in_peptide` / `mutation_end_in_peptide`,
+  `transcript_name`, `contains_mutant_residues`, `only_novel_epitopes`,
+  and legacy `gene_expression_dict` / `transcript_expression_dict`
+  plumbing all behave identically to 5.2.0.
+- `source_type` classification aligned with `docs/fragments.md`
+  vocabulary: `PrematureStop` → `variant:stop_gain`, multi-residue
+  `Substitution` → `variant:indel`, unlisted effect classes fall back
+  to `variant:<classname_lowered>`.
+- Filter / sort now run after `peptide_offset` rebasing on the variant
+  path, so filter expressions referencing `peptide_offset` see absolute
+  protein coordinates (matches 5.1.x behavior).
+
+**New field:**
+
+- `ProteinFragment.transcript_name` — human-readable transcript label
+  alongside `transcript_id`. Threaded through `from_dict`, `from_variant`,
+  `from_junction`, and the TSV IO schema.
+
+**Internal:**
+
+- New `TopiaryPredictor._build_fragment_rows(fragments)` — fragment
+  scanning + metadata overlay without filter / sort.  Public entry
+  points layer filter / sort / `only_novel_epitopes` on top.
+  Underscore-prefixed annotation keys are reserved for internal
+  plumbing and never surface as DataFrame columns.
+- 18 new regression tests covering legacy column contract, expression-
+  dict plumbing, and the effect→fragment source_type classifier —
+  including a parametrized grid pinning every entry of the documented
+  `source_type` vocabulary (`variant:snv`, `variant:indel`,
+  `variant:frameshift`, `variant:stop_gain`, `variant:stop_loss`,
+  `variant:start_loss`, `variant:exon_loss`, `variant:alternate_start`,
+  plus the `variant:<classname_lowered>` fallback).
+- `tests/test_frameshift_fragments.py` — new regression suite (75
+  cases) pinning `_fragment_from_effect` behavior on varcode
+  `FrameShift` / `FrameShiftTruncation` effects: target_intervals
+  span the full downstream novel tail, per-peptide `overlaps_target`
+  agrees with ground truth across peptide lengths 8–11,
+  `inframe=True`/`False` produce identical intervals for frameshift
+  shapes, and `only_novel_epitopes=True` preserves every downstream
+  9-mer.
+
 ## 5.2.0
 
 **New features (core abstraction for antigens from any origin):**

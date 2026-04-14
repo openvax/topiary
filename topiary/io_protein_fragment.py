@@ -1,4 +1,4 @@
-"""TSV IO for :class:`AntigenFragment` collections.
+"""TSV IO for :class:`ProteinFragment` collections.
 
 Format: one row per fragment.  Scalar fields map to columns of the same
 name.  ``target_intervals`` and ``annotations`` are JSON-serialized into
@@ -18,7 +18,7 @@ from typing import Iterable, Iterator, List
 
 import pandas as pd
 
-from .antigen import AntigenFragment
+from .protein_fragment import ProteinFragment
 
 _COLUMNS = [
     "fragment_id",
@@ -33,6 +33,7 @@ _COLUMNS = [
     "gene",
     "gene_id",
     "transcript_id",
+    "transcript_name",
     "gene_expression",
     "transcript_expression",
     "annotations",
@@ -41,8 +42,8 @@ _COLUMNS = [
 _COLUMN_SET = set(_COLUMNS)
 
 
-def _fragment_to_row(f: AntigenFragment) -> dict:
-    """Convert an :class:`AntigenFragment` to a flat dict suitable for
+def _fragment_to_row(f: ProteinFragment) -> dict:
+    """Convert a :class:`ProteinFragment` to a flat dict suitable for
     a TSV row (lists / dicts JSON-encoded)."""
     row = {}
     for col in _COLUMNS:
@@ -58,12 +59,12 @@ def _fragment_to_row(f: AntigenFragment) -> dict:
     return row
 
 
-def _row_to_fragment(row: dict) -> AntigenFragment:
+def _row_to_fragment(row: dict) -> ProteinFragment:
     """Inverse of :func:`_fragment_to_row`."""
     unknown = set(row.keys()) - _COLUMN_SET
     if unknown:
         raise ValueError(
-            f"Unknown antigen-TSV column(s): {sorted(unknown)}. "
+            f"Unknown fragment-TSV column(s): {sorted(unknown)}. "
             f"Use the annotations JSON column for tool-specific fields."
         )
 
@@ -96,9 +97,9 @@ def _row_to_fragment(row: dict) -> AntigenFragment:
 
     fragment_id = _str("fragment_id")
     if fragment_id is None:
-        raise ValueError("antigen TSV row is missing fragment_id")
+        raise ValueError("fragment TSV row is missing fragment_id")
 
-    return AntigenFragment(
+    return ProteinFragment(
         fragment_id=fragment_id,
         source_type=_str("source_type"),
         sequence=_str("sequence") or "",
@@ -111,18 +112,19 @@ def _row_to_fragment(row: dict) -> AntigenFragment:
         gene=_str("gene"),
         gene_id=_str("gene_id"),
         transcript_id=_str("transcript_id"),
+        transcript_name=_str("transcript_name"),
         gene_expression=_num("gene_expression"),
         transcript_expression=_num("transcript_expression"),
         annotations=annotations,
     )
 
 
-def write_antigens(fragments: Iterable[AntigenFragment], path, sep: str = "\t") -> None:
+def write_fragments(fragments: Iterable[ProteinFragment], path, sep: str = "\t") -> None:
     """Write fragments to a TSV (or custom-separator) file.
 
     Parameters
     ----------
-    fragments : iterable of AntigenFragment
+    fragments : iterable of ProteinFragment
     path : str or Path
     sep : str
         Column separator (default tab).
@@ -132,7 +134,7 @@ def write_antigens(fragments: Iterable[AntigenFragment], path, sep: str = "\t") 
     df.to_csv(Path(path), sep=sep, index=False)
 
 
-def read_antigens(path, sep: str = "\t") -> List[AntigenFragment]:
+def read_fragments(path, sep: str = "\t") -> List[ProteinFragment]:
     """Read fragments from a TSV (or custom-separator) file.
 
     Missing columns fall back to field defaults.  Unknown columns raise.
@@ -141,7 +143,7 @@ def read_antigens(path, sep: str = "\t") -> List[AntigenFragment]:
     return [_row_to_fragment(r) for r in df.to_dict(orient="records")]
 
 
-def iter_antigens(path, sep: str = "\t") -> Iterator[AntigenFragment]:
+def iter_fragments(path, sep: str = "\t") -> Iterator[ProteinFragment]:
     """Stream fragments from a file one at a time (for large inputs)."""
     for chunk in pd.read_csv(
         Path(path), sep=sep, dtype=object, keep_default_na=False, chunksize=1000,

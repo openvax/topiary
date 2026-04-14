@@ -118,7 +118,7 @@ _GROUP_KEYS_FRAGMENT = ["fragment_id", "peptide", "peptide_offset", "allele"]
 
 
 def _pick_group_keys(df):
-    # fragment_id is the most specific identity (from predict_from_antigens);
+    # fragment_id is the most specific identity (from predict_from_fragments);
     # variant is for the legacy varcode pipeline; source_sequence_name is the
     # generic fallback.
     if "fragment_id" in df.columns:
@@ -1406,7 +1406,7 @@ self_scope = Scope("self")
 # externally (via BLAST / edit distance against a healthy-tissue
 # proteome, with a producer-chosen definition of "self").  The scope
 # reads ``self_nearest_*`` columns; when absent, evaluates to NaN.
-# See docs/antigens.md for the reserved column namespace.
+# See docs/fragments.md for the reserved column namespace.
 self_nearest = Scope("self_nearest")
 
 

@@ -1,13 +1,13 @@
-# Antigen Fragments
+# Protein Fragments
 
-`AntigenFragment` is a universal record for a protein / peptide sequence with source-type, target-region, and comparator metadata. It's the substrate that lets Topiary handle antigens from any origin — somatic variants, structural variants, ERVs, CTAs, viral proteins, allergens, autoantigens, synthetic constructs — through one pipeline, and threads identity through predictions so downstream tools (vaxrank, vaccine-window selection) can group peptides back to their source.
+`ProteinFragment` is a universal record for a protein / peptide sequence with source-type, target-region, and comparator metadata. It's the substrate that lets Topiary handle antigens from any origin — somatic variants, structural variants, ERVs, CTAs, viral proteins, allergens, autoantigens, synthetic constructs — through one pipeline, and threads identity through predictions so downstream tools (vaxrank, vaccine-window selection) can group peptides back to their source.
 
 ## The dataclass
 
 ```python
-from topiary import AntigenFragment
+from topiary import ProteinFragment
 
-f = AntigenFragment.from_variant(
+f = ProteinFragment.from_variant(
     sequence="MAAVTDVGMAVATGSWDSFLKIWN",
     reference_sequence="MAAVTDVGMAAATGSWDSFLKIWN",   # WT protein
     mutation_start=10, mutation_end=11, inframe=True,
@@ -26,20 +26,20 @@ Every field except `fragment_id` and `sequence` is optional. `target_intervals` 
 from topiary import TopiaryPredictor
 
 predictor = TopiaryPredictor(models=[...], alleles=[...])
-df = predictor.predict_from_antigens(fragments)
+df = predictor.predict_from_fragments(fragments)
 ```
 
 Output DataFrame columns, beyond the standard prediction fields:
 
 | Column | Meaning |
 |---|---|
-| `fragment_id` | Source identity — threads back to `AntigenFragment.fragment_id` |
-| `source_type`, `variant`, `effect`, `effect_type`, `gene`, `gene_id`, `transcript_id` | Propagated from the fragment |
+| `fragment_id` | Source identity — threads back to `ProteinFragment.fragment_id` |
+| `source_type`, `variant`, `effect`, `effect_type`, `gene`, `gene_id`, `transcript_id`, `transcript_name` | Propagated from the fragment |
 | `gene_expression`, `transcript_expression` | Propagated from the fragment |
 | `overlaps_target` | `True` / `False` / NaN — whether the peptide overlaps any of the fragment's target intervals |
 | `contains_mutant_residues` | Backwards-compat alias — `True` iff `source_type.startswith("variant")` AND `overlaps_target` is True |
-| `wt_peptide`, `wt_peptide_length` | Derived by slicing `effective_baseline` at the peptide's offset; `None` when no baseline exists |
-| *(each annotation key)* | Flattened from every fragment's `annotations` dict |
+| `wt_peptide`, `wt_peptide_length` | Derived by slicing `effective_baseline` at the peptide's offset. Only populated for substitution-compatible fragments (baseline and `sequence` the same length); `None` otherwise or when no baseline exists. |
+| *(each annotation key)* | Flattened from every fragment's `annotations` dict. Underscore-prefixed keys (e.g. `_subsequence_offset`) are reserved for internal plumbing and never surface as columns. |
 
 ## source_type vocabulary (recommended, not enforced)
 
@@ -47,7 +47,7 @@ Free-form string. Topiary never interprets it; used for display and DSL filterin
 
 | Category | Values |
 |---|---|
-| Variant, small | `variant:snv`, `variant:indel`, `variant:frameshift`, `variant:stop_gain`, `variant:silent` |
+| Variant, small | `variant:snv`, `variant:indel`, `variant:frameshift`, `variant:stop_gain`, `variant:stop_loss`, `variant:start_loss`, `variant:exon_loss`, `variant:alternate_start` |
 | Structural variant | `sv:fusion`, `sv:tandem_duplication`, `sv:inversion`, `sv:translocation`, `sv:cryptic_exon`, `sv:large_insertion`, `sv:large_deletion` |
 | Aberrant expression | `erv`, `cta`, `tumor_overexpressed`, `intron_retention`, `utr`, `novel_orf` |
 | Pathogen | `viral`, `viral:hpv16`, `viral:hiv`, `bacterial`, `parasitic` |
@@ -140,10 +140,10 @@ ranking = Affinity.score - 0.5 * self_nearest.Affinity.score
 ## IO
 
 ```python
-from topiary import read_antigens, write_antigens
+from topiary import read_fragments, write_fragments
 
-write_antigens(fragments, "my_antigens.tsv")
-loaded = read_antigens("my_antigens.tsv")
+write_fragments(fragments, "fragments.tsv")
+loaded = read_fragments("fragments.tsv")
 ```
 
 TSV format: one row per fragment. Scalar fields map to same-named columns. `target_intervals` and `annotations` are JSON-encoded in their own columns. Missing columns on read fall back to field defaults; unknown columns raise.
@@ -167,6 +167,6 @@ Prefix is sanitized to `[A-Za-z0-9._:-]`; runs of other characters collapse to `
 ## What's not in this release
 
 - **WT model predictions** (`wt_value`, `wt_score`, `wt_percentile_rank`) — `wt_peptide` is derived but not fed through the MHC predictor. `wt.Affinity.score` returns NaN until a future PR populates these.
+- **Coordinate remapping for indel / frameshift `wt_peptide`** — `wt_peptide` is only populated when the baseline is the same length as the mutant sequence (substitution-compatible). Length-changing edits yield `None` until remapping lands.
 - **Nearest-self compute** — the scope is reserved but no Topiary module produces the columns. Populate externally for now.
-- **Varcode refactor** — the existing `predict_from_variants` pipeline doesn't yet emit `AntigenFragment`s; it still takes its own path. Planned for a follow-up PR.
-- **Format-specific loaders** (`read_lens_fragments`, `read_pvacseq_fragments`, `read_isovar_fragments`) — each ~50-100 lines on top of the core abstraction; separate PRs.
+- **Format-specific loaders** (`read_pvacseq_fragments`, `read_isovar_fragments`, `read_exacto_fragments`) — each ~50-100 lines on top of the core abstraction; separate PRs. `read_lens` is already shipped (5.1.0).

@@ -1,4 +1,4 @@
-"""AntigenFragment — a universal record for a protein/peptide sequence
+"""ProteinFragment — a universal record for a protein/peptide sequence
 with source-type, target-region, and comparator metadata.
 
 Designed to carry antigens from any origin (somatic variant, structural
@@ -21,12 +21,12 @@ from typing import Iterable, Optional
 
 
 # =============================================================================
-# AntigenFragment
+# ProteinFragment
 # =============================================================================
 
 
 @dataclass(frozen=True, eq=False)
-class AntigenFragment:
+class ProteinFragment:
     """A protein/peptide sequence with source-type, target-region, and
     comparator metadata.
 
@@ -42,7 +42,7 @@ class AntigenFragment:
         ``"sv:fusion"``, ``"erv"``, ``"viral:hpv16"``,
         ``"allergen:peanut"``, ``"cta"``, ``"autoantigen"``,
         ``"synthetic"``).  Used for filtering and display; never
-        interpreted by Topiary.  See ``docs/antigens.md`` for the
+        interpreted by Topiary.  See ``docs/fragments.md`` for the
         recommended (not enforced) vocabulary.
     sequence : str
         The antigen's protein / peptide sequence.  Sliding-window scans
@@ -70,13 +70,19 @@ class AntigenFragment:
         free-form identifier (``chr:pos:ref>alt``, HGVS, strain name);
         ``effect`` is typically HGVS protein notation; ``effect_type``
         is a coarse label (``Substitution``, ``FrameShift``, etc.).
-    gene, gene_id, transcript_id : str, optional
-        Source gene / transcript identifiers.
+    gene, gene_id, transcript_id, transcript_name : str, optional
+        Source gene / transcript identifiers.  ``transcript_name`` is
+        the human-readable label (e.g. ``"BRAF-204"``) alongside the
+        Ensembl id.
     gene_expression, transcript_expression : float, optional
         Expression evidence carried forward into prediction rows.
     annotations : dict
         Tool-specific signals that don't fit the above fields.
-        Serialized as JSON in TSV IO; carried through prediction.
+        Serialized as JSON in TSV IO; carried through prediction as
+        additional output columns.  Underscore-prefixed keys are
+        reserved for internal plumbing and are **not** surfaced as
+        columns — use them for short-lived bookkeeping that should
+        not leak into user-facing output.
     """
 
     fragment_id: str
@@ -95,6 +101,7 @@ class AntigenFragment:
     gene: Optional[str] = None
     gene_id: Optional[str] = None
     transcript_id: Optional[str] = None
+    transcript_name: Optional[str] = None
 
     gene_expression: Optional[float] = None
     transcript_expression: Optional[float] = None
@@ -110,7 +117,7 @@ class AntigenFragment:
 
     def __eq__(self, other):
         return (
-            isinstance(other, AntigenFragment)
+            isinstance(other, ProteinFragment)
             and self.fragment_id == other.fragment_id
         )
 
@@ -169,7 +176,7 @@ class AntigenFragment:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> "AntigenFragment":
+    def from_dict(cls, d: dict) -> "ProteinFragment":
         """Construct from a plain dict (e.g. parsed JSON or a row-dict).
 
         Missing optional fields fall back to ``None`` / empty
@@ -180,13 +187,13 @@ class AntigenFragment:
             "fragment_id", "source_type", "sequence",
             "reference_sequence", "germline_sequence", "target_intervals",
             "variant", "effect", "effect_type",
-            "gene", "gene_id", "transcript_id",
+            "gene", "gene_id", "transcript_id", "transcript_name",
             "gene_expression", "transcript_expression", "annotations",
         }
         unknown = set(d.keys()) - known
         if unknown:
             raise ValueError(
-                f"Unknown AntigenFragment field(s): {sorted(unknown)}. "
+                f"Unknown ProteinFragment field(s): {sorted(unknown)}. "
                 f"Move them to the annotations dict."
             )
         ti = d.get("target_intervals")
@@ -205,6 +212,7 @@ class AntigenFragment:
             gene=d.get("gene"),
             gene_id=d.get("gene_id"),
             transcript_id=d.get("transcript_id"),
+            transcript_name=d.get("transcript_name"),
             gene_expression=d.get("gene_expression"),
             transcript_expression=d.get("transcript_expression"),
             annotations=dict(d.get("annotations") or {}),
@@ -217,7 +225,7 @@ class AntigenFragment:
         return json.dumps(self.to_dict(), **kwargs)
 
     @classmethod
-    def from_json(cls, s: str) -> "AntigenFragment":
+    def from_json(cls, s: str) -> "ProteinFragment":
         return cls.from_dict(json.loads(s))
 
     # ------------------------------------------------------------------
@@ -237,7 +245,7 @@ class AntigenFragment:
             bits.append(f"{n} target {'interval' if n == 1 else 'intervals'}")
         if self.gene:
             bits.append(f"gene={self.gene}")
-        return f"AntigenFragment({', '.join(bits)})"
+        return f"ProteinFragment({', '.join(bits)})"
 
     # ------------------------------------------------------------------
     # Convenience constructors
@@ -258,8 +266,9 @@ class AntigenFragment:
         gene: Optional[str] = None,
         gene_id: Optional[str] = None,
         transcript_id: Optional[str] = None,
+        transcript_name: Optional[str] = None,
         **extra_kwargs,
-    ) -> "AntigenFragment":
+    ) -> "ProteinFragment":
         """Build a fragment for a variant-derived antigen.
 
         In-frame mutations: ``target_intervals = [(mutation_start, mutation_end)]``.
@@ -292,6 +301,7 @@ class AntigenFragment:
             gene=gene,
             gene_id=gene_id,
             transcript_id=transcript_id,
+            transcript_name=transcript_name,
             gene_expression=extra_kwargs.pop("gene_expression", None),
             transcript_expression=extra_kwargs.pop("transcript_expression", None),
             annotations=extra_kwargs.pop("annotations", {}) or {},
@@ -312,8 +322,9 @@ class AntigenFragment:
         gene: Optional[str] = None,
         gene_id: Optional[str] = None,
         transcript_id: Optional[str] = None,
+        transcript_name: Optional[str] = None,
         **extra_kwargs,
-    ) -> "AntigenFragment":
+    ) -> "ProteinFragment":
         """Build a fragment for a fusion / splice / cryptic-exon /
         readthrough case.
 
@@ -349,6 +360,7 @@ class AntigenFragment:
             gene=gene,
             gene_id=gene_id,
             transcript_id=transcript_id,
+            transcript_name=transcript_name,
             gene_expression=extra_kwargs.pop("gene_expression", None),
             transcript_expression=extra_kwargs.pop("transcript_expression", None),
             annotations=extra_kwargs.pop("annotations", {}) or {},
@@ -407,7 +419,7 @@ def make_fragment_id(
 # =============================================================================
 
 
-def collect_annotations(fragments: Iterable[AntigenFragment]) -> set:
+def collect_annotations(fragments: Iterable[ProteinFragment]) -> set:
     """Return the union of annotation keys across *fragments*.  Useful
     for TSV writers deciding whether to expand known keys into columns."""
     keys = set()
