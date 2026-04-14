@@ -49,6 +49,35 @@ overlay columns (`fragment_id`, `wt_peptide`, etc.) are kept in the
 file but ignored on lookup — the cache is the predictor output, not
 the full pipeline output.
 
+### From NetMHC-family stdout captures
+
+The DTU NetMHC suite (NetMHCpan, NetMHC, NetMHCcons, NetMHCIIpan,
+NetMHCstabpan) prints binding predictions to stdout when run from
+the command line. If you've captured that output to a file, load
+it directly — topiary reuses the parsers shipped by
+[mhctools](https://github.com/openvax/mhctools) so every NetMHC
+version they support is covered here too.
+
+```python
+cache = CachedPredictor.from_netmhcpan_stdout(
+    "netmhcpan_run.out",
+    mode="binding_affinity",     # or "elution_score" on 4+
+)
+cache = CachedPredictor.from_netmhc_stdout("netmhc_run.out", version="4")
+cache = CachedPredictor.from_netmhcpan_cons_stdout("cons_run.out")
+cache = CachedPredictor.from_netmhciipan_stdout("ii_run.out", version="4.3")
+cache = CachedPredictor.from_netmhcstabpan_stdout("stab_run.out")
+```
+
+Each loader parses the version out of the stdout preamble (e.g.
+`NetMHCpan version 4.1b`) and stamps it on `predictor_version`.
+Pass `predictor_version="..."` if you want a different label, or
+if your capture stripped the preamble.
+
+The loaders parse the *stdout text* format. NetMHC's `-xlsfile`
+tab-delimited output is a different format and isn't supported
+today — open an issue if you need it.
+
 ### From mhcflurry output
 
 ```python

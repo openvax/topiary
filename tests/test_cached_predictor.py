@@ -540,3 +540,107 @@ class TestTopiaryPredictorIntegration:
         predictor = TopiaryPredictor(models=cache)
         df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
         assert len(df) == 5  # 5 sliding 9-mers over the 13-aa sequence
+
+
+# ---------------------------------------------------------------------------
+# NetMHC-family loaders (via mhctools.parsing.*_stdout)
+# ---------------------------------------------------------------------------
+
+
+_NETMHCPAN_41_STDOUT = """NetMHCpan version 4.1b
+# Rank Threshold for Strong binding peptides   0.500
+---------------------------------------------------------------------------------------------------------------------------
+ Pos         MHC        Peptide      Core Of Gp Gl Ip Il        Icore        Identity  Score_EL %Rank_EL Score_BA %Rank_BA  Aff(nM) BindLevel
+---------------------------------------------------------------------------------------------------------------------------
+   1 HLA-A*02:01  SIINFEKLA SIINFEKLA  0  0  0  0  0  SIINFEKLA            seq1 0.5000000    1.000 0.500000    2.000 150.00 <=WB
+   2 HLA-A*02:01  GILGFVFTL GILGFVFTL  0  0  0  0  0  GILGFVFTL            seq1 0.9000000    0.100 0.950000    0.500  25.00 <=SB
+---------------------------------------------------------------------------------------------------------------------------
+
+Protein seq1. Allele HLA-A*02:01. Number of high binders 1. Number of weak binders 1. Number of peptides 2
+
+"""
+
+
+_NETMHC_4_STDOUT = """# NetMHC version 4.0
+
+# Input is in FSA format
+
+# Peptide length 9
+
+-----------------------------------------------------------------------------------
+ pos\tHLA\tpeptide\tCore\tOffset\tI_pos\tI_len\tD_pos\tD_len\tiCore\tIdentity\t1-log50k\t nM \tRank\tBindLevel
+-----------------------------------------------------------------------------------
+   1 HLA-A0201     SIINFEKLA     SIINFEKLA  0  0  0  0  0     SIINFEKLA       seq1     0.456    234.5     2.5 <= WB
+-----------------------------------------------------------------------------------
+
+Protein seq1. Allele HLA-A0201. Number of high binders 0. Number of weak binders 1. Number of peptides 1
+"""
+
+
+_NETMHCSTABPAN_STDOUT = """# NetMHCstabpan version 1.0
+
+# Threshold for Strong binding peptides (%Rank)\t0.500
+# Threshold for Weak binding peptides (%Rank)\t2.000
+--------------------------------------------------------------------------------------------------
+ Pos          HLA         Peptide       Identity       Pred    Thalf(h)     %Rank_Stab BindLevel
+--------------------------------------------------------------------------------------------------
+   1  HLA-A*02:01       SIINFEKLA           seq1      0.600        4.50         2.500 <=WB
+--------------------------------------------------------------------------------------------------
+
+Protein seq1. Allele HLA-A*02:01. Number of high binders 0. Number of weak binders 1. Number of peptides 1
+"""
+
+
+class TestNetMHCLoaders:
+    def _write(self, tmp_path, name, text):
+        p = tmp_path / name
+        p.write_text(text)
+        return p
+
+    def test_from_netmhcpan_stdout(self, tmp_path):
+        path = self._write(tmp_path, "pan.out", _NETMHCPAN_41_STDOUT)
+        cache = CachedPredictor.from_netmhcpan_stdout(path)
+        assert cache.prediction_method_name == "netmhcpan"
+        # Version should be parsed from the "NetMHCpan version 4.1b" header.
+        assert cache.predictor_version == "4.1b"
+        assert cache.alleles == ["HLA-A*02:01"]
+        assert cache.default_peptide_lengths == [9]
+        out = cache.predict_peptides_dataframe(["SIINFEKLA", "GILGFVFTL"])
+        assert len(out) == 2
+        assert set(out["peptide"]) == {"SIINFEKLA", "GILGFVFTL"}
+
+    def test_from_netmhcpan_stdout_explicit_version(self, tmp_path):
+        path = self._write(tmp_path, "pan.out", _NETMHCPAN_41_STDOUT)
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            path, predictor_version="custom-label",
+        )
+        assert cache.predictor_version == "custom-label"
+
+    def test_from_netmhc_stdout_v4(self, tmp_path):
+        path = self._write(tmp_path, "netmhc.out", _NETMHC_4_STDOUT)
+        cache = CachedPredictor.from_netmhc_stdout(path, version="4")
+        assert cache.prediction_method_name == "netmhc"
+        # Version parsed from "NetMHC version 4.0"
+        assert cache.predictor_version == "4.0"
+        out = cache.predict_peptides_dataframe(["SIINFEKLA"])
+        assert len(out) == 1
+
+    def test_from_netmhc_stdout_unsupported_version_rejects(self, tmp_path):
+        path = self._write(tmp_path, "x.out", _NETMHC_4_STDOUT)
+        with pytest.raises(ValueError, match="not supported"):
+            CachedPredictor.from_netmhc_stdout(path, version="5")
+
+    def test_from_netmhcstabpan_stdout(self, tmp_path):
+        path = self._write(tmp_path, "stab.out", _NETMHCSTABPAN_STDOUT)
+        cache = CachedPredictor.from_netmhcstabpan_stdout(path)
+        assert cache.prediction_method_name == "netmhcstabpan"
+        assert cache.predictor_version == "1.0"
+        out = cache.predict_peptides_dataframe(["SIINFEKLA"])
+        assert len(out) == 1
+
+    def test_from_netmhciipan_stdout_unsupported_version_rejects(self, tmp_path):
+        # Use the NetMHCpan sample as a stand-in — we only want to hit
+        # the version guard before any parsing happens.
+        path = self._write(tmp_path, "ii.out", _NETMHCPAN_41_STDOUT)
+        with pytest.raises(ValueError, match="not supported"):
+            CachedPredictor.from_netmhciipan_stdout(path, version="99")
