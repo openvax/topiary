@@ -1,5 +1,5 @@
 """Regression tests for the PR B refactor of predict_from_variants /
-predict_from_mutation_effects onto AntigenFragment internally.
+predict_from_mutation_effects onto ProteinFragment internally.
 
 These tests assert:
   1. Legacy output columns are still present with their original

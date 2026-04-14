@@ -41,9 +41,9 @@ from .sequence_helpers import (
     contains_mutant_residues,
     protein_subsequences_around_mutations,
 )
-from .antigen import AntigenFragment, make_fragment_id
+from .protein_fragment import ProteinFragment, make_fragment_id
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
-from .io_antigen import read_antigens, write_antigens, iter_antigens
+from .io_protein_fragment import read_fragments, write_fragments, iter_fragments
 from .io_lens import detect_lens_version, read_lens
 from .result import TopiaryResult, concat
 from .wide import detect_form, from_wide, to_wide
@@ -90,11 +90,11 @@ __all__ = [
     "check_padding_around_mutation",
     "peptide_mutation_interval",
     "protein_subsequences_around_mutations",
-    "AntigenFragment",
+    "ProteinFragment",
     "make_fragment_id",
-    "read_antigens",
-    "write_antigens",
-    "iter_antigens",
+    "read_fragments",
+    "write_fragments",
+    "iter_fragments",
     "Metadata",
     "detect_lens_version",
     "read_csv",

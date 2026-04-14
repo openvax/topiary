@@ -1,13 +1,13 @@
-# Antigen Fragments
+# Protein Fragments
 
-`AntigenFragment` is a universal record for a protein / peptide sequence with source-type, target-region, and comparator metadata. It's the substrate that lets Topiary handle antigens from any origin — somatic variants, structural variants, ERVs, CTAs, viral proteins, allergens, autoantigens, synthetic constructs — through one pipeline, and threads identity through predictions so downstream tools (vaxrank, vaccine-window selection) can group peptides back to their source.
+`ProteinFragment` is a universal record for a protein / peptide sequence with source-type, target-region, and comparator metadata. It's the substrate that lets Topiary handle antigens from any origin — somatic variants, structural variants, ERVs, CTAs, viral proteins, allergens, autoantigens, synthetic constructs — through one pipeline, and threads identity through predictions so downstream tools (vaxrank, vaccine-window selection) can group peptides back to their source.
 
 ## The dataclass
 
 ```python
-from topiary import AntigenFragment
+from topiary import ProteinFragment
 
-f = AntigenFragment.from_variant(
+f = ProteinFragment.from_variant(
     sequence="MAAVTDVGMAVATGSWDSFLKIWN",
     reference_sequence="MAAVTDVGMAAATGSWDSFLKIWN",   # WT protein
     mutation_start=10, mutation_end=11, inframe=True,
@@ -26,14 +26,14 @@ Every field except `fragment_id` and `sequence` is optional. `target_intervals` 
 from topiary import TopiaryPredictor
 
 predictor = TopiaryPredictor(models=[...], alleles=[...])
-df = predictor.predict_from_antigens(fragments)
+df = predictor.predict_from_fragments(fragments)
 ```
 
 Output DataFrame columns, beyond the standard prediction fields:
 
 | Column | Meaning |
 |---|---|
-| `fragment_id` | Source identity — threads back to `AntigenFragment.fragment_id` |
+| `fragment_id` | Source identity — threads back to `ProteinFragment.fragment_id` |
 | `source_type`, `variant`, `effect`, `effect_type`, `gene`, `gene_id`, `transcript_id`, `transcript_name` | Propagated from the fragment |
 | `gene_expression`, `transcript_expression` | Propagated from the fragment |
 | `overlaps_target` | `True` / `False` / NaN — whether the peptide overlaps any of the fragment's target intervals |
@@ -140,10 +140,10 @@ ranking = Affinity.score - 0.5 * self_nearest.Affinity.score
 ## IO
 
 ```python
-from topiary import read_antigens, write_antigens
+from topiary import read_fragments, write_fragments
 
-write_antigens(fragments, "my_antigens.tsv")
-loaded = read_antigens("my_antigens.tsv")
+write_fragments(fragments, "fragments.tsv")
+loaded = read_fragments("fragments.tsv")
 ```
 
 TSV format: one row per fragment. Scalar fields map to same-named columns. `target_intervals` and `annotations` are JSON-encoded in their own columns. Missing columns on read fall back to field defaults; unknown columns raise.

@@ -1,4 +1,4 @@
-"""AntigenFragment — a universal record for a protein/peptide sequence
+"""ProteinFragment — a universal record for a protein/peptide sequence
 with source-type, target-region, and comparator metadata.
 
 Designed to carry antigens from any origin (somatic variant, structural
@@ -21,12 +21,12 @@ from typing import Iterable, Optional
 
 
 # =============================================================================
-# AntigenFragment
+# ProteinFragment
 # =============================================================================
 
 
 @dataclass(frozen=True, eq=False)
-class AntigenFragment:
+class ProteinFragment:
     """A protein/peptide sequence with source-type, target-region, and
     comparator metadata.
 
@@ -42,7 +42,7 @@ class AntigenFragment:
         ``"sv:fusion"``, ``"erv"``, ``"viral:hpv16"``,
         ``"allergen:peanut"``, ``"cta"``, ``"autoantigen"``,
         ``"synthetic"``).  Used for filtering and display; never
-        interpreted by Topiary.  See ``docs/antigens.md`` for the
+        interpreted by Topiary.  See ``docs/fragments.md`` for the
         recommended (not enforced) vocabulary.
     sequence : str
         The antigen's protein / peptide sequence.  Sliding-window scans
@@ -113,7 +113,7 @@ class AntigenFragment:
 
     def __eq__(self, other):
         return (
-            isinstance(other, AntigenFragment)
+            isinstance(other, ProteinFragment)
             and self.fragment_id == other.fragment_id
         )
 
@@ -172,7 +172,7 @@ class AntigenFragment:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> "AntigenFragment":
+    def from_dict(cls, d: dict) -> "ProteinFragment":
         """Construct from a plain dict (e.g. parsed JSON or a row-dict).
 
         Missing optional fields fall back to ``None`` / empty
@@ -189,7 +189,7 @@ class AntigenFragment:
         unknown = set(d.keys()) - known
         if unknown:
             raise ValueError(
-                f"Unknown AntigenFragment field(s): {sorted(unknown)}. "
+                f"Unknown ProteinFragment field(s): {sorted(unknown)}. "
                 f"Move them to the annotations dict."
             )
         ti = d.get("target_intervals")
@@ -221,7 +221,7 @@ class AntigenFragment:
         return json.dumps(self.to_dict(), **kwargs)
 
     @classmethod
-    def from_json(cls, s: str) -> "AntigenFragment":
+    def from_json(cls, s: str) -> "ProteinFragment":
         return cls.from_dict(json.loads(s))
 
     # ------------------------------------------------------------------
@@ -241,7 +241,7 @@ class AntigenFragment:
             bits.append(f"{n} target {'interval' if n == 1 else 'intervals'}")
         if self.gene:
             bits.append(f"gene={self.gene}")
-        return f"AntigenFragment({', '.join(bits)})"
+        return f"ProteinFragment({', '.join(bits)})"
 
     # ------------------------------------------------------------------
     # Convenience constructors
@@ -264,7 +264,7 @@ class AntigenFragment:
         transcript_id: Optional[str] = None,
         transcript_name: Optional[str] = None,
         **extra_kwargs,
-    ) -> "AntigenFragment":
+    ) -> "ProteinFragment":
         """Build a fragment for a variant-derived antigen.
 
         In-frame mutations: ``target_intervals = [(mutation_start, mutation_end)]``.
@@ -320,7 +320,7 @@ class AntigenFragment:
         transcript_id: Optional[str] = None,
         transcript_name: Optional[str] = None,
         **extra_kwargs,
-    ) -> "AntigenFragment":
+    ) -> "ProteinFragment":
         """Build a fragment for a fusion / splice / cryptic-exon /
         readthrough case.
 
@@ -415,7 +415,7 @@ def make_fragment_id(
 # =============================================================================
 
 
-def collect_annotations(fragments: Iterable[AntigenFragment]) -> set:
+def collect_annotations(fragments: Iterable[ProteinFragment]) -> set:
     """Return the union of annotation keys across *fragments*.  Useful
     for TSV writers deciding whether to expand known keys into columns."""
     keys = set()

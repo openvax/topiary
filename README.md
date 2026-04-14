@@ -486,7 +486,7 @@ Peptide lengths: `--mhc-epitope-lengths 8,9,10,11` (defaults come from the predi
 
 **All predictions:** `source_sequence_name`, `peptide`, `peptide_offset`, `peptide_length`, `allele`, `kind`, `score`, `value`, `affinity`, `percentile_rank`, `prediction_method_name`
 
-**AntigenFragment predictions add** (both `predict_from_antigens` and the variant-based methods that build fragments internally): `fragment_id`, `source_type`, `overlaps_target`, `wt_peptide`, `wt_peptide_length`, plus any fragment-level annotations flattened to columns.
+**ProteinFragment predictions add** (both `predict_from_fragments` and the variant-based methods that build fragments internally): `fragment_id`, `source_type`, `overlaps_target`, `wt_peptide`, `wt_peptide_length`, plus any fragment-level annotations flattened to columns.
 
 **Variant predictions additionally add:** `variant`, `gene`, `gene_id`, `transcript_id`, `transcript_name`, `effect`, `effect_type`, `contains_mutant_residues`, `mutation_start_in_peptide`, `mutation_end_in_peptide`
 

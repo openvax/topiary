@@ -16,7 +16,7 @@ theme:
 nav:
   - Home: index.md
   - Quickstart: quickstart.md
-  - Antigen Fragments: antigens.md
+  - Protein Fragments: fragments.md
   - Ranking DSL: ranking.md
   - Peptide Properties: properties.md
   - Expression Semantics: expression-semantics.md

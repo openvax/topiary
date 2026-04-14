@@ -27,7 +27,7 @@ from .ranking import (
     apply_sort,
     parse,
 )
-from .antigen import AntigenFragment
+from .protein_fragment import ProteinFragment
 from .sequence_helpers import (
     check_padding_around_mutation,
     peptide_mutation_interval,
@@ -183,7 +183,7 @@ def _coerce_sort_nodes(expr):
 
 
 # Annotation keys used to plumb per-effect bookkeeping through
-# _build_antigen_rows so the legacy variant path can rebase
+# _build_fragment_rows so the legacy variant path can rebase
 # peptide_offset and derive mutation_start/end_in_peptide.  Leading
 # underscore marks them as implementation detail — they're stripped
 # from the returned DataFrame.
@@ -212,7 +212,7 @@ _EFFECT_SOURCE_TYPES = {
 
 def _source_type_from_effect(effect, mutation_span):
     """Pick a source_type string for *effect*.  Aligns with the
-    vocabulary documented in ``docs/antigens.md``; unknown effect
+    vocabulary documented in ``docs/fragments.md``; unknown effect
     classes fall back to ``variant:<lowered_classname>`` so any future
     varcode effect type remains representable without a Topiary change.
     """
@@ -232,7 +232,7 @@ def _fragment_from_effect(
     gene_expression=None,
     transcript_expression=None,
 ):
-    """Build an :class:`AntigenFragment` from a single varcode Effect.
+    """Build an :class:`ProteinFragment` from a single varcode Effect.
 
     Returns ``None`` when the effect lacks a mutant protein sequence
     (silent / non-coding / untranslatable).
@@ -263,7 +263,7 @@ def _fragment_from_effect(
     if original_protein and len(original_protein) == len(protein_seq):
         reference_subseq = original_protein[seq_start:seq_end]
 
-    return AntigenFragment.from_variant(
+    return ProteinFragment.from_variant(
         sequence=subsequence,
         reference_sequence=reference_subseq,
         mutation_start=mut_start - seq_start,
@@ -587,7 +587,7 @@ class TopiaryPredictor(object):
     def _finalize_rows(self, df):
         """Apply filter / sort, drop non-mutant rows when
         ``only_novel_epitopes`` is set, and reset the index.  Shared
-        tail for every AntigenFragment-producing entry point."""
+        tail for every ProteinFragment-producing entry point."""
         if df.empty:
             return df
         df = self._apply_filter(df)
@@ -595,9 +595,9 @@ class TopiaryPredictor(object):
             df = df[df["contains_mutant_residues"].eq(True)]
         return df.reset_index(drop=True)
 
-    def predict_from_antigens(self, fragments):
+    def predict_from_fragments(self, fragments):
         """Predict MHC binding for peptides derived from a collection of
-        :class:`AntigenFragment`.
+        :class:`ProteinFragment`.
 
         Each fragment's ``sequence`` is scanned with the configured
         models' sliding windows.  Fragment-level metadata
@@ -629,9 +629,9 @@ class TopiaryPredictor(object):
         or wait for a follow-up PR.  The DSL's ``wt.*`` scope returns
         NaN for those columns until they're written.
         """
-        return self._finalize_rows(self._build_antigen_rows(fragments))
+        return self._finalize_rows(self._build_fragment_rows(fragments))
 
-    def _build_antigen_rows(self, fragments):
+    def _build_fragment_rows(self, fragments):
         """Run models on *fragments* and overlay all fragment-derived
         columns, without applying filter / sort / ``only_novel_epitopes``.
 
@@ -819,7 +819,7 @@ class TopiaryPredictor(object):
         # Build raw rows first so the legacy post-processing (peptide_offset
         # rebase + mutation_start/end_in_peptide + expression join) can
         # run before user filter / sort / only_novel_epitopes evaluate.
-        df = self._build_antigen_rows(fragments)
+        df = self._build_fragment_rows(fragments)
         logging.info(
             "MHC predictor returned %d peptide binding predictions" % (len(df))
         )

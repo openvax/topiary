@@ -185,19 +185,19 @@ df = predictor.predict_from_variants(variants)
 #   wt_peptide, wt_peptide_length, ...
 ```
 
-### From antigen fragments (non-variant sources)
+### From protein fragments (non-variant sources)
 
 ```python
-from topiary import AntigenFragment
+from topiary import ProteinFragment
 
 fragments = [
-    AntigenFragment(
+    ProteinFragment(
         fragment_id="HPV16_E6__abc12345",
         source_type="viral:hpv16",
         sequence="MHQKRTAMFQDPQERPRKLPQLCTELQTTIHDIILECVYCKQQLLRREVYDFAFRDLCIVYRDGNPYAVCDKCLKFYSKISEYRHYCYSLYGTTLEQQYNKPLCDLLIRCINCQKPLCPEEKQRHLDKKQRFHNIRGRWTGRCMSCCRSSRTRRETQL",
     ),
 ]
-df = predictor.predict_from_antigens(fragments)
+df = predictor.predict_from_fragments(fragments)
 # Any origin — variants, SVs, ERVs, CTAs, viral, allergen, autoantigen,
 # synthetic. fragment_id threads through so downstream tools (vaxrank,
 # vaccine-window selection) can group peptides back to their fragment.

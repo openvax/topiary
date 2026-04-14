@@ -2,11 +2,24 @@
 
 ## 5.3.0
 
-**Refactor (predict_from_variants now builds on AntigenFragment):**
+**Breaking rename (no back-compat alias):**
 
-- `predict_from_mutation_effects` builds a list of `AntigenFragment`s
+- `AntigenFragment` → `ProteinFragment`. Describes what the object is
+  (a slice of some protein — natural, chimeric, foreign, or designed)
+  rather than what it's used for. Matches Isovar's convention.
+- `topiary/antigen.py` → `topiary/protein_fragment.py`;
+  `topiary/io_antigen.py` → `topiary/io_protein_fragment.py`;
+  `docs/antigens.md` → `docs/fragments.md`.
+- `TopiaryPredictor.predict_from_antigens(fragments)` →
+  `predict_from_fragments(fragments)`.
+- `read_antigens` / `write_antigens` / `iter_antigens` →
+  `read_fragments` / `write_fragments` / `iter_fragments`.
+
+**Refactor (predict_from_variants now builds on ProteinFragment):**
+
+- `predict_from_mutation_effects` builds a list of `ProteinFragment`s
   from varcode effects (via the new `_fragment_from_effect` adapter)
-  and delegates to a shared `_build_antigen_rows` step — one prediction
+  and delegates to a shared `_build_fragment_rows` step — one prediction
   pipeline instead of two. The ~60-line row-by-row metadata loop is gone.
 - New fragment-derived columns (`fragment_id`, `source_type`,
   `overlaps_target`, `wt_peptide` / `wt_peptide_length`) now flow
@@ -16,7 +29,7 @@
   `transcript_name`, `contains_mutant_residues`, `only_novel_epitopes`,
   and legacy `gene_expression_dict` / `transcript_expression_dict`
   plumbing all behave identically to 5.2.0.
-- `source_type` classification aligned with `docs/antigens.md`
+- `source_type` classification aligned with `docs/fragments.md`
   vocabulary: `PrematureStop` → `variant:stop_gain`, multi-residue
   `Substitution` → `variant:indel`, unlisted effect classes fall back
   to `variant:<classname_lowered>`.
@@ -26,13 +39,13 @@
 
 **New field:**
 
-- `AntigenFragment.transcript_name` — human-readable transcript label
+- `ProteinFragment.transcript_name` — human-readable transcript label
   alongside `transcript_id`. Threaded through `from_dict`, `from_variant`,
   `from_junction`, and the TSV IO schema.
 
 **Internal:**
 
-- New `TopiaryPredictor._build_antigen_rows(fragments)` — fragment
+- New `TopiaryPredictor._build_fragment_rows(fragments)` — fragment
   scanning + metadata overlay without filter / sort.  Public entry
   points layer filter / sort / `only_novel_epitopes` on top.
 - 18 new regression tests covering legacy column contract, expression-
