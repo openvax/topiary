@@ -66,6 +66,23 @@ class CachedPredictor:
         merged back into the cache.  Its
         ``(prediction_method_name, predictor_version)`` must match the
         cache's.
+
+    Notes
+    -----
+    **Peptide-length coverage.**  ``default_peptide_lengths`` is derived
+    from the lengths actually present in the cache (union with the
+    fallback's lengths when one is set).  A cache loaded from a file
+    that only contains 9-mers will silently scan only 9-mer windows in
+    ``predict_proteins_dataframe``.  If your source table was intended
+    to cover multiple lengths but doesn't, you won't notice it here —
+    check ``cache.default_peptide_lengths`` after loading.
+
+    **Thread safety.**  :meth:`predict_peptides_dataframe` and
+    :meth:`predict_proteins_dataframe` mutate internal state (the
+    ``(peptide, allele, peptide_length)`` index and the backing
+    DataFrame) when a fallback is configured.  The class is **not
+    thread-safe**; wrap calls in a lock if the cache is shared across
+    worker threads.
     """
 
     def __init__(
@@ -311,22 +328,40 @@ class CachedPredictor:
         fb_df = self._conform_predictor_output(fb_df)
         self._verify_fallback_version(fb_df)
         new_rows = self._normalize(fb_df)
-        for _, r in new_rows.iterrows():
+
+        # Filter to only keys not already in the cache.  The fallback
+        # typically predicts across all its alleles for each missed
+        # peptide; without this guard, a partial-allele cache (peptide
+        # P present for allele A, missing for allele B) would see its
+        # (P, A) row silently overwritten by the fallback's output
+        # when (P, B) triggers a fallback call.  Preserve user intent.
+        def _is_new(row):
+            key = (
+                str(row["peptide"]),
+                str(row["allele"]),
+                int(row["peptide_length"]),
+            )
+            return key not in self._index
+
+        novel_mask = new_rows.apply(_is_new, axis=1)
+        novel_rows = new_rows[novel_mask]
+        for _, r in novel_rows.iterrows():
             key = (
                 str(r["peptide"]), str(r["allele"]), int(r["peptide_length"]),
             )
             self._index[key] = r.to_dict()
+
+        if len(novel_rows) == 0:
+            return
         # Empty-cache mode: self._df is an empty all-NA frame from
         # __init__; concatenating through it trips a pandas FutureWarning.
         # Assign directly instead when there's nothing to preserve.
         if len(self._df) == 0:
-            self._df = new_rows.copy()
+            self._df = novel_rows.copy()
         else:
-            self._df = pd.concat([self._df, new_rows], ignore_index=True) \
-                .drop_duplicates(
-                    subset=["peptide", "allele", "peptide_length"],
-                    keep="last",
-                )
+            self._df = pd.concat(
+                [self._df, novel_rows], ignore_index=True,
+            )
 
     @staticmethod
     def _conform_predictor_output(df: pd.DataFrame) -> pd.DataFrame:
@@ -387,7 +422,23 @@ class CachedPredictor:
 
     def save(self, path) -> None:
         """Write the cache as Parquet (``.parquet``/``.pq``) or TSV
-        (``.tsv``, optionally ``.tsv.gz``)."""
+        (``.tsv``, optionally ``.tsv.gz``).
+
+        Raises ``ValueError`` if the cache has no identity yet — an
+        empty cache built with only a fallback hasn't learned its
+        ``(prediction_method_name, predictor_version)`` until the
+        first query runs.  Saving in that state would produce a
+        schema-only file that can't be round-tripped through
+        :meth:`from_topiary_output`.
+        """
+        if self.prediction_method_name is None or len(self._df) == 0:
+            raise ValueError(
+                "CachedPredictor.save(): no rows to persist.  An empty "
+                "cache built with `fallback=` learns its "
+                "(prediction_method_name, predictor_version) identity "
+                "from the fallback's output on the first query.  Run "
+                "at least one query that populates the cache, then save."
+            )
         path_str = str(path)
         if path_str.endswith((".parquet", ".pq")):
             self._df.to_parquet(path_str, index=False)
