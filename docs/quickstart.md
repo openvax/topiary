@@ -202,3 +202,29 @@ df = predictor.predict_from_fragments(fragments)
 # synthetic. fragment_id threads through so downstream tools (vaxrank,
 # vaccine-window selection) can group peptides back to their fragment.
 ```
+
+### From cached predictions (skip the predictor call)
+
+Use a pre-computed prediction table instead of running the predictor
+live — for reproducibility, iterating on filters/ranking without
+paying the predictor cost, or ingesting output from another tool.
+
+```python
+from topiary import CachedPredictor, TopiaryPredictor
+
+# Load from topiary's own saved output, mhcflurry CSV,
+# or a generic TSV/CSV with column mapping.
+cache = CachedPredictor.from_topiary_output("run.parquet")
+# cache = CachedPredictor.from_mhcflurry("mhcflurry.csv")
+# cache = CachedPredictor.from_tsv("third_party.tsv", columns={...},
+#                                  prediction_method_name="netchop",
+#                                  predictor_version="3.1")
+
+predictor = TopiaryPredictor(models=cache)
+df = predictor.predict_from_variants(variants)
+```
+
+Every cache holds exactly one `(predictor_name, predictor_version)`
+pair — mixing versions is rejected. Full details, including
+mhcflurry's composite-version auto-composition and cache-plus-fallback
+mode, in [Cached Predictions](cached.md).

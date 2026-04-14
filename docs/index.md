@@ -17,6 +17,7 @@ Predict which peptides from protein sequences will be presented by MHC molecules
 - **Peptide properties** — charge, hydrophobicity, aromaticity, manufacturability, TCR-facing residue analysis
 - **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, Ensembl lookups, CTA gene sets, LENS reports
 - **Universal protein-fragment abstraction** — `ProteinFragment` carries antigens from any origin (somatic variants, structural variants, ERVs, CTAs, viral, allergen, autoantigen, synthetic) through one prediction pipeline
+- **Cached predictions** — `CachedPredictor` loads pre-computed scores (mhcflurry CSV, topiary's own output, generic TSV) so you can iterate on filters and ranking without re-running the predictor
 - **Tissue-aware exclusion** — exclude peptides from vital-organ proteomes
 - **Tab completion** — `pip install 'topiary[completion]'`
 
@@ -56,4 +57,4 @@ df = predictor.predict_from_named_sequences({
 })
 ```
 
-See the [Quickstart](quickstart.md) for more examples, [Protein Fragments](fragments.md) for the universal antigen abstraction, [Ranking DSL](ranking.md) for the expression system, and [API Reference](api.md) for full details.
+See the [Quickstart](quickstart.md) for more examples, [Protein Fragments](fragments.md) for the universal antigen abstraction, [Cached Predictions](cached.md) for running from pre-computed scores, [Ranking DSL](ranking.md) for the expression system, and [API Reference](api.md) for full details.

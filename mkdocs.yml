@@ -17,6 +17,7 @@ nav:
   - Home: index.md
   - Quickstart: quickstart.md
   - Protein Fragments: fragments.md
+  - Cached Predictions: cached.md
   - Ranking DSL: ranking.md
   - Peptide Properties: properties.md
   - Expression Semantics: expression-semantics.md
