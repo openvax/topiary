@@ -1,6 +1,6 @@
 # Changelog
 
-## 5.3.0
+## 5.4.0
 
 **Breaking rename (no back-compat alias):**
 
@@ -50,6 +50,14 @@
   points layer filter / sort / `only_novel_epitopes` on top.
 - 18 new regression tests covering legacy column contract, expression-
   dict plumbing, and the effect→fragment source_type classifier.
+- `tests/test_frameshift_fragments.py` — new regression suite (75
+  cases) pinning `_fragment_from_effect` behavior on varcode
+  `FrameShift` / `FrameShiftTruncation` effects: target_intervals
+  span the full downstream novel tail, per-peptide `overlaps_target`
+  agrees with ground truth across peptide lengths 8–11,
+  `inframe=True`/`False` produce identical intervals for frameshift
+  shapes, and `only_novel_epitopes=True` preserves every downstream
+  9-mer.
 
 ## 5.2.0
 
