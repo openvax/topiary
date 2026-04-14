@@ -236,6 +236,27 @@ class TestFallback:
         with pytest.raises(ValueError, match="predictor_name mismatch"):
             cache.predict_peptides_dataframe(["GILGFVFTL"])
 
+    def test_partial_allele_cache_preserves_existing_rows(self):
+        """Regression for vaxrank review concern #1: when a cache has
+        peptide P for allele A but not B, a fallback call triggered by
+        the (P, B) miss returns rows for ALL the fallback's alleles
+        including A.  The pre-loaded (P, A) row must not be overwritten
+        by the fallback's output."""
+        cache = CachedPredictor.from_dataframe(
+            _df([_row(
+                peptide="SIINFEKLA", allele="HLA-A*02:01",
+                affinity=42.0,  # sentinel we can check survives
+            )]),
+            fallback=_matched_fallback(name="random", version="1.0"),
+        )
+        # Trigger fallback: SIINFEKLA is a hit for A*02:01 but the
+        # fallback's own alleles may include it too, so without the
+        # preserve-existing guard, the random-predictor output would
+        # overwrite the 42.0 sentinel.
+        cache.predict_peptides_dataframe(["SIINFEKLA"])
+        preserved = cache._index[("SIINFEKLA", "HLA-A*02:01", 9)]
+        assert preserved["affinity"] == 42.0
+
 
 # ---------------------------------------------------------------------------
 # Null / empty version rejection
@@ -298,6 +319,31 @@ class TestEmptyCacheWithFallback:
         empty = pd.DataFrame(columns=list(_row().keys()))
         with pytest.raises(ValueError, match="either .df. .* or .fallback."):
             CachedPredictor(empty)
+
+    def test_save_before_any_query_raises(self, tmp_path):
+        """Regression for vaxrank review concern #5: saving an
+        un-queried empty-cache-plus-fallback would write a schema-only
+        file that can't be round-tripped through from_topiary_output.
+        Fail fast instead."""
+        cache = CachedPredictor(
+            fallback=_matched_fallback(name="random", version="1.0"),
+        )
+        path = tmp_path / "cache.tsv"
+        with pytest.raises(ValueError, match="no rows to persist"):
+            cache.save(path)
+        assert not path.exists()
+
+    def test_save_works_after_fallback_populates(self, tmp_path):
+        """Once identity is locked in and rows exist, save() proceeds."""
+        cache = CachedPredictor(
+            fallback=_matched_fallback(name="random", version="1.0"),
+        )
+        cache.predict_peptides_dataframe(["SIINFEKLA"])
+        path = tmp_path / "cache.tsv"
+        cache.save(path)
+        assert path.exists()
+        reloaded = CachedPredictor.from_topiary_output(path)
+        assert reloaded.prediction_method_name == "random"
 
 
 # ---------------------------------------------------------------------------
