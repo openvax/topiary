@@ -1,5 +1,82 @@
 # Changelog
 
+## 5.5.0
+
+**New feature — `CachedPredictor`:**
+
+- Pluggable prediction source (part 1 of #128) that loads MHC binding
+  predictions from a pre-computed table and plugs into
+  `TopiaryPredictor(models=…)` alongside live mhctools predictors.
+  Use cases: reproducibility, iterating on filters/ranking without
+  rerunning the predictor, per-allele / per-sample parallel
+  predictions, ingesting output from tools topiary doesn't natively
+  run.
+- Loaders shipped: `CachedPredictor.from_dataframe`,
+  `from_topiary_output` (Parquet / TSV), `from_tsv` (generic with
+  column mapping), `from_mhcflurry` (maps `mhcflurry_*` columns onto
+  canonical names).
+- NetMHCpan / NetMHC / NetMHCstabpan / NetMHCIIpan / NetMHCcons
+  loaders are queued for a follow-up PR.
+- Sharding (`concat` / `from_directory`) is queued for a separate
+  follow-up.
+
+**Version invariant:**
+
+- A single `CachedPredictor` holds exactly one
+  `(prediction_method_name, predictor_version)` pair; `None` / `NaN`
+  / empty-string values are rejected at construction. Mixing versions
+  would produce outputs that pass downstream filters invisibly, so
+  the invariant is enforced everywhere (load, fallback attach, concat).
+- Explicit opt-in equivalence: pass `also_accept_versions={"…", …}`
+  when two labels really are interchangeable (rc → final, timestamp-
+  only model-data reflashes).
+
+**mhcflurry-specific version composition:**
+
+- New `topiary.mhcflurry_composite_version()` helper discovers the
+  locally-installed mhcflurry package version plus its active model
+  release and returns a composite string like `"2.2.1+release-2.2.0"`.
+  `CachedPredictor.from_mhcflurry(path)` uses it automatically when
+  no explicit `predictor_version` is passed — users never enumerate
+  model bundles manually.
+
+**Fallback mode:**
+
+- Pass `fallback=<live_predictor>` to delegate cache misses; results
+  are merged back into the cache so subsequent queries serve locally.
+  No separate flag — caching fallback hits is always right for the
+  batch-prediction workload.
+- Pure read-through: `CachedPredictor(fallback=p)` with no df starts
+  empty; identity is discovered from the fallback's first output.
+
+**Documentation:**
+
+- New `docs/cached.md` covering the full surface.
+- `CachedPredictor` section added to `docs/api.md`.
+- Subsection in `docs/quickstart.md`.
+- README has a top-level "Cached predictions" section.
+- Feature list in `docs/index.md` updated.
+
+**Tests:**
+
+- 38 new tests in `tests/test_cached_predictor.py` (up from 0),
+  covering construction, version invariant (mixed rows, null rejection,
+  name/version round-trip as string), predict_peptides +
+  predict_proteins sliding-window, fallback hit + miss + version
+  mismatch + empty-cache identity discovery, `also_accept_versions`,
+  all four loaders, `mhcflurry_composite_version` via stubbed
+  mhcflurry module (no tensorflow/libomp collisions), and
+  integration with `TopiaryPredictor(models=cache)`.
+- Full suite: 1090 passed (up from 1052), 3 skipped.
+
+**Related upstream issue:**
+
+- Filed `openvax/mhctools#193` — `predict_peptides_dataframe` misses
+  `predictor_version` / `kind` / `value` columns returned by
+  `predict_proteins_dataframe`. `CachedPredictor` currently backfills
+  the gap internally; can simplify once the mhctools asymmetry is
+  resolved.
+
 ## 5.4.0
 
 **Breaking rename (no back-compat alias):**

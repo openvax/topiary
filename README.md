@@ -439,6 +439,36 @@ Remove peptides found in reference proteomes — for tumor-specific or pathogen-
 --exclude-mode substring             # "substring" (default) or "exact"
 ```
 
+## Cached predictions
+
+Skip the live predictor by loading pre-computed scores into a
+`CachedPredictor`, then passing it to `TopiaryPredictor(models=…)`.
+Useful for reproducibility, iterating on filters/ranking without
+paying the predictor cost, or ingesting predictions from a tool
+topiary doesn't natively run.
+
+```python
+from topiary import CachedPredictor, TopiaryPredictor
+
+# From topiary's own saved output, mhcflurry CSV,
+# or a generic TSV/CSV with column mapping.
+cache = CachedPredictor.from_topiary_output("run.parquet")
+# cache = CachedPredictor.from_mhcflurry("mhcflurry.csv")
+# cache = CachedPredictor.from_tsv("third_party.tsv", columns={...},
+#                                  prediction_method_name="netchop",
+#                                  predictor_version="3.1")
+
+predictor = TopiaryPredictor(models=cache)
+df = predictor.predict_from_variants(variants)
+```
+
+Every cache holds exactly one `(predictor_name, predictor_version)`
+pair — mixing versions is rejected. mhcflurry's composite version
+(package + model bundle) is auto-composed from the local install;
+users never enumerate bundles manually. See
+[docs/cached.md](docs/cached.md) for full detail, including
+cache-plus-fallback mode and opt-in version equivalence.
+
 ## MHC prediction models
 
 Specify one or more predictors with `--mhc-predictor` and alleles with `--mhc-alleles`:

@@ -26,6 +26,32 @@
 | `predict_from_variants(variants)` | VariantCollection | Variant pipeline (builds `ProteinFragment`s internally and delegates). |
 | `predict_from_mutation_effects(effects)` | EffectCollection | Same as `predict_from_variants` but starting from pre-computed effects. |
 
+## CachedPredictor
+
+Drop-in replacement for a live predictor that serves scores from a
+pre-computed table. Pass as `models=cache` to `TopiaryPredictor`. See
+[Cached Predictions](cached.md) for full detail.
+
+| Loader | Source |
+|--------|--------|
+| `CachedPredictor.from_topiary_output(path)` | Parquet / TSV / CSV previously written from a topiary run. |
+| `CachedPredictor.from_mhcflurry(path)` | mhcflurry-predict CSV output. `predictor_version` auto-composed from the installed mhcflurry when omitted. |
+| `CachedPredictor.from_tsv(path, columns=..., prediction_method_name=..., predictor_version=...)` | Generic tab- or comma-delimited. |
+| `CachedPredictor.from_dataframe(df, ...)` | In-memory DataFrame. |
+| `CachedPredictor(fallback=live_predictor)` | Empty cache, lazy identity discovery — pure read-through over a live model. |
+
+Constructor-level knobs:
+
+| Parameter | Description |
+|-----------|-------------|
+| `fallback` | Live predictor to route misses through. Result is merged back into the cache. |
+| `also_accept_versions` | Set of version strings treated as interchangeable with the cache's own version (opt-in equivalence for rc → final, etc.). |
+
+Helper: `topiary.mhcflurry_composite_version()` returns
+`"<package_version>+release-<model_release>"` for the locally-installed
+mhcflurry. Automatically used by `from_mhcflurry` when no explicit
+`predictor_version` is passed.
+
 ## Kind accessors
 
 | Accessor | Kind | Default field |
