@@ -15,7 +15,8 @@ Predict which peptides from protein sequences will be presented by MHC molecules
 - **Wildtype comparison** — `wt.Affinity.score` for differential binding analysis
 - **Peptide-level expressions** — `len`, `count('C')`, `wt.len`, `wt.count('C')` for peptide properties in the DSL
 - **Peptide properties** — charge, hydrophobicity, aromaticity, manufacturability, TCR-facing residue analysis
-- **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, Ensembl lookups, CTA gene sets
+- **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, Ensembl lookups, CTA gene sets, LENS reports
+- **Universal antigen abstraction** — `AntigenFragment` carries antigens from any origin (somatic variants, structural variants, ERVs, CTAs, viral, allergen, autoantigen, synthetic) through one prediction pipeline
 - **Tissue-aware exclusion** — exclude peptides from vital-organ proteomes
 - **Tab completion** — `pip install 'topiary[completion]'`
 
@@ -55,4 +56,4 @@ df = predictor.predict_from_named_sequences({
 })
 ```
 
-See the [Quickstart](quickstart.md) for more examples, [Ranking DSL](ranking.md) for the expression system, and [API Reference](api.md) for full details.
+See the [Quickstart](quickstart.md) for more examples, [Antigen Fragments](antigens.md) for the universal antigen abstraction, [Ranking DSL](ranking.md) for the expression system, and [API Reference](api.md) for full details.

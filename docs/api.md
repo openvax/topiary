@@ -22,8 +22,9 @@
 | `predict_from_named_sequences(dict)` | `{name: sequence}` | Sliding-window scan |
 | `predict_from_named_peptides(dict)` | `{name: peptide}` | Score as-is |
 | `predict_from_sequences(list)` | `[sequence, ...]` | Sliding-window scan |
-| `predict_from_variants(variants)` | VariantCollection | Full variant pipeline |
-| `predict_from_mutation_effects(effects)` | EffectCollection | From pre-computed effects |
+| `predict_from_antigens(fragments)` | `[AntigenFragment]` | Universal path — any origin; fragment-level metadata and `target_intervals` threaded through. |
+| `predict_from_variants(variants)` | VariantCollection | Variant pipeline (builds `AntigenFragment`s internally and delegates). |
+| `predict_from_mutation_effects(effects)` | EffectCollection | Same as `predict_from_variants` but starting from pre-computed effects. |
 
 ## Kind accessors
 

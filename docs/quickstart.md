@@ -178,6 +178,27 @@ from varcode import load_vcf
 
 variants = load_vcf("somatic.vcf")
 df = predictor.predict_from_variants(variants)
-# DataFrame includes: variant, gene, gene_id, transcript_id, effect,
-#   contains_mutant_residues, mutation_start_in_peptide, ...
+# DataFrame includes:
+#   fragment_id, source_type, variant, gene, gene_id, transcript_id,
+#   transcript_name, effect, effect_type, contains_mutant_residues,
+#   overlaps_target, mutation_start_in_peptide, mutation_end_in_peptide,
+#   wt_peptide, wt_peptide_length, ...
+```
+
+### From antigen fragments (non-variant sources)
+
+```python
+from topiary import AntigenFragment
+
+fragments = [
+    AntigenFragment(
+        fragment_id="HPV16_E6__abc12345",
+        source_type="viral:hpv16",
+        sequence="MHQKRTAMFQDPQERPRKLPQLCTELQTTIHDIILECVYCKQQLLRREVYDFAFRDLCIVYRDGNPYAVCDKCLKFYSKISEYRHYCYSLYGTTLEQQYNKPLCDLLIRCINCQKPLCPEEKQRHLDKKQRFHNIRGRWTGRCMSCCRSSRTRRETQL",
+    ),
+]
+df = predictor.predict_from_antigens(fragments)
+# Any origin — variants, SVs, ERVs, CTAs, viral, allergen, autoantigen,
+# synthetic. fragment_id threads through so downstream tools (vaxrank,
+# vaccine-window selection) can group peptides back to their fragment.
 ```

@@ -584,6 +584,17 @@ class TopiaryPredictor(object):
             df = apply_sort(df, self.sort_by, sort_direction=self.sort_direction)
         return df
 
+    def _finalize_rows(self, df):
+        """Apply filter / sort, drop non-mutant rows when
+        ``only_novel_epitopes`` is set, and reset the index.  Shared
+        tail for every AntigenFragment-producing entry point."""
+        if df.empty:
+            return df
+        df = self._apply_filter(df)
+        if self.only_novel_epitopes:
+            df = df[df["contains_mutant_residues"].eq(True)]
+        return df.reset_index(drop=True)
+
     def predict_from_antigens(self, fragments):
         """Predict MHC binding for peptides derived from a collection of
         :class:`AntigenFragment`.
@@ -618,13 +629,7 @@ class TopiaryPredictor(object):
         or wait for a follow-up PR.  The DSL's ``wt.*`` scope returns
         NaN for those columns until they're written.
         """
-        df = self._build_antigen_rows(fragments)
-        if df.empty:
-            return df
-        df = self._apply_filter(df)
-        if self.only_novel_epitopes:
-            df = df[df["contains_mutant_residues"].eq(True)]
-        return df.reset_index(drop=True)
+        return self._finalize_rows(self._build_antigen_rows(fragments))
 
     def _build_antigen_rows(self, fragments):
         """Run models on *fragments* and overlay all fragment-derived
@@ -672,17 +677,12 @@ class TopiaryPredictor(object):
 
         df["overlaps_target"] = df.apply(_overlaps, axis=1)
 
-        def _contains_mutant(row):
-            f = by_id.get(row["fragment_id"])
-            if f is None or not f.source_type or not f.source_type.startswith("variant"):
-                return None
-            if f.target_intervals is None:
-                return None
-            return f.peptide_overlaps_target(
-                int(row["peptide_offset"]), int(row["peptide_length"])
-            )
-
-        df["contains_mutant_residues"] = df.apply(_contains_mutant, axis=1)
+        # contains_mutant_residues is a narrowed view of overlaps_target:
+        # True/False only for variant-derived fragments, None otherwise.
+        is_variant = df["source_type"].fillna("").str.startswith("variant")
+        df["contains_mutant_residues"] = df["overlaps_target"].where(
+            is_variant, other=None,
+        )
 
         def _wt_peptide(row):
             f = by_id.get(row["fragment_id"])
@@ -691,9 +691,9 @@ class TopiaryPredictor(object):
             base = f.effective_baseline
             if base is None:
                 return None
-            # Only meaningful for substitution-compatible fragments where
-            # mutant and baseline coordinates align 1:1.  Indels and
-            # frameshifts need explicit remapping, which PR A does not do.
+            # Only meaningful when mutant and baseline coordinates align
+            # 1:1 — indels / frameshifts need explicit remapping, which
+            # PR A does not do.
             if len(base) != len(f.sequence):
                 return None
             start = int(row["peptide_offset"])
@@ -816,9 +816,9 @@ class TopiaryPredictor(object):
             logging.warning("No candidates for MHC binding prediction")
             return pd.DataFrame()
 
-        # Build raw rows without filter/sort so the legacy post-processing
-        # (peptide_offset rebase + mutation_start/end_in_peptide) can run
-        # before user filter expressions evaluate.
+        # Build raw rows first so the legacy post-processing (peptide_offset
+        # rebase + mutation_start/end_in_peptide + expression join) can
+        # run before user filter / sort / only_novel_epitopes evaluate.
         df = self._build_antigen_rows(fragments)
         logging.info(
             "MHC predictor returned %d peptide binding predictions" % (len(df))
@@ -827,15 +827,9 @@ class TopiaryPredictor(object):
             return df
 
         df = _add_legacy_mutation_columns(df, fragments)
-
         if expression_data:
             df = _attach_expression_data(df, expression_data)
-
-        df = self._apply_filter(df)
-        if self.only_novel_epitopes:
-            df = df[df["contains_mutant_residues"].eq(True)]
-
-        return df.reset_index(drop=True)
+        return self._finalize_rows(df)
 
     def predict_from_variants(
         self, variants, transcript_expression_dict=None, gene_expression_dict=None,
