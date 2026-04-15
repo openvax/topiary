@@ -224,7 +224,7 @@ class TestFallback:
         # Second call should NOT hit fallback (we can verify by
         # observing the cache's internal df grew and contains it).
         assert (
-            "GILGFVFTL", "HLA-A*02:01", 9, "pMHC_affinity", None, None,
+            "GILGFVFTL", "HLA-A*02:01", 9, "pMHC_affinity", "", "",
         ) in cache._index
         assert len(cache._df) == 2
 
@@ -263,7 +263,7 @@ class TestFallback:
         # overwrite the 42.0 sentinel.
         cache.predict_peptides_dataframe(["SIINFEKLA"])
         preserved = cache._index[
-            ("SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", None, None)
+            ("SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", "", "")
         ]
         assert preserved["affinity"] == 42.0
 
@@ -324,7 +324,7 @@ class TestEmptyCacheWithFallback:
         )
         cache.predict_peptides_dataframe(["SIINFEKLA"])
         assert (
-            "SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", None, None,
+            "SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", "", "",
         ) in cache._index
 
     def test_empty_df_value_and_no_fallback_still_raises(self):

@@ -187,11 +187,14 @@ class CachedPredictor:
         keep = [c for c in _CACHE_COLUMNS if c in df.columns]
         out = df[keep].copy()
         # n_flank / c_flank are part of the composite key — backfill
-        # with None when the source file doesn't provide them so every
-        # row has a well-defined key shape.
+        # with empty string when the source file doesn't provide them
+        # so every row has a well-defined key shape and there's no
+        # NaN-vs-None ambiguity in hashes or groupby passes.
         for flank_col in ("n_flank", "c_flank"):
             if flank_col not in out.columns:
-                out[flank_col] = None
+                out[flank_col] = ""
+            else:
+                out[flank_col] = out[flank_col].map(_flank_key)
         out["peptide"] = out["peptide"].astype(str)
         out["allele"] = out["allele"].astype(str)
         out["peptide_length"] = out["peptide_length"].astype(int)
@@ -915,12 +918,7 @@ class CachedPredictor:
         if callable(on_overlap):
             singletons = df[~dup_mask]
             resolved = []
-            # dropna=False: keep groups where a key column is None/NaN
-            # (flank columns are None for predictors that don't supply
-            # them; default groupby would drop those groups entirely).
-            for _, group in df[dup_mask].groupby(
-                key_cols, sort=False, dropna=False,
-            ):
+            for _, group in df[dup_mask].groupby(key_cols, sort=False):
                 rows = [r.to_dict() for _, r in group.iterrows()]
                 merged = rows[0]
                 for nxt in rows[1:]:
@@ -1009,23 +1007,24 @@ def _read_text(path) -> str:
 
 
 def _flank_key(value):
-    """Normalize a flank column value into something hashable + stable
-    across NaN / None / empty-string representations.
+    """Normalize a flank column value for use as part of the cache key.
 
-    Returns ``None`` for any missing / NaN / empty value, else the
-    uppercased string.  Ensures a row whose ``n_flank`` is NaN and a
-    row whose ``n_flank`` is ``None`` hash to the same key (they
-    represent the same absence-of-flank)."""
+    Empty string ``""`` represents "no flank context" (predictors that
+    don't take flanks, or source files that didn't provide them).
+    ``NaN`` / ``None`` / whitespace-only all coerce to ``""`` so
+    round-trips through TSV / Parquet stay stable.  Otherwise:
+    uppercased stripped string.
+    """
     if value is None:
-        return None
+        return ""
     try:
         if pd.isna(value):
-            return None
+            return ""
     except (TypeError, ValueError):
         pass
     s = str(value).strip()
     if not s or s.lower() == "nan":
-        return None
+        return ""
     return s.upper()
 
 
