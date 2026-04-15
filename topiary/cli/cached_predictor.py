@@ -120,30 +120,12 @@ def add_cached_predictor_args(arg_parser):
         default="\t",
         help="Column separator for 'tsv' format.  Default is tab.",
     )
-    group.add_argument(
-        "--mhc-cache-tsv-kind",
-        default="pMHC_affinity",
-        choices=(
-            "pMHC_affinity", "pMHC_presentation",
-            "pMHC_stability", "antigen_processing",
-        ),
-        help=(
-            "Kind stamp for 'tsv' format rows (only used when the "
-            "file itself has no 'kind' column).  The DSL's "
-            "Affinity / Presentation / Stability / Processing scopes "
-            "dispatch on this; a wrong value silently filters "
-            "downstream.  Default: pMHC_affinity."
-        ),
-    )
-    group.add_argument(
-        "--mhc-cache-netmhcpan-mode",
-        default="binding_affinity",
-        choices=("binding_affinity", "elution_score"),
-        help=(
-            "Mode for 'netmhcpan' format on NetMHCpan 4+ output.  "
-            "Default: binding_affinity."
-        ),
-    )
+    # Generic TSV files must carry a 'kind' column per row (one of
+    # pMHC_affinity / pMHC_presentation / pMHC_stability /
+    # antigen_processing).  The loader reads it directly; no CLI
+    # knob needed.  The DSL's Affinity.* / Presentation.* / etc.
+    # scopes dispatch on kind, so getting it right in the source TSV
+    # is load-bearing.
     group.add_argument(
         "--mhc-cache-netmhc-version",
         default="4",
@@ -228,13 +210,11 @@ def cached_predictor_from_args(args) -> CachedPredictor:
             sep=args.mhc_cache_tsv_sep,
             prediction_method_name=args.mhc_cache_predictor_name,
             predictor_version=args.mhc_cache_predictor_version,
-            kind=args.mhc_cache_tsv_kind,
         )
 
     if fmt == "netmhcpan":
         return CachedPredictor.from_netmhcpan_stdout(
             cache_file,
-            mode=args.mhc_cache_netmhcpan_mode,
             predictor_version=args.mhc_cache_predictor_version,
         )
 
