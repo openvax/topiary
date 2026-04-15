@@ -584,9 +584,14 @@ class CachedPredictor:
         if "mhcflurry_presentation_score" in df.columns:
             col_map["mhcflurry_presentation_score"] = "score"
         df = df.rename(columns=col_map)
-        # Prefer presentation as the kind when mhcflurry's presentation
-        # column is present (the full pipeline), else fall back to
-        # affinity-only output.
+        # TODO(multi-kind): mhcflurry's full class1_presentation pipeline
+        # emits affinity + presentation + processing per (peptide,
+        # allele) row.  CachedPredictor today keys on (peptide, allele,
+        # peptide_length) — storing multiple kinds for the same key
+        # would collapse to the last one written.  For now, pick the
+        # richer of the two signals present ("pMHC_presentation" when
+        # the presentation column exists, else "pMHC_affinity").
+        # Multi-kind caches tracked as a follow-up issue.
         if "kind" not in df.columns:
             df["kind"] = (
                 "pMHC_presentation"

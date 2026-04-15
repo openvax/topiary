@@ -508,6 +508,11 @@ class TestLoaders:
         assert cache.prediction_method_name == "mhcflurry"
         assert cache.predictor_version == "2.0.6"
         out = cache.predict_peptides_dataframe(["SIINFEKLA"])
+        # TODO(multi-kind): today from_mhcflurry collapses to a single
+        # row per (peptide, allele), preferring presentation over
+        # affinity when both columns are populated.  Multi-kind cache
+        # support is tracked as a follow-up.
+        assert len(out) == 1
         assert out.iloc[0]["affinity"] == 100.0
         assert out.iloc[0]["percentile_rank"] == 1.5
         assert out.iloc[0]["score"] == 0.8
