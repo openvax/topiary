@@ -18,6 +18,7 @@ nav:
   - Quickstart: quickstart.md
   - Protein Fragments: fragments.md
   - Cached Predictions: cached.md
+  - Cross-reactivity: self_proteome.md
   - Ranking DSL: ranking.md
   - Peptide Properties: properties.md
   - Expression Semantics: expression-semantics.md
