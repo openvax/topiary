@@ -44,13 +44,6 @@ class TestCachedPredictorCliErrors:
         with pytest.raises(ValueError, match="--mhc-predictor"):
             _run(["--peptide-csv", csv])
 
-    def test_cache_file_without_format_raises(self, tmp_path):
-        pytest.importorskip("mhctools")
-        fixture = _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A0201.out"
-        # Replaced by auto-sniff.  A bare TSV without identifying columns
-        # still raises; see TestCachedPredictorCliAutoSniff::test_tsv_not_autodetected.
-        pytest.skip("superseded by auto-sniff; see TestCachedPredictorCliAutoSniff")
-
     def test_file_and_directory_mutually_exclusive(self, tmp_path):
         csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
         with pytest.raises(ValueError, match="mutually exclusive"):
@@ -187,6 +180,28 @@ class TestCachedPredictorCliTsv:
         assert row["percentile_rank"] == 1.2
         assert row["prediction_method_name"] == "netchop"
         assert row["predictor_version"] == "3.1"
+        # kind defaults to pMHC_affinity so DSL Affinity.* scope works.
+        assert row["kind"] == "pMHC_affinity"
+
+    def test_tsv_explicit_kind(self, tmp_path):
+        """--mhc-cache-tsv-kind stamps a non-default kind when the TSV
+        carries e.g. stability predictions."""
+        tsv_path = tmp_path / "stab.tsv"
+        tsv_path.write_text(
+            "peptide\tallele\tthalf_hours\n"
+            "SLLQHLIGL\tHLA-A*02:01\t4.5\n"
+        )
+        pep_csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
+        out = _run([
+            "--peptide-csv", pep_csv,
+            "--mhc-cache-file", str(tsv_path),
+            "--mhc-cache-format", "tsv",
+            "--mhc-cache-predictor-name", "custom-stab",
+            "--mhc-cache-predictor-version", "1.0",
+            "--mhc-cache-tsv-kind", "pMHC_stability",
+            "--mhc-cache-tsv-column", "value=thalf_hours",
+        ])
+        assert out.iloc[0]["kind"] == "pMHC_stability"
 
 
 # ---------------------------------------------------------------------------

@@ -513,6 +513,7 @@ class CachedPredictor:
         sep: str = "\t",
         prediction_method_name: Optional[str] = None,
         predictor_version: Optional[str] = None,
+        kind: str = "pMHC_affinity",
         fallback=None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
@@ -523,10 +524,20 @@ class CachedPredictor:
         names actually present in the file, e.g.
         ``{"affinity": "ic50", "percentile_rank": "rank"}``.
         Pass ``sep=","`` for CSV files.
+
+        ``kind`` stamps every row unless a ``kind`` column is already
+        present in the file.  Default ``"pMHC_affinity"`` fits most
+        third-party binding-affinity tables; pass ``"pMHC_presentation"``
+        for eluted-ligand outputs, ``"pMHC_stability"`` for stability
+        predictors.  The DSL's ``Affinity.*`` / ``Presentation.*`` /
+        ``Stability.*`` scopes dispatch on this column, so a wrong
+        default silently filters downstream.
         """
         df = pd.read_csv(path, sep=sep)
         if columns:
             df = df.rename(columns={v: k for k, v in columns.items()})
+        if "kind" not in df.columns:
+            df["kind"] = kind
         return cls.from_dataframe(
             df,
             prediction_method_name=prediction_method_name,

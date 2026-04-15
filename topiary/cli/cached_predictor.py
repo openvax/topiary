@@ -121,11 +121,26 @@ def add_cached_predictor_args(arg_parser):
         help="Column separator for 'tsv' format.  Default is tab.",
     )
     group.add_argument(
+        "--mhc-cache-tsv-kind",
+        default="pMHC_affinity",
+        choices=(
+            "pMHC_affinity", "pMHC_presentation",
+            "pMHC_stability", "antigen_processing",
+        ),
+        help=(
+            "Kind stamp for 'tsv' format rows (only used when the "
+            "file itself has no 'kind' column).  The DSL's "
+            "Affinity / Presentation / Stability / Processing scopes "
+            "dispatch on this; a wrong value silently filters "
+            "downstream.  Default: pMHC_affinity."
+        ),
+    )
+    group.add_argument(
         "--mhc-cache-netmhcpan-mode",
         default="binding_affinity",
         choices=("binding_affinity", "elution_score"),
         help=(
-            "Mode for 'netmhcpan_stdout' format on NetMHCpan 4+ output.  "
+            "Mode for 'netmhcpan' format on NetMHCpan 4+ output.  "
             "Default: binding_affinity."
         ),
     )
@@ -134,7 +149,7 @@ def add_cached_predictor_args(arg_parser):
         default="4",
         choices=("3", "4", "4.1"),
         help=(
-            "NetMHC classic version for 'netmhc_stdout' format.  "
+            "NetMHC classic version for 'netmhc' format.  "
             "Default: 4."
         ),
     )
@@ -143,7 +158,7 @@ def add_cached_predictor_args(arg_parser):
         default="4.3",
         choices=("legacy", "4", "4.3"),
         help=(
-            "NetMHCIIpan version for 'netmhciipan_stdout' format.  "
+            "NetMHCIIpan version for 'netmhciipan' format.  "
             "Default: 4.3."
         ),
     )
@@ -152,7 +167,7 @@ def add_cached_predictor_args(arg_parser):
         default="elution_score",
         choices=("binding_affinity", "elution_score"),
         help=(
-            "Mode for 'netmhciipan_stdout' format on NetMHCIIpan 4+ "
+            "Mode for 'netmhciipan' format on NetMHCIIpan 4+ "
             "output.  Default: elution_score."
         ),
     )
@@ -213,6 +228,7 @@ def cached_predictor_from_args(args) -> CachedPredictor:
             sep=args.mhc_cache_tsv_sep,
             prediction_method_name=args.mhc_cache_predictor_name,
             predictor_version=args.mhc_cache_predictor_version,
+            kind=args.mhc_cache_tsv_kind,
         )
 
     if fmt == "netmhcpan":
