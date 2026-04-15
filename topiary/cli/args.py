@@ -216,6 +216,12 @@ def create_arg_parser(
         # as required.  Relax them so users can run exclusively from a
         # --mhc-cache-file / --mhc-cache-directory; predict_epitopes_from_args
         # validates that at least one MHC source is supplied.
+        #
+        # Accessing _actions here is intentional — it's argparse's de-facto
+        # public API for mutating registered arguments post-registration.
+        # If mhctools ever changes its add_mhc_args action layout this loop
+        # will still work (it only looks at option_strings), and worst-case
+        # would fall back to mhctools' original required=True behavior.
         for action in arg_parser._actions:
             if action.option_strings and any(
                 opt in ("--mhc-predictor", "--mhc-alleles")

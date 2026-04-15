@@ -47,14 +47,9 @@ class TestCachedPredictorCliErrors:
     def test_cache_file_without_format_raises(self, tmp_path):
         pytest.importorskip("mhctools")
         fixture = _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A0201.out"
-        if not fixture.exists():
-            pytest.skip("fixture missing")
-        csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
-        with pytest.raises(ValueError, match="--mhc-cache-format"):
-            _run([
-                "--peptide-csv", csv,
-                "--mhc-cache-file", str(fixture),
-            ])
+        # Replaced by auto-sniff.  A bare TSV without identifying columns
+        # still raises; see TestCachedPredictorCliAutoSniff::test_tsv_not_autodetected.
+        pytest.skip("superseded by auto-sniff; see TestCachedPredictorCliAutoSniff")
 
     def test_file_and_directory_mutually_exclusive(self, tmp_path):
         csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
@@ -63,7 +58,7 @@ class TestCachedPredictorCliErrors:
                 "--peptide-csv", csv,
                 "--mhc-cache-file", "a.out",
                 "--mhc-cache-directory", "b",
-                "--mhc-cache-format", "netmhcpan_stdout",
+                "--mhc-cache-format", "netmhcpan",
             ])
 
 
@@ -80,7 +75,7 @@ class TestCachedPredictorCliHappyPath:
         df = _run([
             "--peptide-csv", csv,
             "--mhc-cache-file", str(fixture),
-            "--mhc-cache-format", "netmhcpan_stdout",
+            "--mhc-cache-format", "netmhcpan",
         ])
         assert len(df) == 1
         row = df.iloc[0]
@@ -96,7 +91,7 @@ class TestCachedPredictorCliHappyPath:
         df = _run([
             "--peptide-csv", csv,
             "--mhc-cache-file", str(fixture),
-            "--mhc-cache-format", "netmhc_stdout",
+            "--mhc-cache-format", "netmhc",
             "--mhc-cache-netmhc-version", "4",
         ])
         # Multi-allele fixture → one row per (peptide, allele)
@@ -111,7 +106,7 @@ class TestCachedPredictorCliHappyPath:
         df = _run([
             "--peptide-csv", csv,
             "--mhc-cache-file", str(fixture),
-            "--mhc-cache-format", "netmhcstabpan_stdout",
+            "--mhc-cache-format", "netmhcstabpan",
         ])
         assert len(df) == 1
         assert df.iloc[0]["prediction_method_name"] == "netmhcstabpan"
@@ -122,7 +117,7 @@ class TestCachedPredictorCliHappyPath:
         df = _run([
             "--peptide-csv", csv,
             "--mhc-cache-file", str(fixture),
-            "--mhc-cache-format", "netmhcpan_stdout",
+            "--mhc-cache-format", "netmhcpan",
             "--mhc-cache-predictor-version", "my-custom-label",
         ])
         assert (df["predictor_version"] == "my-custom-label").all()
@@ -192,3 +187,169 @@ class TestCachedPredictorCliTsv:
         assert row["percentile_rank"] == 1.2
         assert row["prediction_method_name"] == "netchop"
         assert row["predictor_version"] == "3.1"
+
+
+# ---------------------------------------------------------------------------
+# CLI directory sharding + filter/sort interaction
+# ---------------------------------------------------------------------------
+
+
+class TestCachedPredictorCliSharding:
+    def test_mhc_cache_directory_merges_shards(self, tmp_path):
+        """--mhc-cache-directory loads every matching file and concats them."""
+        import pandas as pd
+        from topiary import CachedPredictor
+
+        def _make_shard(peptide, affinity):
+            df = pd.DataFrame([{
+                "peptide": peptide,
+                "allele": "HLA-A*02:01",
+                "peptide_length": 9,
+                "affinity": affinity,
+                "score": 0.5,
+                "percentile_rank": 1.0,
+                "prediction_method_name": "synthetic",
+                "predictor_version": "1.0",
+            }])
+            return CachedPredictor.from_dataframe(df)
+
+        cache_dir = tmp_path / "caches"
+        cache_dir.mkdir()
+        _make_shard("SLLQHLIGL", 42.0).save(cache_dir / "a.tsv")
+        _make_shard("GILGFVFTL", 100.0).save(cache_dir / "b.tsv")
+
+        # Peptides CSV covering BOTH shards
+        pep_csv = tmp_path / "pep.csv"
+        pep_csv.write_text("peptide\nSLLQHLIGL\nGILGFVFTL\n")
+
+        df = _run([
+            "--peptide-csv", str(pep_csv),
+            "--mhc-cache-directory", str(cache_dir),
+            "--mhc-cache-directory-pattern", "*.tsv",
+        ])
+        assert len(df) == 2
+        assert set(df["peptide"]) == {"SLLQHLIGL", "GILGFVFTL"}
+        by_pep = df.set_index("peptide")
+        assert by_pep.loc["SLLQHLIGL", "affinity"] == 42.0
+        assert by_pep.loc["GILGFVFTL", "affinity"] == 100.0
+
+
+@pytest.mark.skipif(not _HAS_FIXTURES, reason="NetMHC fixtures missing")
+class TestCachedPredictorCliFilterSort:
+    def test_filter_by_applies_to_cached_predictions(self, tmp_path):
+        """--filter-by runs on the joined cached-prediction DataFrame."""
+        fixture = _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A0201.out"
+        pep_csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
+        # Query at A*02:01 where SLLQHLIGL is a strong binder (~8.8 nM).
+        # A permissive filter (affinity <= 500) keeps the row.
+        df = _run([
+            "--peptide-csv", pep_csv,
+            "--mhc-cache-file", str(fixture),
+            "--mhc-cache-format", "netmhcpan",
+            "--filter-by", "affinity <= 500",
+        ])
+        assert len(df) == 1
+        # Restrictive filter (affinity <= 1) drops it.
+        df_empty = _run([
+            "--peptide-csv", pep_csv,
+            "--mhc-cache-file", str(fixture),
+            "--mhc-cache-format", "netmhcpan",
+            "--filter-by", "affinity <= 1",
+        ])
+        assert len(df_empty) == 0
+
+    def test_sort_by_applies_to_cached_predictions(self, tmp_path):
+        """--sort-by runs on the joined cached-prediction DataFrame."""
+        fixture = _FIXTURE_DIR / "netmhc_40_SLLQHLIGL.out"  # multi-allele
+        pep_csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
+        df = _run([
+            "--peptide-csv", pep_csv,
+            "--mhc-cache-file", str(fixture),
+            "--mhc-cache-format", "netmhc",
+            "--mhc-cache-netmhc-version", "4",
+            "--sort-by", "affinity",  # ascending — strongest binder first
+        ])
+        assert len(df) == 3
+        # Strongest binder is A*02:01 (~13 nM); sort pushes it to the top.
+        assert df.iloc[0]["allele"] == "HLA-A*02:01"
+
+
+# ---------------------------------------------------------------------------
+# Auto-sniff: --mhc-cache-format can be omitted for formats with
+# identifying content (NetMHC family, mhcflurry, topiary output).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_FIXTURES, reason="NetMHC fixtures missing")
+class TestCachedPredictorCliAutoSniff:
+    def test_netmhcpan_autodetected(self, tmp_path):
+        fixture = _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A0201.out"
+        csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
+        # No --mhc-cache-format — sniffed from the "NetMHCpan version 4.1b"
+        # preamble line.
+        df = _run([
+            "--peptide-csv", csv,
+            "--mhc-cache-file", str(fixture),
+        ])
+        assert len(df) == 1
+        assert df.iloc[0]["prediction_method_name"] == "netmhcpan"
+
+    def test_netmhcstabpan_autodetected(self, tmp_path):
+        fixture = _FIXTURE_DIR / "netmhcstabpan_SLLQHLIGL_A0201.out"
+        csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
+        df = _run([
+            "--peptide-csv", csv,
+            "--mhc-cache-file", str(fixture),
+        ])
+        assert len(df) == 1
+        assert df.iloc[0]["prediction_method_name"] == "netmhcstabpan"
+
+    def test_netmhc_classic_autodetected(self, tmp_path):
+        fixture = _FIXTURE_DIR / "netmhc_40_SLLQHLIGL.out"
+        csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
+        df = _run([
+            "--peptide-csv", csv,
+            "--mhc-cache-file", str(fixture),
+        ])
+        # NetMHC classic — multi-allele file → 3 rows
+        assert len(df) == 3
+
+    def test_topiary_output_autodetected(self, tmp_path):
+        import pandas as pd
+        from topiary import CachedPredictor
+
+        df = pd.DataFrame([{
+            "peptide": "SLLQHLIGL",
+            "allele": "HLA-A*02:01",
+            "peptide_length": 9,
+            "affinity": 42.0,
+            "score": 0.5,
+            "percentile_rank": 1.0,
+            "kind": "pMHC_affinity",
+            "prediction_method_name": "synthetic",
+            "predictor_version": "1.0",
+        }])
+        cache = CachedPredictor.from_dataframe(df)
+        cache.save(tmp_path / "cache.tsv")
+        pep_csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
+        # No --mhc-cache-format — sniffed from the column headers.
+        out = _run([
+            "--peptide-csv", pep_csv,
+            "--mhc-cache-file", str(tmp_path / "cache.tsv"),
+        ])
+        assert len(out) == 1
+        assert out.iloc[0]["affinity"] == 42.0
+
+    def test_tsv_not_autodetected(self, tmp_path):
+        """Generic TSV has no identifying content; must be explicit."""
+        tsv_path = tmp_path / "third_party.tsv"
+        tsv_path.write_text(
+            "peptide\tallele\tIC50_nM\n"
+            "SLLQHLIGL\tHLA-A*02:01\t42.0\n"
+        )
+        pep_csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
+        with pytest.raises(ValueError, match="auto-detect"):
+            _run([
+                "--peptide-csv", pep_csv,
+                "--mhc-cache-file", str(tsv_path),
+            ])

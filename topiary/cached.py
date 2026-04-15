@@ -573,6 +573,15 @@ class CachedPredictor:
         if "mhcflurry_presentation_score" in df.columns:
             col_map["mhcflurry_presentation_score"] = "score"
         df = df.rename(columns=col_map)
+        # Prefer presentation as the kind when mhcflurry's presentation
+        # column is present (the full pipeline), else fall back to
+        # affinity-only output.
+        if "kind" not in df.columns:
+            df["kind"] = (
+                "pMHC_presentation"
+                if "score" in df.columns
+                else "pMHC_affinity"
+            )
         if predictor_version is None:
             predictor_version = mhcflurry_composite_version()
         return cls.from_dataframe(
@@ -613,8 +622,12 @@ class CachedPredictor:
         preds = parse_netmhcpan_stdout(text, mode=mode)
         if predictor_version is None:
             predictor_version = _version_from_header(text) or "unknown"
+        kind = (
+            "pMHC_presentation" if mode == "elution_score"
+            else "pMHC_affinity"
+        )
         return cls.from_dataframe(
-            _bindings_to_dataframe(preds),
+            _bindings_to_dataframe(preds, kind=kind),
             prediction_method_name="netmhcpan",
             predictor_version=predictor_version,
             fallback=fallback,
@@ -651,7 +664,7 @@ class CachedPredictor:
         if predictor_version is None:
             predictor_version = _version_from_header(text) or version
         return cls.from_dataframe(
-            _bindings_to_dataframe(preds),
+            _bindings_to_dataframe(preds, kind="pMHC_affinity"),
             prediction_method_name="netmhc",
             predictor_version=predictor_version,
             fallback=fallback,
@@ -675,7 +688,7 @@ class CachedPredictor:
         if predictor_version is None:
             predictor_version = _version_from_header(text) or "unknown"
         return cls.from_dataframe(
-            _bindings_to_dataframe(preds),
+            _bindings_to_dataframe(preds, kind="pMHC_affinity"),
             prediction_method_name="netmhccons",
             predictor_version=predictor_version,
             fallback=fallback,
@@ -720,8 +733,12 @@ class CachedPredictor:
             preds = parser(text, mode=mode)
         if predictor_version is None:
             predictor_version = _version_from_header(text) or version
+        kind = (
+            "pMHC_presentation" if mode == "elution_score"
+            else "pMHC_affinity"
+        )
         return cls.from_dataframe(
-            _bindings_to_dataframe(preds),
+            _bindings_to_dataframe(preds, kind=kind),
             prediction_method_name="netmhciipan",
             predictor_version=predictor_version,
             fallback=fallback,
@@ -877,7 +894,7 @@ class CachedPredictor:
         if predictor_version is None:
             predictor_version = _version_from_header(text) or "unknown"
         return cls.from_dataframe(
-            _bindings_to_dataframe(preds),
+            _bindings_to_dataframe(preds, kind="pMHC_stability"),
             prediction_method_name="netmhcstabpan",
             predictor_version=predictor_version,
             fallback=fallback,
@@ -895,16 +912,24 @@ def _read_text(path) -> str:
         return f.read()
 
 
-def _bindings_to_dataframe(preds) -> pd.DataFrame:
+def _bindings_to_dataframe(preds, *, kind: str) -> pd.DataFrame:
     """Convert an mhctools ``list[BindingPrediction]`` into a DataFrame
     shaped for :class:`CachedPredictor`.  Uses ``length`` (the
     mhctools attribute name) → ``peptide_length``.
+
+    ``kind`` is required and stamped on every row — DSL expressions
+    like ``Affinity.value <= 500`` filter on the ``kind`` column to
+    disambiguate affinity / presentation / stability / processing
+    rows, and mhctools' ``BindingPrediction`` objects don't carry
+    ``kind`` as an attribute.  The caller (one of the ``from_*``
+    classmethods) knows the right value based on tool + mode.
     """
     rows = [
         {
             "peptide": p.peptide,
             "allele": p.allele,
             "peptide_length": p.length,
+            "kind": kind,
             "score": p.score,
             "affinity": p.affinity,
             "percentile_rank": p.percentile_rank,

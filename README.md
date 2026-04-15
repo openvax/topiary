@@ -574,15 +574,17 @@ including cache-plus-fallback mode and opt-in version equivalence.
 From the CLI:
 
 ```bash
-# Skip the live predictor, read from an mhcflurry CSV
+# Skip the live predictor, read from an mhcflurry CSV.  Format is
+# sniffed from file content; no --mhc-cache-format needed for
+# NetMHC-family / mhcflurry / topiary-output files.
 topiary --peptide-csv peptides.csv \
     --mhc-cache-file mhcflurry_predictions.csv \
-    --mhc-cache-format mhcflurry \
     --output-csv results.csv
 ```
 
-`--mhc-cache-format` accepts `topiary_output`, `mhcflurry`, `tsv`,
-`netmhcpan_stdout`, `netmhc_stdout`, `netmhcpan_cons_stdout`,
-`netmhciipan_stdout`, or `netmhcstabpan_stdout`.
-`--mhc-predictor` and `--mhc-alleles` become optional when a cache
-is supplying predictions.
+`--mhc-cache-format` (optional; sniffed when omitted) accepts
+`topiary_output`, `mhcflurry`, `tsv`, `netmhcpan`, `netmhc`,
+`netmhccons`, `netmhciipan`, or `netmhcstabpan`. Only the generic
+`tsv` format strictly requires the explicit flag. `--mhc-predictor`
+and `--mhc-alleles` become optional when a cache is supplying
+predictions.

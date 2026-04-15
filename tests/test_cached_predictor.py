@@ -777,7 +777,16 @@ class TestFromDirectory:
 
 # ---------------------------------------------------------------------------
 # Real NetMHC-family fixtures captured from the netmhc-bundle binaries
-# on peptide SLLQHLIGL at HLA-A*02:01 / A*24:02 / B*07:02.
+# on peptide SLLQHLIGL at HLA-A*02:01 / A*24:02 / B*07:02 (substituted
+# for B*07:01 which NetMHCpan doesn't recognize).
+#
+# Numeric assertions below (``affinity == 8.82`` etc.) pin the specific
+# NetMHC binary versions used to generate the fixtures — regenerating
+# them on a different machine or with a newer netmhc-bundle will likely
+# shift the numbers within pytest.approx tolerances.  Fixture headers
+# carry machine-specific comment lines (paths, timestamps, hostnames)
+# that don't affect parsing; they're left intact so the captures remain
+# byte-faithful reproductions of what the binaries emitted.
 # ---------------------------------------------------------------------------
 
 _FIXTURE_DIR = (
@@ -860,3 +869,54 @@ class TestRealNetMHCFixtures:
         assert cache.prediction_method_name == "netmhcstabpan"
         out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
         assert len(out) == 1
+
+
+@pytest.mark.skipif(
+    not _FIXTURE_DIR.exists(),
+    reason="NetMHC fixtures not available",
+)
+class TestMultiAlleleFixturesKnownBroken:
+    """Multi-allele NetMHCpan / NetMHCstabpan outputs are committed as
+    fixtures but don't parse through mhctools today — the per-allele
+    \"Distance to training data\" header lines confuse its row parser.
+    Filed upstream as openvax/mhctools#195.  These xfail tests pin the
+    current behavior so when the upstream fix lands, they flip to
+    passing and we get a reviewable diff that promotes them to regular
+    happy-path tests."""
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "mhctools#195 — multi-allele NetMHCpan stdout crashes on "
+            "per-allele header lines. Xfail flips to pass when upstream "
+            "is fixed; promote to happy-path test at that point."
+        ),
+    )
+    def test_multi_allele_netmhcpan_41_parses(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL.out",
+        )
+        alleles = set(cache.alleles)
+        assert alleles == {
+            "HLA-A*02:01", "HLA-A*24:02", "HLA-B*07:02",
+        }
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="mhctools#195 — same issue for NetMHCpan 4.0",
+    )
+    def test_multi_allele_netmhcpan_40_parses(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_40_SLLQHLIGL.out",
+        )
+        assert len(cache.alleles) == 3
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="mhctools#195 — same issue for NetMHCstabpan",
+    )
+    def test_multi_allele_netmhcstabpan_parses(self):
+        cache = CachedPredictor.from_netmhcstabpan_stdout(
+            _FIXTURE_DIR / "netmhcstabpan_SLLQHLIGL.out",
+        )
+        assert len(cache.alleles) == 3

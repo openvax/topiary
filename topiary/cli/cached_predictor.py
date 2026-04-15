@@ -29,11 +29,11 @@ _CACHE_FORMATS = (
     "topiary_output",
     "mhcflurry",
     "tsv",
-    "netmhcpan_stdout",
-    "netmhc_stdout",
-    "netmhcpan_cons_stdout",
-    "netmhciipan_stdout",
-    "netmhcstabpan_stdout",
+    "netmhcpan",
+    "netmhc",
+    "netmhccons",
+    "netmhciipan",
+    "netmhcstabpan",
 )
 
 
@@ -75,8 +75,13 @@ def add_cached_predictor_args(arg_parser):
         choices=_CACHE_FORMATS,
         default=None,
         help=(
-            "Format of --mhc-cache-file.  Required when --mhc-cache-file "
-            "is set."
+            "Format of --mhc-cache-file.  Optional: topiary sniffs the "
+            "format from the file's content when omitted — NetMHC-family "
+            "stdout captures carry a 'version X.Y' preamble, mhcflurry "
+            "CSVs have 'mhcflurry_*' columns, topiary's own output has "
+            "'prediction_method_name' + 'predictor_version'.  Only the "
+            "'tsv' format requires an explicit --mhc-cache-format "
+            "(generic tables can't be auto-detected)."
         ),
     )
     group.add_argument(
@@ -183,10 +188,13 @@ def cached_predictor_from_args(args) -> CachedPredictor:
 
     fmt = getattr(args, "mhc_cache_format", None)
     if not fmt:
-        raise ValueError(
-            "--mhc-cache-file requires --mhc-cache-format to be set "
-            f"(choose one of {list(_CACHE_FORMATS)})."
-        )
+        fmt = _sniff_format(cache_file)
+        if fmt is None:
+            raise ValueError(
+                f"Could not auto-detect --mhc-cache-format for "
+                f"{cache_file!r}.  Pass --mhc-cache-format explicitly "
+                f"(one of {list(_CACHE_FORMATS)})."
+            )
 
     if fmt == "topiary_output":
         return CachedPredictor.from_topiary_output(cache_file)
@@ -207,27 +215,27 @@ def cached_predictor_from_args(args) -> CachedPredictor:
             predictor_version=args.mhc_cache_predictor_version,
         )
 
-    if fmt == "netmhcpan_stdout":
+    if fmt == "netmhcpan":
         return CachedPredictor.from_netmhcpan_stdout(
             cache_file,
             mode=args.mhc_cache_netmhcpan_mode,
             predictor_version=args.mhc_cache_predictor_version,
         )
 
-    if fmt == "netmhc_stdout":
+    if fmt == "netmhc":
         return CachedPredictor.from_netmhc_stdout(
             cache_file,
             version=args.mhc_cache_netmhc_version,
             predictor_version=args.mhc_cache_predictor_version,
         )
 
-    if fmt == "netmhcpan_cons_stdout":
+    if fmt == "netmhccons":
         return CachedPredictor.from_netmhcpan_cons_stdout(
             cache_file,
             predictor_version=args.mhc_cache_predictor_version,
         )
 
-    if fmt == "netmhciipan_stdout":
+    if fmt == "netmhciipan":
         return CachedPredictor.from_netmhciipan_stdout(
             cache_file,
             version=args.mhc_cache_netmhciipan_version,
@@ -235,7 +243,7 @@ def cached_predictor_from_args(args) -> CachedPredictor:
             predictor_version=args.mhc_cache_predictor_version,
         )
 
-    if fmt == "netmhcstabpan_stdout":
+    if fmt == "netmhcstabpan":
         return CachedPredictor.from_netmhcstabpan_stdout(
             cache_file,
             predictor_version=args.mhc_cache_predictor_version,
@@ -255,3 +263,58 @@ def _parse_tsv_columns(column_args):
         k, v = entry.split("=", 1)
         out[k.strip()] = v.strip()
     return out
+
+
+def _sniff_format(path):
+    """Guess the cache format from file content.
+
+    Returns one of the strings in ``_CACHE_FORMATS`` or ``None`` when
+    detection is ambiguous (e.g. a generic TSV without identifying
+    columns).  ``"tsv"`` is never returned — generic TSVs need an
+    explicit ``--mhc-cache-format tsv``.
+
+    Detection order:
+    1. Parquet magic bytes → ``topiary_output``.
+    2. NetMHC-family ``...version ...`` preamble lines → respective
+       tool name.
+    3. ``mhcflurry_*`` columns in the first text line → ``mhcflurry``.
+    4. ``prediction_method_name`` + ``predictor_version`` columns in
+       the first text line → ``topiary_output``.
+    """
+    try:
+        with open(path, "rb") as f:
+            magic = f.read(4)
+    except OSError:
+        return None
+    if magic == b"PAR1":
+        return "topiary_output"
+
+    try:
+        with open(path, "r", errors="replace") as f:
+            head = f.read(10000)
+    except OSError:
+        return None
+
+    # NetMHC-family preamble detection.  Order matters: more specific
+    # tool names come first so e.g. "NetMHCstabpan" doesn't get
+    # mis-tagged as "NetMHC".
+    import re
+    for needle, fmt in (
+        (r"\bNetMHCstabpan\b", "netmhcstabpan"),
+        (r"\bNetMHCIIpan\b", "netmhciipan"),
+        (r"\bNetMHCcons\b", "netmhccons"),
+        (r"\bNetMHCpan\b", "netmhcpan"),
+        (r"\bNetMHC\b", "netmhc"),
+    ):
+        if re.search(needle, head):
+            return fmt
+
+    first_line = head.split("\n", 1)[0]
+    if "mhcflurry_affinity" in first_line or "mhcflurry_presentation" in first_line:
+        return "mhcflurry"
+    if (
+        "prediction_method_name" in first_line
+        and "predictor_version" in first_line
+    ):
+        return "topiary_output"
+    return None

@@ -286,26 +286,30 @@ Every loader is exposed through `topiary`'s command-line interface via
 (variant effects, filtering, ranking, output formatting) against the
 cached predictions — the live predictor is never invoked.
 
+`--mhc-cache-format` is optional for NetMHC-family stdout captures,
+mhcflurry CSVs, and topiary's own output — topiary sniffs the format
+from file content. Only the generic `tsv` path needs an explicit
+`--mhc-cache-format tsv` (generic tables don't carry identifying
+signatures).
+
 ```bash
-# NetMHCpan stdout capture
+# NetMHCpan stdout capture — format sniffed from the preamble
 topiary --peptide-csv peptides.csv \
     --mhc-cache-file netmhcpan_run.out \
-    --mhc-cache-format netmhcpan_stdout \
     --output-csv results.csv
 
-# mhcflurry CSV (predictor_version auto-composed from local install)
+# mhcflurry CSV — format sniffed from column names; predictor_version
+# auto-composed from the local install
 topiary --peptide-csv peptides.csv \
     --mhc-cache-file mhcflurry_predictions.csv \
-    --mhc-cache-format mhcflurry \
     --output-csv results.csv
 
-# Topiary's own saved output (Parquet or TSV round-trip)
+# Topiary's own saved output (Parquet or TSV round-trip) — sniffed
 topiary --peptide-csv peptides.csv \
     --mhc-cache-file prior_run.parquet \
-    --mhc-cache-format topiary_output \
     --output-csv results.csv
 
-# Generic TSV with column mapping
+# Generic TSV with column mapping — format must be explicit
 topiary --peptide-csv peptides.csv \
     --mhc-cache-file third_party.tsv \
     --mhc-cache-format tsv \
@@ -329,7 +333,7 @@ Full flag reference:
 | `--mhc-cache-file PATH` | Single cache file. Requires `--mhc-cache-format`. |
 | `--mhc-cache-directory PATH` | Directory of shards; each file loaded via `from_topiary_output` and concatenated. Alternative to `--mhc-cache-file`. |
 | `--mhc-cache-directory-pattern GLOB` | Pattern for `--mhc-cache-directory`. Default `*`. |
-| `--mhc-cache-format FORMAT` | One of `topiary_output`, `mhcflurry`, `tsv`, `netmhcpan_stdout`, `netmhc_stdout`, `netmhcpan_cons_stdout`, `netmhciipan_stdout`, `netmhcstabpan_stdout`. |
+| `--mhc-cache-format FORMAT` | Optional — sniffed from file content when omitted (see above). One of `topiary_output`, `mhcflurry`, `tsv`, `netmhcpan`, `netmhc`, `netmhccons`, `netmhciipan`, `netmhcstabpan`. Only `tsv` strictly requires the explicit flag. |
 | `--mhc-cache-predictor-name NAME` | Override `prediction_method_name` (required for `tsv` when not in the file). |
 | `--mhc-cache-predictor-version V` | Override `predictor_version`. Auto-inferred for NetMHC stdout captures (parsed from preamble) and mhcflurry (composite from local install). |
 | `--mhc-cache-tsv-column CANONICAL=FILE_COL` | Repeatable. Column-name mapping for `tsv` format. |
