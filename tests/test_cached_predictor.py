@@ -2,6 +2,8 @@
 round-trips, fallback + version enforcement, and integration with
 :class:`TopiaryPredictor`."""
 
+import pathlib
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -771,3 +773,90 @@ class TestFromDirectory:
         )
         # sorted(["a.tsv", "b.tsv"]) → b wins (affinity=999.0)
         assert merged._df.iloc[0]["affinity"] == 999.0
+
+
+# ---------------------------------------------------------------------------
+# Real NetMHC-family fixtures captured from the netmhc-bundle binaries
+# on peptide SLLQHLIGL at HLA-A*02:01 / A*24:02 / B*07:02.
+# ---------------------------------------------------------------------------
+
+_FIXTURE_DIR = (
+    pathlib.Path(__file__).parent / "data" / "netmhc_fixtures"
+)
+
+
+@pytest.mark.skipif(
+    not _FIXTURE_DIR.exists(),
+    reason="NetMHC fixtures not available",
+)
+class TestRealNetMHCFixtures:
+    """Parse the committed real-binary outputs end-to-end through
+    each loader.  Values are the ground-truth numbers produced by
+    the corresponding NetMHC binary for SLLQHLIGL — regressions here
+    mean either our loader broke or we regenerated fixtures with a
+    different version."""
+
+    def test_netmhcpan_41_A0201_real_values(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A0201.out",
+        )
+        assert cache.prediction_method_name == "netmhcpan"
+        assert cache.predictor_version == "4.1b"
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        row = out.iloc[0]
+        assert row["peptide"] == "SLLQHLIGL"
+        assert row["allele"] == "HLA-A*02:01"
+        assert row["affinity"] == pytest.approx(8.82, rel=1e-3)
+        assert row["percentile_rank"] == pytest.approx(0.105, rel=1e-2)
+
+    def test_netmhcpan_41_A2402_real_values(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A2402.out",
+        )
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        row = out.iloc[0]
+        assert row["allele"] == "HLA-A*24:02"
+        # Weak binder at A*24:02 — affinity ~16000 nM
+        assert row["affinity"] > 10000
+
+    def test_netmhcpan_41_B0702_real_values(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_B0702.out",
+        )
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        row = out.iloc[0]
+        assert row["allele"] == "HLA-B*07:02"
+
+    def test_netmhcpan_40_real_values(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_40_SLLQHLIGL_A0201.out",
+        )
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        assert out.iloc[0]["peptide"] == "SLLQHLIGL"
+
+    def test_netmhc_classic_multi_allele_real(self):
+        # NetMHC classic 4.0 happens to handle multi-allele output fine
+        # via mhctools' parse_netmhc4_stdout.
+        cache = CachedPredictor.from_netmhc_stdout(
+            _FIXTURE_DIR / "netmhc_40_SLLQHLIGL.out",
+            version="4",
+        )
+        # All three alleles populated from one multi-allele run.
+        assert set(cache.alleles) == {
+            "HLA-A*02:01", "HLA-A*24:02", "HLA-B*07:02",
+        }
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        assert len(out) == 3
+        # A*02:01 should be the strongest binder (lowest IC50)
+        by_allele = out.set_index("allele")
+        assert by_allele.loc["HLA-A*02:01", "affinity"] < by_allele.loc[
+            "HLA-A*24:02", "affinity"
+        ]
+
+    def test_netmhcstabpan_real_values(self):
+        cache = CachedPredictor.from_netmhcstabpan_stdout(
+            _FIXTURE_DIR / "netmhcstabpan_SLLQHLIGL_A0201.out",
+        )
+        assert cache.prediction_method_name == "netmhcstabpan"
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        assert len(out) == 1

@@ -930,8 +930,12 @@ _NETMHC_VERSION_RE = re.compile(
 
 def _version_from_header(text: str) -> Optional[str]:
     """Parse a NetMHC-family version string (e.g. ``"4.1b"``) from
-    the stdout preamble.  Returns ``None`` if no version line found."""
-    m = _NETMHC_VERSION_RE.search(text[:2000])
+    the stdout preamble.  Returns ``None`` if no version line found.
+
+    Searches the first 10kB of the text; NetMHC tools put the version
+    line within the first ~100 lines but the argument-dump preamble
+    before it can stretch to several KB when verbose flags are set."""
+    m = _NETMHC_VERSION_RE.search(text[:10000])
     return m.group(1) if m else None
 
 

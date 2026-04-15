@@ -279,6 +279,69 @@ cache.save("cache.parquet")   # or .tsv / .tsv.gz / .csv
 Writes the cache's internal table using the same schema the loaders
 expect. Round-trips cleanly through `from_topiary_output`.
 
+## From the CLI
+
+Every loader is exposed through `topiary`'s command-line interface via
+`--mhc-cache-*` flags. The CLI runs the entire prediction pipeline
+(variant effects, filtering, ranking, output formatting) against the
+cached predictions — the live predictor is never invoked.
+
+```bash
+# NetMHCpan stdout capture
+topiary --peptide-csv peptides.csv \
+    --mhc-cache-file netmhcpan_run.out \
+    --mhc-cache-format netmhcpan_stdout \
+    --output-csv results.csv
+
+# mhcflurry CSV (predictor_version auto-composed from local install)
+topiary --peptide-csv peptides.csv \
+    --mhc-cache-file mhcflurry_predictions.csv \
+    --mhc-cache-format mhcflurry \
+    --output-csv results.csv
+
+# Topiary's own saved output (Parquet or TSV round-trip)
+topiary --peptide-csv peptides.csv \
+    --mhc-cache-file prior_run.parquet \
+    --mhc-cache-format topiary_output \
+    --output-csv results.csv
+
+# Generic TSV with column mapping
+topiary --peptide-csv peptides.csv \
+    --mhc-cache-file third_party.tsv \
+    --mhc-cache-format tsv \
+    --mhc-cache-predictor-name netchop \
+    --mhc-cache-predictor-version 3.1 \
+    --mhc-cache-tsv-column affinity=IC50_nM \
+    --mhc-cache-tsv-column percentile_rank=Rank \
+    --output-csv results.csv
+
+# Sharded: merge every file in a directory
+topiary --peptide-csv peptides.csv \
+    --mhc-cache-directory ./caches \
+    --mhc-cache-directory-pattern '*.parquet' \
+    --output-csv results.csv
+```
+
+Full flag reference:
+
+| Flag | Purpose |
+|---|---|
+| `--mhc-cache-file PATH` | Single cache file. Requires `--mhc-cache-format`. |
+| `--mhc-cache-directory PATH` | Directory of shards; each file loaded via `from_topiary_output` and concatenated. Alternative to `--mhc-cache-file`. |
+| `--mhc-cache-directory-pattern GLOB` | Pattern for `--mhc-cache-directory`. Default `*`. |
+| `--mhc-cache-format FORMAT` | One of `topiary_output`, `mhcflurry`, `tsv`, `netmhcpan_stdout`, `netmhc_stdout`, `netmhcpan_cons_stdout`, `netmhciipan_stdout`, `netmhcstabpan_stdout`. |
+| `--mhc-cache-predictor-name NAME` | Override `prediction_method_name` (required for `tsv` when not in the file). |
+| `--mhc-cache-predictor-version V` | Override `predictor_version`. Auto-inferred for NetMHC stdout captures (parsed from preamble) and mhcflurry (composite from local install). |
+| `--mhc-cache-tsv-column CANONICAL=FILE_COL` | Repeatable. Column-name mapping for `tsv` format. |
+| `--mhc-cache-tsv-sep SEP` | Separator for `tsv`. Default tab. |
+| `--mhc-cache-netmhcpan-mode MODE` | `binding_affinity` (default) or `elution_score` for NetMHCpan 4+. |
+| `--mhc-cache-netmhc-version V` | `3`, `4`, or `4.1` for classic NetMHC output. Default `4`. |
+| `--mhc-cache-netmhciipan-version V` | `legacy`, `4`, or `4.3` for NetMHCIIpan. Default `4.3`. |
+| `--mhc-cache-netmhciipan-mode MODE` | `binding_affinity` or `elution_score` (default) for NetMHCIIpan 4+. |
+
+`--mhc-predictor` and `--mhc-alleles` become optional when a cache is
+in use — the cache supplies the predictions and its allele set.
+
 ## When *not* to use
 
 - You've never run the predictor on these peptides — just use the

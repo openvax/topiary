@@ -20,6 +20,11 @@ import pandas as pd
 from mhctools.cli import add_mhc_args, predictors_from_args
 from varcode.cli import add_variant_args, variant_collection_from_args
 
+from .cached_predictor import (
+    add_cached_predictor_args,
+    cached_predictor_from_args,
+    cached_predictor_in_use,
+)
 from .filtering import add_filter_args
 from .rna import (
     add_expression_args,
@@ -206,6 +211,17 @@ def create_arg_parser(
         add_rna_args(arg_parser)
     if mhc:
         add_mhc_args(arg_parser)
+        add_cached_predictor_args(arg_parser)
+        # mhctools' add_mhc_args registers --mhc-predictor / --mhc-alleles
+        # as required.  Relax them so users can run exclusively from a
+        # --mhc-cache-file / --mhc-cache-directory; predict_epitopes_from_args
+        # validates that at least one MHC source is supplied.
+        for action in arg_parser._actions:
+            if action.option_strings and any(
+                opt in ("--mhc-predictor", "--mhc-alleles")
+                for opt in action.option_strings
+            ):
+                action.required = False
     if variants:
         add_variant_args(arg_parser)
     if protein_changes:
@@ -505,12 +521,21 @@ def predict_epitopes_from_args(args):
     args : argparse.Namespace
         Parsed commandline arguments for Topiary
     """
-    model_instances = predictors_from_args(args)
+    if cached_predictor_in_use(args):
+        models = cached_predictor_from_args(args)
+    else:
+        if not getattr(args, "mhc_predictor", None):
+            raise ValueError(
+                "Must supply either --mhc-predictor (live predictor) or "
+                "--mhc-cache-file / --mhc-cache-directory (cached "
+                "predictions).  Both are missing."
+            )
+        models = predictors_from_args(args)
 
     filter_by, sort_by, sort_direction = _build_filter_and_sort(args)
 
     predictor = TopiaryPredictor(
-        models=model_instances,
+        models=models,
         padding_around_mutation=args.padding_around_mutation,
         filter_by=filter_by,
         sort_by=sort_by,
