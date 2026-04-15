@@ -224,7 +224,7 @@ class TestFallback:
         # Second call should NOT hit fallback (we can verify by
         # observing the cache's internal df grew and contains it).
         assert (
-            "GILGFVFTL", "HLA-A*02:01", 9, "pMHC_affinity"
+            "GILGFVFTL", "HLA-A*02:01", 9, "pMHC_affinity", None, None,
         ) in cache._index
         assert len(cache._df) == 2
 
@@ -263,7 +263,7 @@ class TestFallback:
         # overwrite the 42.0 sentinel.
         cache.predict_peptides_dataframe(["SIINFEKLA"])
         preserved = cache._index[
-            ("SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity")
+            ("SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", None, None)
         ]
         assert preserved["affinity"] == 42.0
 
@@ -324,7 +324,7 @@ class TestEmptyCacheWithFallback:
         )
         cache.predict_peptides_dataframe(["SIINFEKLA"])
         assert (
-            "SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity"
+            "SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", None, None,
         ) in cache._index
 
     def test_empty_df_value_and_no_fallback_still_raises(self):
@@ -553,6 +553,38 @@ class TestLoaders:
         # n_flank / c_flank carry through on every kind's row.
         assert (out["n_flank"] == "ABC").all()
         assert (out["c_flank"] == "XYZ").all()
+
+    def test_from_mhcflurry_same_peptide_different_flanks(self, tmp_path):
+        """Same peptide in two protein contexts (different n_flank /
+        c_flank) with mhcflurry's processing predictor should produce
+        two distinct cache rows — flanks are part of the input for
+        antigen_processing and pMHC_presentation kinds, so they're
+        part of the cache key."""
+        df = pd.DataFrame([
+            {
+                "peptide": "SIINFEKLA",
+                "allele": "HLA-A*02:01",
+                "n_flank": "ABC",
+                "c_flank": "XYZ",
+                "mhcflurry_processing_score": 0.30,
+            },
+            {
+                "peptide": "SIINFEKLA",
+                "allele": "HLA-A*02:01",
+                "n_flank": "DEF",
+                "c_flank": "UVW",
+                "mhcflurry_processing_score": 0.75,
+            },
+        ])
+        path = tmp_path / "mhcflurry.csv"
+        df.to_csv(path, index=False)
+        cache = CachedPredictor.from_mhcflurry(path, predictor_version="2.2.0")
+        out = cache.predict_peptides_dataframe(["SIINFEKLA"])
+        # Both flank contexts preserved — would have collided under
+        # the old 4-tuple key, last write winning silently.
+        assert len(out) == 2
+        assert set(out["n_flank"]) == {"ABC", "DEF"}
+        assert set(out["score"]) == {0.30, 0.75}
 
     def test_from_mhcflurry_affinity_only(self, tmp_path):
         """Affinity-only mhcflurry output emits only the affinity kind."""

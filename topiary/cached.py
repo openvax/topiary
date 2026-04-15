@@ -57,10 +57,22 @@ _CACHE_COLUMNS = (
     "n_flank", "c_flank", "sample_name",
 )
 
-# Composite key for the cache index — distinguishes rows that share
-# (peptide, allele, length) but differ on kind (mhcflurry affinity +
-# presentation + processing, NetMHCpan -BA's affinity + elution, etc.).
-_KEY_COLS = ("peptide", "allele", "peptide_length", "kind")
+# Composite key for the cache index.
+#
+# - (peptide, allele, peptide_length): basic identity.
+# - kind: distinguishes affinity / presentation / processing / stability
+#   — needed because mhcflurry's class1_presentation pipeline and
+#   NetMHCpan's -BA flag emit multiple kinds per (peptide, allele).
+# - n_flank, c_flank: some predictors (mhcflurry's antigen_processing,
+#   mhcflurry's pMHC_presentation) take flanking residues as input, so
+#   the same peptide at two different protein contexts produces
+#   different scores.  Absent flanks (None) coexist cleanly with
+#   populated flanks — predictors that don't use flanks just produce
+#   a single (None, None) entry per (peptide, allele, kind).
+_KEY_COLS = (
+    "peptide", "allele", "peptide_length", "kind",
+    "n_flank", "c_flank",
+)
 
 
 class CachedPredictor:
@@ -174,6 +186,12 @@ class CachedPredictor:
             )
         keep = [c for c in _CACHE_COLUMNS if c in df.columns]
         out = df[keep].copy()
+        # n_flank / c_flank are part of the composite key — backfill
+        # with None when the source file doesn't provide them so every
+        # row has a well-defined key shape.
+        for flank_col in ("n_flank", "c_flank"):
+            if flank_col not in out.columns:
+                out[flank_col] = None
         out["peptide"] = out["peptide"].astype(str)
         out["allele"] = out["allele"].astype(str)
         out["peptide_length"] = out["peptide_length"].astype(int)
@@ -209,16 +227,20 @@ class CachedPredictor:
 
     @staticmethod
     def _build_index(df: pd.DataFrame) -> dict:
-        """Build ``(peptide, allele, peptide_length, kind) → row_dict``
-        index.  The four-way key is what lets a single cache hold
-        affinity + presentation + processing rows for the same
-        ``(peptide, allele)`` — a three-tuple key would collide."""
+        """Build ``(peptide, allele, peptide_length, kind, n_flank,
+        c_flank) → row_dict`` index.  The full key lets a single cache
+        hold multiple kinds per (peptide, allele) — and, within a kind
+        that depends on flanking context (mhcflurry processing and
+        presentation), distinguish the same peptide at different
+        source-protein positions."""
         return {
             (
                 str(r["peptide"]),
                 str(r["allele"]),
                 int(r["peptide_length"]),
                 str(r["kind"]),
+                _flank_key(r.get("n_flank")),
+                _flank_key(r.get("c_flank")),
             ): r.to_dict()
             for _, r in df.iterrows()
         }
@@ -275,34 +297,39 @@ class CachedPredictor:
         for peptide in peptides:
             length = len(peptide)
             for allele in query_alleles:
-                # At least one kind must be present for this (pep, allele).
-                if not any(
-                    (peptide, allele, length, k) in self._index
-                    for k in cache_kinds
-                ):
+                # At least one cached row must exist at (pep, allele,
+                # length) across any kind / flank combo.
+                if not self._lookup_by_prefix(peptide, allele, length):
                     missed_peptides.add(peptide)
                     break
 
         # Resolve misses through fallback (populates self._index in place).
         if missed_peptides:
             self._fallback_resolve(sorted(missed_peptides))
-            # Refresh kinds — fallback may have added new kinds.
-            cache_kinds = self._cache_kinds()
 
-        # Assemble output — one row per (peptide, allele, kind) that
-        # exists in the cache.
+        # Assemble output — every cache row matching (peptide, allele)
+        # across every kind + flank combo.  Single-kind / single-flank
+        # caches return one row per (peptide, allele); multi-kind
+        # (mhcflurry -BA, class1_presentation) or multi-flank (same
+        # peptide across protein contexts) return multiple rows.
         rows = []
         for peptide in peptides:
             length = len(peptide)
             for allele in query_alleles:
-                for kind in cache_kinds:
-                    row = self._index.get((peptide, allele, length, kind))
-                    if row is not None:
-                        rows.append(row)
+                rows.extend(self._lookup_by_prefix(peptide, allele, length))
 
         if not rows:
             return pd.DataFrame(columns=list(_CACHE_COLUMNS))
         return pd.DataFrame(rows).reindex(columns=list(_CACHE_COLUMNS))
+
+    def _lookup_by_prefix(self, peptide, allele, length):
+        """Return every cached row matching ``(peptide, allele,
+        peptide_length)`` — all kinds and flank contexts."""
+        prefix = (str(peptide), str(allele), int(length))
+        return [
+            row for key, row in self._index.items()
+            if key[:3] == prefix
+        ]
 
     def _cache_kinds(self):
         """Distinct kinds present in the cache."""
@@ -398,25 +425,22 @@ class CachedPredictor:
         # P present for allele A, missing for allele B) would see its
         # (P, A) row silently overwritten by the fallback's output
         # when (P, B) triggers a fallback call.  Preserve user intent.
-        def _is_new(row):
-            key = (
+        def _row_key(row):
+            return (
                 str(row["peptide"]),
                 str(row["allele"]),
                 int(row["peptide_length"]),
                 str(row["kind"]),
+                _flank_key(row.get("n_flank")),
+                _flank_key(row.get("c_flank")),
             )
-            return key not in self._index
 
-        novel_mask = new_rows.apply(_is_new, axis=1)
+        novel_mask = new_rows.apply(
+            lambda r: _row_key(r) not in self._index, axis=1,
+        )
         novel_rows = new_rows[novel_mask]
         for _, r in novel_rows.iterrows():
-            key = (
-                str(r["peptide"]),
-                str(r["allele"]),
-                int(r["peptide_length"]),
-                str(r["kind"]),
-            )
-            self._index[key] = r.to_dict()
+            self._index[_row_key(r)] = r.to_dict()
 
         if len(novel_rows) == 0:
             return
@@ -891,7 +915,12 @@ class CachedPredictor:
         if callable(on_overlap):
             singletons = df[~dup_mask]
             resolved = []
-            for _, group in df[dup_mask].groupby(key_cols, sort=False):
+            # dropna=False: keep groups where a key column is None/NaN
+            # (flank columns are None for predictors that don't supply
+            # them; default groupby would drop those groups entirely).
+            for _, group in df[dup_mask].groupby(
+                key_cols, sort=False, dropna=False,
+            ):
                 rows = [r.to_dict() for _, r in group.iterrows()]
                 merged = rows[0]
                 for nxt in rows[1:]:
@@ -977,6 +1006,27 @@ class CachedPredictor:
 def _read_text(path) -> str:
     with open(path, "r") as f:
         return f.read()
+
+
+def _flank_key(value):
+    """Normalize a flank column value into something hashable + stable
+    across NaN / None / empty-string representations.
+
+    Returns ``None`` for any missing / NaN / empty value, else the
+    uppercased string.  Ensures a row whose ``n_flank`` is NaN and a
+    row whose ``n_flank`` is ``None`` hash to the same key (they
+    represent the same absence-of-flank)."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    s = str(value).strip()
+    if not s or s.lower() == "nan":
+        return None
+    return s.upper()
 
 
 def _bindings_to_dataframe(preds, *, kind: str) -> pd.DataFrame:
