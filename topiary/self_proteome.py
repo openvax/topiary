@@ -185,6 +185,15 @@ class SelfProteome:
         ``self_nearest_reference_version``.  Rows where no reference
         exists at the query's length have ``None`` / ``NaN`` for the
         nearest-peptide columns.
+
+        Tie-breaking: when multiple reference peptides share the
+        minimum Hamming distance to the query, the first one in the
+        internal reference array (construction / insertion order) is
+        returned.  Deterministic but implementation-dependent — don't
+        rely on which specific peptide wins unless you also control
+        the reference-construction order.  The upcoming
+        ``self_nearest_candidates`` structured column (see #124, part B)
+        exposes the full tied set for callers who care.
         """
         peptides = [str(p) for p in peptides]
         # Partition queries by length to batch SIMD calls.

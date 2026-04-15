@@ -225,6 +225,104 @@ class TestEnsemblScopeErrors:
         assert "sha256:" in ref.reference_version
 
 
+class TestEnsemblHappyPath:
+    """End-to-end construction via a fully mocked pyensembl genome,
+    exercising the from_ensembl pipeline (protein iteration, gene
+    filtering, indexing, nearest lookup)."""
+
+    def _fake_genome(self):
+        # Two genes: KEEP_GENE (stays after CTA filter) and CTA_GENE.
+        # Each has one protein-coding transcript.
+        proteins = {
+            "PROT_KEEP": {
+                "gene_id": "KEEP_GENE",
+                "transcript_id": "ENST_KEEP",
+                "sequence": "MASIINFEKLGGG",  # 5 × 9-mers
+            },
+            "PROT_CTA": {
+                "gene_id": "CTA_GENE",
+                "transcript_id": "ENST_CTA",
+                "sequence": "QRSTVWYACDEFGH",  # different 9-mers
+            },
+        }
+        fake = MagicMock()
+        fake.protein_ids.return_value = list(proteins.keys())
+        fake.gene_id_of_protein_id.side_effect = (
+            lambda pid: proteins[pid]["gene_id"]
+        )
+        fake.transcript_id_of_protein_id.side_effect = (
+            lambda pid: proteins[pid]["transcript_id"]
+        )
+        fake.protein_sequence.side_effect = (
+            lambda pid: proteins[pid]["sequence"]
+        )
+        return fake
+
+    def test_from_ensembl_indexes_proteins_and_filters_cta(
+        self, monkeypatch,
+    ):
+        fake = self._fake_genome()
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        ref = SelfProteome.from_ensembl(
+            species="human",
+            release=93,
+            peptide_lengths=[9],
+            scope="non_cta",
+            cta_source={"CTA_GENE"},  # filter out CTA_GENE
+        )
+        # Only KEEP_GENE's 9-mers (5 of them) should be indexed.
+        assert ref.n_reference_peptides == 5
+        assert ref.reference_version == (
+            "ensembl-human-93+scope-non_cta+cta-sha256:"
+            + __import__("hashlib").sha256(b"CTA_GENE").hexdigest()[:12]
+        )
+
+    def test_from_ensembl_nearest_returns_real_provenance(
+        self, monkeypatch,
+    ):
+        fake = self._fake_genome()
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        ref = SelfProteome.from_ensembl(
+            species="human",
+            release=93,
+            peptide_lengths=[9],
+            scope="all",
+        )
+        # SIINFEKLG lives in KEEP_GENE at offset 2
+        out = ref.nearest(["SIINFEKLG"])
+        row = out.iloc[0]
+        assert row["self_nearest_peptide"] == "SIINFEKLG"
+        assert row["self_nearest_edit_distance"] == 0
+        assert row["self_nearest_gene_id"] == "KEEP_GENE"
+        assert row["self_nearest_transcript_id"] == "ENST_KEEP"
+        assert row["self_nearest_reference_offset"] == 2
+
+
+class TestTieBreaking:
+    """Pin the documented (and deterministic) tie-breaking rule:
+    when multiple reference peptides match at the same minimum
+    distance, the first in internal array order wins."""
+
+    def test_tie_at_distance_zero_first_reference_wins(self):
+        # Two genes with the same 9-mer — tie at distance 0.
+        # from_peptides builds the reference in insertion order, so
+        # geneA (declared first) should win.
+        ref = SelfProteome.from_peptides(
+            {"geneA": "SIINFEKLA", "geneB": "SIINFEKLA"},
+            peptide_lengths=[9],
+        )
+        out = ref.nearest(["SIINFEKLA"])
+        row = out.iloc[0]
+        assert row["self_nearest_edit_distance"] == 0
+        assert row["self_nearest_gene_id"] == "geneA"
+
+
 # ---------------------------------------------------------------------------
 # Integration with TopiaryPredictor
 # ---------------------------------------------------------------------------
