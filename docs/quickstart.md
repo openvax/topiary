@@ -212,19 +212,24 @@ paying the predictor cost, or ingesting output from another tool.
 ```python
 from topiary import CachedPredictor, TopiaryPredictor
 
-# Load from topiary's own saved output, mhcflurry CSV,
-# or a generic TSV/CSV with column mapping.
+# Load from topiary's own saved output, mhcflurry CSV, NetMHC-family
+# stdout captures, or a generic TSV/CSV with column mapping.
 cache = CachedPredictor.from_topiary_output("run.parquet")
 # cache = CachedPredictor.from_mhcflurry("mhcflurry.csv")
+# cache = CachedPredictor.from_netmhcpan_stdout("netmhcpan.out")
 # cache = CachedPredictor.from_tsv("third_party.tsv", columns={...},
 #                                  prediction_method_name="netchop",
 #                                  predictor_version="3.1")
+
+# Or merge shards from parallel prediction jobs:
+# cache = CachedPredictor.from_directory("caches/", pattern="*.parquet")
 
 predictor = TopiaryPredictor(models=cache)
 df = predictor.predict_from_variants(variants)
 ```
 
 Every cache holds exactly one `(predictor_name, predictor_version)`
-pair — mixing versions is rejected. Full details, including
-mhcflurry's composite-version auto-composition and cache-plus-fallback
-mode, in [Cached Predictions](cached.md).
+pair — mixing versions is rejected. Full details — mhcflurry's
+composite-version auto-composition, cache-plus-fallback mode, all
+five NetMHC-family loaders, and sharding with overlap policies — in
+[Cached Predictions](cached.md).
