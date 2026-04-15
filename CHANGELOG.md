@@ -1,5 +1,57 @@
 # Changelog
 
+## 5.6.0
+
+**Closes #128 — `CachedPredictor` reaches feature-complete.**
+
+**New loaders for the DTU NetMHC suite (#132):**
+
+- `CachedPredictor.from_netmhcpan_stdout(path, mode=…)` — auto-detects
+  NetMHCpan 2.8 / 3 / 4 / 4.1. `mode` selects `"binding_affinity"` or
+  `"elution_score"` for 4+.
+- `CachedPredictor.from_netmhc_stdout(path, version=…)` — classic
+  NetMHC 3 / 4 / 4.1.
+- `CachedPredictor.from_netmhcpan_cons_stdout(path)` — NetMHCcons.
+- `CachedPredictor.from_netmhciipan_stdout(path, version=…)` —
+  NetMHCIIpan legacy / 4 / 4.3.
+- `CachedPredictor.from_netmhcstabpan_stdout(path)` — NetMHCstabpan
+  pMHC-stability predictor.
+
+Each loader wraps an existing `mhctools.parsing.*_stdout` function
+(zero new parsing code) and parses the tool version out of the
+stdout preamble onto `predictor_version`. Parses stdout text, not
+the `-xlsfile` tab-delimited variant — flagged in `docs/cached.md`.
+
+**Sharding — `concat` + `from_directory`:**
+
+- `CachedPredictor.concat([caches], on_overlap=…)` — merge several
+  caches into one. All shards must share `(name, version)` per the
+  core invariant.
+- `CachedPredictor.from_directory(path, pattern="*", on_overlap=…)` —
+  glob a directory and concat every matching file through
+  `from_topiary_output`.
+- Overlap resolution policies (`on_overlap`): `"raise"` (default — fail
+  if any `(peptide, allele, peptide_length)` appears in more than one
+  shard), `"last"` (later shard wins), `"first"` (earlier wins), or a
+  user-supplied `callable(row_a, row_b) -> row` resolver.
+
+**Polish from vaxrank-consumer review on #130 (#131):**
+
+- `_fallback_resolve` filters fallback output to keys not already in
+  the index before merging, so a partial-allele cache (peptide P
+  present for allele A, missing for B) doesn't see its `(P, A)` row
+  silently overwritten by the fallback's all-alleles response.
+- Class docstring now flags silent peptide-length lock-in and
+  non-thread-safety.
+- `save()` raises on an empty never-queried cache with no identity,
+  so users don't write schema-only files that can't be round-tripped.
+
+**Tests:**
+
+- 59 tests in `tests/test_cached_predictor.py` (up from 41): 6 NetMHC
+  loader tests, 12 sharding tests. Full suite 1111 passed (up from
+  1093).
+
 ## 5.5.0
 
 **New feature — `CachedPredictor`:**

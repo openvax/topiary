@@ -116,6 +116,47 @@ when the file doesn't embed that identity.
 
 Pass `sep=","` for CSV files.
 
+### Sharding: merge multiple caches
+
+Predict per-allele or per-sample in parallel, persist each shard
+separately, then merge them:
+
+```python
+cache = CachedPredictor.concat([shard_a, shard_b, shard_c])
+
+# Or: load every matching file from a directory
+cache = CachedPredictor.from_directory(
+    "caches/",
+    pattern="*.parquet",
+)
+```
+
+Every shard must share the same
+`(prediction_method_name, predictor_version)` — the core invariant
+applies across shards the same way it applies inside one.
+
+**Overlap resolution** (`on_overlap=`):
+
+- `"raise"` (default) — fail if any `(peptide, allele, peptide_length)`
+  appears in more than one shard. A sample of conflicting keys is
+  included in the error. Use this if shards should be disjoint.
+- `"last"` — later shard in the input list wins. Useful when the
+  sort order represents "newer overwrites older."
+- `"first"` — earlier shard wins.
+- `callable(row_a, row_b) -> row` — custom resolver. Called pairwise
+  per duplicate group. Pattern for "keep stronger binder":
+
+  ```python
+  def keep_lower_affinity(a, b):
+      return a if a["affinity"] <= b["affinity"] else b
+
+  cache = CachedPredictor.concat(shards, on_overlap=keep_lower_affinity)
+  ```
+
+`from_directory` passes `on_overlap` through to `concat`; file order
+is sorted lexicographically, so `shard_a.tsv` is always earlier than
+`shard_b.tsv`.
+
 ### From an in-memory DataFrame
 
 ```python

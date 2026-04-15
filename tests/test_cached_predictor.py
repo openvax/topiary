@@ -644,3 +644,130 @@ class TestNetMHCLoaders:
         path = self._write(tmp_path, "ii.out", _NETMHCPAN_41_STDOUT)
         with pytest.raises(ValueError, match="not supported"):
             CachedPredictor.from_netmhciipan_stdout(path, version="99")
+
+
+# ---------------------------------------------------------------------------
+# Sharding: concat + from_directory
+# ---------------------------------------------------------------------------
+
+
+class TestConcat:
+    def test_concat_merges_disjoint_shards(self):
+        a = CachedPredictor.from_dataframe(_df([_row(peptide="SIINFEKLA")]))
+        b = CachedPredictor.from_dataframe(_df([_row(peptide="GILGFVFTL")]))
+        merged = CachedPredictor.concat([a, b])
+        assert set(merged._df["peptide"]) == {"SIINFEKLA", "GILGFVFTL"}
+        assert merged.prediction_method_name == "random"
+        assert merged.predictor_version == "1.0"
+
+    def test_concat_empty_list_rejects(self):
+        with pytest.raises(ValueError, match="no caches given"):
+            CachedPredictor.concat([])
+
+    def test_concat_mixed_versions_rejects(self):
+        a = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", predictor_version="1.0")]),
+        )
+        b = CachedPredictor.from_dataframe(
+            _df([_row(peptide="GILGFVFTL", predictor_version="2.0")]),
+        )
+        with pytest.raises(ValueError, match="multiple"):
+            CachedPredictor.concat([a, b])
+
+    def test_concat_overlap_raises_by_default(self):
+        a = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=100.0)]),
+        )
+        b = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=999.0)]),
+        )
+        with pytest.raises(ValueError, match="overlapping"):
+            CachedPredictor.concat([a, b])
+
+    def test_concat_overlap_last_wins(self):
+        a = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=100.0)]),
+        )
+        b = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=999.0)]),
+        )
+        merged = CachedPredictor.concat([a, b], on_overlap="last")
+        assert merged._df.iloc[0]["affinity"] == 999.0
+
+    def test_concat_overlap_first_wins(self):
+        a = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=100.0)]),
+        )
+        b = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=999.0)]),
+        )
+        merged = CachedPredictor.concat([a, b], on_overlap="first")
+        assert merged._df.iloc[0]["affinity"] == 100.0
+
+    def test_concat_overlap_callable_resolver(self):
+        a = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=100.0)]),
+        )
+        b = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=999.0)]),
+        )
+        # Keep the lower affinity (stronger binder) — caller's choice.
+        def keep_lower(x, y):
+            return x if x["affinity"] <= y["affinity"] else y
+        merged = CachedPredictor.concat([a, b], on_overlap=keep_lower)
+        assert merged._df.iloc[0]["affinity"] == 100.0
+
+    def test_concat_overlap_invalid_policy_rejects(self):
+        a = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=100.0)]),
+        )
+        b = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=999.0)]),
+        )
+        with pytest.raises(ValueError, match="on_overlap"):
+            CachedPredictor.concat([a, b], on_overlap="random-policy")
+
+
+class TestFromDirectory:
+    def test_from_directory_loads_all_shards(self, tmp_path):
+        # Two shards with disjoint peptides
+        shard_a = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA")]),
+        )
+        shard_b = CachedPredictor.from_dataframe(
+            _df([_row(peptide="GILGFVFTL")]),
+        )
+        shard_a.save(tmp_path / "shard_a.tsv")
+        shard_b.save(tmp_path / "shard_b.tsv")
+
+        merged = CachedPredictor.from_directory(tmp_path, pattern="*.tsv")
+        assert set(merged._df["peptide"]) == {"SIINFEKLA", "GILGFVFTL"}
+
+    def test_from_directory_nonexistent_raises(self, tmp_path):
+        missing = tmp_path / "nope"
+        with pytest.raises(ValueError, match="not a directory"):
+            CachedPredictor.from_directory(missing)
+
+    def test_from_directory_no_matching_files_raises(self, tmp_path):
+        # Empty dir with a pattern that can't match
+        with pytest.raises(ValueError, match="no files matching"):
+            CachedPredictor.from_directory(tmp_path, pattern="*.parquet")
+
+    def test_from_directory_propagates_on_overlap(self, tmp_path):
+        shard_a = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=100.0)]),
+        )
+        shard_b = CachedPredictor.from_dataframe(
+            _df([_row(peptide="SIINFEKLA", affinity=999.0)]),
+        )
+        shard_a.save(tmp_path / "a.tsv")
+        shard_b.save(tmp_path / "b.tsv")
+        # Default policy raises
+        with pytest.raises(ValueError, match="overlapping"):
+            CachedPredictor.from_directory(tmp_path, pattern="*.tsv")
+        # last-wins policy succeeds
+        merged = CachedPredictor.from_directory(
+            tmp_path, pattern="*.tsv", on_overlap="last",
+        )
+        # sorted(["a.tsv", "b.tsv"]) → b wins (affinity=999.0)
+        assert merged._df.iloc[0]["affinity"] == 999.0
