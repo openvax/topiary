@@ -41,6 +41,8 @@ pre-computed table. Pass as `models=cache` to `TopiaryPredictor`. See
 | `CachedPredictor.from_netmhcpan_cons_stdout(path)` | NetMHCcons stdout. |
 | `CachedPredictor.from_netmhciipan_stdout(path, version=...)` | NetMHCIIpan stdout (legacy / 4 / 4.3). |
 | `CachedPredictor.from_netmhcstabpan_stdout(path)` | NetMHCstabpan stdout (pMHC stability). |
+| `CachedPredictor.concat([caches], on_overlap=...)` | Merge shards (all must share name+version). `on_overlap`: `"raise"` / `"last"` / `"first"` / callable. |
+| `CachedPredictor.from_directory(path, pattern="*", on_overlap=...)` | Glob a dir and concat every matching file. |
 | `CachedPredictor.from_tsv(path, columns=..., prediction_method_name=..., predictor_version=...)` | Generic tab- or comma-delimited. |
 | `CachedPredictor.from_dataframe(df, ...)` | In-memory DataFrame. |
 | `CachedPredictor(fallback=live_predictor)` | Empty cache, lazy identity discovery — pure read-through over a live model. |

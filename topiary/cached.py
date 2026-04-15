@@ -30,7 +30,8 @@ Fallback semantics
 from __future__ import annotations
 
 import re
-from typing import Iterable, Mapping, Optional
+from pathlib import Path
+from typing import Callable, Iterable, List, Mapping, Optional, Union
 
 import pandas as pd
 
@@ -723,6 +724,139 @@ class CachedPredictor:
             _bindings_to_dataframe(preds),
             prediction_method_name="netmhciipan",
             predictor_version=predictor_version,
+            fallback=fallback,
+            also_accept_versions=also_accept_versions,
+        )
+
+    # --- sharding ---
+
+    @classmethod
+    def concat(
+        cls,
+        caches: List["CachedPredictor"],
+        *,
+        on_overlap: Union[str, Callable] = "raise",
+        fallback=None,
+        also_accept_versions: Optional[Iterable[str]] = None,
+    ) -> "CachedPredictor":
+        """Merge several CachedPredictors into one.
+
+        All shards must share the same
+        ``(prediction_method_name, predictor_version)`` — the core
+        invariant applies across shards the same way it applies
+        inside one.  Use ``also_accept_versions`` on the returned
+        cache to widen what its fallback attachment will accept.
+
+        Parameters
+        ----------
+        caches : list of CachedPredictor
+            Shards to merge.  Must be non-empty.
+        on_overlap : ``"raise"`` | ``"last"`` | ``"first"`` | callable
+            Policy when two shards have the same
+            ``(peptide, allele, peptide_length)`` key:
+
+            - ``"raise"`` (default): refuse to merge, showing a
+              sample of the conflicting keys.
+            - ``"last"``: the later shard in ``caches`` wins.
+            - ``"first"``: the earlier shard wins.
+            - callable ``(row_a_dict, row_b_dict) -> row_dict``:
+              user-supplied resolver, called pairwise per duplicate
+              group.
+        fallback : predictor, optional
+            Attached to the merged cache for miss-resolution.
+        """
+        if not caches:
+            raise ValueError("CachedPredictor.concat: no caches given.")
+
+        # Mixed (name, version) across shards fails the core invariant
+        # when we hand the combined df to the constructor below.
+        combined = pd.concat(
+            [c._df for c in caches], ignore_index=True,
+        )
+        key_cols = ["peptide", "allele", "peptide_length"]
+
+        dup_mask = combined.duplicated(subset=key_cols, keep=False)
+        if dup_mask.any():
+            combined = cls._resolve_overlaps(
+                combined, key_cols, dup_mask, on_overlap,
+            )
+
+        return cls(
+            combined,
+            fallback=fallback,
+            also_accept_versions=also_accept_versions,
+        )
+
+    @staticmethod
+    def _resolve_overlaps(df, key_cols, dup_mask, on_overlap):
+        if on_overlap == "raise":
+            dupes = df[dup_mask][key_cols].drop_duplicates()
+            sample = dupes.head(5).to_dict("records")
+            extra = "" if len(dupes) <= 5 else \
+                f" (and {len(dupes) - 5} more)"
+            raise ValueError(
+                f"CachedPredictor.concat: {len(dupes)} overlapping "
+                f"(peptide, allele, peptide_length) key(s) across "
+                f"shards.  Sample: {sample}{extra}.  Pass "
+                f"on_overlap='last' / 'first' / callable to resolve."
+            )
+        if on_overlap == "last":
+            return df.drop_duplicates(subset=key_cols, keep="last")
+        if on_overlap == "first":
+            return df.drop_duplicates(subset=key_cols, keep="first")
+        if callable(on_overlap):
+            singletons = df[~dup_mask]
+            resolved = []
+            for _, group in df[dup_mask].groupby(key_cols, sort=False):
+                rows = [r.to_dict() for _, r in group.iterrows()]
+                merged = rows[0]
+                for nxt in rows[1:]:
+                    merged = on_overlap(merged, nxt)
+                resolved.append(merged)
+            return pd.concat(
+                [singletons, pd.DataFrame(resolved)], ignore_index=True,
+            )
+        raise ValueError(
+            f"CachedPredictor.concat: on_overlap must be 'raise', "
+            f"'last', 'first', or a callable; got {on_overlap!r}."
+        )
+
+    @classmethod
+    def from_directory(
+        cls,
+        path,
+        *,
+        pattern: str = "*",
+        on_overlap: Union[str, Callable] = "raise",
+        fallback=None,
+        also_accept_versions: Optional[Iterable[str]] = None,
+    ) -> "CachedPredictor":
+        """Load every matching cache file in a directory and concat.
+
+        ``pattern`` is a glob passed to :meth:`pathlib.Path.glob`.
+        Files are loaded via :meth:`from_topiary_output` (any
+        extension it handles — Parquet, TSV, TSV.gz, CSV — works).
+        All files must share ``(name, version)`` per the core
+        invariant.  ``on_overlap`` follows :meth:`concat` semantics.
+        """
+        directory = Path(path)
+        if not directory.is_dir():
+            raise ValueError(
+                f"CachedPredictor.from_directory: {path!r} is not a "
+                f"directory."
+            )
+        files = sorted(
+            f for f in directory.glob(pattern) if f.is_file()
+        )
+        if not files:
+            raise ValueError(
+                f"CachedPredictor.from_directory: no files matching "
+                f"{pattern!r} in {path!r}."
+            )
+        shards = [cls.from_topiary_output(f) for f in files]
+        return cls.concat(
+            shards,
+            on_overlap=on_overlap,
             fallback=fallback,
             also_accept_versions=also_accept_versions,
         )
