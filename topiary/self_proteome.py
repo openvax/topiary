@@ -1,28 +1,43 @@
 """SelfProteome — reference protein corpus for cross-reactivity analysis.
 
-Holds a species-tagged, scope-filtered protein set indexed by peptide
-length.  Answers per-query nearest-neighbor lookups: "given this mutant
-peptide, what's the most similar peptide in healthy human self?"
+Holds a species-tagged, ``include=``-filtered protein set indexed by
+peptide length.  Answers per-query nearest-neighbor lookups: "given
+this mutant peptide, what's the most similar peptide in healthy self?"
 
-Scopes
-------
-- ``"all"``: no filter, whole Ensembl proteome (any pyensembl-supported species).
-- ``"non_cta"`` (default for human): remove cancer-testis-antigen genes via
-  pirlygenes.  Non-human species require an explicit ``cta_source=`` set
-  or callable — pirlygenes is human-only today.
+Include modes
+-------------
+- ``"all"``: no filter, whole Ensembl proteome (any pyensembl-supported
+  species).
+- ``"non_cta"`` (default for human): remove cancer-testis-antigen genes
+  via pirlygenes.  Non-human species require an explicit ``cta_source=``
+  set or callable — pirlygenes is human-only today.
+- ``"protected_tissues"``: keep only genes expressed in named tissues
+  (pirlygenes/HPA for human; user-supplied ``tissue_gene_ids=`` for
+  any species).
 - callable: user-supplied ``gene → bool`` filter.  Works for any species.
 
-Additional scopes (``"protected_tissues"`` with HPA/GTEx expression-based
-filtering, 1aa-indel candidates, the ``self_nearest_by_binding`` and
-``self_strongest_nearby`` axes, and the full candidate-set structured
-column) are queued for a follow-up PR.  This module currently ships the
-core architecture and one nearest-by-sequence axis so downstream code can
-start consuming ``self_nearest_*`` columns in a real predictor run.
+Distance metrics
+----------------
+- ``"blosum62"`` (default): BLOSUM62-weighted substitution distance.
+  Conservative substitutions (I↔L) produce lower distances than
+  non-conservative (I↔W).  Loaded lazily from Biopython.
+- ``"hamming"``: count mismatched positions (all mismatches equal).
+
+Indels
+------
+``nearest(include_indels=True)`` (default) checks 1-deletion (L-1) and
+1-insertion (L+1) neighbors via hash-set lookup.  An indel match at
+edit_distance=1 beats a same-length substitution match at
+edit_distance≥2.
+
+Binding-aware axes (``self_mimic_*``, ``self_strongest_nearby_*``,
+``self_nearest_candidates``) are tracked for a follow-up PR — they
+require MHC prediction on candidate peptides, which is
+architecturally separate from the sequence-only ``nearest()`` method.
 
 Algorithm
 ---------
-SIMD-vectorized Hamming distance against int8-encoded reference arrays.
-Only substitutions (same-length matches) in this PR; indels land in the
+SIMD-vectorized distance against int8-encoded reference arrays. Indels
 follow-up alongside seed-and-extend for larger reference corpora.  See
 #124 for the benchmark plan driving the eventual algorithm choice.
 """
@@ -47,6 +62,36 @@ _AA_TO_INT = {aa: i for i, aa in enumerate(_AA_ALPHABET)}
 # Non-standard residues (B/J/O/U/X/Z/*) all map to one sentinel so they
 # always count as a mismatch against canonical residues.
 _UNKNOWN_AA = len(_AA_ALPHABET)
+
+
+def _load_blosum62() -> np.ndarray:
+    """Load BLOSUM62 from Biopython and reshape into a (21, 21) int8
+    lookup table indexed by ``_AA_TO_INT`` encoding.
+
+    Row/column 20 (the sentinel for unknown residues) scores -4
+    against everything so unknowns always rank as large-distance
+    mismatches.
+    """
+    from Bio.Align.substitution_matrices import load
+    bio = load("BLOSUM62")
+    n = len(_AA_ALPHABET) + 1  # +1 for sentinel
+    table = np.full((n, n), -4, dtype=np.int8)
+    for i, aa_i in enumerate(_AA_ALPHABET):
+        for j, aa_j in enumerate(_AA_ALPHABET):
+            table[i, j] = int(bio[aa_i, aa_j])
+    return table
+
+
+# Lazy-loaded on first use — avoids Biopython import at module level
+# when users only want Hamming distance.
+_BLOSUM62: Optional[np.ndarray] = None
+
+
+def _get_blosum62() -> np.ndarray:
+    global _BLOSUM62
+    if _BLOSUM62 is None:
+        _BLOSUM62 = _load_blosum62()
+    return _BLOSUM62
 
 
 def _encode_peptides(peptides: List[str], length: int) -> np.ndarray:
@@ -88,10 +133,10 @@ def _resolve_cta_gene_ids(
         cta_source = defaults.get("cta_source")
         if cta_source is None:
             raise ValueError(
-                f"scope='non_cta' needs a CTA source for "
+                f"include='non_cta' needs a CTA source for "
                 f"species={species!r}; no default registered.  Pass "
                 f"cta_source=<set or callable> explicitly, or use "
-                f"scope='all'."
+                f"include='all'."
             )
 
     if callable(cta_source):
@@ -136,14 +181,14 @@ class SelfProteome:
         *,
         species: str,
         release: Optional[str],
-        scope_label: str,
+        include_label: str,
         reference_arrays: Dict[int, np.ndarray],
         reference_peptides: Dict[int, List[str]],
         provenance: Dict[str, List[Tuple[str, str, int]]],
     ):
         self.species = species
         self.release = release
-        self.scope_label = scope_label
+        self.include_label = include_label
         self._reference_arrays = reference_arrays
         self._reference_peptides = reference_peptides
         self._provenance = provenance
@@ -168,35 +213,59 @@ class SelfProteome:
         """
         release_part = f"-{self.release}" if self.release is not None else ""
         return (
-            f"ensembl-{self.species}{release_part}+scope-{self.scope_label}"
+            f"ensembl-{self.species}{release_part}+include-{self.include_label}"
         )
 
     # --- lookup ---
 
-    def nearest(self, peptides: Iterable[str]) -> pd.DataFrame:
+    def nearest(
+        self,
+        peptides: Iterable[str],
+        metric: str = "blosum62",
+        include_indels: bool = True,
+    ) -> pd.DataFrame:
         """For each query peptide, return the closest reference peptide
-        at the same length (Hamming distance, substitutions only).
+        at the same length.
+
+        Parameters
+        ----------
+        peptides : iterable of str
+        metric : ``"blosum62"`` (default) or ``"hamming"``
+            ``"blosum62"`` uses the BLOSUM62 substitution matrix to
+            score each position — conservative substitutions (I↔L)
+            contribute less distance than non-conservative ones (W↔A).
+            Requires Biopython (lazy-loaded on first use).
+
+            ``"hamming"`` counts the number of mismatched positions
+            (all mismatches weighted equally).
 
         Returns a DataFrame with one row per input peptide, preserving
-        input order, containing ``peptide``, ``self_nearest_peptide``,
-        ``self_nearest_peptide_length``, ``self_nearest_edit_distance``,
-        ``self_nearest_gene_id``, ``self_nearest_transcript_id``,
-        ``self_nearest_reference_offset``, and
-        ``self_nearest_reference_version``.  Rows where no reference
-        exists at the query's length have ``None`` / ``NaN`` for the
-        nearest-peptide columns.
+        input order.  Columns: ``peptide``, ``self_nearest_peptide``,
+        ``self_nearest_peptide_length``, ``self_nearest_edit_distance``
+        (Hamming), ``self_nearest_blosum_distance`` (BLOSUM62-based,
+        only when ``metric="blosum62"``), ``self_nearest_gene_id``,
+        ``self_nearest_transcript_id``, ``self_nearest_reference_offset``,
+        ``self_nearest_reference_version``.
 
         Tie-breaking: when multiple reference peptides share the
-        minimum Hamming distance to the query, the first one in the
-        internal reference array (construction / insertion order) is
-        returned.  Deterministic but implementation-dependent — don't
-        rely on which specific peptide wins unless you also control
-        the reference-construction order.  The upcoming
-        ``self_nearest_candidates`` structured column (see #124, part B)
-        exposes the full tied set for callers who care.
+        minimum distance, the first in the internal reference array
+        (construction / insertion order) is returned.
+
+        Indel matching: when ``include_indels=True`` and the best
+        same-length match has ``edit_distance ≥ 2``, the method also
+        checks 1-deletion (L-1) and 1-insertion (L+1) neighbors via
+        hash-set lookup.  The **first** indel hit found (deletions
+        checked before insertions, in position order) is returned —
+        not necessarily the best among all indel candidates.  This is
+        fast (~200 lookups per 9-mer) but not exhaustive; the upcoming
+        ``self_nearest_candidates`` structured column will expose the
+        full candidate set.
         """
+        if metric not in ("blosum62", "hamming"):
+            raise ValueError(
+                f"metric must be 'blosum62' or 'hamming'; got {metric!r}."
+            )
         peptides = [str(p) for p in peptides]
-        # Partition queries by length to batch SIMD calls.
         by_length: Dict[int, List[Tuple[int, str]]] = defaultdict(list)
         for idx, pep in enumerate(peptides):
             by_length[len(pep)].append((idx, pep))
@@ -205,14 +274,93 @@ class SelfProteome:
         for L, items in by_length.items():
             if L not in self._reference_arrays:
                 for idx, pep in items:
-                    results[idx] = self._empty_row(pep)
+                    results[idx] = self._empty_row(pep, metric)
                 continue
-            self._resolve_length(L, items, results)
+            self._resolve_length(L, items, results, metric=metric)
+
+        # Check 1aa indel neighbors when enabled.  An indel match
+        # at edit_distance=1 beats a same-length match at edit_distance≥2.
+        if include_indels:
+            for idx, pep in enumerate(peptides):
+                current = results[idx]
+                if current is None:
+                    continue
+                best_edit = current.get("self_nearest_edit_distance")
+                if best_edit is not None and best_edit <= 1:
+                    continue
+                indel_hit = self._check_indel_neighbors(pep, metric)
+                if indel_hit is not None:
+                    results[idx] = indel_hit
 
         return pd.DataFrame(results)
 
-    def _empty_row(self, peptide: str) -> dict:
-        return {
+    def _reference_set(self, L: int) -> set:
+        """Lazy-built set of reference peptide strings at length L."""
+        if not hasattr(self, "_reference_sets_cache"):
+            self._reference_sets_cache: Dict[int, set] = {}
+        if L not in self._reference_sets_cache:
+            peps = self._reference_peptides.get(L, [])
+            self._reference_sets_cache[L] = set(peps)
+        return self._reference_sets_cache[L]
+
+    def _check_indel_neighbors(
+        self, peptide: str, metric: str,
+    ) -> Optional[dict]:
+        """Check if any 1-insertion or 1-deletion neighbor of ``peptide``
+        exists in the reference at lengths L±1.  Returns a result row
+        for the first hit found (edit_distance=1), or ``None``.
+
+        Deletion: remove one character at each position → L-1 length.
+        Insertion: insert one of 20 AAs at each position → L+1 length.
+
+        ~L + L×20 ≈ 200 hash-set lookups for a 9-mer.  Fast.
+        """
+        L = len(peptide)
+        # Try deletions first (cheaper: L lookups vs L×20 for insertions)
+        ref_set_del = self._reference_set(L - 1) if L > 1 else set()
+        for i in range(L):
+            candidate = peptide[:i] + peptide[i + 1:]
+            if candidate in ref_set_del:
+                return self._indel_row(
+                    peptide, candidate, L - 1, "deletion", metric,
+                )
+        # Try insertions
+        ref_set_ins = self._reference_set(L + 1)
+        for i in range(L + 1):
+            for aa in _AA_ALPHABET:
+                candidate = peptide[:i] + aa + peptide[i:]
+                if candidate in ref_set_ins:
+                    return self._indel_row(
+                        peptide, candidate, L + 1, "insertion", metric,
+                    )
+        return None
+
+    def _indel_row(
+        self, peptide: str, match: str, match_len: int,
+        edit_type: str, metric: str,
+    ) -> dict:
+        prov = self._provenance.get(match)
+        if prov:
+            gene_id, transcript_id, offset = prov[0]
+        else:
+            gene_id, transcript_id, offset = None, None, None
+        row = {
+            "peptide": peptide,
+            "self_nearest_peptide": match,
+            "self_nearest_peptide_length": match_len,
+            "self_nearest_edit_distance": 1,
+            "self_nearest_edit_type": edit_type,
+            "self_nearest_gene_id": gene_id,
+            "self_nearest_transcript_id": transcript_id,
+            "self_nearest_reference_offset": offset,
+            "self_nearest_reference_version": self.reference_version,
+        }
+        if metric == "blosum62":
+            row["self_nearest_blosum_distance"] = None
+        return row
+
+    def _empty_row(self, peptide: str, metric: str) -> dict:
+        row = {
             "peptide": peptide,
             "self_nearest_peptide": None,
             "self_nearest_peptide_length": None,
@@ -222,12 +370,16 @@ class SelfProteome:
             "self_nearest_reference_offset": None,
             "self_nearest_reference_version": self.reference_version,
         }
+        if metric == "blosum62":
+            row["self_nearest_blosum_distance"] = None
+        return row
 
     def _resolve_length(
         self,
         L: int,
         items: List[Tuple[int, str]],
         results: List[Optional[dict]],
+        metric: str = "blosum62",
         chunk_size: int = 1000,
     ) -> None:
         ref_arr = self._reference_arrays[L]
@@ -235,16 +387,41 @@ class SelfProteome:
         query_peps = [pep for _, pep in items]
         query_arr = _encode_peptides(query_peps, L)
 
-        # Chunk to bound working memory: (chunk, M, L) diff tensor.
+        use_blosum = metric == "blosum62"
+        blosum = _get_blosum62() if use_blosum else None
+
         for start in range(0, len(query_arr), chunk_size):
             end = min(start + chunk_size, len(query_arr))
             q_chunk = query_arr[start:end]
-            # (chunk, M, L) != broadcasted → sum over last axis → (chunk, M).
-            diffs = (
-                q_chunk[:, None, :] != ref_arr[None, :, :]
-            ).sum(axis=2)
-            best_idx = diffs.argmin(axis=1)
-            best_dist = diffs[np.arange(len(q_chunk)), best_idx]
+
+            if use_blosum:
+                # BLOSUM62 distance: sum of (self_score - pair_score)
+                # per position.  Lower = more similar.
+                pair_scores = blosum[
+                    q_chunk[:, None, :], ref_arr[None, :, :]
+                ].sum(axis=2)
+                self_scores = blosum[
+                    q_chunk, q_chunk
+                ].sum(axis=1)
+                dists = self_scores[:, None] - pair_scores
+            else:
+                # Hamming: count mismatched positions.
+                dists = (
+                    q_chunk[:, None, :] != ref_arr[None, :, :]
+                ).sum(axis=2)
+
+            best_idx = dists.argmin(axis=1)
+            best_dist = dists[np.arange(len(q_chunk)), best_idx]
+
+            # Also compute Hamming for the edit_distance column
+            # regardless of metric (it's always useful).
+            if use_blosum:
+                hamming = (
+                    q_chunk[:, None, :] != ref_arr[None, :, :]
+                ).sum(axis=2)
+                best_hamming = hamming[np.arange(len(q_chunk)), best_idx]
+            else:
+                best_hamming = best_dist
 
             for k, (orig_idx, orig_pep) in enumerate(items[start:end]):
                 ref_pep = ref_peps[int(best_idx[k])]
@@ -253,16 +430,19 @@ class SelfProteome:
                     gene_id, transcript_id, offset = prov[0]
                 else:
                     gene_id, transcript_id, offset = None, None, None
-                results[orig_idx] = {
+                row = {
                     "peptide": orig_pep,
                     "self_nearest_peptide": ref_pep,
                     "self_nearest_peptide_length": L,
-                    "self_nearest_edit_distance": int(best_dist[k]),
+                    "self_nearest_edit_distance": int(best_hamming[k]),
                     "self_nearest_gene_id": gene_id,
                     "self_nearest_transcript_id": transcript_id,
                     "self_nearest_reference_offset": offset,
                     "self_nearest_reference_version": self.reference_version,
                 }
+                if use_blosum:
+                    row["self_nearest_blosum_distance"] = int(best_dist[k])
+                results[orig_idx] = row
 
     # --- constructors ---
 
@@ -274,7 +454,7 @@ class SelfProteome:
         peptide_lengths: Iterable[int] = (8, 9, 10, 11),
         species: str = "synthetic",
         release: Optional[str] = None,
-        scope_label: str = "all",
+        include_label: str = "all",
     ) -> "SelfProteome":
         """Build from an in-memory ``{source_id: amino_acid_sequence}``
         mapping.  Primarily a test helper; also useful for small
@@ -294,7 +474,7 @@ class SelfProteome:
         return cls(
             species=species,
             release=release,
-            scope_label=scope_label,
+            include_label=include_label,
             reference_arrays=reference_arrays,
             reference_peptides=reference_peptides,
             provenance=provenance,
@@ -308,26 +488,26 @@ class SelfProteome:
         peptide_lengths: Iterable[int] = (8, 9, 10, 11),
         species: str = "fasta",
         release: Optional[str] = None,
-        scope: Union[str, Callable] = "all",
+        include: Union[str, Callable] = "all",
     ) -> "SelfProteome":
         """Build from a FASTA file.  Each record's ID is used as both
         gene_id and transcript_id in provenance (FASTA doesn't carry
         the distinction).
 
-        ``scope`` accepts ``"all"`` or a callable ``(source_id) -> bool``;
+        ``include`` accepts ``"all"`` or a callable ``(source_id) -> bool``;
         ``"non_cta"`` and ``"protected_tissues"`` require gene-metadata
         that FASTA doesn't provide, so use :meth:`from_ensembl` for
-        those scopes.
+        those.
         """
         records = list(_parse_fasta(path))
-        scope_label, records = _apply_fasta_scope(scope, records)
+        include_label, records = _apply_fasta_scope(include, records)
         reference_arrays, reference_peptides, provenance = _build_index(
             records, peptide_lengths,
         )
         return cls(
             species=species,
             release=release,
-            scope_label=scope_label,
+            include_label=include_label,
             reference_arrays=reference_arrays,
             reference_peptides=reference_peptides,
             provenance=provenance,
@@ -340,18 +520,38 @@ class SelfProteome:
         release: Optional[int] = None,
         *,
         peptide_lengths: Iterable[int] = (8, 9, 10, 11),
-        scope: Union[str, Callable] = "non_cta",
+        include: Union[str, Callable] = "non_cta",
         cta_source=None,
+        tissues: Optional[List[str]] = None,
+        tissue_gene_ids: Optional[Set[str]] = None,
+        min_tissue_ntpm: float = 1.0,
     ) -> "SelfProteome":
         """Build from a pyensembl EnsemblRelease.
 
-        ``scope`` accepts ``"all"``, ``"non_cta"``, or a callable
-        ``(gene_id) -> bool``.  For ``scope="non_cta"`` with
-        ``species="human"``, the default ``cta_source="pirlygenes"``
-        needs no configuration.  Non-human species must pass
-        ``cta_source=<set or callable>`` explicitly.
+        ``include`` accepts ``"all"``, ``"non_cta"``,
+        ``"protected_tissues"``, or a callable ``(gene_id) -> bool``.
 
-        ``scope="protected_tissues"`` lands in a follow-up PR.
+        For ``include="non_cta"`` with ``species="human"``, the default
+        ``cta_source="pirlygenes"`` needs no configuration.  Non-human
+        species must pass ``cta_source=<set or callable>`` explicitly.
+
+        For ``include="protected_tissues"``:
+
+        - **Human (default)**: filters to genes expressed in the
+          ``tissues`` list via pirlygenes' HPA expression data.
+          ``tissues`` defaults to a curated vital-organ set
+          (``["heart_muscle", "lung", "liver", "kidney",
+          "cerebral_cortex"]``).  ``min_tissue_ntpm`` sets the
+          expression threshold (normalized TPM).
+        - **Any species with explicit data**: pass
+          ``tissue_gene_ids=<set of gene IDs>`` to supply the gene set
+          directly.  ``tissues`` and ``min_tissue_ntpm`` are ignored
+          when ``tissue_gene_ids`` is provided.  This is the path for
+          mouse (e.g. Tabula Muris data), dog, or any non-human
+          species.
+        - **Non-human without ``tissue_gene_ids``**: raises a
+          ``ValueError`` explaining that pirlygenes tissue data is
+          human-only.
         """
         try:
             from pyensembl import EnsemblRelease
@@ -361,8 +561,11 @@ class SelfProteome:
             ) from e
 
         genome = EnsemblRelease(release=release, species=species)
-        scope_label, gene_filter = _resolve_ensembl_scope(
-            scope, species, cta_source,
+        include_label, gene_filter = _resolve_ensembl_scope(
+            include, species, cta_source,
+            tissues=tissues,
+            tissue_gene_ids=tissue_gene_ids,
+            min_tissue_ntpm=min_tissue_ntpm,
         )
         records = list(_iter_ensembl_proteins(genome, gene_filter))
         reference_arrays, reference_peptides, provenance = _build_index(
@@ -371,7 +574,7 @@ class SelfProteome:
         return cls(
             species=species,
             release=str(release) if release is not None else None,
-            scope_label=scope_label,
+            include_label=include_label,
             reference_arrays=reference_arrays,
             reference_peptides=reference_peptides,
             provenance=provenance,
@@ -404,46 +607,102 @@ def _parse_fasta(path):
         yield current_id, current_id, current_id, "".join(buf)
 
 
-def _apply_fasta_scope(scope, records):
-    """Filter FASTA records by scope.  Returns (scope_label, filtered_records)."""
-    if scope == "all":
+def _apply_fasta_scope(include, records):
+    """Filter FASTA records by include mode.  Returns (include_label, filtered)."""
+    if include == "all":
         return "all", records
-    if callable(scope):
+    if callable(include):
         label = (
             "callable-"
-            + hashlib.sha256(repr(scope).encode()).hexdigest()[:12]
+            + hashlib.sha256(repr(include).encode()).hexdigest()[:12]
         )
-        return label, [r for r in records if scope(r[0])]
+        return label, [r for r in records if include(r[0])]
     raise ValueError(
-        f"scope={scope!r} isn't available for from_fasta (FASTA has no "
+        f"include={include!r} isn't available for from_fasta (FASTA has no "
         f"gene/tissue metadata).  Use 'all', a callable, or switch to "
         f"from_ensembl."
     )
 
 
-def _resolve_ensembl_scope(scope, species, cta_source):
-    """Return (scope_label, gene_filter) where gene_filter takes a gene_id
+_DEFAULT_PROTECTED_TISSUES = [
+    "heart_muscle", "lung", "liver", "kidney", "cerebral_cortex",
+]
+
+
+def _resolve_ensembl_scope(
+    include, species, cta_source, *,
+    tissues=None, tissue_gene_ids=None, min_tissue_ntpm=1.0,
+):
+    """Return (include_label, gene_filter) where gene_filter takes a gene_id
     and returns True to keep."""
-    if callable(scope):
+    if callable(include):
         label = (
             "callable-"
-            + hashlib.sha256(repr(scope).encode()).hexdigest()[:12]
+            + hashlib.sha256(repr(include).encode()).hexdigest()[:12]
         )
-        return label, scope
-    if scope == "all":
+        return label, include
+    if include == "all":
         return "all", lambda _gene_id: True
-    if scope == "non_cta":
+    if include == "non_cta":
         cta = _resolve_cta_gene_ids(species, cta_source)
         if callable(cta):
             return "non_cta-callable", lambda g: not cta(g)
         label = _cta_label(species, cta_source, cta)
         cta_set = cta  # set of gene IDs
         return label, lambda gene_id: gene_id not in cta_set
-    if scope == "protected_tissues":
-        raise NotImplementedError(
-            "scope='protected_tissues' lands in a follow-up PR."
+    if include == "protected_tissues":
+        keep_ids, label = _resolve_protected_tissues(
+            species, tissues, tissue_gene_ids, min_tissue_ntpm,
         )
-    raise ValueError(f"Unknown scope: {scope!r}.")
+        return label, lambda gene_id: gene_id in keep_ids
+    raise ValueError(f"Unknown include value: {include!r}.")
+
+
+def _resolve_protected_tissues(species, tissues, tissue_gene_ids, min_ntpm):
+    """Resolve the gene set for ``include="protected_tissues"``.
+
+    Returns ``(keep_gene_ids: set[str], include_label: str)``.
+
+    Three paths:
+
+    1. **Explicit gene set** (``tissue_gene_ids`` provided): used
+       as-is, any species.  ``tissues`` / ``min_ntpm`` ignored.
+    2. **Human default** (``tissue_gene_ids`` is None, species is
+       human): queries pirlygenes via
+       ``topiary.sources.tissue_expressed_gene_ids`` with the
+       requested tissue list (or the curated vital-organ default)
+       and ``min_ntpm`` threshold.
+    3. **Non-human without explicit gene set**: raises a clear error
+       telling the user to supply ``tissue_gene_ids=``.
+    """
+    if tissue_gene_ids is not None:
+        keep = set(tissue_gene_ids)
+        digest = hashlib.sha256(
+            "\n".join(sorted(keep)).encode()
+        ).hexdigest()[:12]
+        return keep, f"protected_tissues+gene_ids-sha256:{digest}"
+
+    # Default path — pirlygenes tissue data (human only).
+    if species != "human":
+        raise ValueError(
+            f"include='protected_tissues' without tissue_gene_ids= "
+            f"defaults to pirlygenes/HPA expression data, which is "
+            f"human-only; got species={species!r}.  For non-human "
+            f"species, pass tissue_gene_ids=<set of gene IDs> with "
+            f"the gene IDs expressed in your protected tissues "
+            f"(e.g. from Tabula Muris for mouse, or your own "
+            f"RNA-seq data)."
+        )
+
+    if tissues is None:
+        tissues = list(_DEFAULT_PROTECTED_TISSUES)
+
+    from topiary.sources import tissue_expressed_gene_ids
+    keep = tissue_expressed_gene_ids(tissues, min_ntpm=min_ntpm)
+    tissue_str = "+".join(sorted(tissues))
+    return keep, (
+        f"protected_tissues+tissues-{tissue_str}+min_ntpm-{min_ntpm}"
+    )
 
 
 def _cta_label(species, cta_source, cta_set):

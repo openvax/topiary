@@ -37,7 +37,7 @@ class TestConstruction:
             {"g": "SIINFEKLA"}, peptide_lengths=[9],
         )
         assert "ensembl-synthetic" in ref.reference_version
-        assert "scope-all" in ref.reference_version
+        assert "include-all" in ref.reference_version
 
     def test_from_peptides_short_sequence_skips_longer_lengths(self):
         # 5aa sequence — can't produce any 9-mers
@@ -71,7 +71,7 @@ class TestFastaLoader:
         path.write_text(">geneA\nSIINFEKLA\n")
         with pytest.raises(ValueError, match="FASTA"):
             SelfProteome.from_fasta(
-                path, peptide_lengths=[9], scope="non_cta",
+                path, peptide_lengths=[9], include="non_cta",
             )
 
     def test_from_fasta_accepts_callable_scope(self, tmp_path):
@@ -81,7 +81,7 @@ class TestFastaLoader:
         )
         # Keep only geneA
         ref = SelfProteome.from_fasta(
-            path, peptide_lengths=[9], scope=lambda g: g == "geneA",
+            path, peptide_lengths=[9], include=lambda g: g == "geneA",
         )
         # Only geneA 9-mers: 5 × 9
         assert ref.n_reference_peptides == 5
@@ -171,7 +171,7 @@ class TestEnsemblScopeErrors:
             lambda release=None, species=None: fake_release,
         )
         with pytest.raises(ValueError, match="no default registered"):
-            SelfProteome.from_ensembl(species="mouse", scope="non_cta")
+            SelfProteome.from_ensembl(species="mouse", include="non_cta")
 
     def test_pirlygenes_requires_human(self, monkeypatch):
         fake_release = MagicMock()
@@ -182,7 +182,7 @@ class TestEnsemblScopeErrors:
         )
         with pytest.raises(ValueError, match="human-only"):
             SelfProteome.from_ensembl(
-                species="mouse", scope="non_cta", cta_source="pirlygenes",
+                species="mouse", include="non_cta", cta_source="pirlygenes",
             )
 
     def test_protected_tissues_not_yet_implemented(self, monkeypatch):
@@ -192,9 +192,11 @@ class TestEnsemblScopeErrors:
             "pyensembl.EnsemblRelease",
             lambda release=None, species=None: fake_release,
         )
-        with pytest.raises(NotImplementedError, match="protected_tissues"):
+        # Protected tissues now implemented — non-human without
+        # tissue_gene_ids should raise (human-only default data).
+        with pytest.raises(ValueError, match="human-only"):
             SelfProteome.from_ensembl(
-                species="human", scope="protected_tissues",
+                species="mouse", include="protected_tissues",
             )
 
     def test_unknown_scope_string_rejects(self, monkeypatch):
@@ -204,9 +206,9 @@ class TestEnsemblScopeErrors:
             "pyensembl.EnsemblRelease",
             lambda release=None, species=None: fake_release,
         )
-        with pytest.raises(ValueError, match="Unknown scope"):
+        with pytest.raises(ValueError, match="Unknown include"):
             SelfProteome.from_ensembl(
-                species="human", scope="bananas",
+                species="human", include="bananas",
             )
 
     def test_custom_cta_source_as_set(self, monkeypatch):
@@ -218,7 +220,7 @@ class TestEnsemblScopeErrors:
         )
         # Non-human + explicit CTA set should succeed.
         ref = SelfProteome.from_ensembl(
-            species="mouse", scope="non_cta",
+            species="mouse", include="non_cta",
             cta_source={"ENSMUSG0001", "ENSMUSG0002"},
         )
         assert "non_cta" in ref.reference_version
@@ -270,13 +272,13 @@ class TestEnsemblHappyPath:
             species="human",
             release=93,
             peptide_lengths=[9],
-            scope="non_cta",
+            include="non_cta",
             cta_source={"CTA_GENE"},  # filter out CTA_GENE
         )
         # Only KEEP_GENE's 9-mers (5 of them) should be indexed.
         assert ref.n_reference_peptides == 5
         assert ref.reference_version == (
-            "ensembl-human-93+scope-non_cta+cta-sha256:"
+            "ensembl-human-93+include-non_cta+cta-sha256:"
             + __import__("hashlib").sha256(b"CTA_GENE").hexdigest()[:12]
         )
 
@@ -292,7 +294,7 @@ class TestEnsemblHappyPath:
             species="human",
             release=93,
             peptide_lengths=[9],
-            scope="all",
+            include="all",
         )
         # SIINFEKLG lives in KEEP_GENE at offset 2
         out = ref.nearest(["SIINFEKLG"])
@@ -384,3 +386,274 @@ class TestTopiaryPredictorIntegration:
         assert "self_nearest_peptide" in df.columns
         assert "self_nearest_edit_distance" in df.columns
         assert (df["self_nearest_edit_distance"] == 0).all()
+
+
+# ---------------------------------------------------------------------------
+# include="protected_tissues"
+# ---------------------------------------------------------------------------
+
+
+class TestProtectedTissuesScope:
+    """Test include="protected_tissues" — human via pirlygenes defaults
+    and non-human via explicit tissue_gene_ids."""
+
+    def test_non_human_without_tissue_gene_ids_raises(self, monkeypatch):
+        fake = MagicMock()
+        fake.protein_ids.return_value = []
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        with pytest.raises(ValueError, match="human-only"):
+            SelfProteome.from_ensembl(
+                species="mouse", include="protected_tissues",
+            )
+
+    def test_non_human_with_explicit_gene_ids_works(self, monkeypatch):
+        """Non-human users pass tissue_gene_ids= to supply their own
+        gene set (e.g. from Tabula Muris) — bypasses pirlygenes."""
+        fake = MagicMock()
+        fake.protein_ids.return_value = ["PROT_A", "PROT_B"]
+        fake.gene_id_of_protein_id.side_effect = {
+            "PROT_A": "GENE_KEEP",
+            "PROT_B": "GENE_DROP",
+        }.get
+        fake.transcript_id_of_protein_id.side_effect = {
+            "PROT_A": "TX_KEEP",
+            "PROT_B": "TX_DROP",
+        }.get
+        fake.protein_sequence.side_effect = {
+            "PROT_A": "MASIINFEKLGGG",
+            "PROT_B": "QRSTVWYACDEFGH",
+        }.get
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        ref = SelfProteome.from_ensembl(
+            species="mouse",
+            release=102,
+            peptide_lengths=[9],
+            include="protected_tissues",
+            tissue_gene_ids={"GENE_KEEP"},
+        )
+        # Only GENE_KEEP's proteins should survive the filter.
+        assert ref.n_reference_peptides == 5  # 5 × 9-mers from "MASIINFEKLGGG"
+        assert "protected_tissues" in ref.reference_version
+        assert "sha256:" in ref.reference_version
+
+    def test_human_default_tissues(self, monkeypatch):
+        """Human include='protected_tissues' with default tissues uses
+        pirlygenes' tissue_expressed_gene_ids.  Mock it to avoid
+        pirlygenes data load in CI."""
+        keep_genes = {"GENE_A", "GENE_B"}
+        monkeypatch.setattr(
+            "topiary.sources.tissue_expressed_gene_ids",
+            lambda tissues, min_ntpm=1.0: keep_genes,
+        )
+        fake = MagicMock()
+        fake.protein_ids.return_value = ["P1", "P2"]
+        fake.gene_id_of_protein_id.side_effect = {
+            "P1": "GENE_A",
+            "P2": "GENE_C",
+        }.get
+        fake.transcript_id_of_protein_id.side_effect = {
+            "P1": "TX_A",
+            "P2": "TX_C",
+        }.get
+        fake.protein_sequence.side_effect = {
+            "P1": "MASIINFEKLGGG",
+            "P2": "QRSTVWYACDEFGH",
+        }.get
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        ref = SelfProteome.from_ensembl(
+            species="human",
+            include="protected_tissues",
+            peptide_lengths=[9],
+        )
+        # Only GENE_A's proteins (GENE_C filtered out)
+        assert ref.n_reference_peptides == 5
+        assert "protected_tissues" in ref.reference_version
+        assert "heart_muscle" in ref.reference_version
+
+    def test_human_custom_tissues(self, monkeypatch):
+        """Human with explicit tissues= list (not the default)."""
+        monkeypatch.setattr(
+            "topiary.sources.tissue_expressed_gene_ids",
+            lambda tissues, min_ntpm=1.0: {"GENE_X"},
+        )
+        fake = MagicMock()
+        fake.protein_ids.return_value = ["PX"]
+        fake.gene_id_of_protein_id.side_effect = lambda pid: "GENE_X"
+        fake.transcript_id_of_protein_id.side_effect = lambda pid: "TX_X"
+        fake.protein_sequence.side_effect = lambda pid: "SIINFEKLA"
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        ref = SelfProteome.from_ensembl(
+            species="human",
+            include="protected_tissues",
+            tissues=["lung", "brain"],
+            peptide_lengths=[9],
+        )
+        assert ref.n_reference_peptides == 1
+        assert "lung" in ref.reference_version
+        assert "brain" in ref.reference_version
+
+
+# ---------------------------------------------------------------------------
+# BLOSUM62 distance metric
+# ---------------------------------------------------------------------------
+
+
+class TestBlosum62:
+    def test_blosum62_exact_match_zero(self):
+        ref = SelfProteome.from_peptides(
+            {"g": "SIINFEKLA"}, peptide_lengths=[9],
+        )
+        out = ref.nearest(["SIINFEKLA"])
+        assert out.iloc[0]["self_nearest_blosum_distance"] == 0
+        assert out.iloc[0]["self_nearest_edit_distance"] == 0
+
+    def test_blosum62_conservative_sub_low_distance(self):
+        """I→L is a conservative substitution (BLOSUM62 score +2).
+        Should produce a lower BLOSUM distance than I→W (score -3)."""
+        ref = SelfProteome.from_peptides(
+            {"g": "SIINFEKLA"}, peptide_lengths=[9],
+        )
+        out_conservative = ref.nearest(["SLINFEKLA"])  # I→L at pos 1
+        out_radical = ref.nearest(["SWINFEKLA"])  # I→W at pos 1
+        cons_dist = out_conservative.iloc[0]["self_nearest_blosum_distance"]
+        rad_dist = out_radical.iloc[0]["self_nearest_blosum_distance"]
+        assert cons_dist < rad_dist
+        # Both are edit_distance=1 (one substitution)
+        assert out_conservative.iloc[0]["self_nearest_edit_distance"] == 1
+        assert out_radical.iloc[0]["self_nearest_edit_distance"] == 1
+
+    def test_blosum62_picks_conservative_over_radical(self):
+        """When two reference peptides are both edit-distance-1 from
+        the query, BLOSUM62 as the metric prefers the conservative
+        substitution over the radical one."""
+        ref = SelfProteome.from_peptides(
+            {"cons": "SLINFEKLA", "rad": "SWINFEKLA"},
+            peptide_lengths=[9],
+        )
+        out = ref.nearest(["SIINFEKLA"])
+        # BLOSUM62(I,L)=2 is better than BLOSUM62(I,W)=-3
+        assert out.iloc[0]["self_nearest_peptide"] == "SLINFEKLA"
+
+    def test_hamming_metric_opt_in(self):
+        ref = SelfProteome.from_peptides(
+            {"g": "SIINFEKLA"}, peptide_lengths=[9],
+        )
+        out = ref.nearest(["SWINFEKLA"], metric="hamming")
+        assert out.iloc[0]["self_nearest_edit_distance"] == 1
+        assert "self_nearest_blosum_distance" not in out.columns
+
+    def test_invalid_metric_raises(self):
+        ref = SelfProteome.from_peptides(
+            {"g": "SIINFEKLA"}, peptide_lengths=[9],
+        )
+        with pytest.raises(ValueError, match="metric"):
+            ref.nearest(["SIINFEKLA"], metric="invalid")
+
+
+# ---------------------------------------------------------------------------
+# 1aa indel candidate matching
+# ---------------------------------------------------------------------------
+
+
+class TestIndels:
+    def test_deletion_match_beats_distant_substitution(self):
+        """A 1-deletion neighbor at edit_distance=1 should beat a
+        same-length match at edit_distance≥2."""
+        ref = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[8, 9],
+        )
+        # XMASIINFE: 9-mer, 2+ subs from any 9-mer ref, but
+        # deletion at pos 0 → MASIINFE (8-mer) is in the reference.
+        out = ref.nearest(["XMASIINFE"])
+        row = out.iloc[0]
+        assert row["self_nearest_edit_distance"] == 1
+        assert row["self_nearest_edit_type"] == "deletion"
+        assert row["self_nearest_peptide_length"] == 8
+
+    def test_insertion_match_found(self):
+        """A 1-insertion neighbor at L+1 should be found."""
+        ref = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[9, 10],
+        )
+        # ASIINFEKL is an 9-mer; inserting M at pos 0 → MASIINFEKL
+        # (10-mer) which IS in the reference.
+        # But wait — ASIINFEKL is also a 9-mer IN the reference
+        # (exact match at edit_distance=0). So the indel path won't
+        # fire (edit_distance ≤ 1 check bails out).
+        # Let me use a query that DOESN'T match any 9-mer.
+        # XSIINFEKL: 9-mer, 2+ subs from any 9-mer ref.
+        # insertion of A at pos 0 → AXSIINFEKL? No, that's 10 chars
+        # and probably not in the ref.
+        # Better test: use a reference that only has 10-mers.
+        ref2 = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[10],
+        )
+        # SIINFEKLG (9-mer) has no same-length ref (only 10-mers).
+        # Inserting M at pos 0 → MSIINFEKLG (10-mer) which is
+        # probably in the reference.
+        # Actually the ref 10-mers from MASIINFEKLGGG:
+        # MASIINFEKL, ASIINFEKLG, SIINFEKLGG, IINFEKLGGG
+        # Inserting at pos 0: A+SIINFEKLG → ASIINFEKLG (YES!)
+        out2 = ref2.nearest(["SIINFEKLG"])
+        row2 = out2.iloc[0]
+        assert row2["self_nearest_edit_distance"] == 1
+        assert row2["self_nearest_edit_type"] == "insertion"
+        assert row2["self_nearest_peptide_length"] == 10
+
+    def test_exact_match_beats_indel(self):
+        """When an exact same-length match exists (edit_distance=0),
+        indels at edit_distance=1 shouldn't replace it."""
+        ref = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[8, 9],
+        )
+        out = ref.nearest(["SIINFEKLG"])
+        row = out.iloc[0]
+        assert row["self_nearest_edit_distance"] == 0
+        assert row.get("self_nearest_edit_type") is None or \
+            row.get("self_nearest_edit_type") != "deletion"
+
+    def test_include_indels_false_disables(self):
+        """include_indels=False skips the indel check entirely."""
+        ref = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[8, 9],
+        )
+        out = ref.nearest(["XMASIINFE"], include_indels=False)
+        row = out.iloc[0]
+        # Without indels, the best same-length match is ≥2 subs away.
+        assert row["self_nearest_edit_distance"] >= 2
+
+    def test_indel_beats_distant_blosum_match(self):
+        """An indel at edit_distance=1 should beat a same-length match
+        at edit_distance≥2 even when BLOSUM62 is the distance metric."""
+        # Reference has BOTH 8-mers and 9-mers.
+        ref = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[8, 9],
+        )
+        # XMASIINFE: 9-mer, ≥2 subs from any 9-mer in the reference.
+        # deletion at pos 0 → MASIINFE (8-mer) IS in the reference.
+        out = ref.nearest(["XMASIINFE"], metric="blosum62")
+        row = out.iloc[0]
+        # Indel should win — edit_distance=1 beats any ≥2-sub match.
+        assert row["self_nearest_edit_distance"] == 1
+        assert row["self_nearest_edit_type"] == "deletion"
+        # BLOSUM distance is None for indel matches (different lengths
+        # can't be scored positionally).
+        assert row["self_nearest_blosum_distance"] is None

@@ -10,11 +10,11 @@ This page covers the `SelfProteome` class and the `self_nearest_*`
 columns it adds to `TopiaryPredictor` output.
 
 > **Scope note.** This PR ships the **core architecture and one
-> nearest-by-sequence axis**: `scope="all"` and `scope="non_cta"`,
+> nearest-by-sequence axis**: `include="all"` and `include="non_cta"`,
 > substitutions only (no 1aa indels yet), single `self_nearest_peptide`
 > scalar. The three-axis story (sequence-nearest, binding-similar,
 > strongest-binder), 1aa indel candidates, the full candidate-set
-> structured column, and `scope="protected_tissues"` are tracked for
+> structured column, and `include="protected_tissues"` are tracked for
 > follow-up PRs under [#124](https://github.com/openvax/topiary/issues/124).
 
 ## Basic usage
@@ -24,7 +24,7 @@ from topiary import SelfProteome, TopiaryPredictor
 from mhctools import NetMHCpan
 
 ref = SelfProteome.from_ensembl(species="human", release=93)
-# Default scope="non_cta" strips CTAs via pirlygenes.
+# Default include="non_cta" strips CTAs via pirlygenes.
 
 predictor = TopiaryPredictor(
     models=NetMHCpan,
@@ -60,35 +60,35 @@ predictor = TopiaryPredictor(
 
 Three construction modes (this PR ships the first two):
 
-| `scope=` | Behavior | Configuration |
+| `include=` | Behavior | Configuration |
 |---|---|---|
 | `"all"` | Whole proteome, no filter | — |
 | `"non_cta"` (default for human Ensembl) | Remove CTA genes | `cta_source="pirlygenes"` default; `"tsarina"` reserved; set / callable accepted |
 | `"protected_tissues"` *(PR B)* | Keep only genes expressed in named tissues | `tissues=[…]`, `tissue_source="hpa"`/`"gtex"`, `min_expression=…` |
 | callable | Arbitrary `gene → bool` filter | — |
 
-**Human users** get zero-config `scope="non_cta"` via pirlygenes:
+**Human users** get zero-config `include="non_cta"` via pirlygenes:
 
 ```python
 ref = SelfProteome.from_ensembl(species="human", release=93)
 ```
 
-**Non-human users** must either use `scope="all"` or supply their own
+**Non-human users** must either use `include="all"` or supply their own
 CTA source, because pirlygenes is human-only today:
 
 ```python
-ref = SelfProteome.from_ensembl(species="mouse", release=102, scope="all")
+ref = SelfProteome.from_ensembl(species="mouse", release=102, include="all")
 
 # Or with a custom CTA list:
 ref = SelfProteome.from_ensembl(
     species="mouse",
     release=102,
-    scope="non_cta",
+    include="non_cta",
     cta_source={"ENSMUSG0001", "ENSMUSG0002", ...},
 )
 ```
 
-A non-human `scope="non_cta"` call without `cta_source=` raises at
+A non-human `include="non_cta"` call without `cta_source=` raises at
 construction — silent unfiltered results would be a misleading
 cross-reactivity signal.
 
@@ -99,8 +99,8 @@ a protein-FASTA file directly:
 
 ```python
 ref = SelfProteome.from_fasta("my_reference.fa")
-# scope="all" by default; callable scope also works.
-# scope="non_cta" isn't available here — FASTA has no gene metadata.
+# include="all" by default; callable scope also works.
+# include="non_cta" isn't available here — FASTA has no gene metadata.
 ```
 
 For test or programmatic use:
