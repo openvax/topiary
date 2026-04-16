@@ -38,15 +38,40 @@ import pandas as pd
 
 # Columns a cache row must carry so the core invariant and lookup work.
 _REQUIRED_COLUMNS = (
-    "peptide", "allele", "peptide_length",
+    "peptide", "allele", "peptide_length", "kind",
     "prediction_method_name", "predictor_version",
 )
 
 # All columns the cache preserves on load and round-trip.
 _CACHE_COLUMNS = (
-    "peptide", "allele", "peptide_length",
-    "score", "affinity", "percentile_rank", "value", "kind",
+    "peptide", "allele", "peptide_length", "kind",
+    "score", "affinity", "percentile_rank", "value",
     "prediction_method_name", "predictor_version",
+    # Provenance / context — carried through when the source file has
+    # them.  n_flank / c_flank matter for mhcflurry's processing
+    # prediction (flanking residues influence the score);
+    # source_sequence_name + peptide_offset identify which protein +
+    # position a peptide came from; sample_name discriminates multi-
+    # sample inputs.  All optional; absent → None.
+    "source_sequence_name", "peptide_offset",
+    "n_flank", "c_flank", "sample_name",
+)
+
+# Composite key for the cache index.
+#
+# - (peptide, allele, peptide_length): basic identity.
+# - kind: distinguishes affinity / presentation / processing / stability
+#   — needed because mhcflurry's class1_presentation pipeline and
+#   NetMHCpan's -BA flag emit multiple kinds per (peptide, allele).
+# - n_flank, c_flank: some predictors (mhcflurry's antigen_processing,
+#   mhcflurry's pMHC_presentation) take flanking residues as input, so
+#   the same peptide at two different protein contexts produces
+#   different scores.  Absent flanks (None) coexist cleanly with
+#   populated flanks — predictors that don't use flanks just produce
+#   a single (None, None) entry per (peptide, allele, kind).
+_KEY_COLS = (
+    "peptide", "allele", "peptide_length", "kind",
+    "n_flank", "c_flank",
 )
 
 
@@ -145,11 +170,35 @@ class CachedPredictor:
                     f"the version invariant — supply a value via the "
                     f"loader's predictor_name / predictor_version args."
                 )
+        # Reject null / empty kind the same way — multi-kind cache
+        # keys on (peptide, allele, length, kind); NaN/missing kind
+        # would silently collide across kinds.
+        na_mask = df["kind"].isna() | (
+            df["kind"].astype(str).str.strip().isin(["", "None", "nan", "NaN"])
+        )
+        if na_mask.any():
+            raise ValueError(
+                f"CachedPredictor: column 'kind' must be a non-empty "
+                f"string on every row (got {int(na_mask.sum())} "
+                f"null/empty value(s)).  The cache keys on "
+                f"(peptide, allele, peptide_length, kind); missing "
+                f"kind would collide across kinds."
+            )
         keep = [c for c in _CACHE_COLUMNS if c in df.columns]
         out = df[keep].copy()
+        # n_flank / c_flank are part of the composite key — backfill
+        # with empty string when the source file doesn't provide them
+        # so every row has a well-defined key shape and there's no
+        # NaN-vs-None ambiguity in hashes or groupby passes.
+        for flank_col in ("n_flank", "c_flank"):
+            if flank_col not in out.columns:
+                out[flank_col] = ""
+            else:
+                out[flank_col] = out[flank_col].map(_flank_key)
         out["peptide"] = out["peptide"].astype(str)
         out["allele"] = out["allele"].astype(str)
         out["peptide_length"] = out["peptide_length"].astype(int)
+        out["kind"] = out["kind"].astype(str)
         # Version strings may look numeric ("1.0") and get coerced by
         # pandas on TSV/CSV reload — force to str so the invariant
         # compares the same shape on both sides of a round-trip.
@@ -181,9 +230,21 @@ class CachedPredictor:
 
     @staticmethod
     def _build_index(df: pd.DataFrame) -> dict:
+        """Build ``(peptide, allele, peptide_length, kind, n_flank,
+        c_flank) → row_dict`` index.  The full key lets a single cache
+        hold multiple kinds per (peptide, allele) — and, within a kind
+        that depends on flanking context (mhcflurry processing and
+        presentation), distinguish the same peptide at different
+        source-protein positions."""
         return {
-            (str(r["peptide"]), str(r["allele"]), int(r["peptide_length"])):
-                r.to_dict()
+            (
+                str(r["peptide"]),
+                str(r["allele"]),
+                int(r["peptide_length"]),
+                str(r["kind"]),
+                _flank_key(r.get("n_flank")),
+                _flank_key(r.get("c_flank")),
+            ): r.to_dict()
             for _, r in df.iterrows()
         }
 
@@ -209,11 +270,15 @@ class CachedPredictor:
     def predict_peptides_dataframe(
         self, peptides: Iterable[str],
     ) -> pd.DataFrame:
-        """Return one row per ``(peptide, allele)`` for each input peptide
-        crossed with every allele in the cache (or in the fallback, if set).
+        """Return one row per ``(peptide, allele, kind)`` — every kind
+        the cache carries for a given ``(peptide, allele)`` produces
+        its own row.  mhcflurry's class1_presentation pipeline stores
+        three kinds per key (affinity + presentation + processing);
+        NetMHCpan ``-BA`` stores two (affinity + elution score).  This
+        matches the shape ``mhctools.predict_proteins_dataframe`` emits.
 
-        Misses are resolved through ``self.fallback`` (which merges into
-        the cache) if set; else raise ``KeyError``.
+        Misses are resolved through ``self.fallback`` (which merges
+        into the cache) if set; else raise ``KeyError``.
         """
         peptides = [str(p) for p in peptides]
         query_alleles = self._cache_alleles()
@@ -223,12 +288,21 @@ class CachedPredictor:
                 | set(getattr(self.fallback, "alleles", []))
             )
 
-        # Identify peptides with at least one missing (peptide, allele).
+        # The cache's kind set — typically one or two entries per
+        # predictor.  Multi-kind predictors produce the full set.
+        cache_kinds = self._cache_kinds()
+
+        # Identify peptides with at least one missing (peptide, allele)
+        # across any known kind.  Resolving at peptide granularity keeps
+        # the fallback call simple (it returns all kinds for each peptide
+        # anyway) and matches the prior behavior's semantics.
         missed_peptides = set()
         for peptide in peptides:
             length = len(peptide)
             for allele in query_alleles:
-                if (peptide, allele, length) not in self._index:
+                # At least one cached row must exist at (pep, allele,
+                # length) across any kind / flank combo.
+                if not self._lookup_by_prefix(peptide, allele, length):
                     missed_peptides.add(peptide)
                     break
 
@@ -236,18 +310,35 @@ class CachedPredictor:
         if missed_peptides:
             self._fallback_resolve(sorted(missed_peptides))
 
-        # Assemble output from the (updated) cache.
+        # Assemble output — every cache row matching (peptide, allele)
+        # across every kind + flank combo.  Single-kind / single-flank
+        # caches return one row per (peptide, allele); multi-kind
+        # (mhcflurry -BA, class1_presentation) or multi-flank (same
+        # peptide across protein contexts) return multiple rows.
         rows = []
         for peptide in peptides:
             length = len(peptide)
             for allele in query_alleles:
-                row = self._index.get((peptide, allele, length))
-                if row is not None:
-                    rows.append(row)
+                rows.extend(self._lookup_by_prefix(peptide, allele, length))
 
         if not rows:
             return pd.DataFrame(columns=list(_CACHE_COLUMNS))
         return pd.DataFrame(rows).reindex(columns=list(_CACHE_COLUMNS))
+
+    def _lookup_by_prefix(self, peptide, allele, length):
+        """Return every cached row matching ``(peptide, allele,
+        peptide_length)`` — all kinds and flank contexts."""
+        prefix = (str(peptide), str(allele), int(length))
+        return [
+            row for key, row in self._index.items()
+            if key[:3] == prefix
+        ]
+
+    def _cache_kinds(self):
+        """Distinct kinds present in the cache."""
+        if len(self._df) == 0:
+            return []
+        return sorted(set(self._df["kind"].unique().tolist()))
 
     # mhctools compat: some code paths probe for ``predict_dataframe``.
     predict_dataframe = predict_peptides_dataframe
@@ -337,21 +428,22 @@ class CachedPredictor:
         # P present for allele A, missing for allele B) would see its
         # (P, A) row silently overwritten by the fallback's output
         # when (P, B) triggers a fallback call.  Preserve user intent.
-        def _is_new(row):
-            key = (
+        def _row_key(row):
+            return (
                 str(row["peptide"]),
                 str(row["allele"]),
                 int(row["peptide_length"]),
+                str(row["kind"]),
+                _flank_key(row.get("n_flank")),
+                _flank_key(row.get("c_flank")),
             )
-            return key not in self._index
 
-        novel_mask = new_rows.apply(_is_new, axis=1)
+        novel_mask = new_rows.apply(
+            lambda r: _row_key(r) not in self._index, axis=1,
+        )
         novel_rows = new_rows[novel_mask]
         for _, r in novel_rows.iterrows():
-            key = (
-                str(r["peptide"]), str(r["allele"]), int(r["peptide_length"]),
-            )
-            self._index[key] = r.to_dict()
+            self._index[_row_key(r)] = r.to_dict()
 
         if len(novel_rows) == 0:
             return
@@ -521,8 +613,18 @@ class CachedPredictor:
 
         ``columns`` maps canonical cache column names to the column
         names actually present in the file, e.g.
-        ``{"affinity": "ic50", "percentile_rank": "rank"}``.
+        ``{"affinity": "ic50", "percentile_rank": "rank", "kind": "score_kind"}``.
         Pass ``sep=","`` for CSV files.
+
+        The file **must** have a ``kind`` column per row (either
+        natively or via the ``columns=`` mapping) — one of
+        ``"pMHC_affinity"``, ``"pMHC_presentation"``,
+        ``"pMHC_stability"``, ``"antigen_processing"``.  The DSL's
+        ``Affinity.*`` / ``Presentation.*`` / ``Stability.*`` scopes
+        dispatch on it.  A single-kind table is easy: add a ``kind``
+        column with the same value on every row.  Multi-kind tables
+        (e.g. affinity + presentation in the same file) work out of
+        the box.
         """
         df = pd.read_csv(path, sep=sep)
         if columns:
@@ -565,14 +667,13 @@ class CachedPredictor:
         when you need a custom label.
         """
         df = pd.read_csv(path)
-        col_map = {}
-        if "mhcflurry_affinity" in df.columns:
-            col_map["mhcflurry_affinity"] = "affinity"
-        if "mhcflurry_affinity_percentile" in df.columns:
-            col_map["mhcflurry_affinity_percentile"] = "percentile_rank"
-        if "mhcflurry_presentation_score" in df.columns:
-            col_map["mhcflurry_presentation_score"] = "score"
-        df = df.rename(columns=col_map)
+        # mhcflurry's wide-format output carries up to three kinds of
+        # prediction per (peptide, allele) row: binding affinity,
+        # presentation, antigen processing.  Explode into one row per
+        # (peptide, allele, kind), skipping kinds whose columns aren't
+        # populated.  The cache keys on the 4-tuple so all kinds
+        # coexist cleanly.
+        df = _explode_mhcflurry_kinds(df)
         if predictor_version is None:
             predictor_version = mhcflurry_composite_version()
         return cls.from_dataframe(
@@ -594,27 +695,33 @@ class CachedPredictor:
         cls,
         path,
         *,
-        mode: str = "binding_affinity",
         predictor_version: Optional[str] = None,
         fallback=None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Load a NetMHCpan stdout capture (2.8 / 3 / 4 / 4.1).
 
-        Uses ``mhctools.parsing.parse_netmhcpan_stdout`` which auto-
-        detects the version.  ``mode`` picks between
-        ``"binding_affinity"`` (default) and ``"elution_score"`` for
-        NetMHCpan 4+; ignored on earlier versions.  When
-        ``predictor_version`` is omitted, the version string is
+        Uses ``mhctools.parsing.parse_netmhcpan_to_preds`` which auto-
+        detects the version and returns **every kind** present in the
+        output — a ``-BA`` run carries both binding-affinity and
+        elution-score rows per (peptide, allele), and both land in the
+        cache as separate ``pMHC_affinity`` + ``pMHC_presentation``
+        rows.
+
+        When ``predictor_version`` is omitted, the version string is
         parsed from the stdout preamble (e.g. ``"4.1b"``).
         """
-        from mhctools.parsing import parse_netmhcpan_stdout
+        from mhctools.parsing import parse_netmhcpan_to_preds
         text = _read_text(path)
-        preds = parse_netmhcpan_stdout(text, mode=mode)
         if predictor_version is None:
             predictor_version = _version_from_header(text) or "unknown"
+        preds = parse_netmhcpan_to_preds(
+            text,
+            predictor_name="netmhcpan",
+            predictor_version=predictor_version,
+        )
         return cls.from_dataframe(
-            _bindings_to_dataframe(preds),
+            _predictions_to_dataframe(preds),
             prediction_method_name="netmhcpan",
             predictor_version=predictor_version,
             fallback=fallback,
@@ -651,7 +758,7 @@ class CachedPredictor:
         if predictor_version is None:
             predictor_version = _version_from_header(text) or version
         return cls.from_dataframe(
-            _bindings_to_dataframe(preds),
+            _bindings_to_dataframe(preds, kind="pMHC_affinity"),
             prediction_method_name="netmhc",
             predictor_version=predictor_version,
             fallback=fallback,
@@ -675,7 +782,7 @@ class CachedPredictor:
         if predictor_version is None:
             predictor_version = _version_from_header(text) or "unknown"
         return cls.from_dataframe(
-            _bindings_to_dataframe(preds),
+            _bindings_to_dataframe(preds, kind="pMHC_affinity"),
             prediction_method_name="netmhccons",
             predictor_version=predictor_version,
             fallback=fallback,
@@ -720,8 +827,12 @@ class CachedPredictor:
             preds = parser(text, mode=mode)
         if predictor_version is None:
             predictor_version = _version_from_header(text) or version
+        kind = (
+            "pMHC_presentation" if mode == "elution_score"
+            else "pMHC_affinity"
+        )
         return cls.from_dataframe(
-            _bindings_to_dataframe(preds),
+            _bindings_to_dataframe(preds, kind=kind),
             prediction_method_name="netmhciipan",
             predictor_version=predictor_version,
             fallback=fallback,
@@ -773,7 +884,7 @@ class CachedPredictor:
         combined = pd.concat(
             [c._df for c in caches], ignore_index=True,
         )
-        key_cols = ["peptide", "allele", "peptide_length"]
+        key_cols = list(_KEY_COLS)
 
         dup_mask = combined.duplicated(subset=key_cols, keep=False)
         if dup_mask.any():
@@ -796,7 +907,7 @@ class CachedPredictor:
                 f" (and {len(dupes) - 5} more)"
             raise ValueError(
                 f"CachedPredictor.concat: {len(dupes)} overlapping "
-                f"(peptide, allele, peptide_length) key(s) across "
+                f"(peptide, allele, peptide_length, kind) key(s) across "
                 f"shards.  Sample: {sample}{extra}.  Pass "
                 f"on_overlap='last' / 'first' / callable to resolve."
             )
@@ -877,7 +988,7 @@ class CachedPredictor:
         if predictor_version is None:
             predictor_version = _version_from_header(text) or "unknown"
         return cls.from_dataframe(
-            _bindings_to_dataframe(preds),
+            _bindings_to_dataframe(preds, kind="pMHC_stability"),
             prediction_method_name="netmhcstabpan",
             predictor_version=predictor_version,
             fallback=fallback,
@@ -895,23 +1006,79 @@ def _read_text(path) -> str:
         return f.read()
 
 
-def _bindings_to_dataframe(preds) -> pd.DataFrame:
+def _flank_key(value):
+    """Normalize a flank column value for use as part of the cache key.
+
+    Empty string ``""`` represents "no flank context" (predictors that
+    don't take flanks, or source files that didn't provide them).
+    ``NaN`` / ``None`` / whitespace-only all coerce to ``""`` so
+    round-trips through TSV / Parquet stay stable.  Otherwise:
+    uppercased stripped string.
+    """
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    s = str(value).strip()
+    if not s or s.lower() == "nan":
+        return ""
+    return s.upper()
+
+
+def _bindings_to_dataframe(preds, *, kind: str) -> pd.DataFrame:
     """Convert an mhctools ``list[BindingPrediction]`` into a DataFrame
     shaped for :class:`CachedPredictor`.  Uses ``length`` (the
     mhctools attribute name) → ``peptide_length``.
+
+    ``kind`` is required and stamped on every row — DSL expressions
+    like ``Affinity.value <= 500`` filter on the ``kind`` column, and
+    mhctools' ``BindingPrediction`` objects don't carry ``kind`` as
+    an attribute.  The caller knows the right value based on the tool.
     """
     rows = [
         {
             "peptide": p.peptide,
             "allele": p.allele,
             "peptide_length": p.length,
+            "kind": kind,
             "score": p.score,
             "affinity": p.affinity,
             "percentile_rank": p.percentile_rank,
             "value": getattr(p, "value", None),
-            # prediction_method_name is set per-loader by from_dataframe's
-            # backfill from the classmethod's caller.  Left unset here so
-            # the classmethod's explicit value wins.
+            "source_sequence_name": getattr(p, "source_sequence_name", None),
+            "peptide_offset": getattr(p, "offset", None),
+        }
+        for p in preds
+    ]
+    return pd.DataFrame(rows)
+
+
+def _predictions_to_dataframe(preds) -> pd.DataFrame:
+    """Convert an mhctools ``list[Prediction]`` (multi-kind) into a
+    DataFrame shaped for :class:`CachedPredictor`.
+
+    Unlike ``BindingPrediction``, ``Prediction`` exposes ``.kind``
+    directly, so callers don't supply it — a NetMHCpan ``-BA`` run
+    naturally produces affinity + presentation rows interleaved.
+    ``n_flank`` / ``c_flank`` are carried through when present.
+    """
+    rows = [
+        {
+            "peptide": p.peptide,
+            "allele": p.allele,
+            "peptide_length": len(p.peptide),
+            "kind": str(p.kind),
+            "score": p.score,
+            "affinity": getattr(p, "value", None) if p.kind == "pMHC_affinity" else None,
+            "percentile_rank": p.percentile_rank,
+            "value": p.value,
+            "source_sequence_name": getattr(p, "source_sequence_name", None),
+            "peptide_offset": getattr(p, "offset", None),
+            "n_flank": getattr(p, "n_flank", None),
+            "c_flank": getattr(p, "c_flank", None),
         }
         for p in preds
     ]
@@ -930,9 +1097,100 @@ _NETMHC_VERSION_RE = re.compile(
 
 def _version_from_header(text: str) -> Optional[str]:
     """Parse a NetMHC-family version string (e.g. ``"4.1b"``) from
-    the stdout preamble.  Returns ``None`` if no version line found."""
-    m = _NETMHC_VERSION_RE.search(text[:2000])
+    the stdout preamble.  Returns ``None`` if no version line found.
+
+    Searches the first 10kB of the text; NetMHC tools put the version
+    line within the first ~100 lines but the argument-dump preamble
+    before it can stretch to several KB when verbose flags are set."""
+    m = _NETMHC_VERSION_RE.search(text[:10000])
     return m.group(1) if m else None
+
+
+def _explode_mhcflurry_kinds(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert wide-format mhcflurry output into one row per
+    ``(peptide, allele, kind)``.
+
+    mhcflurry's class1_presentation pipeline emits up to three kinds
+    in a single CSV row:
+
+    - ``pMHC_affinity``: ``mhcflurry_affinity`` (nM) +
+      ``mhcflurry_affinity_percentile``
+    - ``pMHC_presentation``: ``mhcflurry_presentation_score`` +
+      ``mhcflurry_presentation_percentile``
+    - ``antigen_processing``: ``mhcflurry_processing_score``
+
+    Rows whose columns for a given kind are all NaN are skipped — so
+    an affinity-only CSV (no presentation columns) produces only the
+    ``pMHC_affinity`` rows, and vice versa.
+    """
+    # (kind, affinity_col, rank_col, score_col) — None = N/A for that kind.
+    kind_specs = [
+        ("pMHC_affinity",
+         "mhcflurry_affinity",
+         "mhcflurry_affinity_percentile",
+         None),
+        ("pMHC_presentation",
+         None,
+         "mhcflurry_presentation_percentile",
+         "mhcflurry_presentation_score"),
+        ("antigen_processing",
+         None,
+         None,
+         "mhcflurry_processing_score"),
+    ]
+    # Provenance / context columns that round-trip with every kind.
+    # mhcflurry's predict output emits n_flank / c_flank when the
+    # processing model is active; source_sequence_name + offset when
+    # called via predict-scan on full proteins; sample_name for
+    # multi-sample CSVs.  'offset' is renamed to 'peptide_offset' to
+    # match topiary's canonical column naming.
+    base_col_aliases = {
+        "peptide": "peptide",
+        "allele": "allele",
+        "peptide_length": "peptide_length",
+        "source_sequence_name": "source_sequence_name",
+        "offset": "peptide_offset",
+        "peptide_offset": "peptide_offset",
+        "n_flank": "n_flank",
+        "c_flank": "c_flank",
+        "sample_name": "sample_name",
+    }
+
+    rows = []
+    for _, r in df.iterrows():
+        base = {
+            target: r[source]
+            for source, target in base_col_aliases.items()
+            if source in df.columns
+        }
+        for kind, aff_col, rank_col, score_col in kind_specs:
+            cols = [c for c in (aff_col, rank_col, score_col)
+                    if c and c in df.columns]
+            if not cols or all(pd.isna(r[c]) for c in cols):
+                continue
+            row = dict(base)
+            row["kind"] = kind
+            row["affinity"] = (
+                r[aff_col] if aff_col and aff_col in df.columns else None
+            )
+            row["percentile_rank"] = (
+                r[rank_col] if rank_col and rank_col in df.columns else None
+            )
+            row["score"] = (
+                r[score_col]
+                if score_col and score_col in df.columns else None
+            )
+            # 'value' is the kind's primary metric: nM for affinity,
+            # score for presentation/processing.
+            row["value"] = (
+                row["affinity"] if kind == "pMHC_affinity"
+                else row["score"]
+            )
+            rows.append(row)
+
+    if not rows:
+        return df.head(0)
+    return pd.DataFrame(rows)
 
 
 def mhcflurry_composite_version() -> str:

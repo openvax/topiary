@@ -65,6 +65,41 @@ predictor = TopiaryPredictor(
 )
 ```
 
+## MHC prediction models
+
+Specify one or more predictors with `--mhc-predictor` and alleles with `--mhc-alleles`:
+
+```bash
+--mhc-predictor netmhcpan mhcflurry --mhc-alleles HLA-A*02:01,HLA-B*07:02
+```
+
+All predictors come from [mhctools](https://github.com/openvax/mhctools).
+
+With `mhctools 3.7.0+`, upstream predictor parsing supports multiple
+predictors in one CLI invocation, so commands like
+`--mhc-predictor netmhcpan42 bigmhc-el` are supported directly. Topiary keeps
+its higher-level `--filter-by` / `--sort-by` DSL on top of that lower-level
+predictor interface. Topiary's ranking/filtering DSL is also compatible with
+the simplified `mhctools 3.7.0+` kind constants API. NetChop and Pepsickle
+behavior follows the upstream changes as well: improved NetChop error handling
+and Pepsickle's epitope-focused model selection.
+
+| CLI name | Predicts |
+|----------|----------|
+| `netmhcpan` | affinity + presentation (auto-detects installed version) |
+| `netmhcpan4` / `netmhcpan41` / `netmhcpan42` | specific NetMHCpan 4.x versions |
+| `netmhcpan4-ba` / `netmhcpan4-el` | single-mode (binding affinity or eluted ligand) |
+| `mhcflurry` | affinity + presentation + processing |
+| `mixmhcpred` | presentation |
+| `netmhciipan` / `netmhciipan4` / `netmhciipan43` | MHC class II |
+| `bigmhc` / `bigmhc-el` / `bigmhc-im` | presentation / immunogenicity |
+| `netmhcstabpan` | pMHC stability |
+| `pepsickle` / `netchop` | proteasomal cleavage |
+| `netmhcpan-iedb` / `netmhccons-iedb` / `smm-iedb` | IEDB web API (no local install) |
+| `random` | random predictions (for testing) |
+
+Peptide lengths: `--mhc-epitope-lengths 8,9,10,11` (defaults come from the predictor).
+
 ## Filtering and ranking
 
 Topiary has an expression language for filtering and ranking predictions. It works identically as Python objects and as CLI strings.
@@ -439,80 +474,6 @@ Remove peptides found in reference proteomes — for tumor-specific or pathogen-
 --exclude-mode substring             # "substring" (default) or "exact"
 ```
 
-## Cached predictions
-
-Skip the live predictor by loading pre-computed scores into a
-`CachedPredictor`, then passing it to `TopiaryPredictor(models=…)`.
-Useful for reproducibility, iterating on filters/ranking without
-paying the predictor cost, or ingesting predictions from a tool
-topiary doesn't natively run.
-
-```python
-from topiary import CachedPredictor, TopiaryPredictor
-
-# From topiary's own saved output, mhcflurry CSV, NetMHC-family
-# stdout captures, or a generic TSV/CSV with column mapping.
-cache = CachedPredictor.from_topiary_output("run.parquet")
-# cache = CachedPredictor.from_mhcflurry("mhcflurry.csv")
-# cache = CachedPredictor.from_netmhcpan_stdout("netmhcpan.out")
-# cache = CachedPredictor.from_netmhciipan_stdout("ii.out", version="4.3")
-# cache = CachedPredictor.from_netmhcstabpan_stdout("stab.out")
-# cache = CachedPredictor.from_tsv("third_party.tsv", columns={...},
-#                                  prediction_method_name="netchop",
-#                                  predictor_version="3.1")
-
-# Merge shards from parallel prediction jobs
-# cache = CachedPredictor.concat([shard_a, shard_b, shard_c])
-# cache = CachedPredictor.from_directory("caches/", pattern="*.parquet")
-
-predictor = TopiaryPredictor(models=cache)
-df = predictor.predict_from_variants(variants)
-```
-
-Every cache holds exactly one `(predictor_name, predictor_version)`
-pair — mixing versions is rejected. mhcflurry's composite version
-(package + model bundle) is auto-composed from the local install;
-users never enumerate bundles manually. Sharding (`concat` /
-`from_directory`) merges shards from parallel prediction jobs with
-an overlap-resolution policy (`"raise"` / `"last"` / `"first"` /
-callable). See [docs/cached.md](docs/cached.md) for full detail,
-including cache-plus-fallback mode and opt-in version equivalence.
-
-## MHC prediction models
-
-Specify one or more predictors with `--mhc-predictor` and alleles with `--mhc-alleles`:
-
-```bash
---mhc-predictor netmhcpan mhcflurry --mhc-alleles HLA-A*02:01,HLA-B*07:02
-```
-
-All predictors come from [mhctools](https://github.com/openvax/mhctools).
-
-With `mhctools 3.7.0+`, upstream predictor parsing supports multiple
-predictors in one CLI invocation, so commands like
-`--mhc-predictor netmhcpan42 bigmhc-el` are supported directly. Topiary keeps
-its higher-level `--filter-by` / `--sort-by` DSL on top of that lower-level
-predictor interface. Topiary's ranking/filtering DSL is also compatible with
-the simplified `mhctools 3.7.0+` kind constants API. NetChop and Pepsickle
-behavior follows the upstream changes as well: improved NetChop error handling
-and Pepsickle's epitope-focused model selection.
-
-| CLI name | Predicts |
-|----------|----------|
-| `netmhcpan` | affinity + presentation (auto-detects installed version) |
-| `netmhcpan4` / `netmhcpan41` / `netmhcpan42` | specific NetMHCpan 4.x versions |
-| `netmhcpan4-ba` / `netmhcpan4-el` | single-mode (binding affinity or eluted ligand) |
-| `mhcflurry` | affinity + presentation + processing |
-| `mixmhcpred` | presentation |
-| `netmhciipan` / `netmhciipan4` / `netmhciipan43` | MHC class II |
-| `bigmhc` / `bigmhc-el` / `bigmhc-im` | presentation / immunogenicity |
-| `netmhcstabpan` | pMHC stability |
-| `pepsickle` / `netchop` | proteasomal cleavage |
-| `netmhcpan-iedb` / `netmhccons-iedb` / `smm-iedb` | IEDB web API (no local install) |
-| `random` | random predictions (for testing) |
-
-Peptide lengths: `--mhc-epitope-lengths 8,9,10,11` (defaults come from the predictor).
-
 ## Output
 
 ```bash
@@ -570,3 +531,60 @@ cta = cta_sequences()                          # cancer-testis antigens
 heart = tissue_expressed_sequences(["heart_muscle"])
 print(available_tissues())                      # list tissue names
 ```
+
+## Cached predictions
+
+Skip the live predictor by loading pre-computed scores into a
+`CachedPredictor`, then passing it to `TopiaryPredictor(models=…)`.
+Useful for reproducibility, iterating on filters/ranking without
+paying the predictor cost, or ingesting predictions from a tool
+topiary doesn't natively run.
+
+```python
+from topiary import CachedPredictor, TopiaryPredictor
+
+# From topiary's own saved output, mhcflurry CSV, NetMHC-family
+# stdout captures, or a generic TSV/CSV with column mapping.
+cache = CachedPredictor.from_topiary_output("run.parquet")
+# cache = CachedPredictor.from_mhcflurry("mhcflurry.csv")
+# cache = CachedPredictor.from_netmhcpan_stdout("netmhcpan.out")
+# cache = CachedPredictor.from_netmhciipan_stdout("ii.out", version="4.3")
+# cache = CachedPredictor.from_netmhcstabpan_stdout("stab.out")
+# cache = CachedPredictor.from_tsv("third_party.tsv", columns={...},
+#                                  prediction_method_name="netchop",
+#                                  predictor_version="3.1")
+
+# Merge shards from parallel prediction jobs
+# cache = CachedPredictor.concat([shard_a, shard_b, shard_c])
+# cache = CachedPredictor.from_directory("caches/", pattern="*.parquet")
+
+predictor = TopiaryPredictor(models=cache)
+df = predictor.predict_from_variants(variants)
+```
+
+Every cache holds exactly one `(predictor_name, predictor_version)`
+pair — mixing versions is rejected. mhcflurry's composite version
+(package + model bundle) is auto-composed from the local install;
+users never enumerate bundles manually. Sharding (`concat` /
+`from_directory`) merges shards from parallel prediction jobs with
+an overlap-resolution policy (`"raise"` / `"last"` / `"first"` /
+callable). See [docs/cached.md](docs/cached.md) for full detail,
+including cache-plus-fallback mode and opt-in version equivalence.
+
+From the CLI:
+
+```bash
+# Skip the live predictor, read from an mhcflurry CSV.  Format is
+# sniffed from file content; no --mhc-cache-format needed for
+# NetMHC-family / mhcflurry / topiary-output files.
+topiary --peptide-csv peptides.csv \
+    --mhc-cache-file mhcflurry_predictions.csv \
+    --output-csv results.csv
+```
+
+`--mhc-cache-format` (optional; sniffed when omitted) accepts
+`topiary_output`, `mhcflurry`, `tsv`, `netmhcpan`, `netmhc`,
+`netmhccons`, `netmhciipan`, or `netmhcstabpan`. Only the generic
+`tsv` format strictly requires the explicit flag. `--mhc-predictor`
+and `--mhc-alleles` become optional when a cache is supplying
+predictions.

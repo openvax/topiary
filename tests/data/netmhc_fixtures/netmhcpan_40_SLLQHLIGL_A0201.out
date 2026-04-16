@@ -1,0 +1,54 @@
+# /Users/iskander/code/netmhc-bundle/netMHCpan-4.0/Darwin_arm64/bin/netMHCpan -p /tmp/test_peptide.txt -a HLA-A02:01
+# Wed Apr 15 13:14:56 2026
+# User: iskander
+# PWD : /Users/iskander/code/topiary
+# Host: Darwin dhcp-10-25-19-110.wireless-1x.unc.edu 25.4.0 x86_64
+# -p       1                    Use peptide input
+# -a       HLA-A02:01           HLA allele
+# Command line parameters set to:
+#	[-rdir filename]     /Users/iskander/code/netmhc-bundle/netMHCpan-4.0/Darwin_arm64 Home directory for NetMHpan
+#	[-syn filename]      /Users/iskander/code/netmhc-bundle/netMHCpan-4.0/Darwin_arm64/data/synlist.bin Synaps file
+#	[-v]                 0                    Verbose mode
+#	[-dirty]             0                    Dirty mode, leave tmp dir+files
+#	[-tdir filename]     /var/folders/qm/qf74v01n2s12j3w0h1yrx4l00000gn/T//netMHCpanXXXXXX Temporary directory (made with mkdtemp)
+#	[-hlapseudo filename] /Users/iskander/code/netmhc-bundle/netMHCpan-4.0/Darwin_arm64/data/MHC_pseudo.dat File with HLA pseudo sequences
+#	[-hlaseq filename]                        File with full length HLA sequences
+#	[-a line]            HLA-A02:01           HLA allele
+#	[-f filename]                             File name with input
+#	[-w]                 0                    w option for webface
+#	[-s]                 0                    Sort output on descending affinity
+#	[-p]                 1                    Use peptide input
+#	[-rth float]         0.500000             Rank Threshold for high binding peptides
+#	[-rlt float]         2.000000             Rank Threshold for low binding peptides
+#	[-l string]          8,9,10,11            Peptide length [8-11] (multiple length with ,)
+#	[-xls]               0                    Save output to xls file
+#	[-xlsfile filename]  NetMHCpan_out.xls    Filename for xls dump
+#	[-t float]           -99.900002           Threshold for output
+#	[-thrfmt filename]   /Users/iskander/code/netmhc-bundle/netMHCpan-4.0/Darwin_arm64/data/threshold/%s.thr.%s Format for threshold filenames
+#	[-expfix]            0                    Exclude prefix from synlist
+#	[-version filename]  /Users/iskander/code/netmhc-bundle/netMHCpan-4.0/Darwin_arm64/data/version File with version information
+#	[-inptype int]       0                    Input type [0] FASTA [1] Peptide
+#	[-listMHC]           0                    Print list of alleles included in netMHCpan
+#	[-allname filename]  /Users/iskander/code/netmhc-bundle/netMHCpan-4.0/Darwin_arm64/data/allelenames File with print names for alleles
+#	[-BA]                0                    Make Binding affinity prediction
+
+# NetMHCpan version 4.0
+
+# Tmpdir made /var/folders/qm/qf74v01n2s12j3w0h1yrx4l00000gn/T//netMHCpanYgBoFA
+# Input is in PEPTIDE format
+
+# Make Eluted ligand likelihood predictions
+
+HLA-A02:01 : Distance to training data  0.000 (using nearest neighbor HLA-A02:01)
+
+# Rank Threshold for Strong binding peptides   0.500
+# Rank Threshold for Weak binding peptides   2.000
+-----------------------------------------------------------------------------------
+  Pos          HLA         Peptide       Core Of Gp Gl Ip Il        Icore        Identity     Score   %Rank  BindLevel
+-----------------------------------------------------------------------------------
+    1  HLA-A*02:01       SLLQHLIGL  SLLQHLIGL  0  0  0  0  0    SLLQHLIGL         PEPLIST 0.9474990  0.0378 <= SB
+-----------------------------------------------------------------------------------
+
+Protein PEPLIST. Allele HLA-A*02:01. Number of high binders 1. Number of weak binders 0. Number of peptides 1
+
+-----------------------------------------------------------------------------------

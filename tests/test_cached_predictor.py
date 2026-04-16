@@ -2,6 +2,8 @@
 round-trips, fallback + version enforcement, and integration with
 :class:`TopiaryPredictor`."""
 
+import pathlib
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -21,6 +23,7 @@ def _row(
     score=0.5,
     affinity=150.0,
     percentile_rank=2.0,
+    kind="pMHC_affinity",
     predictor_name="random",
     predictor_version="1.0",
 ):
@@ -28,6 +31,7 @@ def _row(
         "peptide": peptide,
         "allele": allele,
         "peptide_length": len(peptide),
+        "kind": kind,
         "score": score,
         "affinity": affinity,
         "percentile_rank": percentile_rank,
@@ -190,6 +194,8 @@ class _TaggedRandomPredictor(RandomBindingPredictor):
         df = df.copy()
         df["prediction_method_name"] = self._stamp_name
         df["predictor_version"] = self._stamp_version
+        if "kind" not in df.columns:
+            df["kind"] = "pMHC_affinity"
         return df
 
     def predict_peptides_dataframe(self, peptides):
@@ -217,7 +223,9 @@ class TestFallback:
         cache.predict_peptides_dataframe(["GILGFVFTL"])
         # Second call should NOT hit fallback (we can verify by
         # observing the cache's internal df grew and contains it).
-        assert ("GILGFVFTL", "HLA-A*02:01", 9) in cache._index
+        assert (
+            "GILGFVFTL", "HLA-A*02:01", 9, "pMHC_affinity", "", "",
+        ) in cache._index
         assert len(cache._df) == 2
 
     def test_fallback_version_mismatch_rejects(self):
@@ -254,7 +262,9 @@ class TestFallback:
         # preserve-existing guard, the random-predictor output would
         # overwrite the 42.0 sentinel.
         cache.predict_peptides_dataframe(["SIINFEKLA"])
-        preserved = cache._index[("SIINFEKLA", "HLA-A*02:01", 9)]
+        preserved = cache._index[
+            ("SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", "", "")
+        ]
         assert preserved["affinity"] == 42.0
 
 
@@ -313,7 +323,9 @@ class TestEmptyCacheWithFallback:
             fallback=_matched_fallback(name="random", version="3.0"),
         )
         cache.predict_peptides_dataframe(["SIINFEKLA"])
-        assert ("SIINFEKLA", "HLA-A*02:01", 9) in cache._index
+        assert (
+            "SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", "", "",
+        ) in cache._index
 
     def test_empty_df_value_and_no_fallback_still_raises(self):
         empty = pd.DataFrame(columns=list(_row().keys()))
@@ -473,12 +485,15 @@ class TestLoaders:
         assert reloaded.prediction_method_name == "random"
 
     def test_from_tsv_with_column_mapping(self, tmp_path):
-        # Simulate a third-party TSV with non-canonical column names
+        # Simulate a third-party TSV with non-canonical column names.
+        # kind column is required — single-kind table simulated by
+        # stamping every row with the same kind value.
         df = pd.DataFrame([{
             "peptide": "SIINFEKLA",
             "allele": "HLA-A*02:01",
             "ic50_nM": 150.0,
             "rank": 2.0,
+            "kind": "pMHC_affinity",
         }])
         path = tmp_path / "third_party.tsv"
         df.to_csv(path, sep="\t", index=False)
@@ -492,7 +507,9 @@ class TestLoaders:
         assert out.iloc[0]["affinity"] == 150.0
         assert out.iloc[0]["percentile_rank"] == 2.0
 
-    def test_from_mhcflurry(self, tmp_path):
+    def test_from_mhcflurry_affinity_plus_presentation(self, tmp_path):
+        """mhcflurry CSV with both affinity + presentation columns
+        emits two kinds, one row per kind per (peptide, allele)."""
         df = pd.DataFrame([{
             "peptide": "SIINFEKLA",
             "allele": "HLA-A*02:01",
@@ -502,13 +519,87 @@ class TestLoaders:
         }])
         path = tmp_path / "mhcflurry.csv"
         df.to_csv(path, index=False)
-        cache = CachedPredictor.from_mhcflurry(path, predictor_version="2.0.6")
-        assert cache.prediction_method_name == "mhcflurry"
-        assert cache.predictor_version == "2.0.6"
+        cache = CachedPredictor.from_mhcflurry(path, predictor_version="2.2.0")
         out = cache.predict_peptides_dataframe(["SIINFEKLA"])
-        assert out.iloc[0]["affinity"] == 100.0
-        assert out.iloc[0]["percentile_rank"] == 1.5
-        assert out.iloc[0]["score"] == 0.8
+        assert len(out) == 2
+        by_kind = out.set_index("kind")
+        assert by_kind.loc["pMHC_affinity", "affinity"] == 100.0
+        assert by_kind.loc["pMHC_affinity", "percentile_rank"] == 1.5
+        assert by_kind.loc["pMHC_presentation", "score"] == 0.8
+
+    def test_from_mhcflurry_full_presentation_pipeline(self, tmp_path):
+        """Full class1_presentation pipeline — affinity + presentation
+        + processing in one row → 3 kinds out."""
+        df = pd.DataFrame([{
+            "peptide": "SIINFEKLA",
+            "allele": "HLA-A*02:01",
+            "n_flank": "ABC",
+            "c_flank": "XYZ",
+            "mhcflurry_affinity": 100.0,
+            "mhcflurry_affinity_percentile": 1.5,
+            "mhcflurry_presentation_score": 0.8,
+            "mhcflurry_presentation_percentile": 0.6,
+            "mhcflurry_processing_score": 0.45,
+        }])
+        path = tmp_path / "mhcflurry.csv"
+        df.to_csv(path, index=False)
+        cache = CachedPredictor.from_mhcflurry(path, predictor_version="2.2.0")
+        out = cache.predict_peptides_dataframe(["SIINFEKLA"])
+        assert len(out) == 3
+        by_kind = out.set_index("kind")
+        assert by_kind.loc["pMHC_affinity", "affinity"] == 100.0
+        assert by_kind.loc["pMHC_presentation", "percentile_rank"] == 0.6
+        assert by_kind.loc["antigen_processing", "score"] == 0.45
+        # n_flank / c_flank carry through on every kind's row.
+        assert (out["n_flank"] == "ABC").all()
+        assert (out["c_flank"] == "XYZ").all()
+
+    def test_from_mhcflurry_same_peptide_different_flanks(self, tmp_path):
+        """Same peptide in two protein contexts (different n_flank /
+        c_flank) with mhcflurry's processing predictor should produce
+        two distinct cache rows — flanks are part of the input for
+        antigen_processing and pMHC_presentation kinds, so they're
+        part of the cache key."""
+        df = pd.DataFrame([
+            {
+                "peptide": "SIINFEKLA",
+                "allele": "HLA-A*02:01",
+                "n_flank": "ABC",
+                "c_flank": "XYZ",
+                "mhcflurry_processing_score": 0.30,
+            },
+            {
+                "peptide": "SIINFEKLA",
+                "allele": "HLA-A*02:01",
+                "n_flank": "DEF",
+                "c_flank": "UVW",
+                "mhcflurry_processing_score": 0.75,
+            },
+        ])
+        path = tmp_path / "mhcflurry.csv"
+        df.to_csv(path, index=False)
+        cache = CachedPredictor.from_mhcflurry(path, predictor_version="2.2.0")
+        out = cache.predict_peptides_dataframe(["SIINFEKLA"])
+        # Both flank contexts preserved — would have collided under
+        # the old 4-tuple key, last write winning silently.
+        assert len(out) == 2
+        assert set(out["n_flank"]) == {"ABC", "DEF"}
+        assert set(out["score"]) == {0.30, 0.75}
+
+    def test_from_mhcflurry_affinity_only(self, tmp_path):
+        """Affinity-only mhcflurry output emits only the affinity kind."""
+        df = pd.DataFrame([{
+            "peptide": "SIINFEKLA",
+            "allele": "HLA-A*02:01",
+            "mhcflurry_affinity": 100.0,
+            "mhcflurry_affinity_percentile": 1.5,
+        }])
+        path = tmp_path / "mhcflurry.csv"
+        df.to_csv(path, index=False)
+        cache = CachedPredictor.from_mhcflurry(path, predictor_version="2.2.0")
+        out = cache.predict_peptides_dataframe(["SIINFEKLA"])
+        assert len(out) == 1
+        assert out.iloc[0]["kind"] == "pMHC_affinity"
 
 
 # ---------------------------------------------------------------------------
@@ -598,6 +689,9 @@ class TestNetMHCLoaders:
         return p
 
     def test_from_netmhcpan_stdout(self, tmp_path):
+        """NetMHCpan 4.1 -BA stdout carries both affinity + elution
+        score per (peptide, allele).  parse_netmhcpan_to_preds surfaces
+        both; the cache stores one row per (peptide, allele, kind)."""
         path = self._write(tmp_path, "pan.out", _NETMHCPAN_41_STDOUT)
         cache = CachedPredictor.from_netmhcpan_stdout(path)
         assert cache.prediction_method_name == "netmhcpan"
@@ -606,8 +700,10 @@ class TestNetMHCLoaders:
         assert cache.alleles == ["HLA-A*02:01"]
         assert cache.default_peptide_lengths == [9]
         out = cache.predict_peptides_dataframe(["SIINFEKLA", "GILGFVFTL"])
-        assert len(out) == 2
+        # Two peptides × two kinds (affinity + presentation) = 4 rows.
+        assert len(out) == 4
         assert set(out["peptide"]) == {"SIINFEKLA", "GILGFVFTL"}
+        assert set(out["kind"]) == {"pMHC_affinity", "pMHC_presentation"}
 
     def test_from_netmhcpan_stdout_explicit_version(self, tmp_path):
         path = self._write(tmp_path, "pan.out", _NETMHCPAN_41_STDOUT)
@@ -771,3 +867,136 @@ class TestFromDirectory:
         )
         # sorted(["a.tsv", "b.tsv"]) → b wins (affinity=999.0)
         assert merged._df.iloc[0]["affinity"] == 999.0
+
+
+# ---------------------------------------------------------------------------
+# Real NetMHC-family fixtures captured from the netmhc-bundle binaries
+# on peptide SLLQHLIGL at HLA-A*02:01 / A*24:02 / B*07:02 (substituted
+# for B*07:01 which NetMHCpan doesn't recognize).
+#
+# Numeric assertions below (``affinity == 8.82`` etc.) pin the specific
+# NetMHC binary versions used to generate the fixtures — regenerating
+# them on a different machine or with a newer netmhc-bundle will likely
+# shift the numbers within pytest.approx tolerances.  Fixture headers
+# carry machine-specific comment lines (paths, timestamps, hostnames)
+# that don't affect parsing; they're left intact so the captures remain
+# byte-faithful reproductions of what the binaries emitted.
+# ---------------------------------------------------------------------------
+
+_FIXTURE_DIR = (
+    pathlib.Path(__file__).parent / "data" / "netmhc_fixtures"
+)
+
+
+@pytest.mark.skipif(
+    not _FIXTURE_DIR.exists(),
+    reason="NetMHC fixtures not available",
+)
+class TestRealNetMHCFixtures:
+    """Parse the committed real-binary outputs end-to-end through
+    each loader.  Values are the ground-truth numbers produced by
+    the corresponding NetMHC binary for SLLQHLIGL — regressions here
+    mean either our loader broke or we regenerated fixtures with a
+    different version."""
+
+    def test_netmhcpan_41_A0201_real_values(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A0201.out",
+        )
+        assert cache.prediction_method_name == "netmhcpan"
+        assert cache.predictor_version == "4.1b"
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        row = out.iloc[0]
+        assert row["peptide"] == "SLLQHLIGL"
+        assert row["allele"] == "HLA-A*02:01"
+        assert row["affinity"] == pytest.approx(8.82, rel=1e-3)
+        assert row["percentile_rank"] == pytest.approx(0.105, rel=1e-2)
+
+    def test_netmhcpan_41_A2402_real_values(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A2402.out",
+        )
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        row = out.iloc[0]
+        assert row["allele"] == "HLA-A*24:02"
+        # Weak binder at A*24:02 — affinity ~16000 nM
+        assert row["affinity"] > 10000
+
+    def test_netmhcpan_41_B0702_real_values(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_B0702.out",
+        )
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        row = out.iloc[0]
+        assert row["allele"] == "HLA-B*07:02"
+
+    def test_netmhcpan_40_real_values(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_40_SLLQHLIGL_A0201.out",
+        )
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        assert out.iloc[0]["peptide"] == "SLLQHLIGL"
+
+    def test_netmhc_classic_multi_allele_real(self):
+        # NetMHC classic 4.0 happens to handle multi-allele output fine
+        # via mhctools' parse_netmhc4_stdout.
+        cache = CachedPredictor.from_netmhc_stdout(
+            _FIXTURE_DIR / "netmhc_40_SLLQHLIGL.out",
+            version="4",
+        )
+        # All three alleles populated from one multi-allele run.
+        assert set(cache.alleles) == {
+            "HLA-A*02:01", "HLA-A*24:02", "HLA-B*07:02",
+        }
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        assert len(out) == 3
+        # A*02:01 should be the strongest binder (lowest IC50)
+        by_allele = out.set_index("allele")
+        assert by_allele.loc["HLA-A*02:01", "affinity"] < by_allele.loc[
+            "HLA-A*24:02", "affinity"
+        ]
+
+    def test_netmhcstabpan_real_values(self):
+        cache = CachedPredictor.from_netmhcstabpan_stdout(
+            _FIXTURE_DIR / "netmhcstabpan_SLLQHLIGL_A0201.out",
+        )
+        assert cache.prediction_method_name == "netmhcstabpan"
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        assert len(out) == 1
+
+
+@pytest.mark.skipif(
+    not _FIXTURE_DIR.exists(),
+    reason="NetMHC fixtures not available",
+)
+class TestMultiAlleleFixtures:
+    """Multi-allele outputs from netmhc-bundle.  Previously xfail'd
+    due to mhctools#195 (per-allele header lines crashing the parser).
+    The switch to parse_netmhcpan_to_preds in from_netmhcpan_stdout
+    resolved the issue — these are now happy-path tests.
+
+    Each fixture carries SLLQHLIGL at 3 alleles (A*02:01, A*24:02,
+    B*07:02)."""
+
+    def test_multi_allele_netmhcpan_41_parses(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL.out",
+        )
+        assert set(cache.alleles) == {
+            "HLA-A*02:01", "HLA-A*24:02", "HLA-B*07:02",
+        }
+        out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
+        # 3 alleles × 2 kinds (affinity + presentation) = 6 rows.
+        assert len(out) == 6
+
+    def test_multi_allele_netmhcpan_40_parses(self):
+        cache = CachedPredictor.from_netmhcpan_stdout(
+            _FIXTURE_DIR / "netmhcpan_40_SLLQHLIGL.out",
+        )
+        assert len(cache.alleles) == 3
+
+    def test_multi_allele_netmhcstabpan_parses(self):
+        cache = CachedPredictor.from_netmhcstabpan_stdout(
+            _FIXTURE_DIR / "netmhcstabpan_SLLQHLIGL.out",
+        )
+        assert len(cache.alleles) == 3
