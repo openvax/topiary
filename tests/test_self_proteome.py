@@ -358,3 +358,29 @@ class TestTopiaryPredictorIntegration:
             {"prot": "MASIINFEKLGGG"},
         )
         assert "self_nearest_peptide" not in df.columns
+
+    def test_self_nearest_on_fragment_path(self):
+        """Verify self_nearest_* columns appear on predict_from_fragments
+        output (the fragment path goes through _finalize_rows →
+        _apply_filter → _maybe_attach_self_nearest)."""
+        from topiary import ProteinFragment
+
+        ref = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"}, peptide_lengths=[9],
+        )
+        predictor = TopiaryPredictor(
+            models=RandomBindingPredictor(
+                alleles=["HLA-A*02:01"], default_peptide_lengths=[9],
+            ),
+            self_proteome=ref,
+        )
+        fragments = [
+            ProteinFragment(
+                fragment_id="test_frag",
+                sequence="MASIINFEKLGGG",
+            ),
+        ]
+        df = predictor.predict_from_fragments(fragments)
+        assert "self_nearest_peptide" in df.columns
+        assert "self_nearest_edit_distance" in df.columns
+        assert (df["self_nearest_edit_distance"] == 0).all()
