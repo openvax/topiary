@@ -1,5 +1,21 @@
 # Changelog
 
+## 5.9.0
+
+**SelfProteome part B (#138):**
+
+- Renamed `scope=` → `include=` on `from_ensembl` / `from_fasta`.
+- `include="protected_tissues"` — filters to genes expressed in named
+  tissues. Human defaults via pirlygenes/HPA; any species via explicit
+  `tissue_gene_ids=` set.
+- BLOSUM62 distance metric (default). Conservative substitutions
+  (I↔L) produce lower distances than non-conservative (I↔W). Loaded
+  lazily from Biopython. `metric="hamming"` kept as opt-in.
+- 1aa indel candidates (`include_indels=True`, default). Checks
+  deletion (L-1) and insertion (L+1) neighbors via hash-set lookup.
+  Indel at edit_distance=1 beats substitution at edit_distance≥2.
+- 39 self_proteome tests (up from 25).
+
 ## 5.8.0
 
 **New feature — `SelfProteome` for cross-reactivity analysis (#135, part A of #124):**
