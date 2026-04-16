@@ -164,7 +164,15 @@ Only numeric columns can be used in ranking expressions.
 
 ## wt. — wildtype comparison
 
-The `wt.` scope prefix reads wildtype prediction columns (`wt_value`, `wt_score`, `wt_percentile_rank`). These columns are populated by `predict_column` after variant-derived predictions:
+> **Not yet implemented.** Topiary populates `wt_peptide` (the
+> wildtype sequence at the same position) but does not yet run the MHC
+> predictor on it. `wt.Affinity.score` and other `wt.*` expressions
+> return NaN until `TopiaryPredictor(predict_wt=True)` ships (tracked
+> as [#123](https://github.com/openvax/topiary/issues/123)). The
+> syntax below is correct and will work once WT predictions are
+> populated.
+
+The `wt.` scope prefix reads wildtype prediction columns (`wt_value`, `wt_score`, `wt_percentile_rank`). These columns will be populated when `predict_wt=True` is implemented:
 
 ```python
 from topiary import Affinity, wt

@@ -23,14 +23,17 @@ Predict which peptides from protein sequences will be presented by MHC molecules
 
 ## Installation
 
+Requires Python ≥ 3.9.
+
 ```bash
 pip install topiary
 ```
 
-For Ensembl-based features:
+For Ensembl-based features (variant annotation, gene lookups,
+`SelfProteome`):
 
 ```bash
-pyensembl install --release 93 --species human
+pyensembl install --release 112 --species human
 ```
 
 For cancer-testis antigen and tissue expression features:

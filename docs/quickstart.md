@@ -59,6 +59,24 @@ predictor = TopiaryPredictor(
 df = predictor.predict_from_sequences(["MASIINFEKLGGG"])
 ```
 
+The returned DataFrame has one row per `(peptide, allele, kind)` with
+columns including:
+
+| Column | Meaning |
+|---|---|
+| `peptide` | Predicted peptide sequence |
+| `allele` | HLA allele |
+| `peptide_length` | Length of the peptide |
+| `kind` | Prediction type (`pMHC_affinity`, `pMHC_presentation`, etc.) |
+| `affinity` | Predicted IC50 binding affinity (nM) |
+| `percentile_rank` | Percentile rank (lower = stronger binder) |
+| `score` | Normalized 0–1 score (higher = stronger) |
+| `prediction_method_name` | Which predictor produced this row |
+
+Variant-derived predictions add `gene`, `variant`, `effect`,
+`contains_mutant_residues`, `wt_peptide`, and more — see the
+[API Reference](api.md) for the full column list.
+
 ### Multiple models
 
 ```python

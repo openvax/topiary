@@ -23,7 +23,7 @@ columns it adds to `TopiaryPredictor` output.
 from topiary import SelfProteome, TopiaryPredictor
 from mhctools import NetMHCpan
 
-ref = SelfProteome.from_ensembl(species="human", release=93)
+ref = SelfProteome.from_ensembl(species="human")
 # Default include="non_cta" strips CTAs via pirlygenes.
 
 predictor = TopiaryPredictor(
@@ -70,7 +70,7 @@ Three construction modes (this PR ships the first two):
 **Human users** get zero-config `include="non_cta"` via pirlygenes:
 
 ```python
-ref = SelfProteome.from_ensembl(species="human", release=93)
+ref = SelfProteome.from_ensembl(species="human")
 ```
 
 **Non-human users** must either use `include="all"` or supply their own

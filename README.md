@@ -14,15 +14,32 @@ Applications include personalized cancer vaccine design, viral epitope mapping, 
 
 ## Installation
 
+Requires Python ≥ 3.9.
+
 ```bash
 pip install topiary
 ```
 
-For variant annotation and gene lookups, download Ensembl reference data:
+For variant annotation, gene lookups, and `SelfProteome`, download
+Ensembl reference data (any release that matches your reference genome
+works — GRCh38 releases are 76+; GRCh37 is release 75):
 
 ```bash
-pyensembl install --release 110 --species human
+pyensembl install --release 112 --species human
 ```
+
+For cancer-testis antigen and tissue expression features:
+
+```bash
+pip install pirlygenes
+```
+
+**MHC predictors** (NetMHCpan, mhcflurry, etc.) are installed
+separately — topiary calls them through
+[mhctools](https://github.com/openvax/mhctools). mhcflurry installs
+via pip (`pip install mhcflurry && mhcflurry-downloads fetch`);
+NetMHCpan and other DTU tools require a license from
+[DTU Health Tech](https://services.healthtech.dtu.dk/).
 
 ## Predicting MHC binding
 
