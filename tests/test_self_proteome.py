@@ -37,7 +37,7 @@ class TestConstruction:
             {"g": "SIINFEKLA"}, peptide_lengths=[9],
         )
         assert "ensembl-synthetic" in ref.reference_version
-        assert "scope-all" in ref.reference_version
+        assert "include-all" in ref.reference_version
 
     def test_from_peptides_short_sequence_skips_longer_lengths(self):
         # 5aa sequence — can't produce any 9-mers
@@ -278,7 +278,7 @@ class TestEnsemblHappyPath:
         # Only KEEP_GENE's 9-mers (5 of them) should be indexed.
         assert ref.n_reference_peptides == 5
         assert ref.reference_version == (
-            "ensembl-human-93+scope-non_cta+cta-sha256:"
+            "ensembl-human-93+include-non_cta+cta-sha256:"
             + __import__("hashlib").sha256(b"CTA_GENE").hexdigest()[:12]
         )
 
@@ -638,3 +638,22 @@ class TestIndels:
         row = out.iloc[0]
         # Without indels, the best same-length match is ≥2 subs away.
         assert row["self_nearest_edit_distance"] >= 2
+
+    def test_indel_beats_distant_blosum_match(self):
+        """An indel at edit_distance=1 should beat a same-length match
+        at edit_distance≥2 even when BLOSUM62 is the distance metric."""
+        # Reference has BOTH 8-mers and 9-mers.
+        ref = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[8, 9],
+        )
+        # XMASIINFE: 9-mer, ≥2 subs from any 9-mer in the reference.
+        # deletion at pos 0 → MASIINFE (8-mer) IS in the reference.
+        out = ref.nearest(["XMASIINFE"], metric="blosum62")
+        row = out.iloc[0]
+        # Indel should win — edit_distance=1 beats any ≥2-sub match.
+        assert row["self_nearest_edit_distance"] == 1
+        assert row["self_nearest_edit_type"] == "deletion"
+        # BLOSUM distance is None for indel matches (different lengths
+        # can't be scored positionally).
+        assert row["self_nearest_blosum_distance"] is None

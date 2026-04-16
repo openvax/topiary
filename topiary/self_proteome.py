@@ -1,28 +1,43 @@
 """SelfProteome — reference protein corpus for cross-reactivity analysis.
 
-Holds a species-tagged, scope-filtered protein set indexed by peptide
-length.  Answers per-query nearest-neighbor lookups: "given this mutant
-peptide, what's the most similar peptide in healthy human self?"
+Holds a species-tagged, ``include=``-filtered protein set indexed by
+peptide length.  Answers per-query nearest-neighbor lookups: "given
+this mutant peptide, what's the most similar peptide in healthy self?"
 
-Scopes
-------
-- ``"all"``: no filter, whole Ensembl proteome (any pyensembl-supported species).
-- ``"non_cta"`` (default for human): remove cancer-testis-antigen genes via
-  pirlygenes.  Non-human species require an explicit ``cta_source=`` set
-  or callable — pirlygenes is human-only today.
+Include modes
+-------------
+- ``"all"``: no filter, whole Ensembl proteome (any pyensembl-supported
+  species).
+- ``"non_cta"`` (default for human): remove cancer-testis-antigen genes
+  via pirlygenes.  Non-human species require an explicit ``cta_source=``
+  set or callable — pirlygenes is human-only today.
+- ``"protected_tissues"``: keep only genes expressed in named tissues
+  (pirlygenes/HPA for human; user-supplied ``tissue_gene_ids=`` for
+  any species).
 - callable: user-supplied ``gene → bool`` filter.  Works for any species.
 
-Additional scopes (``"protected_tissues"`` with HPA/GTEx expression-based
-filtering, 1aa-indel candidates, the ``self_nearest_by_binding`` and
-``self_strongest_nearby`` axes, and the full candidate-set structured
-column) are queued for a follow-up PR.  This module currently ships the
-core architecture and one nearest-by-sequence axis so downstream code can
-start consuming ``self_nearest_*`` columns in a real predictor run.
+Distance metrics
+----------------
+- ``"blosum62"`` (default): BLOSUM62-weighted substitution distance.
+  Conservative substitutions (I↔L) produce lower distances than
+  non-conservative (I↔W).  Loaded lazily from Biopython.
+- ``"hamming"``: count mismatched positions (all mismatches equal).
+
+Indels
+------
+``nearest(include_indels=True)`` (default) checks 1-deletion (L-1) and
+1-insertion (L+1) neighbors via hash-set lookup.  An indel match at
+edit_distance=1 beats a same-length substitution match at
+edit_distance≥2.
+
+Binding-aware axes (``self_mimic_*``, ``self_strongest_nearby_*``,
+``self_nearest_candidates``) are tracked for a follow-up PR — they
+require MHC prediction on candidate peptides, which is
+architecturally separate from the sequence-only ``nearest()`` method.
 
 Algorithm
 ---------
-SIMD-vectorized Hamming distance against int8-encoded reference arrays.
-Only substitutions (same-length matches) in this PR; indels land in the
+SIMD-vectorized distance against int8-encoded reference arrays. Indels
 follow-up alongside seed-and-extend for larger reference corpora.  See
 #124 for the benchmark plan driving the eventual algorithm choice.
 """
@@ -198,7 +213,7 @@ class SelfProteome:
         """
         release_part = f"-{self.release}" if self.release is not None else ""
         return (
-            f"ensembl-{self.species}{release_part}+scope-{self.include_label}"
+            f"ensembl-{self.species}{release_part}+include-{self.include_label}"
         )
 
     # --- lookup ---
@@ -235,6 +250,16 @@ class SelfProteome:
         Tie-breaking: when multiple reference peptides share the
         minimum distance, the first in the internal reference array
         (construction / insertion order) is returned.
+
+        Indel matching: when ``include_indels=True`` and the best
+        same-length match has ``edit_distance ≥ 2``, the method also
+        checks 1-deletion (L-1) and 1-insertion (L+1) neighbors via
+        hash-set lookup.  The **first** indel hit found (deletions
+        checked before insertions, in position order) is returned —
+        not necessarily the best among all indel candidates.  This is
+        fast (~200 lookups per 9-mer) but not exhaustive; the upcoming
+        ``self_nearest_candidates`` structured column will expose the
+        full candidate set.
         """
         if metric not in ("blosum62", "hamming"):
             raise ValueError(
