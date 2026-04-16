@@ -342,16 +342,36 @@ class SelfProteome:
         peptide_lengths: Iterable[int] = (8, 9, 10, 11),
         scope: Union[str, Callable] = "non_cta",
         cta_source=None,
+        tissues: Optional[List[str]] = None,
+        tissue_gene_ids: Optional[Set[str]] = None,
+        min_tissue_ntpm: float = 1.0,
     ) -> "SelfProteome":
         """Build from a pyensembl EnsemblRelease.
 
-        ``scope`` accepts ``"all"``, ``"non_cta"``, or a callable
-        ``(gene_id) -> bool``.  For ``scope="non_cta"`` with
-        ``species="human"``, the default ``cta_source="pirlygenes"``
-        needs no configuration.  Non-human species must pass
-        ``cta_source=<set or callable>`` explicitly.
+        ``scope`` accepts ``"all"``, ``"non_cta"``,
+        ``"protected_tissues"``, or a callable ``(gene_id) -> bool``.
 
-        ``scope="protected_tissues"`` lands in a follow-up PR.
+        For ``scope="non_cta"`` with ``species="human"``, the default
+        ``cta_source="pirlygenes"`` needs no configuration.  Non-human
+        species must pass ``cta_source=<set or callable>`` explicitly.
+
+        For ``scope="protected_tissues"``:
+
+        - **Human (default)**: filters to genes expressed in the
+          ``tissues`` list via pirlygenes' HPA expression data.
+          ``tissues`` defaults to a curated vital-organ set
+          (``["heart_muscle", "lung", "liver", "kidney",
+          "cerebral_cortex"]``).  ``min_tissue_ntpm`` sets the
+          expression threshold (normalized TPM).
+        - **Any species with explicit data**: pass
+          ``tissue_gene_ids=<set of gene IDs>`` to supply the gene set
+          directly.  ``tissues`` and ``min_tissue_ntpm`` are ignored
+          when ``tissue_gene_ids`` is provided.  This is the path for
+          mouse (e.g. Tabula Muris data), dog, or any non-human
+          species.
+        - **Non-human without ``tissue_gene_ids``**: raises a
+          ``ValueError`` explaining that pirlygenes tissue data is
+          human-only.
         """
         try:
             from pyensembl import EnsemblRelease
@@ -363,6 +383,9 @@ class SelfProteome:
         genome = EnsemblRelease(release=release, species=species)
         scope_label, gene_filter = _resolve_ensembl_scope(
             scope, species, cta_source,
+            tissues=tissues,
+            tissue_gene_ids=tissue_gene_ids,
+            min_tissue_ntpm=min_tissue_ntpm,
         )
         records = list(_iter_ensembl_proteins(genome, gene_filter))
         reference_arrays, reference_peptides, provenance = _build_index(
@@ -421,7 +444,15 @@ def _apply_fasta_scope(scope, records):
     )
 
 
-def _resolve_ensembl_scope(scope, species, cta_source):
+_DEFAULT_PROTECTED_TISSUES = [
+    "heart_muscle", "lung", "liver", "kidney", "cerebral_cortex",
+]
+
+
+def _resolve_ensembl_scope(
+    scope, species, cta_source, *,
+    tissues=None, tissue_gene_ids=None, min_tissue_ntpm=1.0,
+):
     """Return (scope_label, gene_filter) where gene_filter takes a gene_id
     and returns True to keep."""
     if callable(scope):
@@ -440,10 +471,58 @@ def _resolve_ensembl_scope(scope, species, cta_source):
         cta_set = cta  # set of gene IDs
         return label, lambda gene_id: gene_id not in cta_set
     if scope == "protected_tissues":
-        raise NotImplementedError(
-            "scope='protected_tissues' lands in a follow-up PR."
+        keep_ids, label = _resolve_protected_tissues(
+            species, tissues, tissue_gene_ids, min_tissue_ntpm,
         )
+        return label, lambda gene_id: gene_id in keep_ids
     raise ValueError(f"Unknown scope: {scope!r}.")
+
+
+def _resolve_protected_tissues(species, tissues, tissue_gene_ids, min_ntpm):
+    """Resolve the gene set for ``scope="protected_tissues"``.
+
+    Returns ``(keep_gene_ids: set[str], scope_label: str)``.
+
+    Three paths:
+
+    1. **Explicit gene set** (``tissue_gene_ids`` provided): used
+       as-is, any species.  ``tissues`` / ``min_ntpm`` ignored.
+    2. **Human default** (``tissue_gene_ids`` is None, species is
+       human): queries pirlygenes via
+       ``topiary.sources.tissue_expressed_gene_ids`` with the
+       requested tissue list (or the curated vital-organ default)
+       and ``min_ntpm`` threshold.
+    3. **Non-human without explicit gene set**: raises a clear error
+       telling the user to supply ``tissue_gene_ids=``.
+    """
+    if tissue_gene_ids is not None:
+        keep = set(tissue_gene_ids)
+        digest = hashlib.sha256(
+            "\n".join(sorted(keep)).encode()
+        ).hexdigest()[:12]
+        return keep, f"protected_tissues+gene_ids-sha256:{digest}"
+
+    # Default path — pirlygenes tissue data (human only).
+    if species != "human":
+        raise ValueError(
+            f"scope='protected_tissues' without tissue_gene_ids= "
+            f"defaults to pirlygenes/HPA expression data, which is "
+            f"human-only; got species={species!r}.  For non-human "
+            f"species, pass tissue_gene_ids=<set of gene IDs> with "
+            f"the gene IDs expressed in your protected tissues "
+            f"(e.g. from Tabula Muris for mouse, or your own "
+            f"RNA-seq data)."
+        )
+
+    if tissues is None:
+        tissues = list(_DEFAULT_PROTECTED_TISSUES)
+
+    from topiary.sources import tissue_expressed_gene_ids
+    keep = tissue_expressed_gene_ids(tissues, min_ntpm=min_ntpm)
+    tissue_str = "+".join(sorted(tissues))
+    return keep, (
+        f"protected_tissues+tissues-{tissue_str}+min_ntpm-{min_ntpm}"
+    )
 
 
 def _cta_label(species, cta_source, cta_set):

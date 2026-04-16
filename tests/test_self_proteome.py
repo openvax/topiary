@@ -192,9 +192,11 @@ class TestEnsemblScopeErrors:
             "pyensembl.EnsemblRelease",
             lambda release=None, species=None: fake_release,
         )
-        with pytest.raises(NotImplementedError, match="protected_tissues"):
+        # Protected tissues now implemented — non-human without
+        # tissue_gene_ids should raise (human-only default data).
+        with pytest.raises(ValueError, match="human-only"):
             SelfProteome.from_ensembl(
-                species="human", scope="protected_tissues",
+                species="mouse", scope="protected_tissues",
             )
 
     def test_unknown_scope_string_rejects(self, monkeypatch):
@@ -384,3 +386,120 @@ class TestTopiaryPredictorIntegration:
         assert "self_nearest_peptide" in df.columns
         assert "self_nearest_edit_distance" in df.columns
         assert (df["self_nearest_edit_distance"] == 0).all()
+
+
+# ---------------------------------------------------------------------------
+# scope="protected_tissues"
+# ---------------------------------------------------------------------------
+
+
+class TestProtectedTissuesScope:
+    """Test scope="protected_tissues" — human via pirlygenes defaults
+    and non-human via explicit tissue_gene_ids."""
+
+    def test_non_human_without_tissue_gene_ids_raises(self, monkeypatch):
+        fake = MagicMock()
+        fake.protein_ids.return_value = []
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        with pytest.raises(ValueError, match="human-only"):
+            SelfProteome.from_ensembl(
+                species="mouse", scope="protected_tissues",
+            )
+
+    def test_non_human_with_explicit_gene_ids_works(self, monkeypatch):
+        """Non-human users pass tissue_gene_ids= to supply their own
+        gene set (e.g. from Tabula Muris) — bypasses pirlygenes."""
+        fake = MagicMock()
+        fake.protein_ids.return_value = ["PROT_A", "PROT_B"]
+        fake.gene_id_of_protein_id.side_effect = {
+            "PROT_A": "GENE_KEEP",
+            "PROT_B": "GENE_DROP",
+        }.get
+        fake.transcript_id_of_protein_id.side_effect = {
+            "PROT_A": "TX_KEEP",
+            "PROT_B": "TX_DROP",
+        }.get
+        fake.protein_sequence.side_effect = {
+            "PROT_A": "MASIINFEKLGGG",
+            "PROT_B": "QRSTVWYACDEFGH",
+        }.get
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        ref = SelfProteome.from_ensembl(
+            species="mouse",
+            release=102,
+            peptide_lengths=[9],
+            scope="protected_tissues",
+            tissue_gene_ids={"GENE_KEEP"},
+        )
+        # Only GENE_KEEP's proteins should survive the filter.
+        assert ref.n_reference_peptides == 5  # 5 × 9-mers from "MASIINFEKLGGG"
+        assert "protected_tissues" in ref.reference_version
+        assert "sha256:" in ref.reference_version
+
+    def test_human_default_tissues(self, monkeypatch):
+        """Human scope='protected_tissues' with default tissues uses
+        pirlygenes' tissue_expressed_gene_ids.  Mock it to avoid
+        pirlygenes data load in CI."""
+        keep_genes = {"GENE_A", "GENE_B"}
+        monkeypatch.setattr(
+            "topiary.sources.tissue_expressed_gene_ids",
+            lambda tissues, min_ntpm=1.0: keep_genes,
+        )
+        fake = MagicMock()
+        fake.protein_ids.return_value = ["P1", "P2"]
+        fake.gene_id_of_protein_id.side_effect = {
+            "P1": "GENE_A",
+            "P2": "GENE_C",
+        }.get
+        fake.transcript_id_of_protein_id.side_effect = {
+            "P1": "TX_A",
+            "P2": "TX_C",
+        }.get
+        fake.protein_sequence.side_effect = {
+            "P1": "MASIINFEKLGGG",
+            "P2": "QRSTVWYACDEFGH",
+        }.get
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        ref = SelfProteome.from_ensembl(
+            species="human",
+            scope="protected_tissues",
+            peptide_lengths=[9],
+        )
+        # Only GENE_A's proteins (GENE_C filtered out)
+        assert ref.n_reference_peptides == 5
+        assert "protected_tissues" in ref.reference_version
+        assert "heart_muscle" in ref.reference_version
+
+    def test_human_custom_tissues(self, monkeypatch):
+        """Human with explicit tissues= list (not the default)."""
+        monkeypatch.setattr(
+            "topiary.sources.tissue_expressed_gene_ids",
+            lambda tissues, min_ntpm=1.0: {"GENE_X"},
+        )
+        fake = MagicMock()
+        fake.protein_ids.return_value = ["PX"]
+        fake.gene_id_of_protein_id.side_effect = lambda pid: "GENE_X"
+        fake.transcript_id_of_protein_id.side_effect = lambda pid: "TX_X"
+        fake.protein_sequence.side_effect = lambda pid: "SIINFEKLA"
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        ref = SelfProteome.from_ensembl(
+            species="human",
+            scope="protected_tissues",
+            tissues=["lung", "brain"],
+            peptide_lengths=[9],
+        )
+        assert ref.n_reference_peptides == 1
+        assert "lung" in ref.reference_version
+        assert "brain" in ref.reference_version
