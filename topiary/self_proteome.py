@@ -207,6 +207,7 @@ class SelfProteome:
         self,
         peptides: Iterable[str],
         metric: str = "blosum62",
+        include_indels: bool = True,
     ) -> pd.DataFrame:
         """For each query peptide, return the closest reference peptide
         at the same length.
@@ -252,7 +253,86 @@ class SelfProteome:
                 continue
             self._resolve_length(L, items, results, metric=metric)
 
+        # Check 1aa indel neighbors when enabled.  An indel match
+        # at edit_distance=1 beats a same-length match at edit_distance≥2.
+        if include_indels:
+            for idx, pep in enumerate(peptides):
+                current = results[idx]
+                if current is None:
+                    continue
+                best_edit = current.get("self_nearest_edit_distance")
+                if best_edit is not None and best_edit <= 1:
+                    continue
+                indel_hit = self._check_indel_neighbors(pep, metric)
+                if indel_hit is not None:
+                    results[idx] = indel_hit
+
         return pd.DataFrame(results)
+
+    def _reference_set(self, L: int) -> set:
+        """Lazy-built set of reference peptide strings at length L."""
+        if not hasattr(self, "_reference_sets_cache"):
+            self._reference_sets_cache: Dict[int, set] = {}
+        if L not in self._reference_sets_cache:
+            peps = self._reference_peptides.get(L, [])
+            self._reference_sets_cache[L] = set(peps)
+        return self._reference_sets_cache[L]
+
+    def _check_indel_neighbors(
+        self, peptide: str, metric: str,
+    ) -> Optional[dict]:
+        """Check if any 1-insertion or 1-deletion neighbor of ``peptide``
+        exists in the reference at lengths L±1.  Returns a result row
+        for the first hit found (edit_distance=1), or ``None``.
+
+        Deletion: remove one character at each position → L-1 length.
+        Insertion: insert one of 20 AAs at each position → L+1 length.
+
+        ~L + L×20 ≈ 200 hash-set lookups for a 9-mer.  Fast.
+        """
+        L = len(peptide)
+        # Try deletions first (cheaper: L lookups vs L×20 for insertions)
+        ref_set_del = self._reference_set(L - 1) if L > 1 else set()
+        for i in range(L):
+            candidate = peptide[:i] + peptide[i + 1:]
+            if candidate in ref_set_del:
+                return self._indel_row(
+                    peptide, candidate, L - 1, "deletion", metric,
+                )
+        # Try insertions
+        ref_set_ins = self._reference_set(L + 1)
+        for i in range(L + 1):
+            for aa in _AA_ALPHABET:
+                candidate = peptide[:i] + aa + peptide[i:]
+                if candidate in ref_set_ins:
+                    return self._indel_row(
+                        peptide, candidate, L + 1, "insertion", metric,
+                    )
+        return None
+
+    def _indel_row(
+        self, peptide: str, match: str, match_len: int,
+        edit_type: str, metric: str,
+    ) -> dict:
+        prov = self._provenance.get(match)
+        if prov:
+            gene_id, transcript_id, offset = prov[0]
+        else:
+            gene_id, transcript_id, offset = None, None, None
+        row = {
+            "peptide": peptide,
+            "self_nearest_peptide": match,
+            "self_nearest_peptide_length": match_len,
+            "self_nearest_edit_distance": 1,
+            "self_nearest_edit_type": edit_type,
+            "self_nearest_gene_id": gene_id,
+            "self_nearest_transcript_id": transcript_id,
+            "self_nearest_reference_offset": offset,
+            "self_nearest_reference_version": self.reference_version,
+        }
+        if metric == "blosum62":
+            row["self_nearest_blosum_distance"] = None
+        return row
 
     def _empty_row(self, peptide: str, metric: str) -> dict:
         row = {

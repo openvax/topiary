@@ -560,3 +560,81 @@ class TestBlosum62:
         )
         with pytest.raises(ValueError, match="metric"):
             ref.nearest(["SIINFEKLA"], metric="invalid")
+
+
+# ---------------------------------------------------------------------------
+# 1aa indel candidate matching
+# ---------------------------------------------------------------------------
+
+
+class TestIndels:
+    def test_deletion_match_beats_distant_substitution(self):
+        """A 1-deletion neighbor at edit_distance=1 should beat a
+        same-length match at edit_distance≥2."""
+        ref = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[8, 9],
+        )
+        # XMASIINFE: 9-mer, 2+ subs from any 9-mer ref, but
+        # deletion at pos 0 → MASIINFE (8-mer) is in the reference.
+        out = ref.nearest(["XMASIINFE"])
+        row = out.iloc[0]
+        assert row["self_nearest_edit_distance"] == 1
+        assert row["self_nearest_edit_type"] == "deletion"
+        assert row["self_nearest_peptide_length"] == 8
+
+    def test_insertion_match_found(self):
+        """A 1-insertion neighbor at L+1 should be found."""
+        ref = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[9, 10],
+        )
+        # ASIINFEKL is an 9-mer; inserting M at pos 0 → MASIINFEKL
+        # (10-mer) which IS in the reference.
+        # But wait — ASIINFEKL is also a 9-mer IN the reference
+        # (exact match at edit_distance=0). So the indel path won't
+        # fire (edit_distance ≤ 1 check bails out).
+        # Let me use a query that DOESN'T match any 9-mer.
+        # XSIINFEKL: 9-mer, 2+ subs from any 9-mer ref.
+        # insertion of A at pos 0 → AXSIINFEKL? No, that's 10 chars
+        # and probably not in the ref.
+        # Better test: use a reference that only has 10-mers.
+        ref2 = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[10],
+        )
+        # SIINFEKLG (9-mer) has no same-length ref (only 10-mers).
+        # Inserting M at pos 0 → MSIINFEKLG (10-mer) which is
+        # probably in the reference.
+        # Actually the ref 10-mers from MASIINFEKLGGG:
+        # MASIINFEKL, ASIINFEKLG, SIINFEKLGG, IINFEKLGGG
+        # Inserting at pos 0: A+SIINFEKLG → ASIINFEKLG (YES!)
+        out2 = ref2.nearest(["SIINFEKLG"])
+        row2 = out2.iloc[0]
+        assert row2["self_nearest_edit_distance"] == 1
+        assert row2["self_nearest_edit_type"] == "insertion"
+        assert row2["self_nearest_peptide_length"] == 10
+
+    def test_exact_match_beats_indel(self):
+        """When an exact same-length match exists (edit_distance=0),
+        indels at edit_distance=1 shouldn't replace it."""
+        ref = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[8, 9],
+        )
+        out = ref.nearest(["SIINFEKLG"])
+        row = out.iloc[0]
+        assert row["self_nearest_edit_distance"] == 0
+        assert row.get("self_nearest_edit_type") is None or \
+            row.get("self_nearest_edit_type") != "deletion"
+
+    def test_include_indels_false_disables(self):
+        """include_indels=False skips the indel check entirely."""
+        ref = SelfProteome.from_peptides(
+            {"g": "MASIINFEKLGGG"},
+            peptide_lengths=[8, 9],
+        )
+        out = ref.nearest(["XMASIINFE"], include_indels=False)
+        row = out.iloc[0]
+        # Without indels, the best same-length match is ≥2 subs away.
+        assert row["self_nearest_edit_distance"] >= 2
