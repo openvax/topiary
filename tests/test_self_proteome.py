@@ -503,3 +503,60 @@ class TestProtectedTissuesScope:
         assert ref.n_reference_peptides == 1
         assert "lung" in ref.reference_version
         assert "brain" in ref.reference_version
+
+
+# ---------------------------------------------------------------------------
+# BLOSUM62 distance metric
+# ---------------------------------------------------------------------------
+
+
+class TestBlosum62:
+    def test_blosum62_exact_match_zero(self):
+        ref = SelfProteome.from_peptides(
+            {"g": "SIINFEKLA"}, peptide_lengths=[9],
+        )
+        out = ref.nearest(["SIINFEKLA"])
+        assert out.iloc[0]["self_nearest_blosum_distance"] == 0
+        assert out.iloc[0]["self_nearest_edit_distance"] == 0
+
+    def test_blosum62_conservative_sub_low_distance(self):
+        """I→L is a conservative substitution (BLOSUM62 score +2).
+        Should produce a lower BLOSUM distance than I→W (score -3)."""
+        ref = SelfProteome.from_peptides(
+            {"g": "SIINFEKLA"}, peptide_lengths=[9],
+        )
+        out_conservative = ref.nearest(["SLINFEKLA"])  # I→L at pos 1
+        out_radical = ref.nearest(["SWINFEKLA"])  # I→W at pos 1
+        cons_dist = out_conservative.iloc[0]["self_nearest_blosum_distance"]
+        rad_dist = out_radical.iloc[0]["self_nearest_blosum_distance"]
+        assert cons_dist < rad_dist
+        # Both are edit_distance=1 (one substitution)
+        assert out_conservative.iloc[0]["self_nearest_edit_distance"] == 1
+        assert out_radical.iloc[0]["self_nearest_edit_distance"] == 1
+
+    def test_blosum62_picks_conservative_over_radical(self):
+        """When two reference peptides are both edit-distance-1 from
+        the query, BLOSUM62 as the metric prefers the conservative
+        substitution over the radical one."""
+        ref = SelfProteome.from_peptides(
+            {"cons": "SLINFEKLA", "rad": "SWINFEKLA"},
+            peptide_lengths=[9],
+        )
+        out = ref.nearest(["SIINFEKLA"])
+        # BLOSUM62(I,L)=2 is better than BLOSUM62(I,W)=-3
+        assert out.iloc[0]["self_nearest_peptide"] == "SLINFEKLA"
+
+    def test_hamming_metric_opt_in(self):
+        ref = SelfProteome.from_peptides(
+            {"g": "SIINFEKLA"}, peptide_lengths=[9],
+        )
+        out = ref.nearest(["SWINFEKLA"], metric="hamming")
+        assert out.iloc[0]["self_nearest_edit_distance"] == 1
+        assert "self_nearest_blosum_distance" not in out.columns
+
+    def test_invalid_metric_raises(self):
+        ref = SelfProteome.from_peptides(
+            {"g": "SIINFEKLA"}, peptide_lengths=[9],
+        )
+        with pytest.raises(ValueError, match="metric"):
+            ref.nearest(["SIINFEKLA"], metric="invalid")

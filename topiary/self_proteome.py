@@ -49,6 +49,36 @@ _AA_TO_INT = {aa: i for i, aa in enumerate(_AA_ALPHABET)}
 _UNKNOWN_AA = len(_AA_ALPHABET)
 
 
+def _load_blosum62() -> np.ndarray:
+    """Load BLOSUM62 from Biopython and reshape into a (21, 21) int8
+    lookup table indexed by ``_AA_TO_INT`` encoding.
+
+    Row/column 20 (the sentinel for unknown residues) scores -4
+    against everything so unknowns always rank as large-distance
+    mismatches.
+    """
+    from Bio.Align.substitution_matrices import load
+    bio = load("BLOSUM62")
+    n = len(_AA_ALPHABET) + 1  # +1 for sentinel
+    table = np.full((n, n), -4, dtype=np.int8)
+    for i, aa_i in enumerate(_AA_ALPHABET):
+        for j, aa_j in enumerate(_AA_ALPHABET):
+            table[i, j] = int(bio[aa_i, aa_j])
+    return table
+
+
+# Lazy-loaded on first use — avoids Biopython import at module level
+# when users only want Hamming distance.
+_BLOSUM62: Optional[np.ndarray] = None
+
+
+def _get_blosum62() -> np.ndarray:
+    global _BLOSUM62
+    if _BLOSUM62 is None:
+        _BLOSUM62 = _load_blosum62()
+    return _BLOSUM62
+
+
 def _encode_peptides(peptides: List[str], length: int) -> np.ndarray:
     """Encode peptides as an ``(N, length)`` int8 array.  Peptides
     shorter than ``length`` are padded with the unknown sentinel;
@@ -173,30 +203,43 @@ class SelfProteome:
 
     # --- lookup ---
 
-    def nearest(self, peptides: Iterable[str]) -> pd.DataFrame:
+    def nearest(
+        self,
+        peptides: Iterable[str],
+        metric: str = "blosum62",
+    ) -> pd.DataFrame:
         """For each query peptide, return the closest reference peptide
-        at the same length (Hamming distance, substitutions only).
+        at the same length.
+
+        Parameters
+        ----------
+        peptides : iterable of str
+        metric : ``"blosum62"`` (default) or ``"hamming"``
+            ``"blosum62"`` uses the BLOSUM62 substitution matrix to
+            score each position — conservative substitutions (I↔L)
+            contribute less distance than non-conservative ones (W↔A).
+            Requires Biopython (lazy-loaded on first use).
+
+            ``"hamming"`` counts the number of mismatched positions
+            (all mismatches weighted equally).
 
         Returns a DataFrame with one row per input peptide, preserving
-        input order, containing ``peptide``, ``self_nearest_peptide``,
-        ``self_nearest_peptide_length``, ``self_nearest_edit_distance``,
-        ``self_nearest_gene_id``, ``self_nearest_transcript_id``,
-        ``self_nearest_reference_offset``, and
-        ``self_nearest_reference_version``.  Rows where no reference
-        exists at the query's length have ``None`` / ``NaN`` for the
-        nearest-peptide columns.
+        input order.  Columns: ``peptide``, ``self_nearest_peptide``,
+        ``self_nearest_peptide_length``, ``self_nearest_edit_distance``
+        (Hamming), ``self_nearest_blosum_distance`` (BLOSUM62-based,
+        only when ``metric="blosum62"``), ``self_nearest_gene_id``,
+        ``self_nearest_transcript_id``, ``self_nearest_reference_offset``,
+        ``self_nearest_reference_version``.
 
         Tie-breaking: when multiple reference peptides share the
-        minimum Hamming distance to the query, the first one in the
-        internal reference array (construction / insertion order) is
-        returned.  Deterministic but implementation-dependent — don't
-        rely on which specific peptide wins unless you also control
-        the reference-construction order.  The upcoming
-        ``self_nearest_candidates`` structured column (see #124, part B)
-        exposes the full tied set for callers who care.
+        minimum distance, the first in the internal reference array
+        (construction / insertion order) is returned.
         """
+        if metric not in ("blosum62", "hamming"):
+            raise ValueError(
+                f"metric must be 'blosum62' or 'hamming'; got {metric!r}."
+            )
         peptides = [str(p) for p in peptides]
-        # Partition queries by length to batch SIMD calls.
         by_length: Dict[int, List[Tuple[int, str]]] = defaultdict(list)
         for idx, pep in enumerate(peptides):
             by_length[len(pep)].append((idx, pep))
@@ -205,14 +248,14 @@ class SelfProteome:
         for L, items in by_length.items():
             if L not in self._reference_arrays:
                 for idx, pep in items:
-                    results[idx] = self._empty_row(pep)
+                    results[idx] = self._empty_row(pep, metric)
                 continue
-            self._resolve_length(L, items, results)
+            self._resolve_length(L, items, results, metric=metric)
 
         return pd.DataFrame(results)
 
-    def _empty_row(self, peptide: str) -> dict:
-        return {
+    def _empty_row(self, peptide: str, metric: str) -> dict:
+        row = {
             "peptide": peptide,
             "self_nearest_peptide": None,
             "self_nearest_peptide_length": None,
@@ -222,12 +265,16 @@ class SelfProteome:
             "self_nearest_reference_offset": None,
             "self_nearest_reference_version": self.reference_version,
         }
+        if metric == "blosum62":
+            row["self_nearest_blosum_distance"] = None
+        return row
 
     def _resolve_length(
         self,
         L: int,
         items: List[Tuple[int, str]],
         results: List[Optional[dict]],
+        metric: str = "blosum62",
         chunk_size: int = 1000,
     ) -> None:
         ref_arr = self._reference_arrays[L]
@@ -235,16 +282,41 @@ class SelfProteome:
         query_peps = [pep for _, pep in items]
         query_arr = _encode_peptides(query_peps, L)
 
-        # Chunk to bound working memory: (chunk, M, L) diff tensor.
+        use_blosum = metric == "blosum62"
+        blosum = _get_blosum62() if use_blosum else None
+
         for start in range(0, len(query_arr), chunk_size):
             end = min(start + chunk_size, len(query_arr))
             q_chunk = query_arr[start:end]
-            # (chunk, M, L) != broadcasted → sum over last axis → (chunk, M).
-            diffs = (
-                q_chunk[:, None, :] != ref_arr[None, :, :]
-            ).sum(axis=2)
-            best_idx = diffs.argmin(axis=1)
-            best_dist = diffs[np.arange(len(q_chunk)), best_idx]
+
+            if use_blosum:
+                # BLOSUM62 distance: sum of (self_score - pair_score)
+                # per position.  Lower = more similar.
+                pair_scores = blosum[
+                    q_chunk[:, None, :], ref_arr[None, :, :]
+                ].sum(axis=2)
+                self_scores = blosum[
+                    q_chunk, q_chunk
+                ].sum(axis=1)
+                dists = self_scores[:, None] - pair_scores
+            else:
+                # Hamming: count mismatched positions.
+                dists = (
+                    q_chunk[:, None, :] != ref_arr[None, :, :]
+                ).sum(axis=2)
+
+            best_idx = dists.argmin(axis=1)
+            best_dist = dists[np.arange(len(q_chunk)), best_idx]
+
+            # Also compute Hamming for the edit_distance column
+            # regardless of metric (it's always useful).
+            if use_blosum:
+                hamming = (
+                    q_chunk[:, None, :] != ref_arr[None, :, :]
+                ).sum(axis=2)
+                best_hamming = hamming[np.arange(len(q_chunk)), best_idx]
+            else:
+                best_hamming = best_dist
 
             for k, (orig_idx, orig_pep) in enumerate(items[start:end]):
                 ref_pep = ref_peps[int(best_idx[k])]
@@ -253,16 +325,19 @@ class SelfProteome:
                     gene_id, transcript_id, offset = prov[0]
                 else:
                     gene_id, transcript_id, offset = None, None, None
-                results[orig_idx] = {
+                row = {
                     "peptide": orig_pep,
                     "self_nearest_peptide": ref_pep,
                     "self_nearest_peptide_length": L,
-                    "self_nearest_edit_distance": int(best_dist[k]),
+                    "self_nearest_edit_distance": int(best_hamming[k]),
                     "self_nearest_gene_id": gene_id,
                     "self_nearest_transcript_id": transcript_id,
                     "self_nearest_reference_offset": offset,
                     "self_nearest_reference_version": self.reference_version,
                 }
+                if use_blosum:
+                    row["self_nearest_blosum_distance"] = int(best_dist[k])
+                results[orig_idx] = row
 
     # --- constructors ---
 
