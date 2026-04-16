@@ -356,6 +356,7 @@ class TopiaryPredictor(object):
         raise_on_error=True,
         mhc_model=None,
         mhc_models=None,
+        self_proteome=None,
     ):
         """
         Parameters
@@ -452,6 +453,7 @@ class TopiaryPredictor(object):
         self.min_gene_expression = min_gene_expression
         self.only_novel_epitopes = only_novel_epitopes
         self.raise_on_error = raise_on_error
+        self.self_proteome = self_proteome
 
     @property
     def mhc_model(self):
@@ -574,11 +576,26 @@ class TopiaryPredictor(object):
         """Apply filter and sort if configured."""
         if df.empty:
             return df
+        df = self._maybe_attach_self_nearest(df)
         if self.filter_by is not None:
             df = apply_filter(df, self.filter_by)
         if self.sort_by:
             df = apply_sort(df, self.sort_by, sort_direction=self.sort_direction)
         return df
+
+    def _maybe_attach_self_nearest(self, df):
+        """Join ``self_nearest_*`` columns onto ``df`` keyed on peptide.
+
+        No-op when ``self.self_proteome`` is ``None``; otherwise runs a
+        single ``nearest()`` call over the unique peptides in ``df`` and
+        merges the result back.  Runs before filter/sort so users can
+        reference the new columns in ``filter_by`` / ``sort_by``.
+        """
+        if self.self_proteome is None:
+            return df
+        unique = df["peptide"].drop_duplicates().tolist()
+        nearest = self.self_proteome.nearest(unique)
+        return df.merge(nearest, on="peptide", how="left")
 
     def _finalize_rows(self, df):
         """Apply filter / sort, drop non-mutant rows when

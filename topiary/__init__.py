@@ -43,6 +43,7 @@ from .sequence_helpers import (
 )
 from .cached import CachedPredictor, mhcflurry_composite_version
 from .protein_fragment import ProteinFragment, make_fragment_id
+from .self_proteome import SelfProteome
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
 from .io_protein_fragment import read_fragments, write_fragments, iter_fragments
 from .io_lens import detect_lens_version, read_lens
@@ -55,6 +56,7 @@ __all__ = [
     "TopiaryPredictor",
     "CachedPredictor",
     "mhcflurry_composite_version",
+    "SelfProteome",
     "Affinity",
     "BinOp",
     "BoolOp",
