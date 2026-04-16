@@ -209,27 +209,30 @@ Use a pre-computed prediction table instead of running the predictor
 live — for reproducibility, iterating on filters/ranking without
 paying the predictor cost, or ingesting output from another tool.
 
+From a prior topiary run:
+
 ```python
 from topiary import CachedPredictor, TopiaryPredictor
 
-# Load from topiary's own saved output, mhcflurry CSV, NetMHC-family
-# stdout captures, or a generic TSV/CSV with column mapping.
-cache = CachedPredictor.from_topiary_output("run.parquet")
-# cache = CachedPredictor.from_mhcflurry("mhcflurry.csv")
-# cache = CachedPredictor.from_netmhcpan_stdout("netmhcpan.out")
-# cache = CachedPredictor.from_tsv("third_party.tsv", columns={...},
-#                                  prediction_method_name="netchop",
-#                                  predictor_version="3.1")
-
-# Or merge shards from parallel prediction jobs:
-# cache = CachedPredictor.from_directory("caches/", pattern="*.parquet")
-
+cache = CachedPredictor.from_topiary_output("prior_run.parquet")
 predictor = TopiaryPredictor(models=cache)
 df = predictor.predict_from_variants(variants)
 ```
 
-Every cache holds exactly one `(predictor_name, predictor_version)`
-pair — mixing versions is rejected. Full details — mhcflurry's
-composite-version auto-composition, cache-plus-fallback mode, all
-five NetMHC-family loaders, and sharding with overlap policies — in
-[Cached Predictions](cached.md).
+From mhcflurry or NetMHCpan output:
+
+```python
+cache = CachedPredictor.from_mhcflurry("mhcflurry_predictions.csv")
+cache = CachedPredictor.from_netmhcpan_stdout("netmhcpan_run.out")
+```
+
+From the CLI (format auto-detected):
+
+```bash
+topiary --peptide-csv peptides.csv \
+    --mhc-cache-file netmhcpan_run.out \
+    --output-csv results.csv
+```
+
+Full details — all loaders, sharding, version invariants, and
+the CLI flag reference — in [Cached Predictions](cached.md).

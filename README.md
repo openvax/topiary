@@ -540,51 +540,72 @@ Useful for reproducibility, iterating on filters/ranking without
 paying the predictor cost, or ingesting predictions from a tool
 topiary doesn't natively run.
 
+Load from a prior topiary run (Parquet or TSV):
+
 ```python
 from topiary import CachedPredictor, TopiaryPredictor
 
-# From topiary's own saved output, mhcflurry CSV, NetMHC-family
-# stdout captures, or a generic TSV/CSV with column mapping.
-cache = CachedPredictor.from_topiary_output("run.parquet")
-# cache = CachedPredictor.from_mhcflurry("mhcflurry.csv")
-# cache = CachedPredictor.from_netmhcpan_stdout("netmhcpan.out")
-# cache = CachedPredictor.from_netmhciipan_stdout("ii.out", version="4.3")
-# cache = CachedPredictor.from_netmhcstabpan_stdout("stab.out")
-# cache = CachedPredictor.from_tsv("third_party.tsv", columns={...},
-#                                  prediction_method_name="netchop",
-#                                  predictor_version="3.1")
-
-# Merge shards from parallel prediction jobs
-# cache = CachedPredictor.concat([shard_a, shard_b, shard_c])
-# cache = CachedPredictor.from_directory("caches/", pattern="*.parquet")
-
+cache = CachedPredictor.from_topiary_output("prior_run.parquet")
 predictor = TopiaryPredictor(models=cache)
 df = predictor.predict_from_variants(variants)
 ```
 
-Every cache holds exactly one `(predictor_name, predictor_version)`
-pair — mixing versions is rejected. mhcflurry's composite version
-(package + model bundle) is auto-composed from the local install;
-users never enumerate bundles manually. Sharding (`concat` /
-`from_directory`) merges shards from parallel prediction jobs with
-an overlap-resolution policy (`"raise"` / `"last"` / `"first"` /
-callable). See [docs/cached.md](docs/cached.md) for full detail,
-including cache-plus-fallback mode and opt-in version equivalence.
+Load from mhcflurry output (all three kinds — affinity, presentation,
+processing — are preserved):
 
-From the CLI:
+```python
+cache = CachedPredictor.from_mhcflurry("mhcflurry_predictions.csv")
+```
+
+Load from NetMHCpan stdout capture (both binding-affinity and
+eluted-ligand kinds from a `-BA` run):
+
+```python
+cache = CachedPredictor.from_netmhcpan_stdout("netmhcpan_run.out")
+```
+
+Load from a generic TSV/CSV with column mapping (requires a `kind`
+column in the file):
+
+```python
+cache = CachedPredictor.from_tsv(
+    "third_party.tsv",
+    columns={"affinity": "ic50_nM", "percentile_rank": "rank"},
+    prediction_method_name="netchop",
+    predictor_version="3.1",
+)
+```
+
+Merge shards from parallel prediction jobs:
+
+```python
+cache = CachedPredictor.from_directory("caches/", pattern="*.parquet")
+```
+
+Every cache holds exactly one `(predictor_name, predictor_version)`
+pair — mixing versions is rejected. See
+[docs/cached.md](docs/cached.md) for full detail, including
+mhcflurry composite versions, cache-plus-fallback mode, and
+opt-in version equivalence.
+
+### From the CLI
+
+Format is sniffed from file content — no `--mhc-cache-format` needed
+for NetMHC-family, mhcflurry, or topiary-output files:
 
 ```bash
-# Skip the live predictor, read from an mhcflurry CSV.  Format is
-# sniffed from file content; no --mhc-cache-format needed for
-# NetMHC-family / mhcflurry / topiary-output files.
 topiary --peptide-csv peptides.csv \
-    --mhc-cache-file mhcflurry_predictions.csv \
+    --mhc-cache-file netmhcpan_run.out \
     --output-csv results.csv
 ```
 
-`--mhc-cache-format` (optional; sniffed when omitted) accepts
-`topiary_output`, `mhcflurry`, `tsv`, `netmhcpan`, `netmhc`,
-`netmhccons`, `netmhciipan`, or `netmhcstabpan`. Only the generic
-`tsv` format strictly requires the explicit flag. `--mhc-predictor`
-and `--mhc-alleles` become optional when a cache is supplying
-predictions.
+Sharded caches from parallel jobs:
+
+```bash
+topiary --peptide-csv peptides.csv \
+    --mhc-cache-directory ./caches \
+    --output-csv results.csv
+```
+
+`--mhc-predictor` and `--mhc-alleles` become optional when a cache
+supplies predictions.

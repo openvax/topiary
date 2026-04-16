@@ -296,24 +296,35 @@ from file content. Only the generic `tsv` path needs an explicit
 `--mhc-cache-format tsv` (generic tables don't carry identifying
 signatures).
 
+NetMHCpan stdout capture (format sniffed from preamble):
+
 ```bash
-# NetMHCpan stdout capture — format sniffed from the preamble
 topiary --peptide-csv peptides.csv \
     --mhc-cache-file netmhcpan_run.out \
     --output-csv results.csv
+```
 
-# mhcflurry CSV — format sniffed from column names; predictor_version
-# auto-composed from the local install
+mhcflurry CSV (format sniffed from column names; `predictor_version`
+auto-composed from the local install):
+
+```bash
 topiary --peptide-csv peptides.csv \
     --mhc-cache-file mhcflurry_predictions.csv \
     --output-csv results.csv
+```
 
-# Topiary's own saved output (Parquet or TSV round-trip) — sniffed
+Topiary's own saved output (Parquet or TSV round-trip — sniffed):
+
+```bash
 topiary --peptide-csv peptides.csv \
     --mhc-cache-file prior_run.parquet \
     --output-csv results.csv
+```
 
-# Generic TSV with column mapping — format must be explicit
+Generic TSV with column mapping (`--mhc-cache-format tsv` is required
+here since generic tables can't be auto-detected):
+
+```bash
 topiary --peptide-csv peptides.csv \
     --mhc-cache-file third_party.tsv \
     --mhc-cache-format tsv \
@@ -322,8 +333,11 @@ topiary --peptide-csv peptides.csv \
     --mhc-cache-tsv-column affinity=IC50_nM \
     --mhc-cache-tsv-column percentile_rank=Rank \
     --output-csv results.csv
+```
 
-# Sharded: merge every file in a directory
+Sharded — merge every matching file in a directory:
+
+```bash
 topiary --peptide-csv peptides.csv \
     --mhc-cache-directory ./caches \
     --mhc-cache-directory-pattern '*.parquet' \
@@ -334,7 +348,7 @@ Full flag reference:
 
 | Flag | Purpose |
 |---|---|
-| `--mhc-cache-file PATH` | Single cache file. Requires `--mhc-cache-format`. |
+| `--mhc-cache-file PATH` | Single cache file. Format is auto-detected; `--mhc-cache-format` only needed for generic TSVs. |
 | `--mhc-cache-directory PATH` | Directory of shards; each file loaded via `from_topiary_output` and concatenated. Alternative to `--mhc-cache-file`. |
 | `--mhc-cache-directory-pattern GLOB` | Pattern for `--mhc-cache-directory`. Default `*`. |
 | `--mhc-cache-format FORMAT` | Optional — sniffed from file content when omitted (see above). One of `topiary_output`, `mhcflurry`, `tsv`, `netmhcpan`, `netmhc`, `netmhccons`, `netmhciipan`, `netmhcstabpan`. Only `tsv` strictly requires the explicit flag. |
