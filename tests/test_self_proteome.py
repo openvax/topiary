@@ -71,7 +71,7 @@ class TestFastaLoader:
         path.write_text(">geneA\nSIINFEKLA\n")
         with pytest.raises(ValueError, match="FASTA"):
             SelfProteome.from_fasta(
-                path, peptide_lengths=[9], scope="non_cta",
+                path, peptide_lengths=[9], include="non_cta",
             )
 
     def test_from_fasta_accepts_callable_scope(self, tmp_path):
@@ -81,7 +81,7 @@ class TestFastaLoader:
         )
         # Keep only geneA
         ref = SelfProteome.from_fasta(
-            path, peptide_lengths=[9], scope=lambda g: g == "geneA",
+            path, peptide_lengths=[9], include=lambda g: g == "geneA",
         )
         # Only geneA 9-mers: 5 × 9
         assert ref.n_reference_peptides == 5
@@ -171,7 +171,7 @@ class TestEnsemblScopeErrors:
             lambda release=None, species=None: fake_release,
         )
         with pytest.raises(ValueError, match="no default registered"):
-            SelfProteome.from_ensembl(species="mouse", scope="non_cta")
+            SelfProteome.from_ensembl(species="mouse", include="non_cta")
 
     def test_pirlygenes_requires_human(self, monkeypatch):
         fake_release = MagicMock()
@@ -182,7 +182,7 @@ class TestEnsemblScopeErrors:
         )
         with pytest.raises(ValueError, match="human-only"):
             SelfProteome.from_ensembl(
-                species="mouse", scope="non_cta", cta_source="pirlygenes",
+                species="mouse", include="non_cta", cta_source="pirlygenes",
             )
 
     def test_protected_tissues_not_yet_implemented(self, monkeypatch):
@@ -196,7 +196,7 @@ class TestEnsemblScopeErrors:
         # tissue_gene_ids should raise (human-only default data).
         with pytest.raises(ValueError, match="human-only"):
             SelfProteome.from_ensembl(
-                species="mouse", scope="protected_tissues",
+                species="mouse", include="protected_tissues",
             )
 
     def test_unknown_scope_string_rejects(self, monkeypatch):
@@ -206,9 +206,9 @@ class TestEnsemblScopeErrors:
             "pyensembl.EnsemblRelease",
             lambda release=None, species=None: fake_release,
         )
-        with pytest.raises(ValueError, match="Unknown scope"):
+        with pytest.raises(ValueError, match="Unknown include"):
             SelfProteome.from_ensembl(
-                species="human", scope="bananas",
+                species="human", include="bananas",
             )
 
     def test_custom_cta_source_as_set(self, monkeypatch):
@@ -220,7 +220,7 @@ class TestEnsemblScopeErrors:
         )
         # Non-human + explicit CTA set should succeed.
         ref = SelfProteome.from_ensembl(
-            species="mouse", scope="non_cta",
+            species="mouse", include="non_cta",
             cta_source={"ENSMUSG0001", "ENSMUSG0002"},
         )
         assert "non_cta" in ref.reference_version
@@ -272,7 +272,7 @@ class TestEnsemblHappyPath:
             species="human",
             release=93,
             peptide_lengths=[9],
-            scope="non_cta",
+            include="non_cta",
             cta_source={"CTA_GENE"},  # filter out CTA_GENE
         )
         # Only KEEP_GENE's 9-mers (5 of them) should be indexed.
@@ -294,7 +294,7 @@ class TestEnsemblHappyPath:
             species="human",
             release=93,
             peptide_lengths=[9],
-            scope="all",
+            include="all",
         )
         # SIINFEKLG lives in KEEP_GENE at offset 2
         out = ref.nearest(["SIINFEKLG"])
@@ -389,12 +389,12 @@ class TestTopiaryPredictorIntegration:
 
 
 # ---------------------------------------------------------------------------
-# scope="protected_tissues"
+# include="protected_tissues"
 # ---------------------------------------------------------------------------
 
 
 class TestProtectedTissuesScope:
-    """Test scope="protected_tissues" — human via pirlygenes defaults
+    """Test include="protected_tissues" — human via pirlygenes defaults
     and non-human via explicit tissue_gene_ids."""
 
     def test_non_human_without_tissue_gene_ids_raises(self, monkeypatch):
@@ -406,7 +406,7 @@ class TestProtectedTissuesScope:
         )
         with pytest.raises(ValueError, match="human-only"):
             SelfProteome.from_ensembl(
-                species="mouse", scope="protected_tissues",
+                species="mouse", include="protected_tissues",
             )
 
     def test_non_human_with_explicit_gene_ids_works(self, monkeypatch):
@@ -434,7 +434,7 @@ class TestProtectedTissuesScope:
             species="mouse",
             release=102,
             peptide_lengths=[9],
-            scope="protected_tissues",
+            include="protected_tissues",
             tissue_gene_ids={"GENE_KEEP"},
         )
         # Only GENE_KEEP's proteins should survive the filter.
@@ -443,7 +443,7 @@ class TestProtectedTissuesScope:
         assert "sha256:" in ref.reference_version
 
     def test_human_default_tissues(self, monkeypatch):
-        """Human scope='protected_tissues' with default tissues uses
+        """Human include='protected_tissues' with default tissues uses
         pirlygenes' tissue_expressed_gene_ids.  Mock it to avoid
         pirlygenes data load in CI."""
         keep_genes = {"GENE_A", "GENE_B"}
@@ -471,7 +471,7 @@ class TestProtectedTissuesScope:
         )
         ref = SelfProteome.from_ensembl(
             species="human",
-            scope="protected_tissues",
+            include="protected_tissues",
             peptide_lengths=[9],
         )
         # Only GENE_A's proteins (GENE_C filtered out)
@@ -496,7 +496,7 @@ class TestProtectedTissuesScope:
         )
         ref = SelfProteome.from_ensembl(
             species="human",
-            scope="protected_tissues",
+            include="protected_tissues",
             tissues=["lung", "brain"],
             peptide_lengths=[9],
         )

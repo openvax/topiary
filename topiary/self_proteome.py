@@ -88,10 +88,10 @@ def _resolve_cta_gene_ids(
         cta_source = defaults.get("cta_source")
         if cta_source is None:
             raise ValueError(
-                f"scope='non_cta' needs a CTA source for "
+                f"include='non_cta' needs a CTA source for "
                 f"species={species!r}; no default registered.  Pass "
                 f"cta_source=<set or callable> explicitly, or use "
-                f"scope='all'."
+                f"include='all'."
             )
 
     if callable(cta_source):
@@ -136,14 +136,14 @@ class SelfProteome:
         *,
         species: str,
         release: Optional[str],
-        scope_label: str,
+        include_label: str,
         reference_arrays: Dict[int, np.ndarray],
         reference_peptides: Dict[int, List[str]],
         provenance: Dict[str, List[Tuple[str, str, int]]],
     ):
         self.species = species
         self.release = release
-        self.scope_label = scope_label
+        self.include_label = include_label
         self._reference_arrays = reference_arrays
         self._reference_peptides = reference_peptides
         self._provenance = provenance
@@ -168,7 +168,7 @@ class SelfProteome:
         """
         release_part = f"-{self.release}" if self.release is not None else ""
         return (
-            f"ensembl-{self.species}{release_part}+scope-{self.scope_label}"
+            f"ensembl-{self.species}{release_part}+scope-{self.include_label}"
         )
 
     # --- lookup ---
@@ -274,7 +274,7 @@ class SelfProteome:
         peptide_lengths: Iterable[int] = (8, 9, 10, 11),
         species: str = "synthetic",
         release: Optional[str] = None,
-        scope_label: str = "all",
+        include_label: str = "all",
     ) -> "SelfProteome":
         """Build from an in-memory ``{source_id: amino_acid_sequence}``
         mapping.  Primarily a test helper; also useful for small
@@ -294,7 +294,7 @@ class SelfProteome:
         return cls(
             species=species,
             release=release,
-            scope_label=scope_label,
+            include_label=include_label,
             reference_arrays=reference_arrays,
             reference_peptides=reference_peptides,
             provenance=provenance,
@@ -308,26 +308,26 @@ class SelfProteome:
         peptide_lengths: Iterable[int] = (8, 9, 10, 11),
         species: str = "fasta",
         release: Optional[str] = None,
-        scope: Union[str, Callable] = "all",
+        include: Union[str, Callable] = "all",
     ) -> "SelfProteome":
         """Build from a FASTA file.  Each record's ID is used as both
         gene_id and transcript_id in provenance (FASTA doesn't carry
         the distinction).
 
-        ``scope`` accepts ``"all"`` or a callable ``(source_id) -> bool``;
+        ``include`` accepts ``"all"`` or a callable ``(source_id) -> bool``;
         ``"non_cta"`` and ``"protected_tissues"`` require gene-metadata
         that FASTA doesn't provide, so use :meth:`from_ensembl` for
-        those scopes.
+        those.
         """
         records = list(_parse_fasta(path))
-        scope_label, records = _apply_fasta_scope(scope, records)
+        include_label, records = _apply_fasta_scope(include, records)
         reference_arrays, reference_peptides, provenance = _build_index(
             records, peptide_lengths,
         )
         return cls(
             species=species,
             release=release,
-            scope_label=scope_label,
+            include_label=include_label,
             reference_arrays=reference_arrays,
             reference_peptides=reference_peptides,
             provenance=provenance,
@@ -340,7 +340,7 @@ class SelfProteome:
         release: Optional[int] = None,
         *,
         peptide_lengths: Iterable[int] = (8, 9, 10, 11),
-        scope: Union[str, Callable] = "non_cta",
+        include: Union[str, Callable] = "non_cta",
         cta_source=None,
         tissues: Optional[List[str]] = None,
         tissue_gene_ids: Optional[Set[str]] = None,
@@ -348,14 +348,14 @@ class SelfProteome:
     ) -> "SelfProteome":
         """Build from a pyensembl EnsemblRelease.
 
-        ``scope`` accepts ``"all"``, ``"non_cta"``,
+        ``include`` accepts ``"all"``, ``"non_cta"``,
         ``"protected_tissues"``, or a callable ``(gene_id) -> bool``.
 
-        For ``scope="non_cta"`` with ``species="human"``, the default
+        For ``include="non_cta"`` with ``species="human"``, the default
         ``cta_source="pirlygenes"`` needs no configuration.  Non-human
         species must pass ``cta_source=<set or callable>`` explicitly.
 
-        For ``scope="protected_tissues"``:
+        For ``include="protected_tissues"``:
 
         - **Human (default)**: filters to genes expressed in the
           ``tissues`` list via pirlygenes' HPA expression data.
@@ -381,8 +381,8 @@ class SelfProteome:
             ) from e
 
         genome = EnsemblRelease(release=release, species=species)
-        scope_label, gene_filter = _resolve_ensembl_scope(
-            scope, species, cta_source,
+        include_label, gene_filter = _resolve_ensembl_scope(
+            include, species, cta_source,
             tissues=tissues,
             tissue_gene_ids=tissue_gene_ids,
             min_tissue_ntpm=min_tissue_ntpm,
@@ -394,7 +394,7 @@ class SelfProteome:
         return cls(
             species=species,
             release=str(release) if release is not None else None,
-            scope_label=scope_label,
+            include_label=include_label,
             reference_arrays=reference_arrays,
             reference_peptides=reference_peptides,
             provenance=provenance,
@@ -427,18 +427,18 @@ def _parse_fasta(path):
         yield current_id, current_id, current_id, "".join(buf)
 
 
-def _apply_fasta_scope(scope, records):
-    """Filter FASTA records by scope.  Returns (scope_label, filtered_records)."""
-    if scope == "all":
+def _apply_fasta_scope(include, records):
+    """Filter FASTA records by include mode.  Returns (include_label, filtered)."""
+    if include == "all":
         return "all", records
-    if callable(scope):
+    if callable(include):
         label = (
             "callable-"
-            + hashlib.sha256(repr(scope).encode()).hexdigest()[:12]
+            + hashlib.sha256(repr(include).encode()).hexdigest()[:12]
         )
-        return label, [r for r in records if scope(r[0])]
+        return label, [r for r in records if include(r[0])]
     raise ValueError(
-        f"scope={scope!r} isn't available for from_fasta (FASTA has no "
+        f"include={include!r} isn't available for from_fasta (FASTA has no "
         f"gene/tissue metadata).  Use 'all', a callable, or switch to "
         f"from_ensembl."
     )
@@ -450,38 +450,38 @@ _DEFAULT_PROTECTED_TISSUES = [
 
 
 def _resolve_ensembl_scope(
-    scope, species, cta_source, *,
+    include, species, cta_source, *,
     tissues=None, tissue_gene_ids=None, min_tissue_ntpm=1.0,
 ):
-    """Return (scope_label, gene_filter) where gene_filter takes a gene_id
+    """Return (include_label, gene_filter) where gene_filter takes a gene_id
     and returns True to keep."""
-    if callable(scope):
+    if callable(include):
         label = (
             "callable-"
-            + hashlib.sha256(repr(scope).encode()).hexdigest()[:12]
+            + hashlib.sha256(repr(include).encode()).hexdigest()[:12]
         )
-        return label, scope
-    if scope == "all":
+        return label, include
+    if include == "all":
         return "all", lambda _gene_id: True
-    if scope == "non_cta":
+    if include == "non_cta":
         cta = _resolve_cta_gene_ids(species, cta_source)
         if callable(cta):
             return "non_cta-callable", lambda g: not cta(g)
         label = _cta_label(species, cta_source, cta)
         cta_set = cta  # set of gene IDs
         return label, lambda gene_id: gene_id not in cta_set
-    if scope == "protected_tissues":
+    if include == "protected_tissues":
         keep_ids, label = _resolve_protected_tissues(
             species, tissues, tissue_gene_ids, min_tissue_ntpm,
         )
         return label, lambda gene_id: gene_id in keep_ids
-    raise ValueError(f"Unknown scope: {scope!r}.")
+    raise ValueError(f"Unknown include value: {include!r}.")
 
 
 def _resolve_protected_tissues(species, tissues, tissue_gene_ids, min_ntpm):
-    """Resolve the gene set for ``scope="protected_tissues"``.
+    """Resolve the gene set for ``include="protected_tissues"``.
 
-    Returns ``(keep_gene_ids: set[str], scope_label: str)``.
+    Returns ``(keep_gene_ids: set[str], include_label: str)``.
 
     Three paths:
 
@@ -505,7 +505,7 @@ def _resolve_protected_tissues(species, tissues, tissue_gene_ids, min_ntpm):
     # Default path — pirlygenes tissue data (human only).
     if species != "human":
         raise ValueError(
-            f"scope='protected_tissues' without tissue_gene_ids= "
+            f"include='protected_tissues' without tissue_gene_ids= "
             f"defaults to pirlygenes/HPA expression data, which is "
             f"human-only; got species={species!r}.  For non-human "
             f"species, pass tissue_gene_ids=<set of gene IDs> with "
