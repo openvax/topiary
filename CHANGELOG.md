@@ -1,5 +1,73 @@
 # Changelog
 
+## 5.7.0
+
+**CachedPredictor — CLI, multi-kind, flanks, NetMHC fixtures (#136).**
+
+**CLI support for cached predictions:**
+
+- New `--mhc-cache-file` / `--mhc-cache-directory` CLI arguments let
+  users run topiary entirely from pre-computed prediction files without
+  invoking a live MHC predictor.
+- `--mhc-cache-format` is optional — topiary sniffs the format from
+  file content (NetMHC-family preamble lines, mhcflurry column names,
+  topiary-output schema, Parquet magic bytes).  Only the generic `tsv`
+  format requires an explicit flag.
+- `--mhc-predictor` and `--mhc-alleles` become optional when a cache
+  supplies predictions.
+
+**Multi-kind cache (closes #137):**
+
+- Cache index expanded from `(peptide, allele, peptide_length)` to a
+  6-tuple `(peptide, allele, peptide_length, kind, n_flank, c_flank)`.
+  A single cache holds every kind a predictor emits — mhcflurry's
+  class1_presentation pipeline (affinity + presentation + processing),
+  NetMHCpan `-BA` (affinity + presentation), etc.  No more silent
+  data loss from single-kind heuristics.
+- `from_mhcflurry` explodes wide-format CSVs into one row per
+  `(peptide, allele, kind)`, preserving `n_flank` / `c_flank` /
+  `source_sequence_name` / `peptide_offset` / `sample_name` per kind.
+- `from_netmhcpan_stdout` switches to `parse_netmhcpan_to_preds`
+  (mhctools' multi-kind API), returning all kinds instead of collapsing
+  by mode.  Dropped `mode=` kwarg (no longer meaningful).
+- Generic TSV loader (`from_tsv`) now requires a `kind` column per row.
+  Multi-kind TSVs work natively — add a kind column and list one value
+  per row.
+
+**Multi-allele NetMHC parsing fixed:**
+
+- `parse_netmhcpan_to_preds` handles multi-allele stdout correctly
+  (per-allele header lines that crashed the old
+  `parse_netmhcpan_stdout` are no longer an issue).  Multi-allele
+  fixtures promoted from xfail to happy-path tests.
+
+**Flank sensitivity in cache key:**
+
+- `n_flank` / `c_flank` are now part of the composite key.  mhcflurry's
+  processing and presentation predictions depend on flanking residues;
+  the same peptide at different protein positions can produce different
+  scores.  Absent flanks normalize to empty string `""` (no None/NaN
+  handling quirks).
+
+**Real NetMHC-family fixtures:**
+
+- `tests/data/netmhc_fixtures/` — captured from netmhc-bundle binaries
+  for peptide SLLQHLIGL at HLA-A*02:01 / A*24:02 / B*07:02.
+  NetMHCpan 4.0 + 4.1, NetMHC 4.0, NetMHCstabpan, single-allele +
+  multi-allele variants.  6 real-fixture tests pin actual numeric
+  predictions through the loaders.
+
+**README reorder:**
+
+- "MHC prediction models" moved near the top (after "Predicting MHC
+  binding"); "Cached predictions" moved to the end.
+
+**Tests:**
+
+- 1141 tests pass (up from 1111 in v5.6.0).  9 new CLI integration
+  tests, 6 real-fixture tests, 3 promoted multi-allele happy-path
+  tests, multi-kind + multi-flank regression tests.
+
 ## 5.6.0
 
 **Closes #128 — `CachedPredictor` reaches feature-complete.**
