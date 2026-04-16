@@ -1,5 +1,45 @@
 # Changelog
 
+## 5.8.0
+
+**New feature — `SelfProteome` for cross-reactivity analysis (#135, part A of #124):**
+
+- `SelfProteome` class holds a species-tagged, scope-filtered reference
+  protein corpus indexed by peptide length.  Answers per-query
+  nearest-neighbor lookups: "given this mutant peptide, what's the most
+  similar peptide in healthy human self?"
+- Constructors: `from_ensembl(species, release, scope=...)`,
+  `from_fasta(path)`, `from_peptides(dict)` (test/programmatic use).
+- `scope="all"` (whole proteome) and `scope="non_cta"` (default for
+  human — strips cancer-testis-antigen genes via pirlygenes).
+  Non-human species must supply `cta_source=` explicitly; unsupported
+  combos raise with actionable messages.
+- SIMD-vectorized Hamming-distance search against int8-encoded
+  reference arrays, chunked for memory bound.  Substitutions only
+  in this release.
+- `TopiaryPredictor(self_proteome=ref)` integration — `self_nearest_*`
+  columns (`self_nearest_peptide`, `_peptide_length`, `_edit_distance`,
+  `_gene_id`, `_transcript_id`, `_reference_offset`,
+  `_reference_version`) attached before filter/sort so DSL expressions
+  can reference them.
+- Composite `reference_version` property captures species + release +
+  scope identity; custom CTA filters hash into the string for
+  reproducibility.
+- New `docs/self_proteome.md` page + nav entry.
+
+**Deferred to parts B/C (#124):**
+
+- `scope="protected_tissues"` (HPA / GTEx tissue filtering).
+- 1aa insertion / deletion candidates.
+- BLOSUM62-weighted distance metric.
+- `self_mimic_*` / `self_strongest_nearby_*` binding-aware axes.
+- `self_nearest_candidates` structured column.
+- Seed-and-extend indexing algorithm (benchmark-driven).
+- Bundled self-proteome × common-HLA prediction artifacts.
+
+**Tests:** 25 new in `tests/test_self_proteome.py`.  Full suite 1166
+passed (up from 1141).
+
 ## 5.7.0
 
 **CachedPredictor — CLI, multi-kind, flanks, NetMHC fixtures (#136).**
