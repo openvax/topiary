@@ -36,7 +36,7 @@ pre-computed table. Pass as `models=cache` to `TopiaryPredictor`. See
 |--------|--------|
 | `CachedPredictor.from_topiary_output(path)` | Parquet / TSV / CSV previously written from a topiary run. |
 | `CachedPredictor.from_mhcflurry(path)` | mhcflurry-predict CSV output. `predictor_version` auto-composed from the installed mhcflurry when omitted. |
-| `CachedPredictor.from_netmhcpan_stdout(path, mode=...)` | NetMHCpan stdout capture (auto-detects 2.8 / 3 / 4 / 4.1). |
+| `CachedPredictor.from_netmhcpan_stdout(path)` | NetMHCpan stdout capture (auto-detects 2.8 / 3 / 4 / 4.1).  Returns every kind present in the output — `-BA` runs surface both `pMHC_affinity` and `pMHC_presentation` rows per (peptide, allele). |
 | `CachedPredictor.from_netmhc_stdout(path, version=...)` | Classic NetMHC stdout (3 / 4 / 4.1). |
 | `CachedPredictor.from_netmhcpan_cons_stdout(path)` | NetMHCcons stdout. |
 | `CachedPredictor.from_netmhciipan_stdout(path, version=...)` | NetMHCIIpan stdout (legacy / 4 / 4.3). |

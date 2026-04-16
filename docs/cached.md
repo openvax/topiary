@@ -59,10 +59,7 @@ it directly — topiary reuses the parsers shipped by
 version they support is covered here too.
 
 ```python
-cache = CachedPredictor.from_netmhcpan_stdout(
-    "netmhcpan_run.out",
-    mode="binding_affinity",     # or "elution_score" on 4+
-)
+cache = CachedPredictor.from_netmhcpan_stdout("netmhcpan_run.out")
 cache = CachedPredictor.from_netmhc_stdout("netmhc_run.out", version="4")
 cache = CachedPredictor.from_netmhcpan_cons_stdout("cons_run.out")
 cache = CachedPredictor.from_netmhciipan_stdout("ii_run.out", version="4.3")
@@ -73,6 +70,13 @@ Each loader parses the version out of the stdout preamble (e.g.
 `NetMHCpan version 4.1b`) and stamps it on `predictor_version`.
 Pass `predictor_version="..."` if you want a different label, or
 if your capture stripped the preamble.
+
+**Multi-kind output**: NetMHCpan run with `-BA` (which produces
+both eluted-ligand and binding-affinity scores per peptide) is
+loaded as **both** kinds in the cache — `pMHC_affinity` and
+`pMHC_presentation` rows for each `(peptide, allele)`. The new
+6-tuple index key distinguishes them, and downstream topiary DSL
+scopes (`Affinity.*` vs `Presentation.*`) read the right rows.
 
 The loaders parse the *stdout text* format. NetMHC's `-xlsfile`
 tab-delimited output is a different format and isn't supported
@@ -338,7 +342,6 @@ Full flag reference:
 | `--mhc-cache-predictor-version V` | Override `predictor_version`. Auto-inferred for NetMHC stdout captures (parsed from preamble) and mhcflurry (composite from local install). |
 | `--mhc-cache-tsv-column CANONICAL=FILE_COL` | Repeatable. Column-name mapping for `tsv` format. |
 | `--mhc-cache-tsv-sep SEP` | Separator for `tsv`. Default tab. |
-| `--mhc-cache-netmhcpan-mode MODE` | `binding_affinity` (default) or `elution_score` for NetMHCpan 4+. |
 | `--mhc-cache-netmhc-version V` | `3`, `4`, or `4.1` for classic NetMHC output. Default `4`. |
 | `--mhc-cache-netmhciipan-version V` | `legacy`, `4`, or `4.3` for NetMHCIIpan. Default `4.3`. |
 | `--mhc-cache-netmhciipan-mode MODE` | `binding_affinity` or `elution_score` (default) for NetMHCIIpan 4+. |
