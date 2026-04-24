@@ -908,6 +908,49 @@ def test_default_methods_unknown_kind_raises():
         EvalContext(pd.DataFrame(), default_methods={"banana": "mhcflurry"})
 
 
+def test_default_methods_error_surfaces_short_aliases():
+    """Error message lists short aliases alongside canonical kind names."""
+    try:
+        EvalContext(pd.DataFrame(), default_methods={"banana": "mhcflurry"})
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        msg = str(exc)
+        # Canonical kind names
+        assert "pMHC_affinity" in msg
+        assert "pMHC_presentation" in msg
+        # Short aliases / synonyms
+        assert "affinity" in msg
+        assert "ba" in msg
+        assert "el" in msg
+        assert "processing" in msg
+        # Lower-case duplicates of canonicals shouldn't clutter the list.
+        assert "pmhc_affinity" not in msg
+
+
+def test_default_methods_substring_match_literal_not_regex():
+    """Method substring match is regex=False — dots are literal characters."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="AAAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.6, value=350.0, percentile_rank=2.0,
+             prediction_method_name="mhcflurry"),
+        dict(source_sequence_name="s", peptide="AAAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.8, value=120.0, percentile_rank=0.5,
+             prediction_method_name="netmhcpan"),
+    ])
+    # 'net.*pan' as a regex would match both netmhcpan and (hypothetical)
+    # netmhcstabpan. As a literal substring, it matches neither — should
+    # raise method-not-found, not silently pick one.
+    ctx = EvalContext(df, default_methods={"pMHC_affinity": "net.*pan"})
+    with pytest.raises(ValueError, match=r"net\.\*pan"):
+        Affinity.value.eval(ctx)
+
+    # Same check on the explicit-method Field path.
+    with pytest.raises(ValueError, match=r"net\.\*pan"):
+        Affinity["net.*pan"].value.evaluate(df)
+
+
 def test_default_methods_non_string_value_raises():
     with pytest.raises(TypeError, match="method name string"):
         EvalContext(pd.DataFrame(), default_methods={"pMHC_affinity": 42})

@@ -146,10 +146,19 @@ def _normalize_default_methods(mapping):
             )
         kind = aliases.get(_kind_name(key).lower())
         if kind is None:
-            valid = sorted({_kind_value(k) for k in aliases.values()})
+            # Surface the canonical kind values and every DSL short
+            # alias so a user who typed 'banana' sees that 'ba' /
+            # 'affinity' / 'pMHC_affinity' all map to the same kind.
+            # The alias dict is lower-cased for case-insensitive
+            # lookup; skip lower-case duplicates of canonicals to
+            # keep the list readable.
+            canonical = {_kind_value(k) for k in aliases.values()}
+            canonical_lower = {c.lower() for c in canonical}
+            shorts = {a for a in aliases.keys() if a not in canonical_lower}
+            accepted = sorted(shorts | canonical)
             raise ValueError(
                 f"default_methods key {key!r} is not a known kind. "
-                f"Expected one of: {valid}"
+                f"Accepted spellings: {accepted}"
             )
         out[_kind_value(kind)] = method
     return out
@@ -571,7 +580,7 @@ class Field(DSLNode):
             if col in sub.columns:
                 method_lower = self.method.lower()
                 method_mask = sub[col].str.lower().str.contains(
-                    method_lower, na=False
+                    method_lower, na=False, regex=False
                 )
                 matched = sub[method_mask]
                 if matched.empty:
@@ -610,7 +619,7 @@ class Field(DSLNode):
                     col = "prediction_method_name"
                     default_lower = default.lower()
                     method_mask = sub[col].str.lower().str.contains(
-                        default_lower, na=False
+                        default_lower, na=False, regex=False
                     )
                     matched = sub[method_mask]
                     if matched.empty:
