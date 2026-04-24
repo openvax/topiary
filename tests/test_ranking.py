@@ -793,18 +793,105 @@ def test_default_methods_resolves_ambiguity():
     assert Affinity.value.eval(ctx).iloc[0] == 120.0
 
 
-def test_default_methods_accepts_short_name_and_kind_enum():
-    """Short names and Kind constants are canonicalized to kind values."""
+@pytest.mark.parametrize("key", [
+    "pMHC_affinity",     # canonical kind string
+    "pmhc_affinity",     # lowercase canonical
+    "affinity",          # DSL short name
+    "ba",                # synonym (binding affinity)
+    "aff",               # synonym
+    "ic50",              # synonym (IC50)
+    Kind.pMHC_affinity,  # mhctools Kind enum value
+])
+def test_default_methods_affinity_synonyms(key):
+    """Every accepted spelling of 'pMHC_affinity' resolves to the same kind."""
     df = _multi_model_df()
-    assert Affinity.value.eval(
-        EvalContext(df, default_methods={"affinity": "mhcflurry"})
-    ).iloc[0] == 350.0
-    assert Affinity.value.eval(
-        EvalContext(df, default_methods={"ba": "netmhcpan"})
-    ).iloc[0] == 120.0
-    assert Affinity.value.eval(
-        EvalContext(df, default_methods={Kind.pMHC_affinity: "mhcflurry"})
-    ).iloc[0] == 350.0
+    ctx = EvalContext(df, default_methods={key: "mhcflurry"})
+    assert Affinity.value.eval(ctx).iloc[0] == 350.0
+
+
+@pytest.mark.parametrize("key,method,expected", [
+    ("pMHC_presentation", "mhcflurry", 0.9),
+    ("presentation",      "mhcflurry", 0.9),
+    ("el",                "mhcflurry", 0.9),
+])
+def test_default_methods_presentation_synonyms(key, method, expected):
+    """Presentation synonyms (pMHC_presentation, presentation, el)."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="SIINFEKL", peptide_offset=10,
+             allele="HLA-A*02:01", kind="pMHC_presentation",
+             score=0.9, value=None, percentile_rank=0.3,
+             prediction_method_name="mhcflurry"),
+        dict(source_sequence_name="s", peptide="SIINFEKL", peptide_offset=10,
+             allele="HLA-A*02:01", kind="pMHC_presentation",
+             score=0.7, value=None, percentile_rank=1.0,
+             prediction_method_name="netmhcpan"),
+    ])
+    ctx = EvalContext(df, default_methods={key: method})
+    assert Presentation.score.eval(ctx).iloc[0] == expected
+
+
+@pytest.mark.parametrize("key", ["pMHC_stability", "stability"])
+def test_default_methods_stability_synonyms(key):
+    """Stability synonyms (pMHC_stability, stability)."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="SIINFEKL", peptide_offset=10,
+             allele="HLA-A*02:01", kind="pMHC_stability",
+             score=0.8, value=5.0, percentile_rank=1.0,
+             prediction_method_name="netmhcstabpan"),
+        dict(source_sequence_name="s", peptide="SIINFEKL", peptide_offset=10,
+             allele="HLA-A*02:01", kind="pMHC_stability",
+             score=0.6, value=3.0, percentile_rank=2.0,
+             prediction_method_name="otherpredictor"),
+    ])
+    ctx = EvalContext(df, default_methods={key: "netmhcstabpan"})
+    assert Stability.score.eval(ctx).iloc[0] == 0.8
+
+
+@pytest.mark.parametrize("key", ["antigen_processing", "processing"])
+def test_default_methods_processing_synonyms(key):
+    """Processing synonyms (antigen_processing, processing)."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="SIINFEKL", peptide_offset=10,
+             allele="HLA-A*02:01", kind="antigen_processing",
+             score=0.75, value=None, percentile_rank=None,
+             prediction_method_name="mhcflurry"),
+        dict(source_sequence_name="s", peptide="SIINFEKL", peptide_offset=10,
+             allele="HLA-A*02:01", kind="antigen_processing",
+             score=0.45, value=None, percentile_rank=None,
+             prediction_method_name="netchop"),
+    ])
+    from topiary.ranking import Processing
+    ctx = EvalContext(df, default_methods={key: "mhcflurry"})
+    assert Processing.score.eval(ctx).iloc[0] == 0.75
+
+
+def test_default_methods_accepts_multiple_synonyms_in_one_dict():
+    """Mixed synonyms across kinds in a single default_methods dict."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="SIINFEKL", peptide_offset=10,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.6, value=350.0, percentile_rank=2.0,
+             prediction_method_name="mhcflurry"),
+        dict(source_sequence_name="s", peptide="SIINFEKL", peptide_offset=10,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.8, value=120.0, percentile_rank=0.5,
+             prediction_method_name="netmhcpan"),
+        dict(source_sequence_name="s", peptide="SIINFEKL", peptide_offset=10,
+             allele="HLA-A*02:01", kind="pMHC_presentation",
+             score=0.9, value=None, percentile_rank=0.3,
+             prediction_method_name="mhcflurry"),
+        dict(source_sequence_name="s", peptide="SIINFEKL", peptide_offset=10,
+             allele="HLA-A*02:01", kind="pMHC_presentation",
+             score=0.7, value=None, percentile_rank=1.0,
+             prediction_method_name="netmhcpan"),
+    ])
+    # Mixing canonical and short names in one dict.
+    ctx = EvalContext(df, default_methods={
+        "ba": "netmhcpan",           # synonym for pMHC_affinity
+        "presentation": "mhcflurry",  # short name for pMHC_presentation
+    })
+    assert Affinity.value.eval(ctx).iloc[0] == 120.0
+    assert Presentation.score.eval(ctx).iloc[0] == 0.9
 
 
 def test_default_methods_unknown_method_raises():

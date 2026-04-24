@@ -103,6 +103,7 @@ def _build_kind_aliases(kind_source=Kind):
     aliases["ba"] = kind_source.pMHC_affinity
     aliases["aff"] = kind_source.pMHC_affinity
     aliases["ic50"] = kind_source.pMHC_affinity
+    aliases["processing"] = kind_source.antigen_processing
     return aliases
 
 
