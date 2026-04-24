@@ -2,6 +2,20 @@
 
 ## 5.10.0
 
+**Bare identifier inside kind-qualified brackets (#119):**
+
+- The string DSL now accepts `affinity[netmhcpan]` and
+  `affinity[netmhcpan, "4.1b"]` in addition to the previously required
+  `affinity['netmhcpan']` / `affinity['netmhcpan', '4.1b']`.  Bare
+  identifiers read more cleanly in YAML configs, where
+  `"affinity[netmhcpan] <= 500"` drops the nested-quote gymnastics of
+  `"affinity['netmhcpan'] <= 500"`.
+- Non-IDENT values (e.g. a version string `"4.1b"` that starts with a
+  digit or contains a dot) still require quotes.
+- Fully backwards compatible — every previously-valid expression
+  still parses.  `to_expr_string()` continues to emit the
+  single-quoted canonical form, so round-trips stay deterministic.
+
 **Filter-context auto-aggregation across methods (#118):**
 
 - Inside `apply_filter` (and `TopiaryPredictor(filter_by=...)`), an

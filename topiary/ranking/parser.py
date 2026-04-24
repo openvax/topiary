@@ -10,7 +10,8 @@ Grammar (lowest precedence first)::
     term     := power (('*'|'/') power)*
     power    := unary ('**' power)?
     unary    := ('-' | '~') unary | postfix
-    postfix  := atom ('.' IDENT call? | '[' STRING (',' STRING)? ']')*
+    postfix  := atom ('.' IDENT call? | '[' BRACKET_ARG (',' BRACKET_ARG)? ']')*
+    BRACKET_ARG := STRING | IDENT   # bare idents read cleanly in YAML
     atom     := NUMBER | '(' top ')' | abs(expr) | agg(expr,...)
               | count(STR) | column(IDENT) | len
               | CONTEXT '.' scoped_atom | kind_ref | IDENT
@@ -169,6 +170,20 @@ class _Tokenizer:
             )
         return tok
 
+    def expect_string_or_ident(self):
+        """Bracket-arg primitive: accept ``'foo'`` or ``foo`` and return
+        the string value.  Used inside ``[...]`` for method/version
+        qualifiers where a bare identifier reads more cleanly than a
+        quoted string, especially in YAML.
+        """
+        tok = self.advance()
+        if tok[0] not in ("STRING", "IDENT"):
+            raise ValueError(
+                f"Expected STRING or IDENT but got {tok[0]} ({tok[1]!r}) "
+                f"in {self.text!r}"
+            )
+        return tok
+
 
 def _parser_as_node(x):
     """Coerce a parser result to a DSLNode."""
@@ -302,11 +317,11 @@ class _Parser:
                     node = self._apply_field_access(node, name)
             elif tok[0] == "LBRACKET":
                 self.tokenizer.advance()
-                method_tok = self.tokenizer.expect("STRING")
+                method_tok = self.tokenizer.expect_string_or_ident()
                 version = None
                 if self.tokenizer.peek()[0] == "COMMA":
                     self.tokenizer.advance()
-                    version_tok = self.tokenizer.expect("STRING")
+                    version_tok = self.tokenizer.expect_string_or_ident()
                     version = version_tok[1]
                 self.tokenizer.expect("RBRACKET")
                 node = self._apply_bracket(node, method_tok[1], version)
@@ -402,11 +417,11 @@ class _Parser:
             )
         if self.tokenizer.peek()[0] == "LBRACKET":
             self.tokenizer.advance()
-            method_tok = self.tokenizer.expect("STRING")
+            method_tok = self.tokenizer.expect_string_or_ident()
             version = None
             if self.tokenizer.peek()[0] == "COMMA":
                 self.tokenizer.advance()
-                version_tok = self.tokenizer.expect("STRING")
+                version_tok = self.tokenizer.expect_string_or_ident()
                 version = version_tok[1]
             self.tokenizer.expect("RBRACKET")
             accessor = accessor[method_tok[1], version] if version else accessor[method_tok[1]]

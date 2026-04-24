@@ -1794,6 +1794,66 @@ def test_parse_expr_bracket_qualification():
     assert expr.method == "netmhcpan"
 
 
+# ---------------------------------------------------------------------------
+# Bare IDENT inside kind brackets  —  issue #119
+# ---------------------------------------------------------------------------
+
+
+def test_parse_bare_ident_in_brackets():
+    """affinity[netmhcpan] parses the same as affinity['netmhcpan']."""
+    bare = parse("affinity[netmhcpan].score")
+    quoted = parse("affinity['netmhcpan'].score")
+    assert isinstance(bare, Field)
+    assert bare.method == "netmhcpan"
+    # Structural equivalence: same AST string
+    assert bare.to_ast_string() == quoted.to_ast_string()
+
+
+def test_parse_bare_ident_in_brackets_filter():
+    """YAML-friendly short form works in filter comparisons."""
+    expr = parse("affinity[netmhcpan] <= 500")
+    assert isinstance(expr, Comparison)
+    assert isinstance(expr.left, Field)
+    assert expr.left.method == "netmhcpan"
+
+
+def test_parse_bare_ident_version_still_quoted():
+    """Non-IDENT version strings (e.g. '4.1b') keep quotes."""
+    expr = parse('affinity[netmhcpan, "4.1b"].value')
+    assert isinstance(expr, Field)
+    assert expr.method == "netmhcpan"
+    assert expr.version == "4.1b"
+
+
+def test_parse_bare_ident_mixed_with_quoted():
+    """Mixed forms in the same bracket are allowed."""
+    expr = parse("affinity['netmhcpan', v4].value")
+    assert isinstance(expr, Field)
+    assert expr.method == "netmhcpan"
+    assert expr.version == "v4"
+
+
+def test_parse_bare_ident_on_kind_accessor_with_chain():
+    """Short form composes with transforms and fields."""
+    expr = parse("ba[mhcflurry].score.norm(0.5, 0.2)")
+    from topiary.ranking import NormExpr
+    assert isinstance(expr, NormExpr)
+
+
+def test_parse_bare_ident_roundtrip_emits_quoted():
+    """to_expr_string keeps the canonical single-quoted form."""
+    expr = parse("affinity[netmhcpan] <= 500")
+    # Round-trip should parse back to an equivalent tree.
+    reparsed = parse(expr.to_expr_string())
+    assert expr.to_ast_string() == reparsed.to_ast_string()
+
+
+def test_parse_bare_ident_rejects_number():
+    """Numeric token in bracket (without quotes) still errors."""
+    with pytest.raises(ValueError, match="STRING or IDENT"):
+        parse("affinity[netmhcpan, 4]")
+
+
 def test_parse_expr_norm_alias():
     """norm() is an alias for ascending_cdf()"""
     expr = parse("affinity.norm(500, 200)")
