@@ -2,6 +2,29 @@
 
 ## 5.10.0
 
+**Filter-context auto-aggregation across methods (#118):**
+
+- Inside `apply_filter` (and `TopiaryPredictor(filter_by=...)`), an
+  unqualified kind reference (`Affinity <= 500`, `presentation.rank <=
+  2.0`, ...) no longer raises `Ambiguous: multiple models produce ...`
+  when the DataFrame has multiple `prediction_method_name` values for
+  that kind. Instead, the comparison is evaluated per method and
+  combined via `nanmin` (for `<`/`<=`) or `nanmax` (for `>`/`>=`) —
+  the "any method passes" interpretation.
+- Scope is narrow on purpose: only directional `Comparison` nodes
+  (`<`, `<=`, `>`, `>=`), only when evaluated under a filter context
+  (`apply_filter` sets `EvalContext.filter_context=True`), only when
+  all unqualified refs in the comparison are the same kind. `==` /
+  `!=`, `apply_sort`, scalar score expressions, and cross-kind
+  comparisons (`affinity.rank <= processing.rank`) keep the strict
+  ambiguity error.
+- `EvalContext(df, filter_context=True)` is now public — callers who
+  hand-roll eval outside `apply_filter` can opt in explicitly.
+- Single-method frames take the strict path (no behavior change).
+- Complements `EvalContext(default_methods=...)` (#140): if a default
+  resolves the unqualified ref, `Field.eval` returns before this
+  branch runs, so `default_methods` takes precedence.
+
 **EvalContext `default_methods` for multi-predictor frames (#140):**
 
 - `EvalContext(df, default_methods={...})` — resolve unqualified
@@ -18,7 +41,10 @@
 Context: multi-predictor pipelines (e.g. LENS emitting MHCflurry
 + netMHCpan + netMHCstabpan) previously had to either qualify every
 DSL expression with `['modelname']` or pre-subset the DataFrame to one
-method per kind. `default_methods` is the declarative alternative.
+method per kind. `default_methods` is the declarative escape hatch;
+filter-context auto-agg is the pragmatic default for filter
+top-levels, while sort and score stay strict to avoid silent
+semantics on compound arithmetic like `0.5*ba.score + 0.5*el.score`.
 
 ## 5.9.0
 

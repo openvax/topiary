@@ -115,7 +115,9 @@ def apply_filter(df, node, default_methods=None):
         return df.reset_index(drop=True)
 
     _validate_columns(df, node)
-    ctx = EvalContext(df, default_methods=default_methods)
+    ctx = EvalContext(
+        df, filter_context=True, default_methods=default_methods,
+    )
     # Reindex defensively so a misbehaving node (index mismatch) surfaces
     # as NaN → False rather than silently picking up rows from a
     # different MultiIndex alignment.

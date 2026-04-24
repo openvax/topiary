@@ -1063,6 +1063,174 @@ def test_apply_sort_accepts_default_methods():
     assert result.iloc[0]["peptide"] == "AAAA"
 
 
+# Filter-context auto-aggregation across methods  —  issue #118
+# ---------------------------------------------------------------------------
+
+
+def _multi_affinity_df():
+    """Two peptides, each with mhcflurry + netmhcpan affinity rows."""
+    return pd.DataFrame([
+        dict(source_sequence_name="s", peptide="AAAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.6, value=350.0, percentile_rank=2.0,
+             prediction_method_name="mhcflurry"),
+        dict(source_sequence_name="s", peptide="AAAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.8, value=120.0, percentile_rank=0.5,
+             prediction_method_name="netmhcpan"),
+        dict(source_sequence_name="s", peptide="BBBB", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.3, value=600.0, percentile_rank=5.0,
+             prediction_method_name="mhcflurry"),
+        dict(source_sequence_name="s", peptide="BBBB", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.5, value=800.0, percentile_rank=8.0,
+             prediction_method_name="netmhcpan"),
+    ])
+
+
+def test_autoagg_keeps_if_any_method_passes_le():
+    """AAAA passes (netmhcpan=120 <= 200); BBBB fails (both > 200)."""
+    df = _multi_affinity_df()
+    result = apply_filter(df, Affinity.value <= 200)
+    assert set(result["peptide"]) == {"AAAA"}
+    # Both method rows for AAAA are kept — apply_filter works per group.
+    assert len(result) == 2
+
+
+def test_autoagg_keeps_if_any_method_passes_ge():
+    """> / >= aggregate via nanmax: keep if any method meets the bar."""
+    df = _multi_affinity_df()
+    # BBBB's max(mhcflurry=600, netmhcpan=800) = 800 >= 700 → keep
+    # AAAA's max(350, 120) = 350 < 700 → drop
+    result = apply_filter(df, Affinity.value >= 700)
+    assert set(result["peptide"]) == {"BBBB"}
+
+
+def test_autoagg_nanmin_semantics_drop():
+    """Filter is strict on rows no method passes."""
+    df = _multi_affinity_df()
+    # Neither method passes <= 50 for any peptide.
+    result = apply_filter(df, Affinity.value <= 50)
+    assert len(result) == 0
+
+
+def test_autoagg_does_not_apply_in_sort():
+    """apply_sort keeps strict ambiguity — no silent aggregation."""
+    df = _multi_affinity_df()
+    with pytest.raises(ValueError, match="Ambiguous.*multiple models"):
+        apply_sort(df, [Affinity.value])
+
+
+def test_autoagg_does_not_apply_outside_filter():
+    """Evaluating a Comparison outside apply_filter stays strict."""
+    df = _multi_affinity_df()
+    with pytest.raises(ValueError, match="Ambiguous.*multiple models"):
+        (Affinity.value <= 200).evaluate(df)
+
+
+def test_autoagg_skipped_when_cross_kind():
+    """Two unqualified kinds in one comparison → strict (ambiguity raises)."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="AAAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.6, value=350.0, percentile_rank=2.0,
+             prediction_method_name="mhcflurry"),
+        dict(source_sequence_name="s", peptide="AAAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.8, value=120.0, percentile_rank=0.5,
+             prediction_method_name="netmhcpan"),
+        dict(source_sequence_name="s", peptide="AAAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="antigen_processing",
+             score=None, value=None, percentile_rank=3.0,
+             prediction_method_name="mhcflurry"),
+        dict(source_sequence_name="s", peptide="AAAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="antigen_processing",
+             score=None, value=None, percentile_rank=1.0,
+             prediction_method_name="netmhcpan"),
+    ])
+    from topiary.ranking import Processing
+    with pytest.raises(ValueError, match="Ambiguous.*multiple models"):
+        apply_filter(df, Affinity.rank <= Processing.rank)
+
+
+def test_autoagg_skipped_when_eq():
+    """Equality and inequality don't auto-aggregate — strict raises."""
+    df = _multi_affinity_df()
+    with pytest.raises(ValueError, match="Ambiguous.*multiple models"):
+        apply_filter(df, Comparison(Affinity.value, operator.eq, Const(120.0)))
+
+
+def test_autoagg_no_op_when_single_method():
+    """Single-method frames take the strict path — no behavior change."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="AAAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.8, value=120.0, percentile_rank=0.5,
+             prediction_method_name="netmhcpan"),
+    ])
+    result = apply_filter(df, Affinity.value <= 200)
+    assert len(result) == 1
+
+
+def test_autoagg_qualified_side_mixed():
+    """Qualified LHS + Const RHS: strict path, qualified value used."""
+    df = _multi_affinity_df()
+    # mhcflurry-only: AAAA=350, BBBB=600 — both fail <= 200, keep none.
+    result = apply_filter(df, Affinity["mhcflurry"].value <= 200)
+    assert len(result) == 0
+    # netmhcpan-only: AAAA=120 (pass), BBBB=800 (fail).
+    result = apply_filter(df, Affinity["netmhcpan"].value <= 200)
+    assert set(result["peptide"]) == {"AAAA"}
+
+
+def test_autoagg_compound_bool_each_comparison_aggs():
+    """A BoolOp of Comparisons auto-aggs each comparison independently."""
+    df = _multi_affinity_df()
+    # AAAA: any(value<=200)=True and any(score>=0.5)=True (netmhcpan=0.8) → pass
+    # BBBB: any(value<=200)=False → drop
+    result = apply_filter(
+        df,
+        (Affinity.value <= 200) & (Affinity.score >= 0.5),
+    )
+    assert set(result["peptide"]) == {"AAAA"}
+
+
+def test_autoagg_const_on_left():
+    """Auto-agg mirrors when Const is on the left (e.g. `500 >= affinity`)."""
+    df = _multi_affinity_df()
+    # 200 >= affinity.value equivalent to affinity.value <= 200 → AAAA passes
+    result = apply_filter(df, Const(200) >= Affinity.value)
+    assert set(result["peptide"]) == {"AAAA"}
+
+
+def test_default_methods_takes_precedence_over_autoagg():
+    """#140 + #118 interaction: explicit default wins over auto-agg."""
+    df = _multi_affinity_df()
+    # Without default_methods: auto-agg fires — AAAA passes (netmhcpan=120 <= 200).
+    assert set(
+        apply_filter(df, Affinity.value <= 200)["peptide"]
+    ) == {"AAAA"}
+    # With mhcflurry default: Field resolves to mhcflurry-only values
+    # (AAAA=350, BBBB=600), both fail <= 200 — no rows pass.
+    result = apply_filter(
+        df, Affinity.value <= 200,
+        default_methods={"pMHC_affinity": "mhcflurry"},
+    )
+    assert len(result) == 0
+    # With netmhcpan default: AAAA=120 passes, BBBB=800 fails.
+    result = apply_filter(
+        df, Affinity.value <= 200,
+        default_methods={"pMHC_affinity": "netmhcpan"},
+    )
+    assert set(result["peptide"]) == {"AAAA"}
+    # Partial defaults (covering only one of multiple unqualified kinds
+    # in the same comparison) still fall through to auto-agg for the
+    # uncovered kind. Here every unqualified ref is pMHC_affinity, so
+    # the default covers them all — auto-agg is skipped.
+
+
+
 def test_bracket_norm_shorthand():
     """KindAccessor.norm() delegates to .value.norm()."""
     df = _multi_model_df()
