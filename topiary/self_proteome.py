@@ -20,7 +20,8 @@ Distance metrics
 ----------------
 - ``"blosum62"`` (default): BLOSUM62-weighted substitution distance.
   Conservative substitutions (I↔L) produce lower distances than
-  non-conservative (I↔W).  Loaded lazily from Biopython.
+  non-conservative (I↔W).  Matrix is inlined as a constant — no
+  runtime dependency on Biopython.
 - ``"hamming"``: count mismatched positions (all mismatches equal).
 
 Indels
@@ -64,26 +65,54 @@ _AA_TO_INT = {aa: i for i, aa in enumerate(_AA_ALPHABET)}
 _UNKNOWN_AA = len(_AA_ALPHABET)
 
 
-def _load_blosum62() -> np.ndarray:
-    """Load BLOSUM62 from Biopython and reshape into a (21, 21) int8
-    lookup table indexed by ``_AA_TO_INT`` encoding.
+# Canonical BLOSUM62 substitution scores for the 20 standard amino
+# acids.  Rows / columns are ordered by ``_AA_ALPHABET``
+# ("ACDEFGHIKLMNPQRSTVWY").  Values are the integer scores from the
+# standard NCBI BLOSUM62 matrix and match what
+# ``Bio.Align.substitution_matrices.load("BLOSUM62")`` returns for
+# these 20 residues.  We inline the table to avoid a biopython
+# dependency for a 400-integer constant.
+_BLOSUM62_STANDARD = np.array([
+    # A   C   D   E   F   G   H   I   K   L   M   N   P   Q   R   S   T   V   W   Y
+    [  4,  0, -2, -1, -2,  0, -2, -1, -1, -1, -1, -2, -1, -1, -1,  1,  0,  0, -3, -2],  # A
+    [  0,  9, -3, -4, -2, -3, -3, -1, -3, -1, -1, -3, -3, -3, -3, -1, -1, -1, -2, -2],  # C
+    [ -2, -3,  6,  2, -3, -1, -1, -3, -1, -4, -3,  1, -1,  0, -2,  0, -1, -3, -4, -3],  # D
+    [ -1, -4,  2,  5, -3, -2,  0, -3,  1, -3, -2,  0, -1,  2,  0,  0, -1, -2, -3, -2],  # E
+    [ -2, -2, -3, -3,  6, -3, -1,  0, -3,  0,  0, -3, -4, -3, -3, -2, -2, -1,  1,  3],  # F
+    [  0, -3, -1, -2, -3,  6, -2, -4, -2, -4, -3,  0, -2, -2, -2,  0, -2, -3, -2, -3],  # G
+    [ -2, -3, -1,  0, -1, -2,  8, -3, -1, -3, -2,  1, -2,  0,  0, -1, -2, -3, -2,  2],  # H
+    [ -1, -1, -3, -3,  0, -4, -3,  4, -3,  2,  1, -3, -3, -3, -3, -2, -1,  3, -3, -1],  # I
+    [ -1, -3, -1,  1, -3, -2, -1, -3,  5, -2, -1,  0, -1,  1,  2,  0, -1, -2, -3, -2],  # K
+    [ -1, -1, -4, -3,  0, -4, -3,  2, -2,  4,  2, -3, -3, -2, -2, -2, -1,  1, -2, -1],  # L
+    [ -1, -1, -3, -2,  0, -3, -2,  1, -1,  2,  5, -2, -2,  0, -1, -1, -1,  1, -1, -1],  # M
+    [ -2, -3,  1,  0, -3,  0,  1, -3,  0, -3, -2,  6, -2,  0,  0,  1,  0, -3, -4, -2],  # N
+    [ -1, -3, -1, -1, -4, -2, -2, -3, -1, -3, -2, -2,  7, -1, -2, -1, -1, -2, -4, -3],  # P
+    [ -1, -3,  0,  2, -3, -2,  0, -3,  1, -2,  0,  0, -1,  5,  1,  0, -1, -2, -2, -1],  # Q
+    [ -1, -3, -2,  0, -3, -2,  0, -3,  2, -2, -1,  0, -2,  1,  5, -1, -1, -3, -3, -2],  # R
+    [  1, -1,  0,  0, -2,  0, -1, -2,  0, -2, -1,  1, -1,  0, -1,  4,  1, -2, -3, -2],  # S
+    [  0, -1, -1, -1, -2, -2, -2, -1, -1, -1, -1,  0, -1, -1, -1,  1,  5,  0, -2, -2],  # T
+    [  0, -1, -3, -2, -1, -3, -3,  3, -2,  1,  1, -3, -2, -2, -3, -2,  0,  4, -3, -1],  # V
+    [ -3, -2, -4, -3,  1, -2, -2, -3, -3, -2, -1, -4, -4, -2, -3, -3, -2, -3, 11,  2],  # W
+    [ -2, -2, -3, -2,  3, -3,  2, -1, -2, -1, -1, -2, -3, -1, -2, -2, -2, -1,  2,  7],  # Y
+], dtype=np.int8)
 
-    Row/column 20 (the sentinel for unknown residues) scores -4
-    against everything so unknowns always rank as large-distance
-    mismatches.
+
+def _load_blosum62() -> np.ndarray:
+    """Return the BLOSUM62 lookup as a (21, 21) int8 table indexed by
+    ``_AA_TO_INT`` encoding.
+
+    Row / column 20 (the sentinel for unknown residues B/J/O/U/X/Z/*)
+    scores -4 against everything so unknowns always rank as
+    large-distance mismatches.
     """
-    from Bio.Align.substitution_matrices import load
-    bio = load("BLOSUM62")
     n = len(_AA_ALPHABET) + 1  # +1 for sentinel
     table = np.full((n, n), -4, dtype=np.int8)
-    for i, aa_i in enumerate(_AA_ALPHABET):
-        for j, aa_j in enumerate(_AA_ALPHABET):
-            table[i, j] = int(bio[aa_i, aa_j])
+    table[:20, :20] = _BLOSUM62_STANDARD
     return table
 
 
-# Lazy-loaded on first use — avoids Biopython import at module level
-# when users only want Hamming distance.
+# Lazy-loaded on first use — kept behind a cache so the module import
+# path stays allocation-free.
 _BLOSUM62: Optional[np.ndarray] = None
 
 
@@ -234,7 +263,6 @@ class SelfProteome:
             ``"blosum62"`` uses the BLOSUM62 substitution matrix to
             score each position — conservative substitutions (I↔L)
             contribute less distance than non-conservative ones (W↔A).
-            Requires Biopython (lazy-loaded on first use).
 
             ``"hamming"`` counts the number of mismatched positions
             (all mismatches weighted equally).
