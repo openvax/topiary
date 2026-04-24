@@ -61,7 +61,7 @@ from .nodes import (
     shuffled,
     wt,
 )
-from .apply import apply_filter, apply_sort
+from .apply import apply_filter, apply_sort, evaluate_scores
 from .parser import parse
 
 __all__ = [
@@ -103,5 +103,6 @@ __all__ = [
     # Public entry points
     "apply_filter",
     "apply_sort",
+    "evaluate_scores",
     "parse",
 ]
