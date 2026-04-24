@@ -1,5 +1,25 @@
 # Changelog
 
+## 5.10.0
+
+**EvalContext `default_methods` for multi-predictor frames (#140):**
+
+- `EvalContext(df, default_methods={...})` — resolve unqualified
+  `Affinity` / `Presentation` / etc. references when a DataFrame has
+  multiple `prediction_method_name` values for the same kind. Without
+  it, the ambiguity check still raises (behavior unchanged).
+- Keys accept canonical kind names (`"pMHC_affinity"`), DSL short names
+  (`"affinity"`, `"ba"`, `"el"`, ...), or mhctools `Kind` constants.
+- `apply_filter(df, node, default_methods=...)` and
+  `apply_sort(df, nodes, default_methods=...)` forward the kwarg.
+- Error message on ambiguous unqualified access now points users at
+  `default_methods` as the opt-in escape hatch.
+
+Context: multi-predictor pipelines (e.g. LENS emitting MHCflurry
++ netMHCpan + netMHCstabpan) previously had to either qualify every
+DSL expression with `['modelname']` or pre-subset the DataFrame to one
+method per kind. `default_methods` is the declarative alternative.
+
 ## 5.9.0
 
 **SelfProteome part B (#138):**

@@ -103,6 +103,7 @@ def _build_kind_aliases(kind_source=Kind):
     aliases["ba"] = kind_source.pMHC_affinity
     aliases["aff"] = kind_source.pMHC_affinity
     aliases["ic50"] = kind_source.pMHC_affinity
+    aliases["processing"] = kind_source.antigen_processing
     return aliases
 
 
@@ -128,6 +129,41 @@ def _pick_group_keys(df):
     return list(_GROUP_KEYS)
 
 
+def _normalize_default_methods(mapping):
+    """Canonicalize ``default_methods`` keys to DataFrame ``kind`` values.
+
+    Accepts canonical names (``"pMHC_affinity"``), DSL short names
+    (``"affinity"``, ``"ba"``, ``"el"``, ...), and mhctools ``Kind``
+    constants.  Values are method strings passed through unchanged.
+    """
+    aliases = _build_kind_aliases()
+    out = {}
+    for key, method in mapping.items():
+        if not isinstance(method, str):
+            raise TypeError(
+                f"default_methods[{key!r}] must be a method name string, "
+                f"got {type(method).__name__}"
+            )
+        kind = aliases.get(_kind_name(key).lower())
+        if kind is None:
+            # Surface the canonical kind values and every DSL short
+            # alias so a user who typed 'banana' sees that 'ba' /
+            # 'affinity' / 'pMHC_affinity' all map to the same kind.
+            # The alias dict is lower-cased for case-insensitive
+            # lookup; skip lower-case duplicates of canonicals to
+            # keep the list readable.
+            canonical = {_kind_value(k) for k in aliases.values()}
+            canonical_lower = {c.lower() for c in canonical}
+            shorts = {a for a in aliases.keys() if a not in canonical_lower}
+            accepted = sorted(shorts | canonical)
+            raise ValueError(
+                f"default_methods key {key!r} is not a known kind. "
+                f"Accepted spellings: {accepted}"
+            )
+        out[_kind_value(kind)] = method
+    return out
+
+
 class EvalContext:
     """Context for vectorized DSL evaluation.
 
@@ -135,13 +171,44 @@ class EvalContext:
     MultiIndex.  Every :class:`DSLNode` ``.eval(ctx)`` returns a
     ``pd.Series`` indexed by this MultiIndex (one value per peptide
     -allele group).
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Prediction rows, long-form.
+    group_keys : list of str, optional
+        Override the auto-detected peptide-allele group keys.
+    default_methods : dict, optional
+        Per-kind default ``prediction_method_name`` for resolving
+        unqualified Field references when multiple methods produce
+        the same kind.  Keys may be canonical kind names
+        (``"pMHC_affinity"``), short names (``"affinity"``, ``"ba"``,
+        ``"el"``, ...), or mhctools ``Kind`` constants.  Without
+        this kwarg, ambiguous references raise ``ValueError`` — the
+        safety behavior is preserved by default.
+
+        Example::
+
+            ctx = EvalContext(
+                df,
+                default_methods={
+                    "pMHC_affinity": "mhcflurry",
+                    "pMHC_stability": "netmhcstabpan",
+                },
+            )
     """
 
-    __slots__ = ("df", "group_keys", "_group_index", "_group_tuples_cache")
+    __slots__ = (
+        "df", "group_keys", "default_methods",
+        "_group_index", "_group_tuples_cache",
+    )
 
-    def __init__(self, df, group_keys=None):
+    def __init__(self, df, group_keys=None, default_methods=None):
         self.df = df
         self.group_keys = list(group_keys) if group_keys else _pick_group_keys(df)
+        self.default_methods = (
+            _normalize_default_methods(default_methods) if default_methods else {}
+        )
         self._group_index = None
         self._group_tuples_cache = None
 
@@ -513,7 +580,7 @@ class Field(DSLNode):
             if col in sub.columns:
                 method_lower = self.method.lower()
                 method_mask = sub[col].str.lower().str.contains(
-                    method_lower, na=False
+                    method_lower, na=False, regex=False
                 )
                 matched = sub[method_mask]
                 if matched.empty:
@@ -547,15 +614,32 @@ class Field(DSLNode):
                 ctx.group_keys, sort=False
             )["prediction_method_name"].nunique()
             if (methods_per_group > 1).any():
-                method_list = ", ".join(
-                    sorted(sub["prediction_method_name"].dropna().unique())
-                )
-                raise ValueError(
-                    f"Ambiguous: multiple models produce "
-                    f"{_kind_name(self.kind)} ({method_list}). "
-                    f"Use {_kind_short_name(self.kind)}['modelname'] "
-                    f"to disambiguate."
-                )
+                default = ctx.default_methods.get(_kind_value(self.kind))
+                if default is not None:
+                    col = "prediction_method_name"
+                    default_lower = default.lower()
+                    method_mask = sub[col].str.lower().str.contains(
+                        default_lower, na=False, regex=False
+                    )
+                    matched = sub[method_mask]
+                    if matched.empty:
+                        available = sorted(sub[col].dropna().unique())
+                        raise _method_not_found_error(
+                            _kind_name(self.kind), default, available
+                        )
+                    sub = matched
+                else:
+                    method_list = ", ".join(
+                        sorted(sub["prediction_method_name"].dropna().unique())
+                    )
+                    raise ValueError(
+                        f"Ambiguous: multiple models produce "
+                        f"{_kind_name(self.kind)} ({method_list}). "
+                        f"Use {_kind_short_name(self.kind)}['modelname'] "
+                        f"to disambiguate, or pass "
+                        f"default_methods={{{_kind_value(self.kind)!r}: "
+                        f"'modelname'}} to EvalContext."
+                    )
 
         col_name = self.scope + self.field
         if col_name not in sub.columns:

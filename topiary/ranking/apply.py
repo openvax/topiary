@@ -99,11 +99,15 @@ def _resolve_sort_direction(node, sort_direction):
     return sort_direction
 
 
-def apply_filter(df, node):
+def apply_filter(df, node, default_methods=None):
     """Apply a boolean-valued DSL node to *df*.
 
     Keeps all rows for peptide-allele groups whose evaluated value is
     truthy.  ``None`` for *node* is a no-op.
+
+    *default_methods* is forwarded to :class:`EvalContext` — see its
+    docstring for the per-kind default ``prediction_method_name`` kwarg
+    used to resolve unqualified Field references on multi-method inputs.
     """
     if node is None:
         return df
@@ -111,7 +115,7 @@ def apply_filter(df, node):
         return df.reset_index(drop=True)
 
     _validate_columns(df, node)
-    ctx = EvalContext(df)
+    ctx = EvalContext(df, default_methods=default_methods)
     # Reindex defensively so a misbehaving node (index mismatch) surfaces
     # as NaN → False rather than silently picking up rows from a
     # different MultiIndex alignment.
@@ -125,7 +129,7 @@ def apply_filter(df, node):
     return df[keep].reset_index(drop=True)
 
 
-def apply_sort(df, sort_nodes, sort_direction="auto"):
+def apply_sort(df, sort_nodes, sort_direction="auto", default_methods=None):
     """Sort groups by one or more DSL nodes (lexicographic fallthrough).
 
     *sort_nodes* is a list of DSLNode.  Each node's direction is inferred
@@ -133,6 +137,9 @@ def apply_sort(df, sort_nodes, sort_direction="auto"):
     desc) when *sort_direction* is ``"auto"``; otherwise the string
     value is used for all nodes.  NaN values do not force an ordering —
     they fall through to the next tiebreaker.
+
+    *default_methods* is forwarded to :class:`EvalContext` — see its
+    docstring.
     """
     if not sort_nodes:
         return df
@@ -142,7 +149,7 @@ def apply_sort(df, sort_nodes, sort_direction="auto"):
     for node in sort_nodes:
         _validate_columns(df, node)
 
-    ctx = EvalContext(df)
+    ctx = EvalContext(df, default_methods=default_methods)
     n_groups = len(ctx.group_index)
     n_keys = len(sort_nodes)
     values_matrix = np.empty((n_groups, n_keys), dtype=float)
