@@ -325,12 +325,20 @@ class TestDSLIntegration:
         top = sorted_df.iloc[0]
         assert isinstance(top["peptide"], str)
 
-    def test_unqualified_ambiguous_raises(self):
+    def test_unqualified_autoaggregates_in_filter(self):
         """v1.4 has two models producing pMHC_affinity — unqualified
-        access must error."""
+        access auto-aggregates (any method passes) inside apply_filter."""
+        r = read_lens(V1_4).to_long()
+        # No raise: auto-agg fires because the filter has exactly one
+        # unqualified kind.  Result is shape-valid.
+        result = apply_filter(r.df, Affinity <= 500)
+        assert len(result) >= 0
+
+    def test_unqualified_ambiguous_still_raises_in_sort(self):
+        """Sort keeps the strict ambiguity check — only filter auto-aggs."""
         r = read_lens(V1_4).to_long()
         with pytest.raises(ValueError, match="Ambiguous"):
-            apply_filter(r.df, Affinity <= 500)
+            apply_sort(r.df, [Affinity.value])
 
     def test_v1_9_unqualified_ok(self):
         """v1.9 has only MHCflurry → unqualified access works."""

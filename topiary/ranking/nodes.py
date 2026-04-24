@@ -196,21 +196,35 @@ class EvalContext:
                     "pMHC_stability": "netmhcstabpan",
                 },
             )
+    filter_context : bool, optional
+        When true, directional ``Comparison`` nodes
+        (``<``, ``<=``, ``>``, ``>=``) with unqualified same-kind refs
+        auto-aggregate across methods (nanmin for ``<``/``<=``, nanmax
+        for ``>``/``>=``) instead of raising on ambiguity.
+        :func:`apply_filter` sets this to ``True`` automatically;
+        :func:`apply_sort` leaves it ``False`` so sort stays strict.
     """
 
     __slots__ = (
-        "df", "group_keys", "default_methods",
-        "_group_index", "_group_tuples_cache",
+        "df", "group_keys", "default_methods", "filter_context",
+        "_group_index", "_group_tuples_cache", "_method_override",
     )
 
-    def __init__(self, df, group_keys=None, default_methods=None):
+    def __init__(
+        self, df, group_keys=None, default_methods=None, filter_context=False,
+    ):
         self.df = df
         self.group_keys = list(group_keys) if group_keys else _pick_group_keys(df)
         self.default_methods = (
             _normalize_default_methods(default_methods) if default_methods else {}
         )
+        self.filter_context = filter_context
         self._group_index = None
         self._group_tuples_cache = None
+        # Internal: when Comparison auto-aggregates across methods, it
+        # binds Field(method=None, kind=K) references to a specific
+        # method per iteration by setting (kind_value, method_name) here.
+        self._method_override = None
 
     @property
     def group_index(self) -> pd.MultiIndex:
@@ -574,11 +588,19 @@ class Field(DSLNode):
         if sub.empty:
             return ctx.empty_series()
 
+        # Method binding: explicit self.method wins; else Comparison
+        # auto-agg may have set ctx._method_override for our kind.
+        effective_method = self.method
+        if effective_method is None:
+            override = ctx._method_override
+            if override is not None and override[0] == kind_val:
+                effective_method = override[1]
+
         # Filter by method substring (case-insensitive)
-        if self.method is not None:
+        if effective_method is not None:
             col = "prediction_method_name"
             if col in sub.columns:
-                method_lower = self.method.lower()
+                method_lower = effective_method.lower()
                 method_mask = sub[col].str.lower().str.contains(
                     method_lower, na=False, regex=False
                 )
@@ -586,7 +608,7 @@ class Field(DSLNode):
                 if matched.empty:
                     available = sorted(sub[col].dropna().unique())
                     raise _method_not_found_error(
-                        _kind_name(self.kind), self.method, available
+                        _kind_name(self.kind), effective_method, available
                     )
                 sub = matched
 
@@ -607,7 +629,7 @@ class Field(DSLNode):
 
         # Ambiguity: unqualified access with multiple methods in any group
         if (
-            self.method is None
+            effective_method is None
             and "prediction_method_name" in sub.columns
         ):
             methods_per_group = sub.groupby(
@@ -1173,6 +1195,22 @@ _CMP_SYMBOLS = {
     operator.ne: "!=",
 }
 
+_AGG_OPS = (operator.lt, operator.le, operator.gt, operator.ge)
+
+
+def _collect_unqualified_kinds(node):
+    """Canonical kind values of every unqualified Field ref in *node*."""
+    kinds = set()
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if n is None:
+            continue
+        if isinstance(n, Field) and n.method is None:
+            kinds.add(_kind_value(n.kind))
+        stack.extend(n.child_nodes())
+    return kinds
+
 
 class Comparison(DSLNode):
     """Pointwise comparison between two DSL nodes.
@@ -1200,11 +1238,97 @@ class Comparison(DSLNode):
         return [self.left, self.right]
 
     def eval(self, ctx: EvalContext) -> pd.Series:
+        if self._should_auto_aggregate(ctx):
+            result = self._auto_aggregate(ctx)
+            if result is not None:
+                return result
         a = self.left.eval(ctx)
         b = self.right.eval(ctx)
         # pandas comparison returns False for NaN comparisons — matches
         # the intended "missing values fail the filter" behavior.
         return self.op(a, b)
+
+    def _should_auto_aggregate(self, ctx):
+        """Gate check for the narrow auto-aggregation scope (issue #118).
+
+        Fires only when the comparison is evaluated as a filter (not in
+        sort, not in scalar score arithmetic), the operator is a
+        directional inequality, and we haven't already entered the
+        per-method binding loop (no override set).
+
+        `default_methods` (issue #140) takes precedence: if every
+        unqualified kind reference in this comparison has a default,
+        `Field.eval` will resolve it cleanly without ambiguity — skip
+        auto-agg so the explicit user choice wins.
+        """
+        if not (
+            ctx.filter_context
+            and ctx._method_override is None
+            and self.op in _AGG_OPS
+        ):
+            return False
+        if ctx.default_methods:
+            kinds = (
+                _collect_unqualified_kinds(self.left)
+                | _collect_unqualified_kinds(self.right)
+            )
+            if kinds and kinds.issubset(ctx.default_methods):
+                return False
+        return True
+
+    def _auto_aggregate(self, ctx):
+        """Try to auto-aggregate across methods for this comparison.
+
+        Returns a boolean ``pd.Series`` indexed by ``ctx.group_index``
+        on success, or ``None`` to signal the caller should fall back
+        to strict per-side eval (which raises the ambiguity error
+        when warranted).
+        """
+        kinds = _collect_unqualified_kinds(self.left) | _collect_unqualified_kinds(
+            self.right
+        )
+        if len(kinds) != 1:
+            return None
+        kind_val = next(iter(kinds))
+
+        df = ctx.df
+        if df.empty or "kind" not in df.columns:
+            return None
+        kind_rows = df[df["kind"] == kind_val]
+        if "prediction_method_name" not in kind_rows.columns:
+            return None
+        methods = sorted(
+            kind_rows["prediction_method_name"].dropna().unique()
+        )
+        if len(methods) <= 1:
+            return None
+
+        left_per_method = []
+        right_per_method = []
+        saved_override = ctx._method_override
+        try:
+            for m in methods:
+                ctx._method_override = (kind_val, m)
+                left_per_method.append(self.left.eval(ctx))
+                right_per_method.append(self.right.eval(ctx))
+        finally:
+            ctx._method_override = saved_override
+
+        left_df = pd.concat(left_per_method, axis=1)
+        right_df = pd.concat(right_per_method, axis=1)
+
+        # For "lower is better" comparisons (<, <=), aggregate the LHS
+        # with nanmin and the RHS with nanmax — giving the "any method
+        # satisfies" interpretation the issue specifies.  Mirrored for
+        # >, >=.
+        if self.op in (operator.lt, operator.le):
+            left_agg = left_df.min(axis=1, skipna=True)
+            right_agg = right_df.max(axis=1, skipna=True)
+        else:
+            left_agg = left_df.max(axis=1, skipna=True)
+            right_agg = right_df.min(axis=1, skipna=True)
+
+        return self.op(left_agg, right_agg)
 
     def __repr__(self):
         sym = _CMP_SYMBOLS.get(self.op, "?")
