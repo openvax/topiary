@@ -5,3 +5,4 @@ varcode>=0.3.17
 gtfparse>=0.0.4
 mhcnames
 argcomplete>=1.10
+biopython>=1.80
