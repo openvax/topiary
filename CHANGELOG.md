@@ -2,6 +2,21 @@
 
 ## 5.10.0
 
+**`evaluate_scores(df, node)` — row-aligned DSL helper (#126):**
+
+- New `topiary.evaluate_scores(df, node, group_keys=None, fill=nan)`
+  evaluates a DSL node against a DataFrame and returns a Series
+  aligned 1:1 with `df.index` (one value per row, broadcast from the
+  peptide-allele group).
+- Replaces the four-line pattern every DSL consumer wrote by hand:
+  build `EvalContext`, call `node.eval(ctx)` (indexed by
+  `ctx.group_index`), map via `ctx.row_group_tuples()` to row
+  alignment, attach `df.index`.
+- `fill` controls NaN behavior for rows whose group wasn't scored —
+  default `NaN`, override with `0.0` for additive scoring, `-inf`
+  for ranking, etc.
+- Exported from `topiary.ranking` and as `topiary.evaluate_scores`.
+
 **Bare identifier inside kind-qualified brackets (#119):**
 
 - The string DSL now accepts `affinity[netmhcpan]` and

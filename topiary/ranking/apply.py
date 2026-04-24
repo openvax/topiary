@@ -99,6 +99,44 @@ def _resolve_sort_direction(node, sort_direction):
     return sort_direction
 
 
+def evaluate_scores(df, node, group_keys=None, fill=np.nan):
+    """Evaluate a DSL *node* against *df* and align the result to ``df.index``.
+
+    ``DSLNode.eval`` returns a Series indexed by the peptide-allele
+    ``EvalContext.group_index`` — one value per group, not one per row.
+    This helper wraps the group→row mapping every consumer ends up
+    writing by hand:
+
+    1. Build an :class:`EvalContext` (with optional *group_keys*).
+    2. Call ``node.eval(ctx)``.
+    3. Map each of ``df``'s rows to its group's value via
+       :meth:`EvalContext.row_group_tuples`.
+
+    *fill* controls NaN behavior for rows whose group was not scored
+    (e.g. the node's kind is absent for a group).  Default is ``NaN`` so
+    callers pick semantics — ``.fillna(0.0)`` for additive scoring,
+    ``.fillna(-inf)`` for ranking.
+
+    Returns a ``pd.Series`` with ``df.index`` and a numeric dtype.
+    """
+    if node is None:
+        raise ValueError("evaluate_scores requires a DSL node")
+    if df is None or df.empty:
+        return pd.Series([], index=df.index if df is not None else None,
+                         dtype=float)
+
+    ctx = EvalContext(df, group_keys=group_keys)
+    scored = node.eval(ctx)
+    row_tuples = ctx.row_group_tuples()
+    aligned = row_tuples.map(scored.to_dict())
+    aligned.index = df.index
+    aligned = pd.to_numeric(aligned, errors="coerce")
+    if not (isinstance(fill, float) and np.isnan(fill)):
+        aligned = aligned.fillna(fill)
+    aligned.name = None
+    return aligned
+
+
 def apply_filter(df, node, default_methods=None):
     """Apply a boolean-valued DSL node to *df*.
 

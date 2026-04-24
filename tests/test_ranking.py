@@ -24,6 +24,7 @@ from topiary.ranking import (
     UnaryOp,
     apply_filter,
     apply_sort,
+    evaluate_scores,
     geomean,
     maximum,
     mean,
@@ -3052,3 +3053,143 @@ def test_count_lowercase_normalized():
 def test_shuffled_reserved_keyword_no_dot():
     with pytest.raises(ValueError, match="reserved context keyword"):
         parse("shuffled")
+
+
+# ---------------------------------------------------------------------------
+# evaluate_scores — row-aligned DSL helper  —  issue #126
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_scores_row_aligned():
+    """Returned Series has df.index and one value per row (broadcast from
+    the group-level eval)."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="AAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.8, value=120.0, percentile_rank=0.5,
+             prediction_method_name="netmhcpan"),
+        dict(source_sequence_name="s", peptide="AAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_presentation",
+             score=0.9, value=None, percentile_rank=0.3,
+             prediction_method_name="netmhcpan"),
+        dict(source_sequence_name="s", peptide="BBB", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.3, value=600.0, percentile_rank=5.0,
+             prediction_method_name="netmhcpan"),
+    ])
+    scores = evaluate_scores(df, Affinity.value)
+    assert scores.index.equals(df.index)
+    assert len(scores) == len(df)
+    # Rows 0 and 1 belong to group AAA (value=120), row 2 to BBB (value=600)
+    assert scores.iloc[0] == 120.0
+    assert scores.iloc[1] == 120.0
+    assert scores.iloc[2] == 600.0
+
+
+def test_evaluate_scores_empty_df():
+    """Empty DataFrame → empty Series aligned to df.index."""
+    df = pd.DataFrame(columns=[
+        "source_sequence_name", "peptide", "peptide_offset", "allele",
+        "kind", "score", "value", "percentile_rank",
+    ])
+    scores = evaluate_scores(df, Affinity.value)
+    assert len(scores) == 0
+    assert scores.index.equals(df.index)
+
+
+def test_evaluate_scores_nan_fill_default():
+    """Rows whose group is missing the kind keep NaN by default."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="AAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.8, value=120.0, percentile_rank=0.5,
+             prediction_method_name="netmhcpan"),
+    ])
+    # Score a kind that's not in df → all NaN
+    scores = evaluate_scores(df, Presentation.score)
+    assert len(scores) == 1
+    assert math.isnan(scores.iloc[0])
+
+
+def test_evaluate_scores_fill_override():
+    """fill= replaces NaN with the supplied value."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="AAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.8, value=120.0, percentile_rank=0.5,
+             prediction_method_name="netmhcpan"),
+    ])
+    scores = evaluate_scores(df, Presentation.score, fill=0.0)
+    assert scores.iloc[0] == 0.0
+
+
+def test_evaluate_scores_composite_node():
+    """Works with arithmetic composite nodes, not just bare Fields."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="AAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.8, value=120.0, percentile_rank=0.5,
+             prediction_method_name="netmhcpan"),
+        dict(source_sequence_name="s", peptide="BBB", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.3, value=600.0, percentile_rank=5.0,
+             prediction_method_name="netmhcpan"),
+    ])
+    # 2 * value
+    scores = evaluate_scores(df, 2 * Affinity.value)
+    assert scores.iloc[0] == 240.0
+    assert scores.iloc[1] == 1200.0
+
+
+def test_evaluate_scores_preserves_custom_index():
+    """Non-default df.index (strings, sparse ints) propagates through."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s", peptide="AAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.8, value=120.0, percentile_rank=0.5,
+             prediction_method_name="netmhcpan"),
+        dict(source_sequence_name="s", peptide="BBB", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.3, value=600.0, percentile_rank=5.0,
+             prediction_method_name="netmhcpan"),
+    ], index=["row_alpha", "row_beta"])
+    scores = evaluate_scores(df, Affinity.value)
+    assert list(scores.index) == ["row_alpha", "row_beta"]
+    assert scores.loc["row_alpha"] == 120.0
+    assert scores.loc["row_beta"] == 600.0
+
+
+def test_evaluate_scores_none_node_raises():
+    df = _make_df(PEPTIDE_A_ROWS)
+    with pytest.raises(ValueError, match="requires a DSL node"):
+        evaluate_scores(df, None)
+
+
+def test_evaluate_scores_group_keys_forwarded():
+    """group_keys= is forwarded to EvalContext and honored end-to-end."""
+    df = pd.DataFrame([
+        dict(source_sequence_name="s1", peptide="AAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.8, value=120.0, percentile_rank=0.5,
+             prediction_method_name="netmhcpan"),
+        dict(source_sequence_name="s2", peptide="AAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity",
+             score=0.3, value=600.0, percentile_rank=5.0,
+             prediction_method_name="netmhcpan"),
+    ])
+    # Passing the default group_keys explicitly should yield identical
+    # results to not passing them.
+    explicit = evaluate_scores(
+        df, Affinity.value,
+        group_keys=["source_sequence_name", "peptide", "peptide_offset",
+                    "allele"],
+    )
+    implicit = evaluate_scores(df, Affinity.value)
+    assert explicit.tolist() == implicit.tolist()
+    assert explicit.iloc[0] == 120.0
+    assert explicit.iloc[1] == 600.0
+
+
+def test_evaluate_scores_exported_at_top_level():
+    import topiary
+    assert topiary.evaluate_scores is evaluate_scores
