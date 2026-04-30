@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.10.1
+
+**CLI validation errors:**
+
+- Bare `topiary` invocations and other missing-argument validation
+  failures now render as normal argparse errors with usage text instead
+  of printing the full parsed namespace followed by a traceback.
+- Missing prediction requests report both required parts: an MHC source
+  (`--mhc-predictor` or cached predictions) and an input source.
+
 ## 5.10.0
 
 **`evaluate_scores(df, node)` — row-aligned DSL helper (#126):**
