@@ -14,7 +14,7 @@
 Common commandline arguments used by scripts
 """
 
-from argparse import ArgumentParser
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
 import pandas as pd
 from mhctools.cli import add_mhc_args, predictors_from_args
@@ -192,6 +192,20 @@ def _add_input_args(arg_parser):
     return input_group
 
 
+MHC_SOURCE_ERROR = (
+    "Must supply either --mhc-predictor (live predictor) or "
+    "--mhc-cache-file / --mhc-cache-directory (cached predictions). "
+    "Both are missing."
+)
+
+INPUT_SOURCE_ERROR = (
+    "No input specified. Use one of: "
+    "--peptide-csv, --sequence-csv, --fasta, --peptide-fasta, "
+    "--gene-names, --gene-ids, --transcript-ids, --cta, "
+    "--ensembl-proteome, --vcf, --maf, --variant, --json-variants"
+)
+
+
 def create_arg_parser(
     rna=True,
     expression=True,
@@ -204,7 +218,22 @@ def create_arg_parser(
     output=True,
     direct_inputs=True,
 ):
-    arg_parser = ArgumentParser()
+    arg_parser = ArgumentParser(
+        prog="topiary",
+        description=(
+            "Predict, filter, and rank MHC-presented peptides from "
+            "sequence or variant inputs."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  topiary --mhc-predictor random --mhc-alleles A0201 "
+            "--peptide-csv peptides.csv --output-csv predictions.csv\n"
+            "  topiary --mhc-cache-file predictions.tsv "
+            "--mhc-cache-format topiary_output --peptide-csv peptides.csv\n\n"
+            "Run 'topiary --help' to see all options."
+        ),
+        formatter_class=RawDescriptionHelpFormatter,
+    )
     if expression:
         add_expression_args(arg_parser)
     if rna:
@@ -518,6 +547,40 @@ def _validate_input_modes(args):
         )
 
 
+def _has_prediction_input(args):
+    return any([
+        getattr(args, "peptide_csv", None),
+        getattr(args, "sequence_csv", None),
+        getattr(args, "fasta", None),
+        getattr(args, "peptide_fasta", None),
+        getattr(args, "gene_names", None),
+        getattr(args, "gene_ids", None),
+        getattr(args, "transcript_ids", None),
+        getattr(args, "cta", False),
+        getattr(args, "ensembl_proteome", False),
+        getattr(args, "vcf", None),
+        getattr(args, "maf", None),
+        getattr(args, "variant", None),
+        getattr(args, "json_variants", None),
+        getattr(args, "protein_change", None),
+    ])
+
+
+def _validate_required_prediction_args(args):
+    missing = []
+    if not cached_predictor_in_use(args) and not getattr(args, "mhc_predictor", None):
+        missing.append(MHC_SOURCE_ERROR)
+    if not _has_prediction_input(args):
+        missing.append(INPUT_SOURCE_ERROR)
+
+    if len(missing) > 1:
+        raise ValueError(
+            "No prediction request specified.\n\n" + "\n\n".join(missing)
+        )
+    if missing:
+        raise ValueError(missing[0])
+
+
 def predict_epitopes_from_args(args):
     """
     Returns an epitope collection from the given commandline arguments.
@@ -527,15 +590,11 @@ def predict_epitopes_from_args(args):
     args : argparse.Namespace
         Parsed commandline arguments for Topiary
     """
+    _validate_required_prediction_args(args)
+
     if cached_predictor_in_use(args):
         models = cached_predictor_from_args(args)
     else:
-        if not getattr(args, "mhc_predictor", None):
-            raise ValueError(
-                "Must supply either --mhc-predictor (live predictor) or "
-                "--mhc-cache-file / --mhc-cache-directory (cached "
-                "predictions).  Both are missing."
-            )
         models = predictors_from_args(args)
 
     filter_by, sort_by, sort_direction = _build_filter_and_sort(args)
@@ -572,12 +631,7 @@ def predict_epitopes_from_args(args):
         getattr(args, "protein_change", None),
     ])
     if not has_variant_input:
-        raise ValueError(
-            "No input specified. Use one of: "
-            "--peptide-csv, --sequence-csv, --fasta, --peptide-fasta, "
-            "--gene-names, --gene-ids, --transcript-ids, --cta, "
-            "--ensembl-proteome, --vcf, --maf, --variant, --json-variants"
-        )
+        raise ValueError(INPUT_SOURCE_ERROR)
 
     # Use variant pipeline
     variants = variant_collection_from_args(args)

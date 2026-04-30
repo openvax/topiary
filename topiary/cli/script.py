@@ -48,8 +48,10 @@ def main(args_list=None):
     Topiary.
     """
     args = parse_args(args_list)
-    print("Topiary commandline arguments:")
-    print(args)
-    df = predict_epitopes_from_args(args)
+    try:
+        df = predict_epitopes_from_args(args)
+    except (OSError, ValueError) as e:
+        arg_parser.error(str(e))
     write_outputs(df, args)
     print("Total count: %d" % len(df))
+    return 0
