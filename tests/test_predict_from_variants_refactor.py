@@ -145,6 +145,17 @@ class TestFragmentColumnsOnVariantPath:
         mutant = aff[aff["contains_mutant_residues"].eq(True)]
         assert (mutant["peptide"] != mutant["wt_peptide"]).all()
 
+    def test_predict_wt_populates_wt_prediction_columns(self):
+        """predict_wt=True should run on the variant path after legacy
+        mutation columns are attached but before filter/sort."""
+        df = _predictor(predict_wt=True).predict_from_variants(
+            cancer_test_variants
+        )
+        aff = df[df["kind"] == "pMHC_affinity"]
+        for col in ("wt_value", "wt_score", "wt_affinity", "wt_percentile_rank"):
+            assert col in aff.columns
+            assert aff[col].notna().all()
+
 
 # ---------------------------------------------------------------------------
 # _fragment_from_effect unit tests (varcode-free via mock)

@@ -14,17 +14,71 @@ from topiary import (
     apply_filter,
     apply_sort,
     self_nearest,
+    wt,
 )
 
 
 ALLELE = "HLA-A*02:01"
 
 
-def _predictor(lengths=(9,)):
+class MultiKindPredictor:
+    """Small deterministic predictor with affinity and presentation rows."""
+
+    default_peptide_lengths = [8]
+
+    def __init__(self):
+        self.values = {
+            "SIINFEKL": {
+                "pMHC_affinity": 1.0,
+                "pMHC_presentation": 2.0,
+            },
+            "GILGFVFT": {
+                "pMHC_affinity": 10.0,
+                "pMHC_presentation": 20.0,
+            },
+        }
+
+    def _prediction_rows(self, peptide):
+        rows = []
+        for kind, value in self.values[peptide].items():
+            rows.append({
+                "peptide": peptide,
+                "allele": ALLELE,
+                "kind": kind,
+                "value": value,
+                "score": value / 100.0,
+                "affinity": value if kind == "pMHC_affinity" else math.nan,
+                "percentile_rank": value,
+                "predictor_name": "multi-kind",
+                "predictor_version": "1.0",
+            })
+        return rows
+
+    def predict_peptides_dataframe(self, peptides):
+        rows = []
+        for peptide in peptides:
+            rows.extend(self._prediction_rows(peptide))
+        return pd.DataFrame(rows)
+
+    def predict_proteins_dataframe(self, name_to_sequence):
+        rows = []
+        for name, sequence in name_to_sequence.items():
+            for offset in range(len(sequence) - 7):
+                peptide = sequence[offset:offset + 8]
+                for row in self._prediction_rows(peptide):
+                    row = row.copy()
+                    row["source_sequence_name"] = name
+                    row["offset"] = offset
+                    rows.append(row)
+        return pd.DataFrame(rows)
+
+
+def _predictor(lengths=(9,), **kwargs):
     return TopiaryPredictor(
         models=RandomBindingPredictor(
             alleles=[ALLELE], default_peptide_lengths=list(lengths),
         ),
+        **kwargs,
     )
 
 
@@ -214,6 +268,76 @@ class TestWtPeptide:
         df = _predictor().predict_from_fragments([f])
         aff = df[df["kind"] == "pMHC_affinity"]
         assert aff["wt_peptide"].isna().all()
+
+    def test_predict_wt_false_does_not_score_wt_peptides(self):
+        f = ProteinFragment.from_variant(
+            sequence="MAAGVTDVGMAV",
+            reference_sequence="MAAGVTDVGMAA",
+            mutation_start=11, mutation_end=12, inframe=True,
+        )
+        df = _predictor().predict_from_fragments([f])
+        assert "wt_score" not in df.columns
+        assert "wt_value" not in df.columns
+
+    def test_predict_wt_true_scores_wt_peptides(self):
+        f = ProteinFragment.from_variant(
+            sequence="MAAGVTDVGMAV",
+            reference_sequence="MAAGVTDVGMAA",
+            mutation_start=11, mutation_end=12, inframe=True,
+        )
+        df = _predictor(predict_wt=True).predict_from_fragments([f])
+        aff = df[df["kind"] == "pMHC_affinity"]
+        for col in (
+            "wt_value", "wt_score", "wt_affinity", "wt_percentile_rank",
+            "wt_prediction_method_name", "wt_predictor_version",
+        ):
+            assert col in aff.columns
+            assert aff[col].notna().all()
+
+    def test_predict_wt_true_leaves_length_changing_wt_predictions_nan(self):
+        f = ProteinFragment.from_variant(
+            sequence="MAAGVTDVGMAV",
+            reference_sequence="MAAGVTDVGMA",
+            mutation_start=10, mutation_end=12, inframe=True,
+        )
+        df = _predictor(predict_wt=True).predict_from_fragments([f])
+        aff = df[df["kind"] == "pMHC_affinity"]
+        assert aff["wt_peptide"].isna().all()
+        assert aff["wt_score"].isna().all()
+        assert aff["wt_value"].isna().all()
+
+    def test_predict_wt_true_allows_wt_sort_expression(self):
+        f = ProteinFragment.from_variant(
+            sequence="MAAGVTDVGMAV",
+            reference_sequence="MAAGVTDVGMAA",
+            mutation_start=11, mutation_end=12, inframe=True,
+        )
+        pred = TopiaryPredictor(
+            models=RandomBindingPredictor(
+                alleles=[ALLELE], default_peptide_lengths=[9],
+            ),
+            predict_wt=True,
+            sort_by=[Affinity.score - wt.Affinity.score],
+        )
+        df = pred.predict_from_fragments([f])
+        assert not df.empty
+        assert df["wt_score"].notna().all()
+
+    def test_predict_wt_true_aligns_multi_kind_rows(self):
+        """WT predictions join by kind and predictor identity, so an
+        affinity row does not pick up the WT presentation value."""
+        f = ProteinFragment.from_variant(
+            sequence="SIINFEKL",
+            reference_sequence="GILGFVFT",
+            mutation_start=0, mutation_end=8, inframe=True,
+        )
+        df = TopiaryPredictor(
+            models=MultiKindPredictor(), predict_wt=True,
+        ).predict_from_fragments([f])
+        assert len(df) == 2
+        by_kind = df.set_index("kind")
+        assert by_kind.loc["pMHC_affinity", "wt_value"] == 10.0
+        assert by_kind.loc["pMHC_presentation", "wt_value"] == 20.0
 
 
 # ---------------------------------------------------------------------------

@@ -120,7 +120,7 @@ Boolean and numeric nodes compose freely — `(Affinity <= 500) * Affinity.score
 
 ## wt (scope prefix)
 
-Wildtype scope prefix. Reads `wt_*` columns for ranking expressions:
+Wildtype scope prefix. Reads `wt_*` columns for ranking expressions. For `predict_from_fragments()` and variant-derived predictions, `TopiaryPredictor(predict_wt=True)` populates WT prediction columns by scoring `wt_peptide` with the configured MHC model(s):
 
 ```python
 # Python API (capitalized kind names)
@@ -134,7 +134,7 @@ wt.Affinity["netmhcpan"].score    # qualified WT
 # wt.affinity["netmhcpan"].score
 ```
 
-For ranking expressions only (not filters). Returns NaN when WT columns absent.
+For ranking expressions only (not filters). Returns NaN when WT columns are absent or the row has no length-compatible WT peptide.
 
 ## len and count()
 

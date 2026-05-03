@@ -164,18 +164,17 @@ Only numeric columns can be used in ranking expressions.
 
 ## wt. — wildtype comparison
 
-> **Not yet implemented.** Topiary populates `wt_peptide` (the
-> wildtype sequence at the same position) but does not yet run the MHC
-> predictor on it. `wt.Affinity.score` and other `wt.*` expressions
-> return NaN until `TopiaryPredictor(predict_wt=True)` ships (tracked
-> as [#123](https://github.com/openvax/topiary/issues/123)). The
-> syntax below is correct and will work once WT predictions are
-> populated.
-
-The `wt.` scope prefix reads wildtype prediction columns (`wt_value`, `wt_score`, `wt_percentile_rank`). These columns will be populated when `predict_wt=True` is implemented:
+The `wt.` scope prefix reads wildtype prediction columns (`wt_value`, `wt_score`, `wt_percentile_rank`). For `predict_from_fragments()` and the variant-based APIs that build fragments internally, pass `predict_wt=True` to score each populated `wt_peptide` with the same MHC model(s):
 
 ```python
-from topiary import Affinity, wt
+from topiary import Affinity, TopiaryPredictor, wt
+
+predictor = TopiaryPredictor(
+    models=[...],
+    alleles=[...],
+    predict_wt=True,
+)
+df = predictor.predict_from_variants(variants)
 
 # Read WT binding values (Python API — capitalized kind names)
 wt.Affinity.value                         # wt_value column
@@ -199,7 +198,7 @@ affinity.score - wt.affinity.score
 ```
 
 !!! note
-    `wt.` is for **sorting expressions only**, not filters. Use it in `sort_by`, not in `filter`. When WT columns don't exist (non-variant inputs), expressions evaluate to NaN.
+    `wt.` is for **sorting expressions only**, not filters. Use it in `sort_by`, not in `filter`. When WT columns don't exist, expressions evaluate to NaN. Rows without a length-compatible WT peptide also keep NaN WT prediction values.
 
 ## len and count() — peptide-level expressions
 

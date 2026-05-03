@@ -357,6 +357,7 @@ class TopiaryPredictor(object):
         mhc_model=None,
         mhc_models=None,
         self_proteome=None,
+        predict_wt=False,
     ):
         """
         Parameters
@@ -414,6 +415,12 @@ class TopiaryPredictor(object):
             Raise on variant-effect errors vs. skip.
 
         mhc_model, mhc_models : legacy aliases for ``models``.
+
+        predict_wt : bool
+            If True, run the configured MHC model(s) on each populated
+            ``wt_peptide`` and attach ``wt_*`` prediction columns before
+            filter/sort expressions are evaluated.  Rows without a
+            length-compatible wildtype peptide keep NaN ``wt_*`` values.
         """
         # --- model setup ---
         raw_models = models or mhc_models or (mhc_model and [mhc_model])
@@ -454,6 +461,7 @@ class TopiaryPredictor(object):
         self.only_novel_epitopes = only_novel_epitopes
         self.raise_on_error = raise_on_error
         self.self_proteome = self_proteome
+        self.predict_wt = predict_wt
 
     @property
     def mhc_model(self):
@@ -597,12 +605,89 @@ class TopiaryPredictor(object):
         nearest = self.self_proteome.nearest(unique)
         return df.merge(nearest, on="peptide", how="left")
 
+    def _maybe_predict_wt_peptides(self, df):
+        """Score populated ``wt_peptide`` values and attach ``wt_*``
+        columns.
+
+        ``wt_peptide`` itself is derived while building fragment rows.
+        This helper performs the optional second prediction pass and
+        joins each WT prediction back to the matching mutant row by
+        allele, peptide length, prediction kind, and predictor identity.
+        """
+        if not self.predict_wt or df.empty or "wt_peptide" not in df.columns:
+            return df
+
+        wt_columns = (
+            "wt_value", "wt_score", "wt_affinity", "wt_percentile_rank",
+            "wt_prediction_method_name", "wt_predictor_version",
+        )
+
+        def _ensure_wt_columns(out):
+            out = out.copy()
+            for col in wt_columns:
+                if col not in out.columns:
+                    out[col] = np.nan
+            return out
+
+        valid = (
+            df["wt_peptide"].notna()
+            & df["allele"].notna()
+            & df["wt_peptide_length"].notna()
+        )
+        if not valid.any():
+            return _ensure_wt_columns(df)
+
+        wt_peptides = sorted(set(df.loc[valid, "wt_peptide"].astype(str)))
+        wt_raw = self._predict_raw_peptides({p: p for p in wt_peptides})
+        if wt_raw.empty:
+            return _ensure_wt_columns(df)
+
+        wt_join = wt_raw.rename(
+            columns={
+                "peptide": "wt_peptide",
+                "peptide_length": "wt_peptide_length",
+            }
+        ).copy()
+        wt_join["wt_prediction_method_name"] = wt_join.get(
+            "prediction_method_name"
+        )
+        wt_join["wt_predictor_version"] = wt_join.get("predictor_version")
+
+        join_cols = [
+            "wt_peptide", "allele", "wt_peptide_length", "kind",
+            "prediction_method_name", "predictor_version",
+        ]
+        join_cols = [
+            col for col in join_cols if col in df.columns and col in wt_join.columns
+        ]
+
+        rename = {}
+        for col in wt_join.columns:
+            if col in join_cols or col.startswith("wt_"):
+                continue
+            rename[col] = f"wt_{col}"
+        wt_join = wt_join.rename(columns=rename)
+        payload_cols = [col for col in wt_columns if col in wt_join.columns]
+        # predict_wt=True means computed WT predictions are authoritative
+        # for the columns this helper writes.
+        out = df.drop(
+            columns=[col for col in wt_columns if col in df.columns],
+            errors="ignore",
+        )
+        out = out.merge(
+            wt_join[join_cols + payload_cols].drop_duplicates(),
+            on=join_cols,
+            how="left",
+        )
+        return _ensure_wt_columns(out)
+
     def _finalize_rows(self, df):
         """Apply filter / sort, drop non-mutant rows when
         ``only_novel_epitopes`` is set, and reset the index.  Shared
         tail for every ProteinFragment-producing entry point."""
         if df.empty:
             return df
+        df = self._maybe_predict_wt_peptides(df)
         df = self._apply_filter(df)
         if self.only_novel_epitopes:
             df = df[df["contains_mutant_residues"].eq(True)]
@@ -638,9 +723,9 @@ class TopiaryPredictor(object):
           ``None`` / NaN when no baseline is present.
 
         WT model predictions (``wt_value``, ``wt_score``, etc.) are
-        **not populated** in this release — populate them externally
-        or wait for a follow-up PR.  The DSL's ``wt.*`` scope returns
-        NaN for those columns until they're written.
+        populated when ``TopiaryPredictor(predict_wt=True)``.  Rows
+        without a length-compatible WT peptide keep NaN WT prediction
+        values.
         """
         return self._finalize_rows(self._build_fragment_rows(fragments))
 
