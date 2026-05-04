@@ -197,6 +197,13 @@ wt.affinity["netmhcpan"].score
 affinity.score - wt.affinity.score
 ```
 
+In the CLI, pass `--predict-wt` with variant-derived inputs before
+using `wt.*` in `--sort-by`:
+
+```bash
+topiary ... --predict-wt --sort-by "affinity.score - wt.affinity.score"
+```
+
 !!! note
     `wt.` is for **sorting expressions only**, not filters. Use it in `sort_by`, not in `filter`. When WT columns don't exist, expressions evaluate to NaN. Rows without a length-compatible WT peptide also keep NaN WT prediction values.
 

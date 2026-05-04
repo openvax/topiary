@@ -609,6 +609,7 @@ def predict_epitopes_from_args(args):
         min_gene_expression=args.rna_min_gene_expression,
         only_novel_epitopes=args.only_novel_epitopes,
         raise_on_error=not args.skip_variant_errors,
+        predict_wt=getattr(args, "predict_wt", False),
     )
 
     _validate_input_modes(args)

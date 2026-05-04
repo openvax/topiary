@@ -185,6 +185,34 @@ def test_multiple_predictors_parse_from_one_cli_invocation():
     assert len(predictors) == 2
 
 
+def test_predict_wt_cli_flag_passed_to_predictor(monkeypatch):
+    path = _tmpfile("name,peptide\npep1,SIINFEKLA\n")
+    seen = {}
+
+    class FakeTopiaryPredictor:
+        def __init__(self, **kwargs):
+            seen["predict_wt"] = kwargs["predict_wt"]
+
+        def predict_from_named_peptides(self, _peptides):
+            return pd.DataFrame()
+
+    monkeypatch.setattr(
+        "topiary.cli.args.TopiaryPredictor", FakeTopiaryPredictor
+    )
+    try:
+        args = arg_parser.parse_args([
+            "--mhc-predictor", "random",
+            "--mhc-alleles", "A0201",
+            "--peptide-csv", path,
+            "--predict-wt",
+        ])
+        predict_epitopes_from_args(args)
+    finally:
+        os.unlink(path)
+
+    assert seen["predict_wt"] is True
+
+
 # ---------------------------------------------------------------------------
 # Bug #7: empty gene/tissue lists rejected
 # ---------------------------------------------------------------------------

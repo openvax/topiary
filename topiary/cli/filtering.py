@@ -93,6 +93,18 @@ def add_filter_args(arg_parser):
     )
 
     filter_group.add_argument(
+        "--predict-wt",
+        help=(
+            "For variant-derived predictions, score populated wildtype "
+            "peptides with the configured MHC model(s) so wt.* sort "
+            "expressions can use wt_value, wt_score, wt_affinity, and "
+            "wt_percentile_rank."
+        ),
+        default=False,
+        action="store_true",
+    )
+
+    filter_group.add_argument(
         "--sort-direction",
         help=(
             "Sort direction for --sort-by: 'asc', 'desc', or 'auto'. "

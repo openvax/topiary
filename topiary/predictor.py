@@ -11,6 +11,7 @@
 # limitations under the License.
 
 import logging
+from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -39,6 +40,32 @@ _JOIN_COLUMNS = {
     "transcript": "transcript_id",
     "variant": "variant",
 }
+
+_MODEL_KEY_COLUMN = "_topiary_model_key"
+
+
+def _unique_model_keys(models):
+    """Readable, unique internal names for configured model instances."""
+    bases = []
+    for model in models:
+        base = (
+            getattr(model, "prediction_method_name", None)
+            or getattr(model, "predictor_name", None)
+            or getattr(model, "name", None)
+            or type(model).__name__
+        )
+        bases.append(str(base) or type(model).__name__)
+
+    totals = Counter(bases)
+    seen = Counter()
+    keys = []
+    for base in bases:
+        seen[base] += 1
+        if totals[base] == 1:
+            keys.append(base)
+        else:
+            keys.append(f"{base}__{seen[base]}")
+    return keys
 
 
 def _build_model_lookup():
@@ -441,6 +468,7 @@ class TopiaryPredictor(object):
                 self.models.append(m(alleles=alleles))
             else:
                 self.models.append(m)
+        self._model_keys = _unique_model_keys(self.models)
 
         # Padding uses the union of all models' peptide lengths
         all_lengths = set()
@@ -492,7 +520,7 @@ class TopiaryPredictor(object):
             prediction_method_name, predictor_version, n_flank, c_flank
         """
         df = self._predict_raw(name_to_sequence_dict)
-        return self._apply_filter(df)
+        return self._strip_internal_columns(self._apply_filter(df))
 
     def predict_from_named_peptides(self, name_to_peptide_dict):
         """
@@ -509,14 +537,18 @@ class TopiaryPredictor(object):
             prediction_method_name, predictor_version, n_flank, c_flank
         """
         df = self._predict_raw_peptides(name_to_peptide_dict)
-        return self._apply_filter(df)
+        return self._strip_internal_columns(self._apply_filter(df))
 
     def _predict_raw(self, name_to_sequence_dict):
         """Run models and format output, without applying filter/ranking."""
         dfs = []
-        for model in self.models:
+        for model, model_key in zip(self.models, self._model_keys):
             model_df = model.predict_proteins_dataframe(name_to_sequence_dict)
-            dfs.append(self._format_prediction_df(model_df))
+            dfs.append(
+                self._attach_model_key(
+                    self._format_prediction_df(model_df), model_key
+                )
+            )
         if not dfs:
             return pd.DataFrame()
         return pd.concat(dfs, ignore_index=True)
@@ -524,16 +556,18 @@ class TopiaryPredictor(object):
     def _predict_raw_peptides(self, name_to_peptide_dict):
         """Run models on peptides as-is, without sliding-window scanning."""
         dfs = []
-        for model in self.models:
+        for model, model_key in zip(self.models, self._model_keys):
             model_df = self._predict_raw_peptides_for_model(
-                model, name_to_peptide_dict
+                model, name_to_peptide_dict, model_key=model_key
             )
             dfs.append(model_df)
         if not dfs:
             return pd.DataFrame()
         return pd.concat(dfs, ignore_index=True)
 
-    def _predict_raw_peptides_for_model(self, model, name_to_peptide_dict):
+    def _predict_raw_peptides_for_model(
+        self, model, name_to_peptide_dict, model_key=None
+    ):
         """Run one model on peptides as-is, without sliding-window scanning."""
         peptide_names_df = pd.DataFrame(
             {
@@ -552,7 +586,21 @@ class TopiaryPredictor(object):
         expanded_df = self._expand_named_peptide_predictions(
             model_df, peptide_names_df
         )
-        return self._format_prediction_df(expanded_df)
+        return self._attach_model_key(
+            self._format_prediction_df(expanded_df), model_key
+        )
+
+    def _attach_model_key(self, df, model_key):
+        """Attach the configured-model key used for internal joins."""
+        if df.empty or model_key is None:
+            return df
+        df = df.copy()
+        df[_MODEL_KEY_COLUMN] = model_key
+        return df
+
+    def _strip_internal_columns(self, df):
+        """Remove private Topiary plumbing columns from public output."""
+        return df.drop(columns=[_MODEL_KEY_COLUMN], errors="ignore")
 
     def _expand_named_peptide_predictions(self, model_df, peptide_names_df):
         """Attach the original peptide names to model predictions."""
@@ -644,22 +692,28 @@ class TopiaryPredictor(object):
         if not valid.any():
             return _ensure_wt_columns(df)
 
-        wt_candidates = df.loc[
-            valid, ["wt_peptide", "wt_peptide_length"]
-        ].drop_duplicates()
+        candidate_cols = ["wt_peptide", "wt_peptide_length"]
+        if _MODEL_KEY_COLUMN in df.columns:
+            candidate_cols.insert(0, _MODEL_KEY_COLUMN)
+        wt_candidates = df.loc[valid, candidate_cols].drop_duplicates()
         wt_raw_dfs = []
-        for model in self.models:
+        for model, model_key in zip(self.models, self._model_keys):
+            model_candidates = wt_candidates
+            if _MODEL_KEY_COLUMN in model_candidates.columns:
+                model_candidates = model_candidates[
+                    model_candidates[_MODEL_KEY_COLUMN].eq(model_key)
+                ]
             model_lengths = set(model.default_peptide_lengths)
             model_peptides = sorted(set(
-                wt_candidates.loc[
-                    wt_candidates["wt_peptide_length"].isin(model_lengths),
+                model_candidates.loc[
+                    model_candidates["wt_peptide_length"].isin(model_lengths),
                     "wt_peptide",
                 ].astype(str)
             ))
             if not model_peptides:
                 continue
             model_raw = self._predict_raw_peptides_for_model(
-                model, {p: p for p in model_peptides}
+                model, {p: p for p in model_peptides}, model_key=model_key
             )
             if not model_raw.empty:
                 wt_raw_dfs.append(model_raw)
@@ -679,8 +733,9 @@ class TopiaryPredictor(object):
         wt_join["wt_predictor_version"] = wt_join.get("predictor_version")
 
         join_cols = [
-            "wt_peptide", "allele", "wt_peptide_length", "kind",
-            "prediction_method_name", "predictor_version",
+            _MODEL_KEY_COLUMN, "wt_peptide", "allele",
+            "wt_peptide_length", "kind", "prediction_method_name",
+            "predictor_version",
         ]
         join_cols = [
             col for col in join_cols if col in df.columns and col in wt_join.columns
@@ -699,10 +754,24 @@ class TopiaryPredictor(object):
             columns=[col for col in wt_columns if col in df.columns],
             errors="ignore",
         )
+        wt_payload = wt_join[join_cols + payload_cols].drop_duplicates()
+        duplicates = wt_payload.duplicated(subset=join_cols, keep=False)
+        if duplicates.any():
+            examples = (
+                wt_payload.loc[duplicates, join_cols]
+                .drop_duplicates()
+                .head()
+                .to_dict("records")
+            )
+            raise ValueError(
+                "WT predictions are not unique for the configured-model "
+                f"join key; examples: {examples}"
+            )
         out = out.merge(
-            wt_join[join_cols + payload_cols].drop_duplicates(),
+            wt_payload,
             on=join_cols,
             how="left",
+            validate="many_to_one",
         )
         return _ensure_wt_columns(out)
 
@@ -716,6 +785,7 @@ class TopiaryPredictor(object):
         df = self._apply_filter(df)
         if self.only_novel_epitopes:
             df = df[df["contains_mutant_residues"].eq(True)]
+        df = self._strip_internal_columns(df)
         return df.reset_index(drop=True)
 
     def predict_from_fragments(self, fragments):

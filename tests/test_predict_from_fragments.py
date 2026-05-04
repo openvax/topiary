@@ -115,6 +115,50 @@ class LengthStrictPredictor:
         return pd.DataFrame(rows)
 
 
+class DuplicateIdentityPredictor:
+    """Same public method/version across instances, different scores."""
+
+    default_peptide_lengths = [8]
+
+    def __init__(self, mutant_value, wt_value):
+        self.mutant_value = mutant_value
+        self.wt_value = wt_value
+
+    def _prediction_rows(self, peptide, source_sequence_name=None, offset=0):
+        if peptide == "SIINFEKL":
+            value = self.mutant_value
+        elif peptide == "GILGFVFT":
+            value = self.wt_value
+        else:
+            raise ValueError(f"Unexpected peptide {peptide!r}")
+        return [{
+            "source_sequence_name": source_sequence_name,
+            "offset": offset,
+            "peptide": peptide,
+            "allele": ALLELE,
+            "kind": "pMHC_affinity",
+            "value": value,
+            "score": value / 100.0,
+            "affinity": value,
+            "percentile_rank": value,
+            "predictor_name": "duplicate-identity",
+            "predictor_version": "1.0",
+        }]
+
+    def predict_peptides_dataframe(self, peptides):
+        rows = []
+        for peptide in peptides:
+            rows.extend(self._prediction_rows(peptide))
+        return pd.DataFrame(rows)
+
+    def predict_proteins_dataframe(self, name_to_sequence):
+        rows = []
+        for name, sequence in name_to_sequence.items():
+            peptide = sequence[:8]
+            rows.extend(self._prediction_rows(peptide, name, 0))
+        return pd.DataFrame(rows)
+
+
 def _predictor(lengths=(9,), **kwargs):
     return TopiaryPredictor(
         models=RandomBindingPredictor(
@@ -398,6 +442,26 @@ class TestWtPeptide:
             assert not rows.empty
             assert set(rows["peptide_length"]) == {length}
             assert set(rows["wt_peptide_length"]) == {length}
+
+    def test_predict_wt_true_keeps_duplicate_predictor_instances_separate(self):
+        f = ProteinFragment.from_variant(
+            sequence="SIINFEKL",
+            reference_sequence="GILGFVFT",
+            mutation_start=0, mutation_end=8, inframe=True,
+        )
+        df = TopiaryPredictor(
+            models=[
+                DuplicateIdentityPredictor(mutant_value=1.0, wt_value=101.0),
+                DuplicateIdentityPredictor(mutant_value=2.0, wt_value=202.0),
+            ],
+            predict_wt=True,
+        ).predict_from_fragments([f])
+        assert len(df) == 2
+        assert "_topiary_model_key" not in df.columns
+        assert set(zip(df["value"], df["wt_value"])) == {
+            (1.0, 101.0),
+            (2.0, 202.0),
+        }
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,8 @@
   aligned.
 - Rows without a length-compatible WT peptide keep NaN `wt_*`
   prediction values.
+- The CLI now exposes the same behavior with `--predict-wt`, enabling
+  `wt.*` sort expressions on variant-derived outputs.
 
 ## 5.10.1
 

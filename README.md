@@ -249,6 +249,13 @@ from topiary import Affinity, wt
 sort_by = Affinity.score - wt.Affinity.score  # mutant advantage
 ```
 
+For CLI variant runs, add `--predict-wt` before using `wt.*` in
+`--sort-by`:
+
+```bash
+--predict-wt --sort-by "affinity.score - wt.affinity.score"
+```
+
 `shuffled.` and `self.` prefixes work the same way for shuffled-decoy and self-proteome contexts.
 
 ### Peptide-level expressions
