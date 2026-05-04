@@ -73,6 +73,48 @@ class MultiKindPredictor:
         return pd.DataFrame(rows)
 
 
+class LengthStrictPredictor:
+    """Predictor that raises if asked to score unsupported lengths."""
+
+    def __init__(self, peptide_length):
+        self.peptide_length = peptide_length
+        self.default_peptide_lengths = [peptide_length]
+
+    def _prediction_rows(self, peptide, source_sequence_name=None, offset=0):
+        if len(peptide) != self.peptide_length:
+            raise ValueError(
+                f"strict-{self.peptide_length} cannot score {len(peptide)}mers"
+            )
+        return [{
+            "source_sequence_name": source_sequence_name,
+            "offset": offset,
+            "peptide": peptide,
+            "allele": ALLELE,
+            "kind": "pMHC_affinity",
+            "value": float(self.peptide_length),
+            "score": float(self.peptide_length) / 100.0,
+            "affinity": float(self.peptide_length),
+            "percentile_rank": float(self.peptide_length),
+            "predictor_name": f"strict-{self.peptide_length}",
+            "predictor_version": "1.0",
+        }]
+
+    def predict_peptides_dataframe(self, peptides):
+        rows = []
+        for peptide in peptides:
+            rows.extend(self._prediction_rows(peptide))
+        return pd.DataFrame(rows)
+
+    def predict_proteins_dataframe(self, name_to_sequence):
+        rows = []
+        length = self.peptide_length
+        for name, sequence in name_to_sequence.items():
+            for offset in range(len(sequence) - length + 1):
+                peptide = sequence[offset:offset + length]
+                rows.extend(self._prediction_rows(peptide, name, offset))
+        return pd.DataFrame(rows)
+
+
 def _predictor(lengths=(9,), **kwargs):
     return TopiaryPredictor(
         models=RandomBindingPredictor(
@@ -338,6 +380,24 @@ class TestWtPeptide:
         by_kind = df.set_index("kind")
         assert by_kind.loc["pMHC_affinity", "wt_value"] == 10.0
         assert by_kind.loc["pMHC_presentation", "wt_value"] == 20.0
+
+    def test_predict_wt_true_filters_wt_peptides_by_model_length(self):
+        f = ProteinFragment.from_variant(
+            sequence="SIINFEKLA",
+            reference_sequence="GILGFVFTA",
+            mutation_start=0, mutation_end=9, inframe=True,
+        )
+        df = TopiaryPredictor(
+            models=[LengthStrictPredictor(8), LengthStrictPredictor(9)],
+            predict_wt=True,
+        ).predict_from_fragments([f])
+        assert set(df["prediction_method_name"]) == {"strict-8", "strict-9"}
+        assert df["wt_value"].notna().all()
+        for method, length in [("strict-8", 8), ("strict-9", 9)]:
+            rows = df[df["prediction_method_name"] == method]
+            assert not rows.empty
+            assert set(rows["peptide_length"]) == {length}
+            assert set(rows["wt_peptide_length"]) == {length}
 
 
 # ---------------------------------------------------------------------------

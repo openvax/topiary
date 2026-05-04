@@ -523,6 +523,18 @@ class TopiaryPredictor(object):
 
     def _predict_raw_peptides(self, name_to_peptide_dict):
         """Run models on peptides as-is, without sliding-window scanning."""
+        dfs = []
+        for model in self.models:
+            model_df = self._predict_raw_peptides_for_model(
+                model, name_to_peptide_dict
+            )
+            dfs.append(model_df)
+        if not dfs:
+            return pd.DataFrame()
+        return pd.concat(dfs, ignore_index=True)
+
+    def _predict_raw_peptides_for_model(self, model, name_to_peptide_dict):
+        """Run one model on peptides as-is, without sliding-window scanning."""
         peptide_names_df = pd.DataFrame(
             {
                 "source_sequence_name": list(name_to_peptide_dict.keys()),
@@ -533,19 +545,14 @@ class TopiaryPredictor(object):
             return pd.DataFrame()
 
         peptide_list = peptide_names_df["peptide"].drop_duplicates().tolist()
-        dfs = []
-        for model in self.models:
-            if hasattr(model, "predict_dataframe"):
-                model_df = model.predict_dataframe(peptide_list)
-            else:
-                model_df = model.predict_peptides_dataframe(peptide_list)
-            expanded_df = self._expand_named_peptide_predictions(
-                model_df, peptide_names_df
-            )
-            dfs.append(self._format_prediction_df(expanded_df))
-        if not dfs:
-            return pd.DataFrame()
-        return pd.concat(dfs, ignore_index=True)
+        if hasattr(model, "predict_dataframe"):
+            model_df = model.predict_dataframe(peptide_list)
+        else:
+            model_df = model.predict_peptides_dataframe(peptide_list)
+        expanded_df = self._expand_named_peptide_predictions(
+            model_df, peptide_names_df
+        )
+        return self._format_prediction_df(expanded_df)
 
     def _expand_named_peptide_predictions(self, model_df, peptide_names_df):
         """Attach the original peptide names to model predictions."""
@@ -637,10 +644,28 @@ class TopiaryPredictor(object):
         if not valid.any():
             return _ensure_wt_columns(df)
 
-        wt_peptides = sorted(set(df.loc[valid, "wt_peptide"].astype(str)))
-        wt_raw = self._predict_raw_peptides({p: p for p in wt_peptides})
-        if wt_raw.empty:
+        wt_candidates = df.loc[
+            valid, ["wt_peptide", "wt_peptide_length"]
+        ].drop_duplicates()
+        wt_raw_dfs = []
+        for model in self.models:
+            model_lengths = set(model.default_peptide_lengths)
+            model_peptides = sorted(set(
+                wt_candidates.loc[
+                    wt_candidates["wt_peptide_length"].isin(model_lengths),
+                    "wt_peptide",
+                ].astype(str)
+            ))
+            if not model_peptides:
+                continue
+            model_raw = self._predict_raw_peptides_for_model(
+                model, {p: p for p in model_peptides}
+            )
+            if not model_raw.empty:
+                wt_raw_dfs.append(model_raw)
+        if not wt_raw_dfs:
             return _ensure_wt_columns(df)
+        wt_raw = pd.concat(wt_raw_dfs, ignore_index=True)
 
         wt_join = wt_raw.rename(
             columns={
