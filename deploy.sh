@@ -3,9 +3,13 @@ set -euo pipefail
 
 # Deploy topiary to PyPI
 # Usage: ./deploy.sh
+# Override the interpreter with PYTHON=/path/to/python ./deploy.sh
 
-VERSION=$(python3 -c "import topiary; print(topiary.__version__)")
+PYTHON=${PYTHON:-python3}
+PYTHON_BIN=$("${PYTHON}" -c "import sys; print(sys.executable)")
+VERSION=$("${PYTHON}" -c "import topiary; print(topiary.__version__)")
 echo "Deploying topiary v${VERSION}"
+echo "Using Python: ${PYTHON_BIN}"
 
 # Check we're on master
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -22,7 +26,7 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 
 # Check version isn't already on PyPI
-if pip index versions topiary 2>/dev/null | grep -q "${VERSION}"; then
+if "${PYTHON}" -m pip index versions topiary 2>/dev/null | grep -q "${VERSION}"; then
     echo "ERROR: topiary ${VERSION} already exists on PyPI"
     exit 1
 fi
@@ -34,14 +38,14 @@ fi
 ./test.sh
 
 # Build
-rm -rf dist
-python3 -m build
+rm -rf dist build
+"${PYTHON}" -m build
 echo ""
 echo "Uploading:"
 ls -lh dist/
 
 # Upload
-python3 -m twine upload dist/*
+"${PYTHON}" -m twine upload dist/*
 
 # Tag and push
 git tag "v${VERSION}"

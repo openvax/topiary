@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.10.5
+
+**Deploy script interpreter selection (#149):**
+
+- `deploy.sh` now uses one configurable Python interpreter throughout
+  the release flow (`PYTHON=${PYTHON:-python3}`), including version
+  detection, the PyPI version check, build, and twine upload.
+- The build step removes both `dist/` and `build/` before packaging so
+  stale local build outputs cannot shadow the PyPA `build` module.
+
 ## 5.10.4
 
 **DSL version syntax cleanup:**
