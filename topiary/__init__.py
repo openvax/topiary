@@ -51,7 +51,7 @@ from .io_lens import detect_lens_version, read_lens
 from .result import TopiaryResult, concat
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.10.3"
+__version__ = "5.10.4"
 
 __all__ = [
     "TopiaryPredictor",

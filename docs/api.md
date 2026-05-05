@@ -214,7 +214,9 @@ Apply with `apply_filter(df, node)` and `apply_sort(df, [nodes])`.
 
 ### Tool-qualified kinds
 
-Prefix with tool name and underscore: `netmhcpan_affinity`, `mhcflurry_el`, `netmhcpan_ba`.
+Prefer colon syntax: `netmhcpan:affinity`, `mhcflurry:el`,
+`netmhcpan:ba`. The older underscore aliases also work:
+`netmhcpan_affinity`, `mhcflurry_el`, `netmhcpan_ba`.
 
 ### parse
 
@@ -229,6 +231,7 @@ The unified DSL parser. Returns a `DSLNode`.
 | `"netmhcpan.affinity <= 500"` | `Comparison(Field(pMHC_affinity, "value", method="netmhcpan"), <=, 500)` |
 | `"netmhcpan[4.1b]:affinity.score"` | `Field(pMHC_affinity, "score", method="netmhcpan", version="4.1b")` |
 | `"netmhcpan-4.1b:affinity.score"` | `Field(pMHC_affinity, "score", method="netmhcpan", version="4.1b")` |
+| `"netmhcpan[release-2.2.0]:affinity.score"` | `Field(pMHC_affinity, "score", method="netmhcpan", version="release-2.2.0")` |
 | `"affinity['netmhcpan', '4.1b'].value <= 500"` | `Comparison(Field(..., method="netmhcpan", version="4.1b"), <=, 500)` |
 | `"column(cysteine_count) <= 2"` | `Comparison(Column("cysteine_count"), <=, 2)` |
 | `"a <= 500 \| b <= 2"` | `BoolOp(\|, [Comparison(a), Comparison(b)])` |

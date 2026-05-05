@@ -204,12 +204,18 @@ Every filter and ranking expression has a string form for use at the CLI or in c
 | `Affinity.rank <= 2` | `affinity.rank <= 2` |
 | `Presentation.score >= 0.5` | `el.score >= 0.5` |
 | `(Affinity <= 500) \| (Presentation.rank <= 2)` | `affinity <= 500 \| el.rank <= 2` |
-| `Affinity["netmhcpan"] <= 500` | `netmhcpan_ba <= 500` |
+| `Affinity["netmhcpan"] <= 500` | `netmhcpan:affinity <= 500` |
+| `Affinity["netmhcpan", "4.1b"].score` | `netmhcpan[4.1b]:affinity.score` |
 | `0.5 * Affinity.score + 0.5 * Presentation.score` | `0.5 * affinity.score + 0.5 * presentation.score` |
 | `Affinity.logistic(350, 150)` | `affinity.logistic(350, 150)` |
 | `mean(Affinity.score, Presentation.score)` | `mean(affinity.score, presentation.score)` |
 | `Column("gene_tpm") >= 5` | `gene_tpm >= 5` |
 | `Column("gene_tpm").log()` | `gene_tpm.log()` |
+
+For method-qualified predictions, prefer `model:kind` and
+`model[version]:kind`; `model-version:kind` is accepted for
+numeric-leading versions such as `netmhcpan-4.1b:affinity`. See
+[docs/ranking.md](docs/ranking.md) for the full syntax and alias table.
 
 ### Column references
 
