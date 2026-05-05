@@ -249,6 +249,13 @@ from topiary import Affinity, wt
 sort_by = Affinity.score - wt.Affinity.score  # mutant advantage
 ```
 
+For CLI variant runs, add `--predict-wt` before using `wt.*` in
+`--sort-by`:
+
+```bash
+--predict-wt --sort-by "affinity.score - wt.affinity.score"
+```
+
 `shuffled.` and `self.` prefixes work the same way for shuffled-decoy and self-proteome contexts.
 
 ### Peptide-level expressions
@@ -503,7 +510,7 @@ Remove peptides found in reference proteomes — for tumor-specific or pathogen-
 
 **All predictions:** `source_sequence_name`, `peptide`, `peptide_offset`, `peptide_length`, `allele`, `kind`, `score`, `value`, `affinity`, `percentile_rank`, `prediction_method_name`
 
-**ProteinFragment predictions add** (both `predict_from_fragments` and the variant-based methods that build fragments internally): `fragment_id`, `source_type`, `overlaps_target`, `wt_peptide`, `wt_peptide_length`, plus any fragment-level annotations flattened to columns.
+**ProteinFragment predictions add** (both `predict_from_fragments` and the variant-based methods that build fragments internally): `fragment_id`, `source_type`, `overlaps_target`, `wt_peptide`, `wt_peptide_length`, plus any fragment-level annotations flattened to columns. With `TopiaryPredictor(predict_wt=True)`, they also add WT prediction columns such as `wt_value`, `wt_score`, `wt_affinity`, and `wt_percentile_rank`.
 
 **Variant predictions additionally add:** `variant`, `gene`, `gene_id`, `transcript_id`, `transcript_name`, `effect`, `effect_type`, `contains_mutant_residues`, `mutation_start_in_peptide`, `mutation_end_in_peptide`
 

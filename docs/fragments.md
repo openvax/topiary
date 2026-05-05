@@ -39,6 +39,7 @@ Output DataFrame columns, beyond the standard prediction fields:
 | `overlaps_target` | `True` / `False` / NaN — whether the peptide overlaps any of the fragment's target intervals |
 | `contains_mutant_residues` | Backwards-compat alias — `True` iff `source_type.startswith("variant")` AND `overlaps_target` is True |
 | `wt_peptide`, `wt_peptide_length` | Derived by slicing `effective_baseline` at the peptide's offset. Only populated for substitution-compatible fragments (baseline and `sequence` the same length); `None` otherwise or when no baseline exists. |
+| `wt_value`, `wt_score`, `wt_affinity`, `wt_percentile_rank`, `wt_prediction_method_name`, `wt_predictor_version` | Populated when `TopiaryPredictor(predict_wt=True)` scores non-null `wt_peptide` values with the configured MHC model(s). Rows without a length-compatible WT peptide keep NaN values. |
 | *(each annotation key)* | Flattened from every fragment's `annotations` dict. Underscore-prefixed keys (e.g. `_subsequence_offset`) are reserved for internal plumbing and never surface as columns. |
 
 ## source_type vocabulary (recommended, not enforced)
@@ -166,7 +167,6 @@ Prefix is sanitized to `[A-Za-z0-9._:-]`; runs of other characters collapse to `
 
 ## What's not in this release
 
-- **WT model predictions** (`wt_value`, `wt_score`, `wt_percentile_rank`) — `wt_peptide` is derived but not fed through the MHC predictor. `wt.Affinity.score` returns NaN until a future PR populates these.
 - **Coordinate remapping for indel / frameshift `wt_peptide`** — `wt_peptide` is only populated when the baseline is the same length as the mutant sequence (substitution-compatible). Length-changing edits yield `None` until remapping lands.
 - **Nearest-self compute** — the scope is reserved but no Topiary module produces the columns. Populate externally for now.
 - **Format-specific loaders** (`read_pvacseq_fragments`, `read_isovar_fragments`, `read_exacto_fragments`) — each ~50-100 lines on top of the core abstraction; separate PRs. `read_lens` is already shipped (5.1.0).

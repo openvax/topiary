@@ -11,6 +11,7 @@
 # limitations under the License.
 
 import logging
+from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -39,6 +40,33 @@ _JOIN_COLUMNS = {
     "transcript": "transcript_id",
     "variant": "variant",
 }
+
+_MODEL_KEY_COLUMN = "_topiary_model_key"
+_WT_OFFSET_COLUMN = "_topiary_wt_peptide_offset"
+
+
+def _unique_model_keys(models):
+    """Readable, unique internal names for configured model instances."""
+    bases = []
+    for model in models:
+        base = (
+            getattr(model, "prediction_method_name", None)
+            or getattr(model, "predictor_name", None)
+            or getattr(model, "name", None)
+            or type(model).__name__
+        )
+        bases.append(str(base) or type(model).__name__)
+
+    totals = Counter(bases)
+    seen = Counter()
+    keys = []
+    for base in bases:
+        seen[base] += 1
+        if totals[base] == 1:
+            keys.append(base)
+        else:
+            keys.append(f"{base}__{seen[base]}")
+    return keys
 
 
 def _build_model_lookup():
@@ -357,6 +385,7 @@ class TopiaryPredictor(object):
         mhc_model=None,
         mhc_models=None,
         self_proteome=None,
+        predict_wt=False,
     ):
         """
         Parameters
@@ -414,6 +443,12 @@ class TopiaryPredictor(object):
             Raise on variant-effect errors vs. skip.
 
         mhc_model, mhc_models : legacy aliases for ``models``.
+
+        predict_wt : bool
+            If True, run the configured MHC model(s) on each populated
+            ``wt_peptide`` and attach ``wt_*`` prediction columns before
+            filter/sort expressions are evaluated.  Rows without a
+            length-compatible wildtype peptide keep NaN ``wt_*`` values.
         """
         # --- model setup ---
         raw_models = models or mhc_models or (mhc_model and [mhc_model])
@@ -434,6 +469,7 @@ class TopiaryPredictor(object):
                 self.models.append(m(alleles=alleles))
             else:
                 self.models.append(m)
+        self._model_keys = _unique_model_keys(self.models)
 
         # Padding uses the union of all models' peptide lengths
         all_lengths = set()
@@ -454,6 +490,7 @@ class TopiaryPredictor(object):
         self.only_novel_epitopes = only_novel_epitopes
         self.raise_on_error = raise_on_error
         self.self_proteome = self_proteome
+        self.predict_wt = predict_wt
 
     @property
     def mhc_model(self):
@@ -484,7 +521,7 @@ class TopiaryPredictor(object):
             prediction_method_name, predictor_version, n_flank, c_flank
         """
         df = self._predict_raw(name_to_sequence_dict)
-        return self._apply_filter(df)
+        return self._strip_internal_columns(self._apply_filter(df))
 
     def predict_from_named_peptides(self, name_to_peptide_dict):
         """
@@ -501,20 +538,44 @@ class TopiaryPredictor(object):
             prediction_method_name, predictor_version, n_flank, c_flank
         """
         df = self._predict_raw_peptides(name_to_peptide_dict)
-        return self._apply_filter(df)
+        return self._strip_internal_columns(self._apply_filter(df))
 
     def _predict_raw(self, name_to_sequence_dict):
         """Run models and format output, without applying filter/ranking."""
         dfs = []
-        for model in self.models:
-            model_df = model.predict_proteins_dataframe(name_to_sequence_dict)
-            dfs.append(self._format_prediction_df(model_df))
+        for model, model_key in zip(self.models, self._model_keys):
+            dfs.append(
+                self._predict_raw_for_model(
+                    model, name_to_sequence_dict, model_key=model_key
+                )
+            )
         if not dfs:
             return pd.DataFrame()
         return pd.concat(dfs, ignore_index=True)
 
+    def _predict_raw_for_model(self, model, name_to_sequence_dict, model_key=None):
+        """Run one model on proteins, preserving source-sequence context."""
+        model_df = model.predict_proteins_dataframe(name_to_sequence_dict)
+        return self._attach_model_key(
+            self._format_prediction_df(model_df), model_key
+        )
+
     def _predict_raw_peptides(self, name_to_peptide_dict):
         """Run models on peptides as-is, without sliding-window scanning."""
+        dfs = []
+        for model, model_key in zip(self.models, self._model_keys):
+            model_df = self._predict_raw_peptides_for_model(
+                model, name_to_peptide_dict, model_key=model_key
+            )
+            dfs.append(model_df)
+        if not dfs:
+            return pd.DataFrame()
+        return pd.concat(dfs, ignore_index=True)
+
+    def _predict_raw_peptides_for_model(
+        self, model, name_to_peptide_dict, model_key=None
+    ):
+        """Run one model on peptides as-is, without sliding-window scanning."""
         peptide_names_df = pd.DataFrame(
             {
                 "source_sequence_name": list(name_to_peptide_dict.keys()),
@@ -525,19 +586,31 @@ class TopiaryPredictor(object):
             return pd.DataFrame()
 
         peptide_list = peptide_names_df["peptide"].drop_duplicates().tolist()
-        dfs = []
-        for model in self.models:
-            if hasattr(model, "predict_dataframe"):
-                model_df = model.predict_dataframe(peptide_list)
-            else:
-                model_df = model.predict_peptides_dataframe(peptide_list)
-            expanded_df = self._expand_named_peptide_predictions(
-                model_df, peptide_names_df
-            )
-            dfs.append(self._format_prediction_df(expanded_df))
-        if not dfs:
-            return pd.DataFrame()
-        return pd.concat(dfs, ignore_index=True)
+        if hasattr(model, "predict_dataframe"):
+            model_df = model.predict_dataframe(peptide_list)
+        else:
+            model_df = model.predict_peptides_dataframe(peptide_list)
+        expanded_df = self._expand_named_peptide_predictions(
+            model_df, peptide_names_df
+        )
+        return self._attach_model_key(
+            self._format_prediction_df(expanded_df), model_key
+        )
+
+    def _attach_model_key(self, df, model_key):
+        """Attach the configured-model key used for internal joins."""
+        if df.empty or model_key is None:
+            return df
+        df = df.copy()
+        df[_MODEL_KEY_COLUMN] = model_key
+        return df
+
+    def _strip_internal_columns(self, df):
+        """Remove private Topiary plumbing columns from public output."""
+        return df.drop(
+            columns=[_MODEL_KEY_COLUMN, _WT_OFFSET_COLUMN],
+            errors="ignore",
+        )
 
     def _expand_named_peptide_predictions(self, model_df, peptide_names_df):
         """Attach the original peptide names to model predictions."""
@@ -597,15 +670,198 @@ class TopiaryPredictor(object):
         nearest = self.self_proteome.nearest(unique)
         return df.merge(nearest, on="peptide", how="left")
 
-    def _finalize_rows(self, df):
+    def _maybe_predict_wt_peptides(self, df, fragments=None):
+        """Score populated ``wt_peptide`` values and attach ``wt_*``
+        columns.
+
+        ``wt_peptide`` itself is derived while building fragment rows.
+        This helper performs the optional second prediction pass and
+        joins each WT prediction back to the matching mutant row by
+        allele, peptide length, prediction kind, and predictor identity.
+        """
+        if not self.predict_wt or df.empty or "wt_peptide" not in df.columns:
+            return df
+
+        wt_columns = (
+            "wt_value", "wt_score", "wt_affinity", "wt_percentile_rank",
+            "wt_prediction_method_name", "wt_predictor_version",
+        )
+
+        def _ensure_wt_columns(out):
+            out = out.copy()
+            for col in wt_columns:
+                if col not in out.columns:
+                    out[col] = np.nan
+            return out
+
+        if (
+            fragments is None
+            or _WT_OFFSET_COLUMN not in df.columns
+            or "fragment_id" not in df.columns
+        ):
+            return _ensure_wt_columns(df)
+
+        baseline_by_fragment_id = {
+            f.fragment_id: f.effective_baseline
+            for f in fragments
+            if (
+                f.effective_baseline is not None
+                and len(f.effective_baseline) == len(f.sequence)
+            )
+        }
+
+        valid = (
+            df["wt_peptide"].notna()
+            & df["allele"].notna()
+            & df["wt_peptide_length"].notna()
+            & df["fragment_id"].notna()
+            & df[_WT_OFFSET_COLUMN].notna()
+            & df["fragment_id"].isin(baseline_by_fragment_id)
+        )
+        if not valid.any():
+            return _ensure_wt_columns(df)
+
+        candidate_cols = [
+            "fragment_id", _WT_OFFSET_COLUMN, "wt_peptide",
+            "wt_peptide_length",
+        ]
+        if _MODEL_KEY_COLUMN in df.columns:
+            candidate_cols.insert(0, _MODEL_KEY_COLUMN)
+        wt_candidates = df.loc[valid, candidate_cols].drop_duplicates()
+        wt_raw_dfs = []
+        for model, model_key in zip(self.models, self._model_keys):
+            model_candidates = wt_candidates
+            if _MODEL_KEY_COLUMN in model_candidates.columns:
+                model_candidates = model_candidates[
+                    model_candidates[_MODEL_KEY_COLUMN].eq(model_key)
+                ]
+            model_lengths = set(model.default_peptide_lengths)
+            model_peptides = sorted(set(
+                model_candidates.loc[
+                    model_candidates["wt_peptide_length"].isin(model_lengths),
+                    "wt_peptide",
+                ].astype(str)
+            ))
+            if not model_peptides:
+                continue
+            fragment_ids = model_candidates.loc[
+                model_candidates["wt_peptide_length"].isin(model_lengths),
+                "fragment_id",
+            ].drop_duplicates()
+            baseline_sequences = {
+                fid: baseline_by_fragment_id[fid]
+                for fid in fragment_ids
+                if fid in baseline_by_fragment_id
+            }
+            if not baseline_sequences:
+                continue
+            model_raw = self._predict_raw_for_model(
+                model, baseline_sequences, model_key=model_key
+            )
+            if not model_raw.empty:
+                wt_raw_dfs.append(model_raw)
+        if not wt_raw_dfs:
+            return _ensure_wt_columns(df)
+        wt_raw = pd.concat(wt_raw_dfs, ignore_index=True)
+
+        wt_join = wt_raw.rename(
+            columns={
+                "source_sequence_name": "fragment_id",
+                "peptide": "wt_peptide",
+                "peptide_offset": _WT_OFFSET_COLUMN,
+                "peptide_length": "wt_peptide_length",
+            }
+        ).copy()
+        wt_join = self._filter_wt_rows_to_baseline_context(
+            wt_join, baseline_by_fragment_id
+        )
+        wt_join["wt_prediction_method_name"] = wt_join.get(
+            "prediction_method_name"
+        )
+        wt_join["wt_predictor_version"] = wt_join.get("predictor_version")
+
+        join_cols = [
+            _MODEL_KEY_COLUMN, "fragment_id", _WT_OFFSET_COLUMN,
+            "wt_peptide", "allele", "wt_peptide_length", "kind",
+            "prediction_method_name", "predictor_version",
+        ]
+        join_cols = [
+            col for col in join_cols if col in df.columns and col in wt_join.columns
+        ]
+
+        rename = {}
+        for col in wt_join.columns:
+            if col in join_cols or col.startswith("wt_"):
+                continue
+            rename[col] = f"wt_{col}"
+        wt_join = wt_join.rename(columns=rename)
+        payload_cols = [col for col in wt_columns if col in wt_join.columns]
+        # predict_wt=True means computed WT predictions are authoritative
+        # for the columns this helper writes.
+        out = df.drop(
+            columns=[col for col in wt_columns if col in df.columns],
+            errors="ignore",
+        )
+        wt_payload = wt_join[join_cols + payload_cols].drop_duplicates()
+        duplicates = wt_payload.duplicated(subset=join_cols, keep=False)
+        if duplicates.any():
+            examples = (
+                wt_payload.loc[duplicates, join_cols]
+                .drop_duplicates()
+                .head()
+                .to_dict("records")
+            )
+            raise ValueError(
+                "WT predictions are not unique for the configured-model "
+                f"join key; examples: {examples}"
+            )
+        out = out.merge(
+            wt_payload,
+            on=join_cols,
+            how="left",
+            validate="many_to_one",
+        )
+        return _ensure_wt_columns(out)
+
+    def _filter_wt_rows_to_baseline_context(self, wt_join, baseline_by_fragment_id):
+        """Keep cached/context rows compatible with the WT baseline flank."""
+        if wt_join.empty or not {"n_flank", "c_flank"}.intersection(wt_join.columns):
+            return wt_join
+
+        def _matches(row):
+            baseline = baseline_by_fragment_id.get(row.get("fragment_id"))
+            if baseline is None:
+                return False
+            try:
+                start = int(row[_WT_OFFSET_COLUMN])
+                length = int(row["wt_peptide_length"])
+            except (TypeError, ValueError):
+                return False
+            end = start + length
+
+            if "n_flank" in row.index and pd.notna(row["n_flank"]):
+                n_flank = str(row["n_flank"])
+                if n_flank and not baseline[:start].endswith(n_flank):
+                    return False
+            if "c_flank" in row.index and pd.notna(row["c_flank"]):
+                c_flank = str(row["c_flank"])
+                if c_flank and not baseline[end:].startswith(c_flank):
+                    return False
+            return True
+
+        return wt_join[wt_join.apply(_matches, axis=1)]
+
+    def _finalize_rows(self, df, fragments=None):
         """Apply filter / sort, drop non-mutant rows when
         ``only_novel_epitopes`` is set, and reset the index.  Shared
         tail for every ProteinFragment-producing entry point."""
         if df.empty:
             return df
+        df = self._maybe_predict_wt_peptides(df, fragments=fragments)
         df = self._apply_filter(df)
         if self.only_novel_epitopes:
             df = df[df["contains_mutant_residues"].eq(True)]
+        df = self._strip_internal_columns(df)
         return df.reset_index(drop=True)
 
     def predict_from_fragments(self, fragments):
@@ -638,11 +894,14 @@ class TopiaryPredictor(object):
           ``None`` / NaN when no baseline is present.
 
         WT model predictions (``wt_value``, ``wt_score``, etc.) are
-        **not populated** in this release — populate them externally
-        or wait for a follow-up PR.  The DSL's ``wt.*`` scope returns
-        NaN for those columns until they're written.
+        populated when ``TopiaryPredictor(predict_wt=True)``.  Rows
+        without a length-compatible WT peptide keep NaN WT prediction
+        values.
         """
-        return self._finalize_rows(self._build_fragment_rows(fragments))
+        fragments = list(fragments)
+        return self._finalize_rows(
+            self._build_fragment_rows(fragments), fragments=fragments,
+        )
 
     def _build_fragment_rows(self, fragments):
         """Run models on *fragments* and overlay all fragment-derived
@@ -718,6 +977,9 @@ class TopiaryPredictor(object):
         df["wt_peptide"] = df.apply(_wt_peptide, axis=1)
         df["wt_peptide_length"] = df["wt_peptide"].map(
             lambda p: len(p) if isinstance(p, str) else None
+        )
+        df[_WT_OFFSET_COLUMN] = df["peptide_offset"].where(
+            df["wt_peptide"].notna(), other=None,
         )
 
         all_annotation_keys = set()
@@ -847,7 +1109,7 @@ class TopiaryPredictor(object):
         df = _add_legacy_mutation_columns(df, fragments)
         if expression_data:
             df = _attach_expression_data(df, expression_data)
-        return self._finalize_rows(df)
+        return self._finalize_rows(df, fragments=fragments)
 
     def predict_from_variants(
         self, variants, transcript_expression_dict=None, gene_expression_dict=None,

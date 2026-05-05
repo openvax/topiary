@@ -224,21 +224,16 @@ The `wt.`, `shuffled.`, and `self.` scope prefixes read predictions for comparis
 **What the predictor needs to do:**
 
 1. During `predict_from_variants(effects)`: retain the reference protein sequence from each varcode effect, extract WT peptides at the same offsets as mutant peptides, store as `wt_peptide` column
-2. `predictor.predict_wildtype(df)`: re-run all models on the `wt_peptide` column, add `wt_value`, `wt_score`, `wt_percentile_rank` (per kind x method), add `wt_peptide_length`
+2. With `TopiaryPredictor(predict_wt=True)`: re-run the configured models on populated `wt_peptide` values and add `wt_value`, `wt_score`, `wt_percentile_rank` (per kind x method), and `wt_peptide_length`
 
 ```python
-# Automatic: predictor generates wt_peptide during variant prediction
+predictor = TopiaryPredictor(
+    models=[...],
+    alleles=[...],
+    predict_wt=True,
+)
 df = predictor.predict_from_variants(variants)
-# df now has wt_peptide column
-
-# Then score the WT peptides with the same models
-df = predictor.predict_wildtype(df)
-# Adds wt_value, wt_score, wt_percentile_rank
-
-# Or: user provides wt_peptide in a CSV
-df = predictor.predict_from_named_peptides({"pep1": "YLQLVFGIEV"})
-df["wt_peptide"] = "YLQLIFGIEV"  # user knows the WT
-df = predictor.predict_wildtype(df)
+# Adds wt_peptide plus wt_value, wt_score, wt_percentile_rank, ...
 ```
 
 **Loading WT data from external tools:**
@@ -251,10 +246,11 @@ df = predictor.predict_wildtype(df)
 --variant-expression wt_peptide:pvacseq_results.tsv:variant:"WT Epitope Seq"
 ```
 
-In the Python API, any DataFrame column named `wt_peptide` can be scored:
+In the Python API, fragment and variant predictions can score generated `wt_peptide` values:
+
 ```python
-df["wt_peptide"] = load_wt_peptides_from_pvactools("pvacseq.tsv")
-df = predictor.predict_wildtype(df)
+predictor = TopiaryPredictor(models=[...], alleles=[...], predict_wt=True)
+df = predictor.predict_from_fragments(fragments)
 ```
 
 ### Shuffled (shuffled.)
@@ -320,7 +316,7 @@ df = predictor.predict_self_match(df)  # just re-predicts the self_peptide colum
 ### Loading comparison data from external tools
 
 All three comparison types can be populated from external tool outputs instead of computed by topiary. The pattern is always: load a column into the DataFrame, then either:
-- Re-predict it with topiary's models (`predictor.predict_wildtype(df)`)
+- Re-predict it with topiary's models where that comparison has predictor support (`TopiaryPredictor(predict_wt=True)` for fragment / variant WT peptides)
 - Or load pre-computed predictions directly as columns
 
 ```python
@@ -704,7 +700,7 @@ The old flags would remain as deprecated aliases during a transition period.
 | `WT()` wrapper | **Removed** — replaced by `wt.` prefix |
 | `len` | Precomputed column (`peptide_length` / `wt_peptide_length`) |
 | `count("X")` | Dynamic — reads peptide string at eval time |
-| Comparison peptides | Explicit methods: `predict_wildtype()`, `predict_shuffled()`, `predict_self_match()` — no generic abstraction |
+| Comparison peptides | Explicit comparison-specific support: `TopiaryPredictor(predict_wt=True)` for WT fragment / variant peptides, `predict_shuffled()`, `predict_self_match()` — no generic abstraction |
 | Missing context | NaN at eval time, warning at build time |
 | Backward compat for `WT()` | **None** — clean break |
 | Expression loading | `--gene-expression`, `--transcript-expression`, `--variant-expression` (join key baked into flag) |

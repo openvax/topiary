@@ -1,5 +1,23 @@
 # Changelog
 
+## 5.10.2
+
+**Wildtype MHC scoring (#123):**
+
+- `TopiaryPredictor(predict_wt=True)` now scores populated
+  `wt_peptide` values with the configured MHC model(s) and attaches
+  `wt_value`, `wt_score`, `wt_affinity`, `wt_percentile_rank`,
+  `wt_prediction_method_name`, and `wt_predictor_version`.
+- WT predictions are joined back by allele, peptide length, prediction
+  kind, method, and version so affinity and presentation rows stay
+  aligned.
+- Rows without a length-compatible WT peptide keep NaN `wt_*`
+  prediction values.
+- The CLI now exposes the same behavior with `--predict-wt`, enabling
+  `wt.*` sort expressions on variant-derived outputs.
+- WT scoring uses the baseline protein context, not isolated peptide
+  scoring, so context-sensitive predictors keep the correct flanks.
+
 ## 5.10.1
 
 **CLI validation errors:**
