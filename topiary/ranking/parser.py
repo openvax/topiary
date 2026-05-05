@@ -11,9 +11,11 @@ Grammar (lowest precedence first)::
     power    := unary ('**' power)?
     unary    := ('-' | '~') unary | postfix
     postfix  := atom ('.' IDENT call? | '[' BRACKET_ARG (',' BRACKET_ARG)? ']')*
-    BRACKET_ARG := STRING | IDENT   # bare idents read cleanly in YAML
+    BRACKET_ARG := STRING | IDENT | raw version token run
     atom     := NUMBER | '(' top ')' | abs(expr) | agg(expr,...)
               | count(STR) | column(IDENT) | len
+              | IDENT ('[' BRACKET_ARG ']')? (':' | '.') kind_ref
+              | IDENT (':' | '-') BRACKET_ARG ':' kind_ref
               | CONTEXT '.' scoped_atom | kind_ref | IDENT
 """
 
@@ -39,6 +41,7 @@ from .nodes import (
     Stability,
     _CONTEXT_KEYWORDS,
     _FIELD_ALIASES,
+    _KIND_ALIASES,
     _combine_bool,
     _resolve_qualified_kind,
     geomean,
@@ -92,7 +95,7 @@ class _Tokenizer:
                 continue
             m = re.match(r'(\d+\.?\d*([eE][+-]?\d+)?)', text[i:])
             if m:
-                self.tokens.append(("NUMBER", float(m.group())))
+                self.tokens.append(("NUMBER", m.group()))
                 i += m.end()
                 continue
             if text[i] in ('"', "'"):
@@ -141,6 +144,8 @@ class _Tokenizer:
                 self.tokens.append(("RBRACKET", c))
             elif c == '.':
                 self.tokens.append(("DOT", c))
+            elif c == ':':
+                self.tokens.append(("COLON", c))
             elif c == ',':
                 self.tokens.append(("COMMA", c))
             else:
@@ -152,6 +157,18 @@ class _Tokenizer:
 
     def peek(self):
         return self.tokens[self._idx]
+
+    def peek_at(self, offset):
+        idx = self._idx + offset
+        if idx >= len(self.tokens):
+            return ("EOF", None)
+        return self.tokens[idx]
+
+    def mark(self):
+        return self._idx
+
+    def restore(self, idx):
+        self._idx = idx
 
     def advance(self):
         tok = self.tokens[self._idx]
@@ -170,19 +187,33 @@ class _Tokenizer:
             )
         return tok
 
-    def expect_string_or_ident(self):
-        """Bracket-arg primitive: accept ``'foo'`` or ``foo`` and return
-        the string value.  Used inside ``[...]`` for method/version
-        qualifiers where a bare identifier reads more cleanly than a
-        quoted string, especially in YAML.
+    def expect_bracket_arg(self, allow_raw=False):
+        """Read one bracket argument.
+
+        Method names stay conservative (STRING or IDENT). Version slots
+        may use raw token runs so common versions like ``4.1b`` and
+        ``2.2.1+release-2.2.0`` do not need quotes.
         """
-        tok = self.advance()
-        if tok[0] not in ("STRING", "IDENT"):
+        tok = self.peek()
+        if tok[0] == "STRING":
+            return self.advance()[1]
+        if tok[0] == "IDENT" and not allow_raw:
+            return self.advance()[1]
+        if not allow_raw:
             raise ValueError(
                 f"Expected STRING or IDENT but got {tok[0]} ({tok[1]!r}) "
                 f"in {self.text!r}"
             )
-        return tok
+        return self.collect_raw_until({"COMMA", "RBRACKET", "EOF"})
+
+    def collect_raw_until(self, stop_types):
+        """Join token text until one of ``stop_types`` is reached."""
+        parts = []
+        while self.peek()[0] not in stop_types:
+            parts.append(str(self.advance()[1]))
+        if not parts:
+            raise ValueError(f"Expected raw token run in {self.text!r}")
+        return "".join(parts)
 
 
 def _parser_as_node(x):
@@ -317,14 +348,17 @@ class _Parser:
                     node = self._apply_field_access(node, name)
             elif tok[0] == "LBRACKET":
                 self.tokenizer.advance()
-                method_tok = self.tokenizer.expect_string_or_ident()
-                version = None
+                args = [
+                    self.tokenizer.expect_bracket_arg(
+                        allow_raw=isinstance(node, KindAccessor)
+                        and node.method is not None
+                    )
+                ]
                 if self.tokenizer.peek()[0] == "COMMA":
                     self.tokenizer.advance()
-                    version_tok = self.tokenizer.expect_string_or_ident()
-                    version = version_tok[1]
+                    args.append(self.tokenizer.expect_bracket_arg(allow_raw=True))
                 self.tokenizer.expect("RBRACKET")
-                node = self._apply_bracket(node, method_tok[1], version)
+                node = self._apply_bracket(node, args)
             else:
                 break
         return node
@@ -333,7 +367,7 @@ class _Parser:
         tok = self.tokenizer.peek()
         if tok[0] == "NUMBER":
             self.tokenizer.advance()
-            return Const(tok[1])
+            return Const(float(tok[1]))
         if tok[0] == "LPAREN":
             self.tokenizer.advance()
             expr = self._or()
@@ -370,6 +404,18 @@ class _Parser:
                     f"{name!r} is a reserved context keyword. "
                     f"Use '{name}.kind.field' syntax, e.g. '{name}.affinity.score'"
                 )
+            versioned_model_accessor = self._try_versioned_model_kind_accessor()
+            if versioned_model_accessor is not None:
+                return versioned_model_accessor
+            separated_version_accessor = self._try_separated_version_kind_accessor()
+            if separated_version_accessor is not None:
+                return separated_version_accessor
+            colon_accessor = self._try_colon_kind_accessor()
+            if colon_accessor is not None:
+                return colon_accessor
+            method_dot_accessor = self._try_method_dot_kind_accessor()
+            if method_dot_accessor is not None:
+                return method_dot_accessor
             if name == "column":
                 self.tokenizer.advance()
                 self.tokenizer.expect("LPAREN")
@@ -389,6 +435,25 @@ class _Parser:
                 f"Expected identifier after scope prefix in {self.text!r}"
             )
         name = tok[1].lower()
+        if name in _CONTEXT_KEYWORDS:
+            raise ValueError(
+                f"{name!r} is a reserved context keyword and cannot be "
+                f"used as a kind name in {self.text!r}"
+            )
+        versioned_model_accessor = self._try_versioned_model_kind_accessor(scope=scope)
+        if versioned_model_accessor is not None:
+            return versioned_model_accessor
+        separated_version_accessor = self._try_separated_version_kind_accessor(
+            scope=scope,
+        )
+        if separated_version_accessor is not None:
+            return separated_version_accessor
+        colon_accessor = self._try_colon_kind_accessor(scope=scope)
+        if colon_accessor is not None:
+            return colon_accessor
+        method_dot_accessor = self._try_method_dot_kind_accessor(scope=scope)
+        if method_dot_accessor is not None:
+            return method_dot_accessor
         if name == "len":
             self.tokenizer.advance()
             return Len(scope=scope)
@@ -417,15 +482,124 @@ class _Parser:
             )
         if self.tokenizer.peek()[0] == "LBRACKET":
             self.tokenizer.advance()
-            method_tok = self.tokenizer.expect_string_or_ident()
-            version = None
+            args = [self.tokenizer.expect_bracket_arg()]
             if self.tokenizer.peek()[0] == "COMMA":
                 self.tokenizer.advance()
-                version_tok = self.tokenizer.expect_string_or_ident()
-                version = version_tok[1]
+                args.append(self.tokenizer.expect_bracket_arg(allow_raw=True))
             self.tokenizer.expect("RBRACKET")
-            accessor = accessor[method_tok[1], version] if version else accessor[method_tok[1]]
+            accessor = self._apply_bracket(accessor, args)
         return accessor
+
+    def _try_versioned_model_kind_accessor(self, scope=""):
+        if (
+            self.tokenizer.peek_at(0)[0] != "IDENT"
+            or self.tokenizer.peek_at(1)[0] != "LBRACKET"
+        ):
+            return None
+        saved_idx = self.tokenizer.mark()
+        method = self.tokenizer.advance()[1]
+        self.tokenizer.expect("LBRACKET")
+        version = self.tokenizer.expect_bracket_arg(allow_raw=True)
+        if self.tokenizer.peek()[0] != "RBRACKET":
+            self.tokenizer.restore(saved_idx)
+            return None
+        self.tokenizer.advance()
+        separator = self.tokenizer.peek()
+        if separator[0] not in ("COLON", "DOT"):
+            self.tokenizer.restore(saved_idx)
+            return None
+        kind_tok = self.tokenizer.peek_at(1)
+        if kind_tok[0] != "IDENT":
+            self.tokenizer.restore(saved_idx)
+            return None
+        kind = self._prediction_kind_for_name(kind_tok[1])
+        if kind is None:
+            self.tokenizer.restore(saved_idx)
+            return None
+        self.tokenizer.advance()
+        self.tokenizer.advance()
+        return KindAccessor(
+            kind, method=method, version=version, scope=scope,
+        )
+
+    def _try_separated_version_kind_accessor(self, scope=""):
+        if self.tokenizer.peek_at(0)[0] != "IDENT":
+            return None
+        separator = self.tokenizer.peek_at(1)
+        if separator not in (("COLON", ":"), ("OP", "-")):
+            return None
+        saved_idx = self.tokenizer.mark()
+        method = self.tokenizer.advance()[1]
+        self.tokenizer.advance()
+        try:
+            version = self.tokenizer.collect_raw_until({"COLON", "EOF"})
+        except ValueError:
+            self.tokenizer.restore(saved_idx)
+            return None
+        if self.tokenizer.peek()[0] != "COLON":
+            self.tokenizer.restore(saved_idx)
+            return None
+        kind_tok = self.tokenizer.peek_at(1)
+        if kind_tok[0] != "IDENT":
+            self.tokenizer.restore(saved_idx)
+            return None
+        kind = self._prediction_kind_for_name(kind_tok[1])
+        if kind is None:
+            self.tokenizer.restore(saved_idx)
+            return None
+        self.tokenizer.advance()
+        self.tokenizer.advance()
+        return KindAccessor(
+            kind, method=method, version=version, scope=scope,
+        )
+
+    def _try_colon_kind_accessor(self, scope=""):
+        if (
+            self.tokenizer.peek_at(0)[0] != "IDENT"
+            or self.tokenizer.peek_at(1)[0] != "COLON"
+            or self.tokenizer.peek_at(2)[0] != "IDENT"
+        ):
+            return None
+        left = self.tokenizer.peek_at(0)[1]
+        right = self.tokenizer.peek_at(2)[1]
+        left_kind = self._prediction_kind_for_name(left)
+        right_kind = self._prediction_kind_for_name(right)
+        if left_kind is None and right_kind is None:
+            raise ValueError(
+                f"Expected one side of {left}:{right} to be a prediction "
+                f"kind in {self.text!r}"
+            )
+        # Prefer the explicit model:kind reading when both sides happen
+        # to be kind-shaped names. The reversed kind:model form remains
+        # accepted for downstream experiments.
+        if right_kind is not None:
+            method, kind = left, right_kind
+        else:
+            method, kind = right, left_kind
+        self.tokenizer.advance()
+        self.tokenizer.advance()
+        self.tokenizer.advance()
+        return KindAccessor(kind, method=method, scope=scope)
+
+    def _try_method_dot_kind_accessor(self, scope=""):
+        if (
+            self.tokenizer.peek_at(0)[0] != "IDENT"
+            or self.tokenizer.peek_at(1)[0] != "DOT"
+            or self.tokenizer.peek_at(2)[0] != "IDENT"
+        ):
+            return None
+        method = self.tokenizer.peek_at(0)[1]
+        kind_name = self.tokenizer.peek_at(2)[1]
+        kind = self._prediction_kind_for_name(kind_name)
+        if kind is None:
+            return None
+        # Preserve normal kind.field / kind.transform handling.
+        if self._is_kind_name(method):
+            return None
+        self.tokenizer.advance()
+        self.tokenizer.advance()
+        self.tokenizer.advance()
+        return KindAccessor(kind, method=method, scope=scope)
 
     def _call_args(self):
         self.tokenizer.expect("LPAREN")
@@ -481,11 +655,21 @@ class _Parser:
             )
         raise ValueError(f"Cannot access .{name} on {type(node).__name__}")
 
-    def _apply_bracket(self, node, method, version):
+    def _apply_bracket(self, node, args):
         if isinstance(node, KindAccessor):
-            if version is None:
-                return node[method]
-            return node[method, version]
+            if len(args) == 1:
+                if node.method is not None:
+                    return KindAccessor(
+                        node.kind, method=node.method, version=args[0],
+                        scope=node.scope,
+                    )
+                return node[args[0]]
+            if len(args) == 2:
+                return node[args[0], args[1]]
+            raise ValueError(
+                f"Kind qualifier accepts one or two bracket arguments "
+                f"in {self.text!r}"
+            )
         raise ValueError(f"Cannot use ['...'] on {type(node).__name__}")
 
     def _is_kind_name(self, name):
@@ -496,6 +680,9 @@ class _Parser:
             return True
         except ValueError:
             return False
+
+    def _prediction_kind_for_name(self, name):
+        return _KIND_ALIASES.get(name.strip().lower())
 
 
 def parse(text: str) -> DSLNode:

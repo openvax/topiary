@@ -224,6 +224,11 @@ The unified DSL parser. Returns a `DSLNode`.
 |--------|--------|
 | `"affinity <= 500"` | `Comparison(Field(pMHC_affinity, "value"), <=, 500)` |
 | `"netmhcpan_ba <= 500"` | `Comparison(Field(pMHC_affinity, "value", method="netmhcpan"), <=, 500)` |
+| `"netmhcpan:affinity <= 500"` | `Comparison(Field(pMHC_affinity, "value", method="netmhcpan"), <=, 500)` |
+| `"affinity:netmhcpan <= 500"` | `Comparison(Field(pMHC_affinity, "value", method="netmhcpan"), <=, 500)` |
+| `"netmhcpan.affinity <= 500"` | `Comparison(Field(pMHC_affinity, "value", method="netmhcpan"), <=, 500)` |
+| `"netmhcpan[4.1b]:affinity.score"` | `Field(pMHC_affinity, "score", method="netmhcpan", version="4.1b")` |
+| `"netmhcpan-4.1b:affinity.score"` | `Field(pMHC_affinity, "score", method="netmhcpan", version="4.1b")` |
 | `"affinity['netmhcpan', '4.1b'].value <= 500"` | `Comparison(Field(..., method="netmhcpan", version="4.1b"), <=, 500)` |
 | `"column(cysteine_count) <= 2"` | `Comparison(Column("cysteine_count"), <=, 2)` |
 | `"a <= 500 \| b <= 2"` | `BoolOp(\|, [Comparison(a), Comparison(b)])` |

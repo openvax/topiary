@@ -390,7 +390,7 @@ topiary \
   --mhc-predictor netmhcpan mhcflurry \
   --mhc-alleles HLA-A*02:01 \
   --filter-by "ba <= 500" \
-  --sort-by "mean(affinity['netmhcpan'].logistic(350, 150), affinity['mhcflurry'].logistic(350, 150))" \
+  --sort-by "mean(netmhcpan:affinity.logistic(350, 150), mhcflurry:affinity.logistic(350, 150))" \
   --output-csv results.csv
 ```
 
