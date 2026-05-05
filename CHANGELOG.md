@@ -1,5 +1,26 @@
 # Changelog
 
+## 5.10.3
+
+**Quote-free model-qualified kind syntax (#150):**
+
+- The string DSL now accepts `mhcflurry:affinity`,
+  `affinity:mhcflurry`, and `mhcflurry.affinity` as aliases for
+  `affinity[mhcflurry]` / `affinity['mhcflurry']`.
+- Model-first syntax can attach versions directly to the model:
+  `mhcflurry[2.1.5]:ba.score` parses like
+  `affinity[mhcflurry, 2.1.5].score`. Version slots accept common
+  unquoted labels such as `4.1b`, `v2.1`, `release-2.2.0`, and
+  `2.2.1+release-2.2.0`.
+- Colon-separated version forms are also accepted:
+  `mhcflurry:release-2.2.0:ba.score` and
+  `mhcflurry-4.1b:affinity.score`.
+- These aliases compose with fields, transforms, and scopes, e.g.
+  `netmhcpan:ba.score`, `mhcflurry[2.1.5]:processing.score`, and
+  `wt.mhcflurry[2.1.5]:ba.score`.
+- Existing bracket and underscore forms remain supported and canonical
+  string output still emits bracket form for deterministic round trips.
+
 ## 5.10.2
 
 **Wildtype MHC scoring (#123):**

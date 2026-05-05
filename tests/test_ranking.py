@@ -1818,12 +1818,28 @@ def test_parse_bare_ident_in_brackets_filter():
     assert expr.left.method == "netmhcpan"
 
 
-def test_parse_bare_ident_version_still_quoted():
-    """Non-IDENT version strings (e.g. '4.1b') keep quotes."""
+def test_parse_bare_ident_version_quoted():
+    """Quoted versions still work."""
     expr = parse('affinity[netmhcpan, "4.1b"].value')
     assert isinstance(expr, Field)
     assert expr.method == "netmhcpan"
     assert expr.version == "4.1b"
+
+
+def test_parse_bare_ident_version_unquoted():
+    """Common version labels can omit quotes in the version slot."""
+    expr = parse("affinity[netmhcpan, 4.1b].value")
+    assert isinstance(expr, Field)
+    assert expr.method == "netmhcpan"
+    assert expr.version == "4.1b"
+
+
+def test_parse_identifier_leading_version_unquoted():
+    """Raw version labels may start with an identifier."""
+    expr = parse("affinity[netmhcpan, v2.1].value")
+    assert isinstance(expr, Field)
+    assert expr.method == "netmhcpan"
+    assert expr.version == "v2.1"
 
 
 def test_parse_bare_ident_mixed_with_quoted():
@@ -1850,9 +1866,157 @@ def test_parse_bare_ident_roundtrip_emits_quoted():
 
 
 def test_parse_bare_ident_rejects_number():
-    """Numeric token in bracket (without quotes) still errors."""
+    """The first legacy bracket slot is still a model/method name."""
     with pytest.raises(ValueError, match="STRING or IDENT"):
-        parse("affinity[netmhcpan, 4]")
+        parse("affinity[4]")
+
+
+# ---------------------------------------------------------------------------
+# Model-first / model-kind parser sugar  —  issues #150 and #152
+# ---------------------------------------------------------------------------
+
+
+def test_parse_model_colon_kind():
+    """mhcflurry:affinity parses like affinity[mhcflurry]."""
+    expr = parse("mhcflurry:affinity.score")
+    bracket = parse("affinity[mhcflurry].score")
+    assert isinstance(expr, Field)
+    assert expr.method == "mhcflurry"
+    assert expr.to_ast_string() == bracket.to_ast_string()
+
+
+def test_parse_model_colon_kind_short_alias_filter():
+    expr = parse("netmhcpan:ba <= 500")
+    assert isinstance(expr, Comparison)
+    assert isinstance(expr.left, Field)
+    assert expr.left.kind == Kind.pMHC_affinity
+    assert expr.left.method == "netmhcpan"
+
+
+def test_parse_kind_colon_model_reversed_form():
+    """Accept kind:model while downstream configs try syntax variants."""
+    expr = parse("affinity:mhcflurry.score")
+    bracket = parse("affinity[mhcflurry].score")
+    assert isinstance(expr, Field)
+    assert expr.to_ast_string() == bracket.to_ast_string()
+
+
+def test_parse_model_dot_kind():
+    """mhcflurry.affinity is an experimental alias for affinity[mhcflurry]."""
+    expr = parse("mhcflurry.affinity.score")
+    bracket = parse("affinity[mhcflurry].score")
+    assert isinstance(expr, Field)
+    assert expr.to_ast_string() == bracket.to_ast_string()
+
+
+def test_parse_model_kind_processing_alias():
+    expr = parse("mhcflurry:processing.score")
+    assert isinstance(expr, Field)
+    assert expr.kind == Kind.antigen_processing
+    assert expr.method == "mhcflurry"
+
+
+def test_parse_versioned_model_colon_kind():
+    """mhcflurry[2.1.5]:ba attaches the bracket to model version."""
+    expr = parse("mhcflurry[2.1.5]:ba.score")
+    bracket = parse("ba[mhcflurry, 2.1.5].score")
+    assert isinstance(expr, Field)
+    assert expr.method == "mhcflurry"
+    assert expr.version == "2.1.5"
+    assert expr.to_ast_string() == bracket.to_ast_string()
+
+
+def test_parse_versioned_model_dot_kind():
+    expr = parse("mhcflurry[2.1.5].ba.score")
+    colon = parse("mhcflurry[2.1.5]:ba.score")
+    assert isinstance(expr, Field)
+    assert expr.to_ast_string() == colon.to_ast_string()
+
+
+def test_parse_model_colon_kind_version_bracket_suffix():
+    expr = parse("mhcflurry:ba[2.1.5].score")
+    colon = parse("mhcflurry[2.1.5]:ba.score")
+    assert isinstance(expr, Field)
+    assert expr.to_ast_string() == colon.to_ast_string()
+
+
+def test_parse_kind_colon_model_version_bracket_suffix():
+    expr = parse("ba:mhcflurry[2.1.5].score")
+    colon = parse("mhcflurry[2.1.5]:ba.score")
+    assert isinstance(expr, Field)
+    assert expr.to_ast_string() == colon.to_ast_string()
+
+
+def test_parse_scoped_versioned_model_colon_kind():
+    expr = parse("wt.mhcflurry[2.1.5]:ba.score")
+    bracket = parse("wt.ba[mhcflurry, 2.1.5].score")
+    assert isinstance(expr, Field)
+    assert expr.to_ast_string() == bracket.to_ast_string()
+
+
+def test_parse_composite_unquoted_model_version():
+    expr = parse("mhcflurry[2.2.1+release-2.2.0]:ba.score")
+    assert isinstance(expr, Field)
+    assert expr.version == "2.2.1+release-2.2.0"
+
+
+def test_parse_identifier_leading_model_version_unquoted():
+    expr = parse("mhcflurry[release-2.2.0]:ba.score")
+    assert isinstance(expr, Field)
+    assert expr.method == "mhcflurry"
+    assert expr.version == "release-2.2.0"
+
+
+def test_parse_model_colon_version_colon_kind():
+    expr = parse("mhcflurry:release-2.2.0:ba.score")
+    bracket = parse("ba[mhcflurry, release-2.2.0].score")
+    assert isinstance(expr, Field)
+    assert expr.to_ast_string() == bracket.to_ast_string()
+
+
+def test_parse_model_dash_version_colon_kind():
+    expr = parse("mhcflurry-4.1b:affinity.score")
+    bracket = parse("affinity[mhcflurry, 4.1b].score")
+    assert isinstance(expr, Field)
+    assert expr.to_ast_string() == bracket.to_ast_string()
+
+
+def test_parse_scoped_model_dash_version_colon_kind():
+    expr = parse("wt.mhcflurry-release-2.2.0:ba.score")
+    bracket = parse("wt.ba[mhcflurry, release-2.2.0].score")
+    assert isinstance(expr, Field)
+    assert expr.to_ast_string() == bracket.to_ast_string()
+
+
+def test_parse_model_colon_kind_with_transform():
+    expr = parse("mhcflurry:affinity.descending_cdf(500, 200)")
+    bracket = parse("affinity[mhcflurry].descending_cdf(500, 200)")
+    assert expr.to_ast_string() == bracket.to_ast_string()
+
+
+def test_parse_scoped_model_colon_kind():
+    expr = parse("wt.mhcflurry:affinity.score")
+    bracket = parse("wt.affinity[mhcflurry].score")
+    assert isinstance(expr, Field)
+    assert expr.to_ast_string() == bracket.to_ast_string()
+
+
+def test_parse_scoped_model_dot_kind():
+    expr = parse("wt.mhcflurry.affinity.score")
+    bracket = parse("wt.affinity[mhcflurry].score")
+    assert isinstance(expr, Field)
+    assert expr.to_ast_string() == bracket.to_ast_string()
+
+
+def test_parse_model_colon_kind_roundtrip_emits_canonical_brackets():
+    expr = parse("mhcflurry:affinity.score")
+    assert expr.to_expr_string() == "affinity['mhcflurry'].score"
+    assert parse(expr.to_expr_string()).to_ast_string() == expr.to_ast_string()
+
+
+def test_parse_model_colon_kind_requires_known_kind_side():
+    with pytest.raises(ValueError, match="one side .* prediction kind"):
+        parse("foo:bar")
 
 
 def test_parse_expr_norm_alias():

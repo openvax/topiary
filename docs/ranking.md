@@ -234,6 +234,12 @@ In the string DSL, both forms work:
 ```
 affinity['netmhcpan'].value <= 500
 affinity['netmhcpan', '4.1b'].value <= 500
+affinity[netmhcpan, 4.1b].value <= 500
+affinity[netmhcpan, release-2.2.0].value <= 500
+netmhcpan[4.1b]:affinity.value <= 500
+netmhcpan:4.1b:affinity.value <= 500
+netmhcpan-4.1b:affinity.value <= 500
+wt.netmhcpan[4.1b]:ba.score
 ```
 
 ## Parsing strings
@@ -258,13 +264,20 @@ The `--filter-by` flag and `--sort-by` flag accept string expressions:
 | `Affinity <= 500` | `affinity <= 500` or `ba <= 500` |
 | `Affinity.rank <= 2` | `affinity.rank <= 2` |
 | `Affinity.score >= 0.5` | `affinity.score >= 0.5` |
-| `Affinity["netmhcpan"] <= 500` | `netmhcpan_affinity <= 500` or `netmhcpan_ba <= 500` |
-| `Presentation["mhcflurry"].rank <= 2` | `mhcflurry_el.rank <= 2` |
+| `Affinity["netmhcpan"] <= 500` | `netmhcpan:affinity <= 500`, `affinity:netmhcpan <= 500`, `netmhcpan.affinity <= 500`, `affinity[netmhcpan] <= 500`, `netmhcpan_ba <= 500` |
+| `Affinity["netmhcpan", "4.1b"].score` | `netmhcpan[4.1b]:affinity.score`, `netmhcpan:affinity[4.1b].score`, `affinity[netmhcpan, 4.1b].score` |
+| `Presentation["mhcflurry"].rank <= 2` | `mhcflurry:el.rank <= 2` or `mhcflurry_el.rank <= 2` |
 | `Column("cysteine_count") <= 2` | `column(cysteine_count) <= 2` |
 | `(A <= 500) \| (B.rank <= 2)` | `affinity <= 500 \| presentation.rank <= 2` |
 | `(A <= 500) & (B.rank <= 2)` | `affinity <= 500 & presentation.rank <= 2` |
 
 **Kind aliases:** `ba` / `aff` / `ic50` = Affinity, `el` = Presentation.
+
+**Model-qualified kinds:** Canonical serialization still uses bracket
+form (`affinity[netmhcpan]`), but model-first forms read better in
+configuration: `netmhcpan:affinity`, `netmhcpan.affinity`, and
+`netmhcpan[4.1b]:affinity`. Versioned model-first refs can also use
+`netmhcpan:4.1b:affinity` or `netmhcpan-4.1b:affinity`.
 
 **All features work in both Python and CLI string form** (`--sort-by`):
 
