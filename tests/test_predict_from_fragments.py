@@ -159,6 +159,77 @@ class DuplicateIdentityPredictor:
         return pd.DataFrame(rows)
 
 
+class ContextSensitivePredictor:
+    """Predictor whose score depends on source-protein flank context."""
+
+    default_peptide_lengths = [4]
+
+    def _row(self, name, sequence, offset):
+        peptide = sequence[offset:offset + 4]
+        n_flank = sequence[:offset]
+        c_flank = sequence[offset + 4:]
+        value = len(n_flank) + (10 * len(c_flank))
+        return {
+            "source_sequence_name": name,
+            "offset": offset,
+            "peptide": peptide,
+            "allele": ALLELE,
+            "kind": "pMHC_presentation",
+            "value": float(value),
+            "score": float(value) / 100.0,
+            "affinity": math.nan,
+            "percentile_rank": float(value),
+            "predictor_name": "context-sensitive",
+            "predictor_version": "1.0",
+            "n_flank": n_flank,
+            "c_flank": c_flank,
+        }
+
+    def predict_peptides_dataframe(self, peptides):
+        return pd.DataFrame([
+            {
+                "peptide": peptide,
+                "allele": ALLELE,
+                "kind": "pMHC_presentation",
+                "value": -1.0,
+                "score": -1.0,
+                "affinity": math.nan,
+                "percentile_rank": -1.0,
+                "predictor_name": "context-sensitive",
+                "predictor_version": "1.0",
+                "n_flank": "",
+                "c_flank": "",
+            }
+            for peptide in peptides
+        ])
+
+    def predict_proteins_dataframe(self, name_to_sequence):
+        rows = []
+        for name, sequence in name_to_sequence.items():
+            for offset in range(len(sequence) - 3):
+                rows.append(self._row(name, sequence, offset))
+        return pd.DataFrame(rows)
+
+
+class AmbiguousWtContextPredictor(ContextSensitivePredictor):
+    """Emits an extra WT row from the wrong flank context."""
+
+    def predict_proteins_dataframe(self, name_to_sequence):
+        df = super().predict_proteins_dataframe(name_to_sequence)
+        extras = []
+        for _, row in df[df["peptide"].eq("YYYY")].iterrows():
+            wrong = row.copy()
+            wrong["value"] = 999.0
+            wrong["score"] = 9.99
+            wrong["percentile_rank"] = 999.0
+            wrong["n_flank"] = "WRONG"
+            wrong["c_flank"] = "WRONG"
+            extras.append(wrong)
+        if extras:
+            df = pd.concat([df, pd.DataFrame(extras)], ignore_index=True)
+        return df
+
+
 def _predictor(lengths=(9,), **kwargs):
     return TopiaryPredictor(
         models=RandomBindingPredictor(
@@ -462,6 +533,35 @@ class TestWtPeptide:
             (1.0, 101.0),
             (2.0, 202.0),
         }
+
+    def test_predict_wt_true_scores_wt_in_baseline_protein_context(self):
+        f = ProteinFragment.from_variant(
+            sequence="AAAXXXXBB",
+            reference_sequence="CCCYYYYDD",
+            mutation_start=3, mutation_end=7, inframe=True,
+        )
+        df = TopiaryPredictor(
+            models=ContextSensitivePredictor(), predict_wt=True,
+        ).predict_from_fragments([f])
+        row = df[df["peptide"].eq("XXXX")].iloc[0]
+        assert row["n_flank"] == "AAA"
+        assert row["c_flank"] == "BB"
+        assert row["wt_peptide"] == "YYYY"
+        # WT baseline context is CCC + YYYY + DD:
+        # len("CCC") + 10 * len("DD") = 23.
+        assert row["wt_value"] == 23.0
+
+    def test_predict_wt_true_filters_wt_rows_to_baseline_flank_context(self):
+        f = ProteinFragment.from_variant(
+            sequence="AAAXXXXBB",
+            reference_sequence="CCCYYYYDD",
+            mutation_start=3, mutation_end=7, inframe=True,
+        )
+        df = TopiaryPredictor(
+            models=AmbiguousWtContextPredictor(), predict_wt=True,
+        ).predict_from_fragments([f])
+        row = df[df["peptide"].eq("XXXX")].iloc[0]
+        assert row["wt_value"] == 23.0
 
 
 # ---------------------------------------------------------------------------

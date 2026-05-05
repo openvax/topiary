@@ -15,6 +15,8 @@
   prediction values.
 - The CLI now exposes the same behavior with `--predict-wt`, enabling
   `wt.*` sort expressions on variant-derived outputs.
+- WT scoring uses the baseline protein context, not isolated peptide
+  scoring, so context-sensitive predictors keep the correct flanks.
 
 ## 5.10.1
 
