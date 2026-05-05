@@ -15,7 +15,7 @@ Grammar (lowest precedence first)::
     atom     := NUMBER | '(' top ')' | abs(expr) | agg(expr,...)
               | count(STR) | column(IDENT) | len
               | IDENT ('[' BRACKET_ARG ']')? (':' | '.') kind_ref
-              | IDENT (':' | '-') BRACKET_ARG ':' kind_ref
+              | IDENT '-' numeric_version ':' kind_ref
               | CONTEXT '.' scoped_atom | kind_ref | IDENT
 """
 
@@ -407,9 +407,9 @@ class _Parser:
             versioned_model_accessor = self._try_versioned_model_kind_accessor()
             if versioned_model_accessor is not None:
                 return versioned_model_accessor
-            separated_version_accessor = self._try_separated_version_kind_accessor()
-            if separated_version_accessor is not None:
-                return separated_version_accessor
+            dash_version_accessor = self._try_dash_version_kind_accessor()
+            if dash_version_accessor is not None:
+                return dash_version_accessor
             colon_accessor = self._try_colon_kind_accessor()
             if colon_accessor is not None:
                 return colon_accessor
@@ -443,11 +443,11 @@ class _Parser:
         versioned_model_accessor = self._try_versioned_model_kind_accessor(scope=scope)
         if versioned_model_accessor is not None:
             return versioned_model_accessor
-        separated_version_accessor = self._try_separated_version_kind_accessor(
+        dash_version_accessor = self._try_dash_version_kind_accessor(
             scope=scope,
         )
-        if separated_version_accessor is not None:
-            return separated_version_accessor
+        if dash_version_accessor is not None:
+            return dash_version_accessor
         colon_accessor = self._try_colon_kind_accessor(scope=scope)
         if colon_accessor is not None:
             return colon_accessor
@@ -522,11 +522,12 @@ class _Parser:
             kind, method=method, version=version, scope=scope,
         )
 
-    def _try_separated_version_kind_accessor(self, scope=""):
-        if self.tokenizer.peek_at(0)[0] != "IDENT":
-            return None
-        separator = self.tokenizer.peek_at(1)
-        if separator not in (("COLON", ":"), ("OP", "-")):
+    def _try_dash_version_kind_accessor(self, scope=""):
+        if (
+            self.tokenizer.peek_at(0)[0] != "IDENT"
+            or self.tokenizer.peek_at(1) != ("OP", "-")
+            or self.tokenizer.peek_at(2)[0] != "NUMBER"
+        ):
             return None
         saved_idx = self.tokenizer.mark()
         method = self.tokenizer.advance()[1]

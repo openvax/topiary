@@ -1967,11 +1967,9 @@ def test_parse_identifier_leading_model_version_unquoted():
     assert expr.version == "release-2.2.0"
 
 
-def test_parse_model_colon_version_colon_kind():
-    expr = parse("mhcflurry:release-2.2.0:ba.score")
-    bracket = parse("ba[mhcflurry, release-2.2.0].score")
-    assert isinstance(expr, Field)
-    assert expr.to_ast_string() == bracket.to_ast_string()
+def test_parse_model_colon_version_colon_kind_rejected():
+    with pytest.raises(ValueError, match="prediction kind"):
+        parse("mhcflurry:release-2.2.0:ba.score")
 
 
 def test_parse_model_dash_version_colon_kind():
@@ -1982,8 +1980,8 @@ def test_parse_model_dash_version_colon_kind():
 
 
 def test_parse_scoped_model_dash_version_colon_kind():
-    expr = parse("wt.mhcflurry-release-2.2.0:ba.score")
-    bracket = parse("wt.ba[mhcflurry, release-2.2.0].score")
+    expr = parse("wt.mhcflurry-4.1b:ba.score")
+    bracket = parse("wt.ba[mhcflurry, 4.1b].score")
     assert isinstance(expr, Field)
     assert expr.to_ast_string() == bracket.to_ast_string()
 

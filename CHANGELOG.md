@@ -1,5 +1,17 @@
 # Changelog
 
+## 5.10.4
+
+**DSL version syntax cleanup:**
+
+- Removed the experimental `model:version:kind` string form, e.g.
+  `mhcflurry:release-2.2.0:ba.score`. Use bracketed model versions
+  instead: `mhcflurry[release-2.2.0]:ba.score`.
+- Kept the compact dash form for numeric-leading versions, e.g.
+  `mhcflurry-4.1b:affinity.score`.
+- Documented the recommended string DSL syntax separately from accepted
+  compatibility aliases.
+
 ## 5.10.3
 
 **Quote-free model-qualified kind syntax (#150):**
