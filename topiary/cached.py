@@ -30,6 +30,7 @@ Fallback semantics
 from __future__ import annotations
 
 import re
+from itertools import repeat
 from pathlib import Path
 from typing import Callable, Iterable, List, Mapping, Optional, Union
 
@@ -138,12 +139,13 @@ class CachedPredictor:
             self.prediction_method_name = None
             self.predictor_version = None
             self._index = {}
+            self._prefix_index = {}
             return
 
         self._df = self._normalize(df)
         self.prediction_method_name, self.predictor_version = \
             self._unique_version_pair(self._df)
-        self._index = self._build_index(self._df)
+        self._index, self._prefix_index = self._build_index(self._df)
 
     # --- normalization + invariants ---------------------------------
 
@@ -229,24 +231,81 @@ class CachedPredictor:
         return row["prediction_method_name"], row["predictor_version"]
 
     @staticmethod
-    def _build_index(df: pd.DataFrame) -> dict:
+    def _row_key(row):
+        """Composite cache key for one normalized prediction row."""
+        return CachedPredictor._row_key_from_values(
+            row["peptide"],
+            row["allele"],
+            row["peptide_length"],
+            row["kind"],
+            row.get("n_flank"),
+            row.get("c_flank"),
+        )
+
+    @staticmethod
+    def _row_key_from_values(
+        peptide,
+        allele,
+        peptide_length,
+        kind,
+        n_flank,
+        c_flank,
+    ):
+        """Composite cache key from already-extracted row values."""
+        return (
+            str(peptide),
+            str(allele),
+            int(peptide_length),
+            str(kind),
+            _flank_key(n_flank),
+            _flank_key(c_flank),
+        )
+
+    @classmethod
+    def _row_keys_from_frame(cls, df: pd.DataFrame):
+        """Yield cache keys by walking columns, not materialized row dicts."""
+        n = len(df)
+        n_flanks = (
+            df["n_flank"].to_numpy(copy=False)
+            if "n_flank" in df.columns
+            else repeat(None, n)
+        )
+        c_flanks = (
+            df["c_flank"].to_numpy(copy=False)
+            if "c_flank" in df.columns
+            else repeat(None, n)
+        )
+        for values in zip(
+            df["peptide"].to_numpy(copy=False),
+            df["allele"].to_numpy(copy=False),
+            df["peptide_length"].to_numpy(copy=False),
+            df["kind"].to_numpy(copy=False),
+            n_flanks,
+            c_flanks,
+        ):
+            yield cls._row_key_from_values(*values)
+
+    @classmethod
+    def _build_index(cls, df: pd.DataFrame) -> tuple[dict, dict]:
         """Build ``(peptide, allele, peptide_length, kind, n_flank,
-        c_flank) → row_dict`` index.  The full key lets a single cache
+        c_flank) → row_position`` index.  The full key lets a single cache
         hold multiple kinds per (peptide, allele) — and, within a kind
         that depends on flanking context (mhcflurry processing and
         presentation), distinguish the same peptide at different
-        source-protein positions."""
-        return {
-            (
-                str(r["peptide"]),
-                str(r["allele"]),
-                int(r["peptide_length"]),
-                str(r["kind"]),
-                _flank_key(r.get("n_flank")),
-                _flank_key(r.get("c_flank")),
-            ): r.to_dict()
-            for _, r in df.iterrows()
-        }
+        source-protein positions.
+
+        Store integer row positions rather than row dictionaries so
+        whole-proteome caches do not duplicate every row in Python
+        objects. A separate prefix index keeps batch lookups O(matches)
+        instead of scanning all keys.
+        """
+        index = {}
+        for pos, key in enumerate(cls._row_keys_from_frame(df)):
+            index[key] = pos
+        prefix_index = {}
+        for key, pos in index.items():
+            prefix_index.setdefault(key[:3], []).append(pos)
+        return index, prefix_index
 
     # --- mhctools protocol ------------------------------------------
 
@@ -329,10 +388,10 @@ class CachedPredictor:
         """Return every cached row matching ``(peptide, allele,
         peptide_length)`` — all kinds and flank contexts."""
         prefix = (str(peptide), str(allele), int(length))
-        return [
-            row for key, row in self._index.items()
-            if key[:3] == prefix
-        ]
+        row_positions = self._prefix_index.get(prefix, [])
+        if not row_positions:
+            return []
+        return self._df.iloc[row_positions].to_dict("records")
 
     def _cache_kinds(self):
         """Distinct kinds present in the cache."""
@@ -428,22 +487,11 @@ class CachedPredictor:
         # P present for allele A, missing for allele B) would see its
         # (P, A) row silently overwritten by the fallback's output
         # when (P, B) triggers a fallback call.  Preserve user intent.
-        def _row_key(row):
-            return (
-                str(row["peptide"]),
-                str(row["allele"]),
-                int(row["peptide_length"]),
-                str(row["kind"]),
-                _flank_key(row.get("n_flank")),
-                _flank_key(row.get("c_flank")),
-            )
-
-        novel_mask = new_rows.apply(
-            lambda r: _row_key(r) not in self._index, axis=1,
-        )
-        novel_rows = new_rows[novel_mask]
-        for _, r in novel_rows.iterrows():
-            self._index[_row_key(r)] = r.to_dict()
+        novel_mask = [
+            key not in self._index
+            for key in self._row_keys_from_frame(new_rows)
+        ]
+        novel_rows = new_rows[novel_mask].copy()
 
         if len(novel_rows) == 0:
             return
@@ -456,6 +504,7 @@ class CachedPredictor:
             self._df = pd.concat(
                 [self._df, novel_rows], ignore_index=True,
             )
+        self._index, self._prefix_index = self._build_index(self._df)
 
     @staticmethod
     def _conform_predictor_output(df: pd.DataFrame) -> pd.DataFrame:

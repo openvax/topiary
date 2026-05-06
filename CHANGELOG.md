@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.10.6
+
+**CachedPredictor index memory footprint (#134):**
+
+- `CachedPredictor` now stores row positions in its internal key index
+  instead of duplicating each cached row as a Python dictionary.
+- Added a prefix index for `(peptide, allele, peptide_length)` lookups
+  so cache hits no longer scan every full row key.
+
 ## 5.10.5
 
 **Deploy script interpreter selection (#149):**

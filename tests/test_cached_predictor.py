@@ -122,6 +122,31 @@ class TestPredictPeptides:
         assert out.iloc[0]["peptide"] == "SIINFEKLA"
         assert out.iloc[0]["affinity"] == 150.0
 
+    def test_index_stores_row_positions_not_row_dicts(self):
+        cache = CachedPredictor.from_dataframe(_df([
+            _row(peptide="SIINFEKLA", kind="pMHC_affinity"),
+            _row(peptide="SIINFEKLA", kind="pMHC_presentation"),
+        ]))
+        key = ("SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", "", "")
+        assert isinstance(cache._index[key], int)
+        assert cache._prefix_index[("SIINFEKLA", "HLA-A*02:01", 9)] == [0, 1]
+
+    def test_build_index_does_not_materialize_record_dicts(self, monkeypatch):
+        original_to_dict = pd.DataFrame.to_dict
+
+        def fail_records(frame, orient="dict", *args, **kwargs):
+            if orient == "records":
+                raise AssertionError("index build materialized row dicts")
+            return original_to_dict(frame, orient=orient, *args, **kwargs)
+
+        monkeypatch.setattr(pd.DataFrame, "to_dict", fail_records)
+        cache = CachedPredictor.from_dataframe(_df([
+            _row(peptide="SIINFEKLA", kind="pMHC_affinity"),
+            _row(peptide="SIINFEKLA", kind="pMHC_presentation"),
+        ]))
+        key = ("SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", "", "")
+        assert cache._index[key] == 0
+
     def test_miss_raises_without_fallback(self):
         cache = CachedPredictor.from_dataframe(_df([_row()]))
         with pytest.raises(KeyError, match="missed"):
@@ -262,9 +287,10 @@ class TestFallback:
         # preserve-existing guard, the random-predictor output would
         # overwrite the 42.0 sentinel.
         cache.predict_peptides_dataframe(["SIINFEKLA"])
-        preserved = cache._index[
+        preserved_idx = cache._index[
             ("SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", "", "")
         ]
+        preserved = cache._df.iloc[preserved_idx]
         assert preserved["affinity"] == 42.0
 
 
