@@ -16,8 +16,6 @@ Helper functions for filtering variants, effects, and epitope predictions
 
 import logging
 
-from varcode import NonsilentCodingMutation
-
 
 def apply_filter(
     filter_fn, collection, result_fn=None, filter_name="", collection_name=""
@@ -51,6 +49,8 @@ def filter_silent_and_noncoding_effects(effects):
     ----------
     effects : varcode.EffectCollection
     """
+    from varcode import NonsilentCodingMutation
+
     return apply_filter(
         filter_fn=lambda effect: isinstance(effect, NonsilentCodingMutation),
         collection=effects,

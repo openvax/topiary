@@ -11,10 +11,6 @@
 # limitations under the License.
 
 import logging
-from pyensembl import ensembl_grch38
-from varcode import EffectCollection
-from varcode.effects import Substitution
-from varcode.reference import infer_genome
 import re
 
 
@@ -37,9 +33,13 @@ def add_protein_change_args(arg_parser):
 
 def genome_from_args(args):
     if args.genome:
+        from varcode.reference import infer_genome
+
         genome, _ = infer_genome(args.genome)
         return genome
     else:
+        from pyensembl import ensembl_grch38
+
         # no genome specified, assume it can be inferred from the file(s)
         # we're loading
         return ensembl_grch38
@@ -74,6 +74,9 @@ def best_transcript(transcripts):
 
 
 def protein_change_effects_from_args(args):
+    from varcode import EffectCollection
+    from varcode.effects import Substitution
+
     genome = genome_from_args(args)
     valid_gene_names = set(genome.gene_names())
     substitution_regex = re.compile("([A-Z]+)([0-9]+)([A-Z]+)")
