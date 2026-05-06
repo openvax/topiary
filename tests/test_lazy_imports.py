@@ -25,19 +25,15 @@ def test_import_topiary_does_not_import_varcode():
     )
 
 
-def test_cli_direct_parser_does_not_import_varcode():
+def test_cli_variant_helpers_delegate_to_varcode():
     _run_import_check(
         """
-        import sys
-        from topiary.cli.args import arg_parser
+        import topiary.cli.args as cli_args
+        import varcode.cli
 
-        arg_parser.parse_args([
-            "--mhc-predictor", "random",
-            "--mhc-alleles", "A0201",
-            "--peptide-csv", "peptides.csv",
-        ])
-
-        if any(k == "varcode" or k.startswith("varcode.") for k in sys.modules):
-            raise SystemExit("direct CLI parser imported varcode")
+        if cli_args.add_variant_args is not varcode.cli.add_variant_args:
+            raise SystemExit("Topiary is not delegating variant CLI args to Varcode")
+        if cli_args.variant_collection_from_args is not varcode.cli.variant_collection_from_args:
+            raise SystemExit("Topiary is not delegating variant loading to Varcode")
         """
     )

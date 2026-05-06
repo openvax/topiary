@@ -18,6 +18,7 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
 import pandas as pd
 from mhctools.cli import add_mhc_args, predictors_from_args
+from varcode.cli import add_variant_args, variant_collection_from_args
 
 from .cached_predictor import (
     add_cached_predictor_args,
@@ -63,75 +64,6 @@ from ..ranking import (
     _resolve_qualified_kind,
     parse,
 )
-
-
-def add_variant_args(arg_parser):
-    """Add Varcode-compatible variant arguments without importing Varcode."""
-    variant_arg_group = arg_parser.add_argument_group(
-        title="Variants",
-        description="Genomic variant files",
-    )
-    variant_arg_group.add_argument(
-        "--vcf",
-        default=[],
-        action="append",
-        help="Genomic variants in VCF format",
-    )
-    variant_arg_group.add_argument(
-        "--maf",
-        default=[],
-        action="append",
-        help="Genomic variants in TCGA's MAF format",
-    )
-    variant_arg_group.add_argument(
-        "--variant",
-        default=[],
-        action="append",
-        nargs=4,
-        metavar=("CHR", "POS", "REF", "ALT"),
-        help=(
-            "Individual variant as 4 arguments giving chromosome, position, "
-            "ref, and alt. Example: chr1 3848 C G. Use '.' to indicate empty "
-            "alleles for insertions or deletions."
-        ),
-    )
-    variant_arg_group.add_argument(
-        "--genome",
-        type=str,
-        help=(
-            "What reference assembly your variant coordinates are using. "
-            "Examples: 'hg19', 'GRCh38', or 'mm9'. "
-            "This argument is ignored for MAF files, since each row includes "
-            "the reference. For VCF files, this is used if specified, and "
-            "otherwise is guessed from the header. For variants specified on "
-            "the commandline with --variant, this option is required."
-        ),
-    )
-    variant_arg_group.add_argument(
-        "--download-reference-genome-data",
-        action="store_true",
-        default=False,
-        help=(
-            "Automatically download genome reference data required for "
-            "annotation using PyEnsembl. Otherwise you must first run "
-            "'pyensembl install' for the release/species corresponding "
-            "to the genome used in your VCF."
-        ),
-    )
-    variant_arg_group.add_argument(
-        "--json-variants",
-        default=[],
-        action="append",
-        help="Path to Varcode.VariantCollection object serialized as a JSON file.",
-    )
-    return variant_arg_group
-
-
-def variant_collection_from_args(args, required=True):
-    """Load variants through Varcode only when the variant pipeline runs."""
-    from varcode.cli import variant_collection_from_args as _from_args
-
-    return _from_args(args, required=required)
 
 
 def _add_input_args(arg_parser):

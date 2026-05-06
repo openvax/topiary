@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.10.8
+
+**Restore Varcode CLI parser delegation:**
+
+- Reverted Topiary's local copy of Varcode variant CLI arguments so
+  `topiary.cli.args` again delegates `add_variant_args` and
+  `variant_collection_from_args` to `varcode.cli`.
+- Kept the narrower lazy imports for non-CLI Varcode helpers, so plain
+  `import topiary` still avoids loading Varcode.
+
 ## 5.10.7
 
 **Lazy Varcode imports (#122):**
