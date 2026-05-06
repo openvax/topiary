@@ -1,5 +1,16 @@
 # Changelog
 
+## 5.10.7
+
+**Lazy Varcode imports (#122):**
+
+- Topiary's CLI now registers Varcode-compatible variant arguments locally
+  and imports Varcode only when the variant-loading pipeline runs.
+- Moved Varcode imports in filtering and protein-change helpers into the
+  functions that actually need Varcode objects.
+- Added import-guard tests so `import topiary` and direct CLI parser setup do
+  not load Varcode or its VCF dependency stack.
+
 ## 5.10.6
 
 **CachedPredictor index memory footprint (#134):**
