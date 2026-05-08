@@ -502,6 +502,36 @@ class TopiaryPredictor(object):
         """Backward-compatible alias for ``models``."""
         return self.models
 
+    @property
+    def kind_support(self):
+        """Per-model MHC context for each emitted prediction kind.
+
+        Returns a dict mapping ``model_key -> {kind -> {"mhc_dependence",
+        "mhc_class"}}``, mirroring ``mhctools.BasePredictor.kind_support()``
+        per configured model. ``mhc_dependence`` is one of ``"none"``,
+        ``"single_allele"``, ``"haplotype"``; ``mhc_class`` is one of
+        ``"none"``, ``"I"``, ``"II"``, ``"both"``. Properties are
+        per-(model, kind), not per-kind alone — e.g. MHCflurry reports
+        ``pMHC_presentation`` as ``single_allele`` or ``haplotype`` depending
+        on its configured ``presentation_allele_mode``.
+        """
+        return {
+            key: dict(model.kind_support())
+            for key, model in zip(self._model_keys, self.models)
+        }
+
+    @property
+    def supported_kinds(self):
+        """Tuple of unique prediction kinds emitted across configured models."""
+        seen = []
+        seen_set = set()
+        for model in self.models:
+            for kind in model.supported_kinds:
+                if kind not in seen_set:
+                    seen_set.add(kind)
+                    seen.append(kind)
+        return tuple(seen)
+
     # ------------------------------------------------------------------
     # Prediction entry-points
     # ------------------------------------------------------------------
