@@ -547,6 +547,99 @@ class Column(DSLNode):
         return f"Column({self.col_name!r})"
 
 
+def _filter_kind_method_version(ctx, kind, method, version):
+    """Filter ``ctx.df`` to rows of a given kind/method/version.
+
+    Returns the filtered sub-DataFrame, or ``None`` if no rows survived
+    (callers should fall back to an empty Series). Raises on
+    method-not-found, version-not-found, or unresolvable method
+    ambiguity. Centralizes the filter logic shared between
+    :class:`Field` and :class:`BestAlleleField`.
+    """
+    df = ctx.df
+    if df.empty or "kind" not in df.columns:
+        return None
+
+    kind_val = _kind_value(kind)
+    sub = df[df["kind"] == kind_val]
+    if sub.empty:
+        return None
+
+    # Method binding: explicit method wins; else Comparison auto-agg
+    # may have set ctx._method_override for our kind.
+    effective_method = method
+    if effective_method is None:
+        override = ctx._method_override
+        if override is not None and override[0] == kind_val:
+            effective_method = override[1]
+
+    # Filter by method substring (case-insensitive)
+    if effective_method is not None:
+        col = "prediction_method_name"
+        if col in sub.columns:
+            method_lower = effective_method.lower()
+            method_mask = sub[col].str.lower().str.contains(
+                method_lower, na=False, regex=False
+            )
+            matched = sub[method_mask]
+            if matched.empty:
+                available = sorted(sub[col].dropna().unique())
+                raise _method_not_found_error(
+                    _kind_name(kind), effective_method, available
+                )
+            sub = matched
+
+    # Filter by exact version string
+    if version is not None:
+        col = "predictor_version"
+        if col in sub.columns:
+            version_mask = sub[col].astype(str) == str(version)
+            matched = sub[version_mask]
+            if matched.empty:
+                available = sorted(sub[col].dropna().astype(str).unique())
+                raise ValueError(
+                    f"No {_kind_name(kind)} predictions from "
+                    f"predictor_version {version!r}. "
+                    f"Available: {available}"
+                )
+            sub = matched
+
+    # Ambiguity: unqualified access with multiple methods in any group
+    if effective_method is None and "prediction_method_name" in sub.columns:
+        methods_per_group = sub.groupby(
+            ctx.group_keys, sort=False
+        )["prediction_method_name"].nunique()
+        if (methods_per_group > 1).any():
+            default = ctx.default_methods.get(_kind_value(kind))
+            if default is not None:
+                col = "prediction_method_name"
+                default_lower = default.lower()
+                method_mask = sub[col].str.lower().str.contains(
+                    default_lower, na=False, regex=False
+                )
+                matched = sub[method_mask]
+                if matched.empty:
+                    available = sorted(sub[col].dropna().unique())
+                    raise _method_not_found_error(
+                        _kind_name(kind), default, available
+                    )
+                sub = matched
+            else:
+                method_list = ", ".join(
+                    sorted(sub["prediction_method_name"].dropna().unique())
+                )
+                raise ValueError(
+                    f"Ambiguous: multiple models produce "
+                    f"{_kind_name(kind)} ({method_list}). "
+                    f"Use {_kind_short_name(kind)}['modelname'] "
+                    f"to disambiguate, or pass "
+                    f"default_methods={{{_kind_value(kind)!r}: "
+                    f"'modelname'}} to EvalContext."
+                )
+
+    return sub
+
+
 class Field(DSLNode):
     """Reference to a column of a specific prediction kind.
 
@@ -579,89 +672,11 @@ class Field(DSLNode):
         self.scope = scope
 
     def eval(self, ctx: EvalContext) -> pd.Series:
-        df = ctx.df
-        if df.empty or "kind" not in df.columns:
+        sub = _filter_kind_method_version(
+            ctx, self.kind, self.method, self.version,
+        )
+        if sub is None:
             return ctx.empty_series()
-
-        kind_val = _kind_value(self.kind)
-        sub = df[df["kind"] == kind_val]
-        if sub.empty:
-            return ctx.empty_series()
-
-        # Method binding: explicit self.method wins; else Comparison
-        # auto-agg may have set ctx._method_override for our kind.
-        effective_method = self.method
-        if effective_method is None:
-            override = ctx._method_override
-            if override is not None and override[0] == kind_val:
-                effective_method = override[1]
-
-        # Filter by method substring (case-insensitive)
-        if effective_method is not None:
-            col = "prediction_method_name"
-            if col in sub.columns:
-                method_lower = effective_method.lower()
-                method_mask = sub[col].str.lower().str.contains(
-                    method_lower, na=False, regex=False
-                )
-                matched = sub[method_mask]
-                if matched.empty:
-                    available = sorted(sub[col].dropna().unique())
-                    raise _method_not_found_error(
-                        _kind_name(self.kind), effective_method, available
-                    )
-                sub = matched
-
-        # Filter by exact version string
-        if self.version is not None:
-            col = "predictor_version"
-            if col in sub.columns:
-                version_mask = sub[col].astype(str) == str(self.version)
-                matched = sub[version_mask]
-                if matched.empty:
-                    available = sorted(sub[col].dropna().astype(str).unique())
-                    raise ValueError(
-                        f"No {_kind_name(self.kind)} predictions from "
-                        f"predictor_version {self.version!r}. "
-                        f"Available: {available}"
-                    )
-                sub = matched
-
-        # Ambiguity: unqualified access with multiple methods in any group
-        if (
-            effective_method is None
-            and "prediction_method_name" in sub.columns
-        ):
-            methods_per_group = sub.groupby(
-                ctx.group_keys, sort=False
-            )["prediction_method_name"].nunique()
-            if (methods_per_group > 1).any():
-                default = ctx.default_methods.get(_kind_value(self.kind))
-                if default is not None:
-                    col = "prediction_method_name"
-                    default_lower = default.lower()
-                    method_mask = sub[col].str.lower().str.contains(
-                        default_lower, na=False, regex=False
-                    )
-                    matched = sub[method_mask]
-                    if matched.empty:
-                        available = sorted(sub[col].dropna().unique())
-                        raise _method_not_found_error(
-                            _kind_name(self.kind), default, available
-                        )
-                    sub = matched
-                else:
-                    method_list = ", ".join(
-                        sorted(sub["prediction_method_name"].dropna().unique())
-                    )
-                    raise ValueError(
-                        f"Ambiguous: multiple models produce "
-                        f"{_kind_name(self.kind)} ({method_list}). "
-                        f"Use {_kind_short_name(self.kind)}['modelname'] "
-                        f"to disambiguate, or pass "
-                        f"default_methods={{{_kind_value(self.kind)!r}: "
-                        f"'modelname'}} to EvalContext."
-                    )
 
         col_name = self.scope + self.field
         if col_name not in sub.columns:
@@ -698,6 +713,152 @@ class Field(DSLNode):
         return f"Field({', '.join(parts)})"
 
     # (Scoped fields cannot appear in filters — guarded in Comparison.__init__)
+
+
+# Direction conventions: which way is "best" for a given field.
+# - score: higher is better (binding strength, presentation likelihood, ...)
+# - value: depends on the kind, but pMHC_affinity uses IC50 in nM where
+#   lower is better; we adopt min as the convention since it's the only
+#   kind today that populates ``value``.
+# - percentile_rank: 0 means best — min is better.
+_BEST_DIRECTIONS = {
+    "score": "max",
+    "value": "min",
+    "percentile_rank": "min",
+}
+
+
+class BestAlleleField(DSLNode):
+    """Per-peptide aggregation of a (kind, field) value across alleles.
+
+    For each peptide group (``ctx.group_keys`` minus ``allele``), picks
+    the row with the best value of ``field`` and broadcasts either that
+    value (``return_allele=False``) or the corresponding allele name
+    (``return_allele=True``) to every per-(peptide, allele) entry in
+    ``ctx.group_index``. Composes naturally with the rest of the DSL.
+
+    "Best" direction is taken from :data:`_BEST_DIRECTIONS` —
+    ``score`` is max, ``value``/``percentile_rank`` are min.
+
+    The intended use is haplotype-mode presentation predictors where
+    every (peptide, allele) row encodes the same multi-allele aggregate
+    plus that row's allele label — picking the best row recovers
+    ``(score, best_allele)`` per peptide. For predictors that produce
+    independent per-allele predictions, this still has a sensible
+    meaning ("which allele binds best"), but the result is
+    *not* the multi-allele aggregate the issue's #158 motivation
+    references — that distinction is up to the consumer to make using
+    ``predictor.kind_support()``.
+
+    Parameters mirror :class:`Field`. ``return_allele=True`` returns a
+    Series of allele-name strings (NaN for groups with no rows).
+    """
+
+    __slots__ = (
+        "kind", "field", "method", "version", "scope", "return_allele",
+    )
+
+    def __init__(self, kind, field: str, method: Optional[str] = None,
+                 version: Optional[str] = None, scope: str = "",
+                 return_allele: bool = False):
+        self.kind = kind
+        self.field = field
+        self.method = method
+        self.version = version
+        self.scope = scope
+        self.return_allele = return_allele
+
+    def eval(self, ctx: EvalContext) -> pd.Series:
+        sub = _filter_kind_method_version(
+            ctx, self.kind, self.method, self.version,
+        )
+        if sub is None:
+            return ctx.empty_series(fill=np.nan)
+
+        col_name = self.scope + self.field
+        if col_name not in sub.columns or "allele" not in sub.columns:
+            return ctx.empty_series(fill=np.nan)
+
+        peptide_keys = [k for k in ctx.group_keys if k != "allele"]
+        if not peptide_keys or "allele" not in ctx.group_keys:
+            # No allele dimension to aggregate over — degenerate to Field.
+            field_node = Field(
+                self.kind, self.field,
+                method=self.method, version=self.version, scope=self.scope,
+            )
+            base = field_node.eval(ctx)
+            if self.return_allele:
+                # Without an allele dimension there's no meaningful
+                # attribution; emit an empty/object Series so callers
+                # can detect the no-op rather than misinterpret floats.
+                return pd.Series(
+                    [np.nan] * len(base), index=base.index, dtype=object,
+                )
+            return base
+
+        sub = sub.copy()
+        sub[col_name] = pd.to_numeric(sub[col_name], errors="coerce")
+        valid = sub.dropna(subset=[col_name])
+        if valid.empty:
+            empty_dtype = object if self.return_allele else float
+            return pd.Series(
+                np.nan, index=ctx.group_index, dtype=empty_dtype,
+            )
+
+        direction = _BEST_DIRECTIONS.get(self.field, "max")
+        groups = valid.groupby(peptide_keys, sort=False)[col_name]
+        best_idx = groups.idxmax() if direction == "max" else groups.idxmin()
+        best_rows = valid.loc[best_idx]
+
+        target_col = "allele" if self.return_allele else col_name
+        per_peptide = (
+            best_rows.set_index(peptide_keys)[target_col]
+        )
+
+        # Broadcast back to ctx.group_index by joining on peptide_keys.
+        ctx_frame = ctx.group_index.to_frame(index=False)
+        merged = ctx_frame.merge(
+            per_peptide.rename("__best__").reset_index(),
+            on=peptide_keys, how="left",
+        )
+        result = pd.Series(merged["__best__"].values, index=ctx.group_index)
+        if self.return_allele:
+            return result.astype(object)
+        return pd.to_numeric(result, errors="coerce")
+
+    def __repr__(self):
+        kind_name = _kind_short_name(self.kind)
+        if self.return_allele:
+            field_label = f"best_{_field_short(self.field)}_allele"
+        else:
+            field_label = f"best_{_field_short(self.field)}"
+        if self.method is not None and self.version is not None:
+            accessor = f"{kind_name}[{self.method!r}, {self.version!r}]"
+        elif self.method is not None:
+            accessor = f"{kind_name}[{self.method!r}]"
+        else:
+            accessor = kind_name
+        scope_str = self.scope.rstrip("_") + "." if self.scope else ""
+        return f"{scope_str}{accessor}.{field_label}"
+
+    def to_ast_string(self):
+        parts = [
+            f"kind={_kind_short_name(self.kind)}",
+            f"field={self.field!r}",
+        ]
+        if self.method is not None:
+            parts.append(f"method={self.method!r}")
+        if self.version is not None:
+            parts.append(f"version={self.version!r}")
+        if self.scope:
+            parts.append(f"scope={self.scope!r}")
+        if self.return_allele:
+            parts.append("return_allele=True")
+        return f"BestAlleleField({', '.join(parts)})"
+
+
+def _field_short(field: str) -> str:
+    return "rank" if field == "percentile_rank" else field
 
 
 class Len(DSLNode):
@@ -1513,6 +1674,47 @@ class KindAccessor:
     def score(self) -> Field:
         return Field(self.kind, "score", method=self.method,
                      version=self.version, scope=self.scope)
+
+    # -- best-allele aggregation: max/min across alleles per peptide,
+    #    broadcast back to per-(peptide, allele) groups. Use these when
+    #    the underlying predictor reports `mhc_dependence='haplotype'`
+    #    (e.g. MHCflurry presentation in haplotype mode) so that one
+    #    "presented anywhere" answer applies regardless of which
+    #    allele's row a downstream node evaluates against.
+
+    @property
+    def best_value(self) -> "BestAlleleField":
+        return BestAlleleField(self.kind, "value", method=self.method,
+                               version=self.version, scope=self.scope)
+
+    @property
+    def best_score(self) -> "BestAlleleField":
+        return BestAlleleField(self.kind, "score", method=self.method,
+                               version=self.version, scope=self.scope)
+
+    @property
+    def best_rank(self) -> "BestAlleleField":
+        return BestAlleleField(self.kind, "percentile_rank",
+                               method=self.method, version=self.version,
+                               scope=self.scope)
+
+    @property
+    def best_value_allele(self) -> "BestAlleleField":
+        return BestAlleleField(self.kind, "value", method=self.method,
+                               version=self.version, scope=self.scope,
+                               return_allele=True)
+
+    @property
+    def best_score_allele(self) -> "BestAlleleField":
+        return BestAlleleField(self.kind, "score", method=self.method,
+                               version=self.version, scope=self.scope,
+                               return_allele=True)
+
+    @property
+    def best_rank_allele(self) -> "BestAlleleField":
+        return BestAlleleField(self.kind, "percentile_rank",
+                               method=self.method, version=self.version,
+                               scope=self.scope, return_allele=True)
 
     # -- delegations to .value so Affinity <= 500 and Affinity.norm(...) work --
 

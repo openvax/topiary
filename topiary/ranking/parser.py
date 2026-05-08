@@ -75,6 +75,19 @@ _KIND_ACCESSOR_ALIASES = {
     "el": Presentation,
 }
 
+# DSL field-access names that resolve to the BestAlleleField aggregators on
+# KindAccessor. Maps the DSL spelling → KindAccessor attribute name.
+_BEST_ALLELE_ACCESSOR_ALIASES = {
+    "best_value": "best_value",
+    "best_score": "best_score",
+    "best_rank": "best_rank",
+    "best_percentile": "best_rank",
+    "best_value_allele": "best_value_allele",
+    "best_score_allele": "best_score_allele",
+    "best_rank_allele": "best_rank_allele",
+    "best_percentile_allele": "best_rank_allele",
+}
+
 
 class _Tokenizer:
     """Tokenizer for the DSL."""
@@ -651,8 +664,16 @@ class _Parser:
                     return node.rank
                 if field_name == "score":
                     return node.score
+            best_attr = _BEST_ALLELE_ACCESSOR_ALIASES.get(name_lower)
+            if best_attr is not None:
+                return getattr(node, best_attr)
+            available = (
+                "value, rank, score, "
+                "best_value, best_score, best_rank, "
+                "best_value_allele, best_score_allele, best_rank_allele"
+            )
             raise ValueError(
-                f"Unknown field {name!r}. Available: value, rank, score"
+                f"Unknown field {name!r}. Available: {available}"
             )
         raise ValueError(f"Cannot access .{name} on {type(node).__name__}")
 
