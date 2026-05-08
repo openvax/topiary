@@ -323,6 +323,33 @@ class CachedPredictor:
             lengths.update(getattr(self.fallback, "default_peptide_lengths", []))
         return sorted(lengths)
 
+    def kind_support(self):
+        """MHC context for kinds present in the cache.
+
+        Mirrors ``mhctools.BasePredictor.kind_support()``. If a fallback is
+        configured and exposes ``kind_support``, its entries are preferred
+        for the kinds it shares with the cache (so haplotype-mode
+        presentation, etc., is reported faithfully). Kinds present only in
+        the cache default to ``single_allele`` / class I — the cache stores
+        rows per ``(peptide, allele, kind)``, so this is the most
+        conservative truthful description.
+        """
+        cached_kinds = sorted({str(k) for k in self._df["kind"].unique().tolist()})
+        fallback_support = {}
+        if self.fallback is not None and hasattr(self.fallback, "kind_support"):
+            fallback_support = dict(self.fallback.kind_support())
+        support = {}
+        for kind in cached_kinds:
+            if kind in fallback_support:
+                support[kind] = dict(fallback_support[kind])
+            else:
+                support[kind] = {"mhc_dependence": "single_allele", "mhc_class": "I"}
+        return support
+
+    @property
+    def supported_kinds(self):
+        return tuple(self.kind_support())
+
     def _cache_alleles(self):
         return sorted(set(self._df["allele"].unique().tolist()))
 
