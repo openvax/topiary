@@ -207,11 +207,13 @@ class EvalContext:
 
     __slots__ = (
         "df", "group_keys", "default_methods", "filter_context",
+        "kind_support",
         "_group_index", "_group_tuples_cache", "_method_override",
     )
 
     def __init__(
         self, df, group_keys=None, default_methods=None, filter_context=False,
+        kind_support=None,
     ):
         self.df = df
         self.group_keys = list(group_keys) if group_keys else _pick_group_keys(df)
@@ -219,6 +221,12 @@ class EvalContext:
             _normalize_default_methods(default_methods) if default_methods else {}
         )
         self.filter_context = filter_context
+        # mhctools >=3.13.7 per-(model, kind) metadata. Optional; when
+        # provided (typically from ``TopiaryPredictor.kind_support``),
+        # nodes that care about allele dependence (e.g.
+        # :class:`BestAlleleField`) can warn or branch on it. Shape:
+        # ``{model_key: {kind_value: {"mhc_dependence", "mhc_class"}}}``.
+        self.kind_support = kind_support
         self._group_index = None
         self._group_tuples_cache = None
         # Internal: when Comparison auto-aggregates across methods, it
@@ -715,17 +723,53 @@ class Field(DSLNode):
     # (Scoped fields cannot appear in filters — guarded in Comparison.__init__)
 
 
-# Direction conventions: which way is "best" for a given field.
-# - score: higher is better (binding strength, presentation likelihood, ...)
-# - value: depends on the kind, but pMHC_affinity uses IC50 in nM where
-#   lower is better; we adopt min as the convention since it's the only
-#   kind today that populates ``value``.
-# - percentile_rank: 0 means best — min is better.
-_BEST_DIRECTIONS = {
+# Direction conventions: which way is "best" for a given (kind, field).
+# - ``score``: higher is better, every kind (binding strength,
+#   presentation likelihood, immunogenicity, processing).
+# - ``percentile_rank``: 0 means best — min is better, every kind.
+# - ``value``: kind-dependent — pMHC_affinity uses IC50 nM (lower
+#   better); pMHC_stability would use half-life in hours (higher
+#   better). Required entry per kind.
+_BEST_FIELD_DIRECTIONS = {
     "score": "max",
-    "value": "min",
     "percentile_rank": "min",
 }
+
+_BEST_VALUE_DIRECTIONS = {
+    "pMHC_affinity": "min",   # IC50 nM
+    "pMHC_stability": "max",  # half-life
+}
+
+
+def _field_short(field: str) -> str:
+    return "rank" if field == "percentile_rank" else field
+
+
+def _best_direction(kind, field):
+    """Return ``"max"`` or ``"min"`` for a (kind, field) pair.
+
+    Raises ``ValueError`` for ``field='value'`` on a kind without a
+    registered direction — `value` semantics are kind-dependent and we
+    refuse to guess. New `value`-bearing kinds need an entry in
+    :data:`_BEST_VALUE_DIRECTIONS`.
+    """
+    direction = _BEST_FIELD_DIRECTIONS.get(field)
+    if direction is not None:
+        return direction
+    if field == "value":
+        kind_name = _kind_name(kind)
+        if kind_name not in _BEST_VALUE_DIRECTIONS:
+            raise ValueError(
+                f"best_value direction is undefined for kind "
+                f"{kind_name!r} — `value` semantics depend on the kind "
+                f"(IC50 vs half-life vs ...). Add an entry to "
+                f"topiary.ranking.nodes._BEST_VALUE_DIRECTIONS."
+            )
+        return _BEST_VALUE_DIRECTIONS[kind_name]
+    raise ValueError(
+        f"No best-direction defined for field {field!r}. "
+        f"Known: {sorted(_BEST_FIELD_DIRECTIONS) + ['value']}."
+    )
 
 
 class BestAlleleField(DSLNode):
@@ -737,18 +781,25 @@ class BestAlleleField(DSLNode):
     (``return_allele=True``) to every per-(peptide, allele) entry in
     ``ctx.group_index``. Composes naturally with the rest of the DSL.
 
-    "Best" direction is taken from :data:`_BEST_DIRECTIONS` —
-    ``score`` is max, ``value``/``percentile_rank`` are min.
+    Direction is taken from :func:`_best_direction`: ``score`` is max,
+    ``percentile_rank`` is min, ``value`` is per-kind (IC50 → min,
+    half-life → max).
 
-    The intended use is haplotype-mode presentation predictors where
-    every (peptide, allele) row encodes the same multi-allele aggregate
-    plus that row's allele label — picking the best row recovers
-    ``(score, best_allele)`` per peptide. For predictors that produce
-    independent per-allele predictions, this still has a sensible
-    meaning ("which allele binds best"), but the result is
-    *not* the multi-allele aggregate the issue's #158 motivation
-    references — that distinction is up to the consumer to make using
-    ``predictor.kind_support()``.
+    **Semantics depend on the upstream predictor's allele mode.** With
+    mhctools >=3.13.7 these are reported via ``predictor.kind_support()``:
+
+    - ``mhc_dependence='haplotype'`` (e.g. MHCflurry presentation in
+      haplotype mode): mhctools already emits one row per peptide, with
+      ``allele`` set to MHCflurry's deconvolved best_allele. This
+      aggregator is a no-op — it picks that single row and broadcasts.
+    - ``mhc_dependence='single_allele'`` (e.g. NetMHCpan, MHCflurry in
+      per-allele mode): rows are per-(peptide, allele) with independent
+      scores. This aggregator returns the best per-allele score, **not**
+      a true joint multi-allele aggregate — the predictor never saw the
+      alleles together. Pass the topiary predictor's ``kind_support``
+      to :class:`EvalContext` and a UserWarning fires to flag this.
+    - ``mhc_dependence='none'`` (processing kinds): allele isn't part of
+      the model — using ``best_*`` is meaningless.
 
     Parameters mirror :class:`Field`. ``return_allele=True`` returns a
     Series of allele-name strings (NaN for groups with no rows).
@@ -768,60 +819,95 @@ class BestAlleleField(DSLNode):
         self.scope = scope
         self.return_allele = return_allele
 
+    def _empty_result(self, ctx):
+        if self.return_allele:
+            return pd.Series(np.nan, index=ctx.group_index, dtype=object)
+        return ctx.empty_series(fill=np.nan)
+
+    def _maybe_warn_dependence(self, ctx):
+        """Warn if any matching (model, kind) reports
+        ``mhc_dependence='single_allele'``: the result is the best
+        per-allele score, not a true joint multi-allele aggregate."""
+        kind_support = getattr(ctx, "kind_support", None)
+        if not kind_support:
+            return
+        kind_val = _kind_value(self.kind)
+        method_filter = self.method.lower() if self.method else None
+        for model_key, kind_map in kind_support.items():
+            if kind_val not in kind_map:
+                continue
+            if method_filter and method_filter not in str(model_key).lower():
+                continue
+            dep = kind_map[kind_val].get("mhc_dependence")
+            if dep == "single_allele":
+                import warnings
+                warnings.warn(
+                    f"best_{_field_short(self.field)}"
+                    f"{'_allele' if self.return_allele else ''} on "
+                    f"({_kind_short_name(self.kind)}, model={model_key!r}) "
+                    f"where mhc_dependence='single_allele': returns the "
+                    f"best per-allele score, not a joint multi-allele "
+                    f"aggregate. Use a haplotype-mode predictor (e.g. "
+                    f"MHCflurry presentation in haplotype mode) for a "
+                    f"true joint aggregate.",
+                    UserWarning, stacklevel=3,
+                )
+                return  # one warning per eval is enough
+
     def eval(self, ctx: EvalContext) -> pd.Series:
+        # Validate (kind, field) direction up front: an undefined
+        # combination is a structural error and should fail loudly even
+        # when the frame happens to lack matching rows.
+        direction = _best_direction(self.kind, self.field)
+        self._maybe_warn_dependence(ctx)
+
         sub = _filter_kind_method_version(
             ctx, self.kind, self.method, self.version,
         )
         if sub is None:
-            return ctx.empty_series(fill=np.nan)
+            return self._empty_result(ctx)
 
         col_name = self.scope + self.field
         if col_name not in sub.columns or "allele" not in sub.columns:
-            return ctx.empty_series(fill=np.nan)
+            return self._empty_result(ctx)
 
         peptide_keys = [k for k in ctx.group_keys if k != "allele"]
-        if not peptide_keys or "allele" not in ctx.group_keys:
-            # No allele dimension to aggregate over — degenerate to Field.
-            field_node = Field(
+        if "allele" not in ctx.group_keys or not peptide_keys:
+            # No allele dimension to aggregate over. For the value form,
+            # degenerate to Field. For the allele form, no meaningful
+            # attribution — emit an object NaN Series so callers can
+            # detect the no-op rather than misinterpret floats.
+            if self.return_allele:
+                return pd.Series(np.nan, index=ctx.group_index, dtype=object)
+            return Field(
                 self.kind, self.field,
                 method=self.method, version=self.version, scope=self.scope,
-            )
-            base = field_node.eval(ctx)
-            if self.return_allele:
-                # Without an allele dimension there's no meaningful
-                # attribution; emit an empty/object Series so callers
-                # can detect the no-op rather than misinterpret floats.
-                return pd.Series(
-                    [np.nan] * len(base), index=base.index, dtype=object,
-                )
-            return base
+            ).eval(ctx)
 
-        sub = sub.copy()
-        sub[col_name] = pd.to_numeric(sub[col_name], errors="coerce")
-        valid = sub.dropna(subset=[col_name])
-        if valid.empty:
-            empty_dtype = object if self.return_allele else float
-            return pd.Series(
-                np.nan, index=ctx.group_index, dtype=empty_dtype,
-            )
+        # Coerce values to numeric and drop unrankable rows. Avoid
+        # ``sub.copy()`` — work with index masks against the filter's
+        # output (which is already a fresh slice).
+        numeric = pd.to_numeric(sub[col_name], errors="coerce")
+        valid_mask = numeric.notna()
+        if not valid_mask.any():
+            return self._empty_result(ctx)
+        valid = sub.loc[valid_mask, [*peptide_keys, "allele"]].assign(
+            __best_value=numeric[valid_mask],
+        )
 
-        direction = _BEST_DIRECTIONS.get(self.field, "max")
-        groups = valid.groupby(peptide_keys, sort=False)[col_name]
+        groups = valid.groupby(peptide_keys, sort=False)["__best_value"]
         best_idx = groups.idxmax() if direction == "max" else groups.idxmin()
-        best_rows = valid.loc[best_idx]
 
-        target_col = "allele" if self.return_allele else col_name
-        per_peptide = (
-            best_rows.set_index(peptide_keys)[target_col]
-        )
+        target = "allele" if self.return_allele else "__best_value"
+        per_peptide = valid.loc[best_idx].set_index(peptide_keys)[target]
 
-        # Broadcast back to ctx.group_index by joining on peptide_keys.
-        ctx_frame = ctx.group_index.to_frame(index=False)
-        merged = ctx_frame.merge(
-            per_peptide.rename("__best__").reset_index(),
-            on=peptide_keys, how="left",
-        )
-        result = pd.Series(merged["__best__"].values, index=ctx.group_index)
+        # Broadcast: ctx.group_index has [peptide_keys..., allele].
+        # Dropping the ``allele`` level yields an index aligned with
+        # ``per_peptide``; reindex maps each entry to its per-peptide
+        # value/allele, and we re-attach the full multi-index.
+        peptide_index = ctx.group_index.droplevel("allele")
+        aligned = per_peptide.reindex(peptide_index)
+        result = pd.Series(aligned.to_numpy(), index=ctx.group_index)
         if self.return_allele:
             return result.astype(object)
         return pd.to_numeric(result, errors="coerce")
@@ -855,10 +941,6 @@ class BestAlleleField(DSLNode):
         if self.return_allele:
             parts.append("return_allele=True")
         return f"BestAlleleField({', '.join(parts)})"
-
-
-def _field_short(field: str) -> str:
-    return "rank" if field == "percentile_rank" else field
 
 
 class Len(DSLNode):

@@ -223,3 +223,194 @@ class TestComposes:
         result = node.eval(ctx)
         # SIINFEKLA's max is 0.70 (>=0.5), YLLPRRGPRL's is 0.85 (>=0.5)
         assert result.all()
+
+
+class TestKindDirectionTable:
+    """`_best_direction(kind, field)` is per-(kind, field) — `value`
+    direction depends on the kind (IC50 vs half-life)."""
+
+    def test_value_undefined_for_presentation_raises(self, presentation_df):
+        # presentation rows don't populate `value`, but more importantly:
+        # value direction is kind-dependent and not registered for
+        # pMHC_presentation. Asking for best_value should raise loudly.
+        ctx = EvalContext(presentation_df)
+        with pytest.raises(ValueError, match="best_value direction is undefined"):
+            Presentation["mhcflurry"].best_value.eval(ctx)
+
+    def test_affinity_best_value_is_min(self):
+        df = pd.DataFrame([
+            _row("PEP", "HLA-A*02:01", value=120.0,
+                 kind="pMHC_affinity", method="netmhcpan"),
+            _row("PEP", "HLA-B*07:02", value=850.0,
+                 kind="pMHC_affinity", method="netmhcpan"),
+        ])
+        ctx = EvalContext(df)
+        assert Affinity["netmhcpan"].best_value.eval(ctx).iloc[0] == 120.0
+
+    def test_score_max_works_for_any_kind(self):
+        # processing kinds populate `score`, no `value`; best_score is
+        # well-defined (max) regardless of kind
+        df = pd.DataFrame([
+            _row("PEP", "HLA-A*02:01", score=0.6,
+                 kind="proteasome_cleavage", method="pepsickle"),
+            _row("PEP", "HLA-B*07:02", score=0.9,
+                 kind="proteasome_cleavage", method="pepsickle"),
+        ])
+        ctx = EvalContext(df)
+        from topiary.ranking import Processing
+        from topiary.ranking.nodes import BestAlleleField
+        # Processing's kind is antigen_processing, not proteasome_cleavage;
+        # build the node directly to test the direction logic.
+        node = BestAlleleField(
+            "proteasome_cleavage", "score", method="pepsickle",
+        )
+        assert node.eval(ctx).iloc[0] == 0.9
+
+
+class TestKindSupportWarning:
+    """When ``ctx.kind_support`` reports ``mhc_dependence='single_allele'``
+    for the matched (model, kind), ``best_*`` warns that the result is
+    the best per-allele score, not a true joint multi-allele aggregate."""
+
+    def test_warns_for_single_allele_predictor(self, presentation_df):
+        ctx = EvalContext(
+            presentation_df,
+            kind_support={
+                "mhcflurry": {
+                    "pMHC_presentation": {
+                        "mhc_dependence": "single_allele",
+                        "mhc_class": "I",
+                    }
+                }
+            },
+        )
+        with pytest.warns(UserWarning, match="single_allele"):
+            Presentation["mhcflurry"].best_score.eval(ctx)
+
+    def test_no_warning_for_haplotype_predictor(self, presentation_df):
+        ctx = EvalContext(
+            presentation_df,
+            kind_support={
+                "mhcflurry": {
+                    "pMHC_presentation": {
+                        "mhc_dependence": "haplotype",
+                        "mhc_class": "I",
+                    }
+                }
+            },
+        )
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("error", UserWarning)
+            # Should not raise — no warning emitted
+            Presentation["mhcflurry"].best_score.eval(ctx)
+
+    def test_no_warning_when_kind_support_absent(self, presentation_df):
+        ctx = EvalContext(presentation_df)  # no kind_support
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("error", UserWarning)
+            Presentation["mhcflurry"].best_score.eval(ctx)
+
+    def test_warning_filter_uses_method_substring(self, presentation_df):
+        # kind_support has both a haplotype and a single_allele model;
+        # asking specifically for the haplotype one should not warn.
+        ctx = EvalContext(
+            presentation_df,
+            kind_support={
+                "mhcflurry": {
+                    "pMHC_presentation": {
+                        "mhc_dependence": "haplotype",
+                        "mhc_class": "I",
+                    }
+                },
+                "netmhcpan": {
+                    "pMHC_presentation": {
+                        "mhc_dependence": "single_allele",
+                        "mhc_class": "I",
+                    }
+                },
+            },
+        )
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("error", UserWarning)
+            Presentation["mhcflurry"].best_score.eval(ctx)
+
+
+class TestBroadcastCorrectness:
+    """The broadcast must align values to ctx.group_index by peptide_keys
+    even when the group_index is permuted relative to the input rows.
+    Catches any positional-merge regression."""
+
+    def test_broadcast_ignores_input_row_order(self):
+        # Input rows in (B, A, A, B) order; group_index will be in
+        # (A, B, A, B) order per peptide because dedup preserves order.
+        df = pd.DataFrame([
+            _row("PEP1", "HLA-B*07:02", score=0.30),
+            _row("PEP1", "HLA-A*02:01", score=0.70),
+            _row("PEP2", "HLA-A*02:01", score=0.40, peptide_offset=5),
+            _row("PEP2", "HLA-B*07:02", score=0.85, peptide_offset=5),
+        ])
+        ctx = EvalContext(df)
+        scores = Presentation["mhcflurry"].best_score.eval(ctx)
+        alleles = Presentation["mhcflurry"].best_score_allele.eval(ctx)
+        # PEP1 max is 0.70 on HLA-A*02:01; both rows for PEP1 should see it
+        for allele in ("HLA-A*02:01", "HLA-B*07:02"):
+            assert scores.loc[("p1", "PEP1", 0, allele)] == 0.70
+            assert alleles.loc[("p1", "PEP1", 0, allele)] == "HLA-A*02:01"
+        # PEP2 max is 0.85 on HLA-B*07:02
+        for allele in ("HLA-A*02:01", "HLA-B*07:02"):
+            assert scores.loc[("p1", "PEP2", 5, allele)] == 0.85
+            assert alleles.loc[("p1", "PEP2", 5, allele)] == "HLA-B*07:02"
+
+    def test_tie_picks_first_input_row_deterministically(self):
+        # Two alleles tie on score; idxmax returns the first row index.
+        df = pd.DataFrame([
+            _row("PEP", "HLA-A*02:01", score=0.5),
+            _row("PEP", "HLA-B*07:02", score=0.5),
+        ])
+        ctx = EvalContext(df)
+        attribution = Presentation["mhcflurry"].best_score_allele.eval(ctx)
+        # Locks in the deterministic-first behavior — change with intent
+        assert attribution.loc[("p1", "PEP", 0, "HLA-A*02:01")] == "HLA-A*02:01"
+
+
+class TestApplyFilterIntegration:
+    """The vaxrank use case (#158): filter peptides by 'presented anywhere'
+    via ``apply_filter`` with a best_score threshold."""
+
+    def test_apply_filter_keeps_peptides_with_high_best_score(self):
+        from topiary import apply_filter
+        df = pd.DataFrame([
+            _row("KEEP1", "HLA-A*02:01", score=0.10),  # weak per-allele,
+            _row("KEEP1", "HLA-B*07:02", score=0.85),  # strong on B → keep both
+            _row("DROP1", "HLA-A*02:01", score=0.10, peptide_offset=5),
+            _row("DROP1", "HLA-B*07:02", score=0.20, peptide_offset=5),
+        ])
+        result = apply_filter(df, Presentation["mhcflurry"].best_score >= 0.5)
+        kept_peptides = set(result["peptide"])
+        assert kept_peptides == {"KEEP1"}
+        # both alleles for KEEP1 survive (broadcast keeps the per-peptide group)
+        assert len(result) == 2
+
+    def test_apply_filter_forwards_kind_support_warning(self):
+        from topiary import apply_filter
+        df = pd.DataFrame([
+            _row("PEP", "HLA-A*02:01", score=0.7),
+            _row("PEP", "HLA-B*07:02", score=0.3),
+        ])
+        kind_support = {
+            "mhcflurry": {
+                "pMHC_presentation": {
+                    "mhc_dependence": "single_allele",
+                    "mhc_class": "I",
+                }
+            }
+        }
+        with pytest.warns(UserWarning, match="single_allele"):
+            apply_filter(
+                df,
+                Presentation["mhcflurry"].best_score >= 0.5,
+                kind_support=kind_support,
+            )
