@@ -41,7 +41,7 @@ from .nodes import (
     Stability,
     _CONTEXT_KEYWORDS,
     _FIELD_ALIASES,
-    _KIND_ALIASES,
+    KIND_ALIASES,
     _combine_bool,
     _resolve_qualified_kind,
     geomean,
@@ -683,7 +683,7 @@ class _Parser:
             return False
 
     def _prediction_kind_for_name(self, name):
-        return _KIND_ALIASES.get(name.strip().lower())
+        return KIND_ALIASES.get(name.strip().lower())
 
 
 def parse(text: str) -> DSLNode:

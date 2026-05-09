@@ -11,7 +11,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from .ranking import _iter_known_kinds, _kind_name, _kind_short_name, _KIND_ALIASES
+from .ranking import _iter_known_kinds, _kind_name, _kind_short_name, KIND_ALIASES
 
 # Columns that are prediction-specific and get pivoted in wide form.
 PREDICTION_COLUMNS = frozenset({
@@ -44,7 +44,7 @@ def _known_kind_short_names():
 
 def _kind_short_to_canonical(short_name):
     """Map a short kind name back to the canonical mhctools kind name string."""
-    kind = _KIND_ALIASES.get(short_name)
+    kind = KIND_ALIASES.get(short_name)
     if kind is None:
         return short_name
     return _kind_name(kind)
