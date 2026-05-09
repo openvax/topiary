@@ -1590,9 +1590,9 @@ class Scope:
         if attr == "len":
             return Len(scope=self.prefix)
         attr_lower = attr.lower()
-        if attr_lower in _KIND_ALIASES:
-            return KindAccessor(_KIND_ALIASES[attr_lower], scope=self.prefix)
-        available = sorted(_KIND_ALIASES.keys())
+        if attr_lower in KIND_ALIASES:
+            return KindAccessor(KIND_ALIASES[attr_lower], scope=self.prefix)
+        available = sorted(KIND_ALIASES.keys())
         raise AttributeError(
             f"Unknown kind {attr!r} in scope {self.name!r}. "
             f"Available: {available}"
@@ -1622,7 +1622,12 @@ self_nearest = Scope("self_nearest")
 # Kind / field name resolution — used by both the parser and callers
 # =============================================================================
 
-_KIND_ALIASES = _build_kind_aliases()
+KIND_ALIASES = _build_kind_aliases()
+"""Public mapping of every accepted kind spelling (canonical, short
+name, common abbreviations like ``"ba"``/``"el"``) to the
+``mhctools.Kind`` constant. Stable across topiary minor releases —
+external consumers (e.g. vaxrank) can rely on this name.
+"""
 
 _FIELD_ALIASES = {
     "value": "value", "val": "value", "ic50": "value",
@@ -1634,9 +1639,9 @@ _FIELD_ALIASES = {
 
 def _resolve_kind(name):
     key = name.strip().lower()
-    if key in _KIND_ALIASES:
-        return _KIND_ALIASES[key]
-    available = sorted(_KIND_ALIASES.keys())
+    if key in KIND_ALIASES:
+        return KIND_ALIASES[key]
+    available = sorted(KIND_ALIASES.keys())
     close = get_close_matches(key, available, n=3, cutoff=0.6)
     msg = f"Unknown prediction kind {name!r}."
     if close:
@@ -1649,15 +1654,15 @@ def _resolve_kind(name):
 def _resolve_qualified_kind(name):
     """Resolve ``tool_kind`` or plain ``kind`` to ``(Kind, method|None)``."""
     key = name.strip().lower()
-    if key in _KIND_ALIASES:
-        return _KIND_ALIASES[key], None
+    if key in KIND_ALIASES:
+        return KIND_ALIASES[key], None
     parts = key.split("_")
     for i in range(1, len(parts)):
         tool = "_".join(parts[:i])
         kind_str = "_".join(parts[i:])
-        if kind_str in _KIND_ALIASES:
-            return _KIND_ALIASES[kind_str], tool
-    available = sorted(_KIND_ALIASES.keys())
+        if kind_str in KIND_ALIASES:
+            return KIND_ALIASES[kind_str], tool
+    available = sorted(KIND_ALIASES.keys())
     close = get_close_matches(key, available, n=3, cutoff=0.6)
     msg = f"Unknown prediction kind {name!r}. Use 'kind' or 'tool_kind' format."
     if close:

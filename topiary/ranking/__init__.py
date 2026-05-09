@@ -41,7 +41,7 @@ from .nodes import (
     _GROUP_KEYS,
     _GROUP_KEYS_VARIANT,
     _iter_known_kinds,
-    _KIND_ALIASES,
+    KIND_ALIASES,
     _kind_matches,
     _kind_name,
     _kind_short_name,
@@ -105,4 +105,6 @@ __all__ = [
     "apply_sort",
     "evaluate_scores",
     "parse",
+    # Kind / field name resolution (public)
+    "KIND_ALIASES",
 ]
