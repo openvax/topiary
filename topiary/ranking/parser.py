@@ -36,6 +36,7 @@ from .nodes import (
     DSLNode,
     KindAccessor,
     Len,
+    PeptideProperty,
     Presentation,
     Processing,
     Stability,
@@ -50,6 +51,7 @@ from .nodes import (
     median,
     minimum,
 )
+from ..properties import _PROPERTIES
 
 _AGGREGATION_FUNCS = {
     "mean": mean,
@@ -437,6 +439,10 @@ class _Parser:
                 return Column(col_tok[1])
             if self._is_kind_name(name):
                 return self._kind_accessor()
+            if name in _PROPERTIES:
+                self.tokenizer.advance()
+                compute_fn, _ = _PROPERTIES[name]
+                return PeptideProperty(name, compute_fn)
             self.tokenizer.advance()
             return Column(tok[1])
         raise ValueError(f"Unexpected token {tok!r} in expression {self.text!r}")
@@ -476,6 +482,10 @@ class _Parser:
             chars_tok = self.tokenizer.expect("STRING")
             self.tokenizer.expect("RPAREN")
             return Count(chars_tok[1], scope=scope)
+        if name in _PROPERTIES:
+            self.tokenizer.advance()
+            compute_fn, _ = _PROPERTIES[name]
+            return PeptideProperty(name, compute_fn, scope=scope)
         return self._kind_accessor(scope=scope)
 
     def _kind_accessor(self, scope=""):

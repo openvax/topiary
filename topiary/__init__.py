@@ -19,6 +19,7 @@ from .ranking import (
     LogisticExpr,
     LogisticNormalizedExpr,
     NormExpr,
+    PeptideProperty,
     Presentation,
     Processing,
     Scope,
@@ -38,6 +39,14 @@ from .ranking import (
     shuffled,
     wt,
 )
+from .properties import (
+    Aromaticity,
+    Charge,
+    Hydrophobicity,
+    MolecularWeight,
+    add_peptide_properties,
+    available_properties,
+)
 from .sequence_helpers import (
     check_padding_around_mutation,
     peptide_mutation_interval,
@@ -53,7 +62,7 @@ from .io_lens import detect_lens_version, read_lens
 from .result import TopiaryResult, concat
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.13.0"
+__version__ = "5.14.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -78,6 +87,13 @@ __all__ = [
     "LogisticExpr",
     "LogisticNormalizedExpr",
     "NormExpr",
+    "PeptideProperty",
+    "Aromaticity",
+    "Charge",
+    "Hydrophobicity",
+    "MolecularWeight",
+    "add_peptide_properties",
+    "available_properties",
     "Presentation",
     "Processing",
     "Scope",

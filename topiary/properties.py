@@ -1,24 +1,37 @@
+"""Peptide-intrinsic amino-acid properties — charge, hydrophobicity,
+aromaticity, mass, and a handful of manufacturability /
+immunogenicity heuristics. Every property is a pure function of the
+peptide string and is implemented with vectorized pandas ops, so
+there are no external dependencies.
+
+Two entry points:
+
+* :func:`add_peptide_properties` writes property values as new
+  columns on a predictions DataFrame.
+* The module-level :class:`~topiary.ranking.PeptideProperty`
+  singletons (``Charge``, ``Aromaticity``, ``Hydrophobicity``,
+  ``MolecularWeight``, …) are DSL nodes — drop them into ranking
+  expressions alongside :class:`~topiary.Affinity` /
+  :class:`~topiary.Presentation` fields::
+
+      from topiary import Affinity, Presentation
+      from topiary.properties import Aromaticity, Charge
+
+      score = (
+          0.5 * (1 - Affinity.value.norm(mean=500, std=200))
+          + 0.3 * Presentation.score.norm(mean=0.5, std=0.3)
+          + 0.1 * Aromaticity.clip(lo=0, hi=3)
+          - 0.1 * abs(Charge)
+      )
+
+The DSL nodes always recompute from the ``peptide`` column. They do
+not read columns previously written by
+:func:`add_peptide_properties` — if performance matters and you've
+already materialized them, reference the columns directly through
+:class:`~topiary.Column`.
 """
-Peptide amino acid properties for ranking and analysis.
 
-Computes properties directly from the peptide sequence column using
-vectorized pandas string operations. All properties are pure functions
-of the amino acid sequence — no external dependencies.
-
-Usage::
-
-    from topiary.properties import add_peptide_properties
-
-    df = predictor.predict_from_named_sequences(seqs)
-    df = add_peptide_properties(df)                             # all properties
-    df = add_peptide_properties(df, groups=["core"])            # named group
-    df = add_peptide_properties(df, include=["charge", "cysteine_count"])
-
-Then use in ranking via :class:`~topiary.ranking.Column`::
-
-    from topiary.ranking import Column, Affinity
-    score = 0.5 * Affinity.score - 0.2 * Column("cysteine_count")
-"""
+from .ranking.nodes import PeptideProperty
 
 
 
@@ -323,3 +336,31 @@ def add_peptide_properties(
         df[prefix + name] = compute_fn(peptides)
 
     return df
+
+
+# ---------------------------------------------------------------------------
+# DSL singletons — one per registered property. Pulling the compute fn
+# from _PROPERTIES (rather than passing it explicitly) keeps singletons
+# in lockstep with the registry: rename a key here and the singleton
+# fails loudly at import time instead of silently using a stale fn.
+# ---------------------------------------------------------------------------
+
+
+def _singleton(name):
+    return PeptideProperty(name, _PROPERTIES[name][0])
+
+
+Charge = _singleton("charge")
+Hydrophobicity = _singleton("hydrophobicity")
+Aromaticity = _singleton("aromaticity")
+MolecularWeight = _singleton("molecular_weight")
+CysteineCount = _singleton("cysteine_count")
+InstabilityIndex = _singleton("instability_index")
+Max7merHydrophobicity = _singleton("max_7mer_hydrophobicity")
+Cterm7merHydrophobicity = _singleton("cterm_7mer_hydrophobicity")
+DifficultNterm = _singleton("difficult_nterm")
+DifficultCterm = _singleton("difficult_cterm")
+AspProBonds = _singleton("asp_pro_bonds")
+TcrCharge = _singleton("tcr_charge")
+TcrAromaticity = _singleton("tcr_aromaticity")
+TcrHydrophobicity = _singleton("tcr_hydrophobicity")

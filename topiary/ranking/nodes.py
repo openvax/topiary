@@ -956,6 +956,47 @@ class Count(DSLNode):
         return f"{scope_str}count('{self.chars}')"
 
 
+class PeptideProperty(DSLNode):
+    """Amino-acid property of the peptide string as a DSL node.
+
+    The peptide string is uniform within a peptide-allele group, so
+    we take ``.first()`` per group, hand the resulting Series to the
+    registered compute function, and reindex back onto
+    ``ctx.group_index``. Groups whose peptide is missing or empty
+    come out as NaN.
+
+    The node always recomputes from the ``peptide`` column. It does
+    not pick up columns previously materialized by
+    :func:`topiary.properties.add_peptide_properties` — if you've
+    already written those columns and want to skip the recompute,
+    reference them through :class:`Column`.
+    """
+
+    __slots__ = ("name", "compute_fn", "scope")
+
+    def __init__(self, name: str, compute_fn, scope: str = ""):
+        self.name = name
+        self.compute_fn = compute_fn
+        self.scope = scope
+
+    def eval(self, ctx: EvalContext) -> pd.Series:
+        peptide_col = self.scope + "peptide" if self.scope else "peptide"
+        if ctx.df.empty or peptide_col not in ctx.df.columns:
+            return ctx.empty_series()
+        peptides = ctx.df.groupby(ctx.group_keys, sort=False)[peptide_col].first()
+        peptides = peptides.reindex(ctx.group_index)
+        valid = peptides.notna() & peptides.astype(str).str.len().gt(0)
+        result = pd.Series(np.nan, index=ctx.group_index, dtype=float)
+        if valid.any():
+            computed = self.compute_fn(peptides[valid].astype(str))
+            result.loc[valid] = pd.to_numeric(computed, errors="coerce").to_numpy()
+        return result
+
+    def __repr__(self):
+        scope_str = self.scope.rstrip("_") + "." if self.scope else ""
+        return f"{scope_str}{self.name}"
+
+
 # =============================================================================
 # BinOp / UnaryOp — arithmetic composition
 # =============================================================================
@@ -1837,6 +1878,11 @@ class Scope:
         attr_lower = attr.lower()
         if attr_lower in KIND_ALIASES:
             return KindAccessor(KIND_ALIASES[attr_lower], scope=self.prefix)
+        # Lazy import — topiary.properties depends on this module.
+        from ..properties import _PROPERTIES
+        if attr_lower in _PROPERTIES:
+            compute_fn, _ = _PROPERTIES[attr_lower]
+            return PeptideProperty(attr_lower, compute_fn, scope=self.prefix)
         available = sorted(KIND_ALIASES.keys())
         raise AttributeError(
             f"Unknown kind {attr!r} in scope {self.name!r}. "
