@@ -1,5 +1,21 @@
 # Changelog
 
+## 5.14.0
+
+**Peptide property DSL expressions (#95):**
+
+- New `PeptideProperty` DSL node and `Charge`, `Aromaticity`,
+  `Hydrophobicity`, `MolecularWeight` singletons importable from
+  `topiary` (and `topiary.properties`).
+- Property nodes compose with the existing ranking DSL — e.g.
+  `0.1 * Aromaticity.clip(lo=0, hi=3) + 0.1 * (-abs(Charge))`.
+- String DSL recognizes property names as atoms, including under
+  `wt.` / `shuffled.` / `self.` scopes:
+  `parse("charge >= 0 & aromaticity <= 3")`,
+  `parse("wt.hydrophobicity")`.
+- Property nodes compute directly from the peptide column, so they
+  work without first calling `add_peptide_properties`.
+
 ## 5.10.8
 
 **Restore Varcode CLI parser delegation:**

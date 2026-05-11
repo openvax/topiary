@@ -5,7 +5,7 @@ Computes properties directly from the peptide sequence column using
 vectorized pandas string operations. All properties are pure functions
 of the amino acid sequence — no external dependencies.
 
-Usage::
+Usage as DataFrame columns::
 
     from topiary.properties import add_peptide_properties
 
@@ -14,11 +14,24 @@ Usage::
     df = add_peptide_properties(df, groups=["core"])            # named group
     df = add_peptide_properties(df, include=["charge", "cysteine_count"])
 
-Then use in ranking via :class:`~topiary.ranking.Column`::
+Usage as DSL nodes for filtering / ranking::
 
-    from topiary.ranking import Column, Affinity
-    score = 0.5 * Affinity.score - 0.2 * Column("cysteine_count")
+    from topiary import Affinity, Presentation
+    from topiary.properties import Aromaticity, Charge
+
+    score = (
+        0.5 * (1 - Affinity.value.norm(mean=500, std=200))
+        + 0.3 * Presentation.score.norm(mean=0.5, std=0.3)
+        + 0.1 * Aromaticity.clip(lo=0, hi=3)
+        + 0.1 * (-abs(Charge))
+    )
+
+The DSL property nodes read the peptide column directly, so they work
+even on DataFrames where :func:`add_peptide_properties` has not been
+called.
 """
+
+from .ranking.nodes import PeptideProperty
 
 
 
@@ -323,3 +336,27 @@ def add_peptide_properties(
         df[prefix + name] = compute_fn(peptides)
 
     return df
+
+
+# ---------------------------------------------------------------------------
+# DSL singletons — one per registered property
+# ---------------------------------------------------------------------------
+
+Charge = PeptideProperty("charge", _compute_charge)
+Hydrophobicity = PeptideProperty("hydrophobicity", _compute_hydrophobicity)
+Aromaticity = PeptideProperty("aromaticity", _compute_aromaticity)
+MolecularWeight = PeptideProperty("molecular_weight", _compute_molecular_weight)
+CysteineCount = PeptideProperty("cysteine_count", _compute_cysteine_count)
+InstabilityIndex = PeptideProperty("instability_index", _compute_instability_index)
+Max7merHydrophobicity = PeptideProperty(
+    "max_7mer_hydrophobicity", _compute_max_7mer_hydrophobicity,
+)
+Cterm7merHydrophobicity = PeptideProperty(
+    "cterm_7mer_hydrophobicity", _compute_cterm_7mer_hydrophobicity,
+)
+DifficultNterm = PeptideProperty("difficult_nterm", _compute_difficult_nterm)
+DifficultCterm = PeptideProperty("difficult_cterm", _compute_difficult_cterm)
+AspProBonds = PeptideProperty("asp_pro_bonds", _compute_asp_pro_bonds)
+TcrCharge = PeptideProperty("tcr_charge", _compute_tcr_charge)
+TcrAromaticity = PeptideProperty("tcr_aromaticity", _compute_tcr_aromaticity)
+TcrHydrophobicity = PeptideProperty("tcr_hydrophobicity", _compute_tcr_hydrophobicity)

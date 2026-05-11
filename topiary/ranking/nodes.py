@@ -956,6 +956,40 @@ class Count(DSLNode):
         return f"{scope_str}count('{self.chars}')"
 
 
+class PeptideProperty(DSLNode):
+    """Peptide-intrinsic amino acid property as a DSL node.
+
+    Reads the peptide column (``scope + 'peptide'``) and applies a
+    vectorized compute function from :mod:`topiary.properties`. One
+    value per peptide-allele group (peptide string is uniform within
+    a group, so per-group ``.first()`` is exact).
+    """
+
+    __slots__ = ("name", "compute_fn", "scope")
+
+    def __init__(self, name: str, compute_fn, scope: str = ""):
+        self.name = name
+        self.compute_fn = compute_fn
+        self.scope = scope
+
+    def eval(self, ctx: EvalContext) -> pd.Series:
+        peptide_col = self.scope + "peptide" if self.scope else "peptide"
+        if ctx.df.empty or peptide_col not in ctx.df.columns:
+            return ctx.empty_series()
+        peptides = ctx.df.groupby(ctx.group_keys, sort=False)[peptide_col].first()
+        peptides = peptides.reindex(ctx.group_index)
+        valid = peptides.notna() & peptides.astype(str).str.len().gt(0)
+        result = pd.Series(np.nan, index=ctx.group_index, dtype=float)
+        if valid.any():
+            computed = self.compute_fn(peptides[valid].astype(str))
+            result.loc[valid] = pd.to_numeric(computed, errors="coerce").to_numpy()
+        return result
+
+    def __repr__(self):
+        scope_str = self.scope.rstrip("_") + "." if self.scope else ""
+        return f"{scope_str}{self.name}"
+
+
 # =============================================================================
 # BinOp / UnaryOp — arithmetic composition
 # =============================================================================
@@ -1837,6 +1871,11 @@ class Scope:
         attr_lower = attr.lower()
         if attr_lower in KIND_ALIASES:
             return KindAccessor(KIND_ALIASES[attr_lower], scope=self.prefix)
+        # Lazy import — topiary.properties depends on this module.
+        from ..properties import _PROPERTIES
+        if attr_lower in _PROPERTIES:
+            compute_fn, _ = _PROPERTIES[attr_lower]
+            return PeptideProperty(attr_lower, compute_fn, scope=self.prefix)
         available = sorted(KIND_ALIASES.keys())
         raise AttributeError(
             f"Unknown kind {attr!r} in scope {self.name!r}. "
