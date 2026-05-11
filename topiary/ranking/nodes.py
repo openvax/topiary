@@ -957,12 +957,19 @@ class Count(DSLNode):
 
 
 class PeptideProperty(DSLNode):
-    """Peptide-intrinsic amino acid property as a DSL node.
+    """Amino-acid property of the peptide string as a DSL node.
 
-    Reads the peptide column (``scope + 'peptide'``) and applies a
-    vectorized compute function from :mod:`topiary.properties`. One
-    value per peptide-allele group (peptide string is uniform within
-    a group, so per-group ``.first()`` is exact).
+    The peptide string is uniform within a peptide-allele group, so
+    we take ``.first()`` per group, hand the resulting Series to the
+    registered compute function, and reindex back onto
+    ``ctx.group_index``. Groups whose peptide is missing or empty
+    come out as NaN.
+
+    The node always recomputes from the ``peptide`` column. It does
+    not pick up columns previously materialized by
+    :func:`topiary.properties.add_peptide_properties` — if you've
+    already written those columns and want to skip the recompute,
+    reference them through :class:`Column`.
     """
 
     __slots__ = ("name", "compute_fn", "scope")

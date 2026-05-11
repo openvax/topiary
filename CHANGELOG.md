@@ -2,19 +2,25 @@
 
 ## 5.14.0
 
-**Peptide property DSL expressions (#95):**
+**Peptide properties as DSL nodes (#95):**
 
-- New `PeptideProperty` DSL node and `Charge`, `Aromaticity`,
-  `Hydrophobicity`, `MolecularWeight` singletons importable from
-  `topiary` (and `topiary.properties`).
-- Property nodes compose with the existing ranking DSL — e.g.
-  `0.1 * Aromaticity.clip(lo=0, hi=3) + 0.1 * (-abs(Charge))`.
-- String DSL recognizes property names as atoms, including under
-  `wt.` / `shuffled.` / `self.` scopes:
-  `parse("charge >= 0 & aromaticity <= 3")`,
-  `parse("wt.hydrophobicity")`.
-- Property nodes compute directly from the peptide column, so they
-  work without first calling `add_peptide_properties`.
+The peptide-property registry (`Charge`, `Aromaticity`,
+`Hydrophobicity`, `MolecularWeight`, plus the manufacturability and
+immunogenicity entries) now exposes each property as a DSL node, so
+ranking expressions can mix peptide-intrinsic properties with the
+existing kind accessors:
+
+    score = (
+        Affinity.value.norm(mean=500, std=200)
+        + 0.1 * Aromaticity.clip(lo=0, hi=3)
+        - 0.1 * abs(Charge)
+    )
+
+The string parser recognizes property names as atoms in both bare and
+scoped positions: `parse("charge >= 0 & aromaticity <= 3")`,
+`parse("wt.hydrophobicity")`. Property nodes always recompute from
+the `peptide` column, so they work on any predictions frame without
+calling `add_peptide_properties` first.
 
 ## 5.10.8
 
