@@ -11,6 +11,7 @@ from .ranking import (
     Count,
     DSLNode,
     EvalContext,
+    BestAlleleField,
     Field,
     KIND_ALIASES,
     KindAccessor,
@@ -52,7 +53,7 @@ from .io_lens import detect_lens_version, read_lens
 from .result import TopiaryResult, concat
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.12.0"
+__version__ = "5.13.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -69,6 +70,7 @@ __all__ = [
     "Count",
     "DSLNode",
     "EvalContext",
+    "BestAlleleField",
     "Field",
     "KIND_ALIASES",
     "KindAccessor",
