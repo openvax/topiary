@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.14.1
+
+Raise the varcode floor to `>=4.18.0`, the first varcode release that
+drops PyVCF3 from the runtime import path. Together with topiary's
+existing lazy varcode imports (5.10.7) this closes #122: a fresh
+install no longer surfaces rpy2 / embedded-R noise when importing
+varcode or running varcode-dependent topiary workflows.
+
 ## 5.14.0
 
 **Peptide properties as DSL nodes (#95):**
