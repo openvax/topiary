@@ -234,7 +234,8 @@ class TestKindDirectionTable:
         # value direction is kind-dependent and not registered for
         # pMHC_presentation. Asking for best_value should raise loudly.
         ctx = EvalContext(presentation_df)
-        with pytest.raises(ValueError, match="best_value direction is undefined"):
+        # Error message comes from mhctools.best_direction.
+        with pytest.raises(ValueError, match="best_direction undefined"):
             Presentation["mhcflurry"].best_value.eval(ctx)
 
     def test_affinity_best_value_is_min(self):

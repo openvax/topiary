@@ -723,53 +723,14 @@ class Field(DSLNode):
     # (Scoped fields cannot appear in filters — guarded in Comparison.__init__)
 
 
-# Direction conventions: which way is "best" for a given (kind, field).
-# - ``score``: higher is better, every kind (binding strength,
-#   presentation likelihood, immunogenicity, processing).
-# - ``percentile_rank``: 0 means best — min is better, every kind.
-# - ``value``: kind-dependent — pMHC_affinity uses IC50 nM (lower
-#   better); pMHC_stability would use half-life in hours (higher
-#   better). Required entry per kind.
-_BEST_FIELD_DIRECTIONS = {
-    "score": "max",
-    "percentile_rank": "min",
-}
-
-_BEST_VALUE_DIRECTIONS = {
-    "pMHC_affinity": "min",   # IC50 nM
-    "pMHC_stability": "max",  # half-life
-}
+# Canonical "best direction" per (kind, field) lives upstream in
+# mhctools (since 3.14.0) so consumers don't replicate the table —
+# see openvax/mhctools#211.
+from mhctools import best_direction as _best_direction  # noqa: E402
 
 
 def _field_short(field: str) -> str:
     return "rank" if field == "percentile_rank" else field
-
-
-def _best_direction(kind, field):
-    """Return ``"max"`` or ``"min"`` for a (kind, field) pair.
-
-    Raises ``ValueError`` for ``field='value'`` on a kind without a
-    registered direction — `value` semantics are kind-dependent and we
-    refuse to guess. New `value`-bearing kinds need an entry in
-    :data:`_BEST_VALUE_DIRECTIONS`.
-    """
-    direction = _BEST_FIELD_DIRECTIONS.get(field)
-    if direction is not None:
-        return direction
-    if field == "value":
-        kind_name = _kind_name(kind)
-        if kind_name not in _BEST_VALUE_DIRECTIONS:
-            raise ValueError(
-                f"best_value direction is undefined for kind "
-                f"{kind_name!r} — `value` semantics depend on the kind "
-                f"(IC50 vs half-life vs ...). Add an entry to "
-                f"topiary.ranking.nodes._BEST_VALUE_DIRECTIONS."
-            )
-        return _BEST_VALUE_DIRECTIONS[kind_name]
-    raise ValueError(
-        f"No best-direction defined for field {field!r}. "
-        f"Known: {sorted(_BEST_FIELD_DIRECTIONS) + ['value']}."
-    )
 
 
 class BestAlleleField(DSLNode):
@@ -781,9 +742,9 @@ class BestAlleleField(DSLNode):
     (``return_allele=True``) to every per-(peptide, allele) entry in
     ``ctx.group_index``. Composes naturally with the rest of the DSL.
 
-    Direction is taken from :func:`_best_direction`: ``score`` is max,
-    ``percentile_rank`` is min, ``value`` is per-kind (IC50 → min,
-    half-life → max).
+    Direction is taken from :func:`mhctools.best_direction`: ``score``
+    is max, ``percentile_rank`` is min, ``value`` is per-kind (IC50 →
+    min, half-life → max).
 
     **Semantics depend on the upstream predictor's allele mode.** With
     mhctools >=3.13.7 these are reported via ``predictor.kind_support()``:
