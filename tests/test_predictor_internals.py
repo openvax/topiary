@@ -91,6 +91,43 @@ def test_format_empty_df():
     assert len(result) == 0
 
 
+def test_format_value_backfilled_from_score_when_nan():
+    df = _raw_df(kind="pMHC_presentation", value=np.nan, score=0.42)
+    result = _make_predictor()._format_prediction_df(df)
+    assert result.iloc[0]["value"] == 0.42
+    assert result.iloc[0]["score"] == 0.42
+    assert np.isnan(result.iloc[0]["affinity"])
+
+
+def test_format_value_preserved_when_already_set():
+    df = _raw_df(kind="pMHC_affinity", value=120.0, score=0.8)
+    result = _make_predictor()._format_prediction_df(df)
+    assert result.iloc[0]["value"] == 120.0
+    assert result.iloc[0]["affinity"] == 120.0
+
+
+def test_format_value_backfill_mixed_kinds():
+    df = pd.DataFrame([
+        dict(
+            peptide="SIINFEKL", allele="HLA-A*02:01", kind="pMHC_affinity",
+            score=0.8, value=120.0, percentile_rank=0.5, offset=0,
+            predictor_name="random",
+        ),
+        dict(
+            peptide="SIINFEKL", allele="HLA-A*02:01", kind="pMHC_presentation",
+            score=0.42, value=np.nan, percentile_rank=2.0, offset=0,
+            predictor_name="random",
+        ),
+    ])
+    result = _make_predictor()._format_prediction_df(df)
+    aff = result[result["kind"] == "pMHC_affinity"].iloc[0]
+    pres = result[result["kind"] == "pMHC_presentation"].iloc[0]
+    assert aff["value"] == 120.0
+    assert aff["affinity"] == 120.0
+    assert pres["value"] == 0.42
+    assert np.isnan(pres["affinity"])
+
+
 # ---------------------------------------------------------------------------
 # _attach_expression_data: additional edge cases
 # ---------------------------------------------------------------------------

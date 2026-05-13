@@ -673,6 +673,16 @@ class TopiaryPredictor(object):
             df["affinity"] = np.where(
                 df["kind"] == "pMHC_affinity", df["value"], np.nan
             )
+        # Backfill ``value`` from ``score`` for kinds whose primary output
+        # is the [0, 1] score itself (presentation, antigen_processing,
+        # ...). mhctools sets ``value`` only when there is a distinct
+        # unit (IC50 nM for affinity, half-life for stability); leaving
+        # NaN elsewhere is a foot gun for downstream consumers that read
+        # ``value`` uniformly (NaN crashes strict JSON, sorts undefined).
+        if "value" in df.columns and "score" in df.columns:
+            value_is_nan = df["value"].isna()
+            if value_is_nan.any():
+                df.loc[value_is_nan, "value"] = df.loc[value_is_nan, "score"]
         return df
 
     def _apply_filter(self, df):
