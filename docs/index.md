@@ -6,11 +6,11 @@ Predict which peptides from protein sequences will be presented by MHC molecules
 
 ## Features
 
-- **Multiple MHC prediction models** — NetMHCpan, MHCflurry, NetMHCIIpan, etc. via [mhctools](https://github.com/openvax/mhctools); combine and rank across models
+- **Multiple MHC prediction models** — [NetMHCpan](https://services.healthtech.dtu.dk/services/NetMHCpan-4.1/), [MHCflurry](https://github.com/openvax/mhcflurry), [NetMHCIIpan](https://services.healthtech.dtu.dk/services/NetMHCIIpan-4.3/), etc. via [mhctools](https://github.com/openvax/mhctools); combine and rank across models
 - **Composable ranking DSL** — filter, rank, and score with operator expressions over affinity, presentation, stability, wildtype comparisons, and peptide properties
 - **Universal antigen abstraction** — `ProteinFragment` runs somatic variants, fusions, ERVs, CTAs, viral, and synthetic antigens through one pipeline
-- **Cached predictions** — `CachedPredictor` reuses pre-computed scores (mhctools output, NetMHC stdout, generic TSV) so you can iterate on filters and ranking without re-running the predictor
-- **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, LENS reports
+- **Cached predictions** — `CachedPredictor` reuses pre-computed scores ([mhctools](https://github.com/openvax/mhctools) output, [NetMHC](https://services.healthtech.dtu.dk/services/NetMHC-4.0/) stdout, generic TSV) so you can iterate on filters and ranking without re-running the predictor
+- **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, [LENS](https://www.uselens.io/) reports
 - **Expression- and tissue-aware prioritization** — exclude peptides from vital-organ proteomes, prioritize by RNA expression
 
 ## Installation
