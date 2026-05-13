@@ -9,13 +9,13 @@ against healthy tissue.
 This page covers the `SelfProteome` class and the `self_nearest_*`
 columns it adds to `TopiaryPredictor` output.
 
-> **Scope note.** This PR ships the **core architecture and one
-> nearest-by-sequence axis**: `include="all"` and `include="non_cta"`,
-> substitutions only (no 1aa indels yet), single `self_nearest_peptide`
-> scalar. The three-axis story (sequence-nearest, binding-similar,
-> strongest-binder), 1aa indel candidates, the full candidate-set
-> structured column, and `include="protected_tissues"` are tracked for
-> follow-up PRs under [#124](https://github.com/openvax/topiary/issues/124).
+> **Status.** `SelfProteome` currently exposes the sequence-nearest
+> axis: substitutions plus 1aa indel neighbors against a scoped self
+> proteome (`include="all"`, `"non_cta"`, `"protected_tissues"`, or a
+> callable). Binding-aware axes (`self_mimic_*`, `self_strongest_nearby_*`)
+> and the structured full-candidate column (`self_nearest_candidates`)
+> require MHC prediction on candidate peptides and are tracked under
+> [#124](https://github.com/openvax/topiary/issues/124).
 
 ## Basic usage
 
@@ -58,13 +58,13 @@ predictor = TopiaryPredictor(
 
 ## Scope
 
-Three construction modes (this PR ships the first two):
+Three construction modes:
 
 | `include=` | Behavior | Configuration |
 |---|---|---|
 | `"all"` | Whole proteome, no filter | — |
-| `"non_cta"` (default for human Ensembl) | Remove CTA genes | `cta_source="pirlygenes"` default; `"tsarina"` reserved; set / callable accepted |
-| `"protected_tissues"` *(PR B)* | Keep only genes expressed in named tissues | `tissues=[…]`, `tissue_source="hpa"`/`"gtex"`, `min_expression=…` |
+| `"non_cta"` (default for human Ensembl) | Remove CTA genes | `cta_source="pirlygenes"` default; set / callable accepted |
+| `"protected_tissues"` | Keep only genes expressed in named tissues | `tissues=[…]`, `tissue_source="hpa"`/`"gtex"`, `min_expression=…` |
 | callable | Arbitrary `gene → bool` filter | — |
 
 **Human users** get zero-config `include="non_cta"` via pirlygenes:

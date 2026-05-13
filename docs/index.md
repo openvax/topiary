@@ -13,6 +13,36 @@ Predict which peptides from protein sequences will be presented by MHC molecules
 - **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, [LENS](https://www.uselens.io/) reports
 - **Expression- and tissue-aware prioritization** — exclude peptides from vital-organ proteomes, prioritize by RNA expression
 
+## Quick example
+
+Score the [PRAME](https://www.uniprot.org/uniprotkb/P78395/) cancer-testis antigen against two HLA class I alleles, keeping strong binders and presentation hits and sorting by presentation score:
+
+```python
+from topiary import TopiaryPredictor
+from mhctools import NetMHCpan
+
+PRAME = (
+    "MERRRLWGSIQSRYISMSVWTSPRRLVELAGQSLLKDEALAIAALELLPRELFPPLFMAA"
+    "FDGRHSQTLKAMVQAWPFTCLPLGVLMKGQHLHLETFKAVLDGLDVLLAQEVRPRRWKLQ"
+    "VLDLRKNSHQDFWTVWSGNRASLYSFPEPEAAQPMTKKRKVDGLSTEAEQPFIPVEVLVD"
+    "LFLKEGACDELFSYLIEKVKRKKNVLRLCCKKLKIFAMPMQDIKMILKMVQLDSIEDLEV"
+    "TCTWKLPTLAKFSPYLGQMINLRRLLLSHIHASSYISPEKEEQYIAQFTSQFLSLQCLQA"
+    "LYVDSLFFLRGRLDQLLRHVMNPLETLSITNCRLSEGDVMHLSQSPSVSQLSVLSLSGVM"
+    "LTDVSPEPLQALLERASATLQDLVFDECGITDDQLLALLPSLSHCSQLTTLSFYGNSISI"
+    "SALQSLLQHLIGLSNLTHVLYPVPLESYEDIHGTLHLERLAYLHARLRELLCELGRPSMV"
+    "WLSANPCPHCGDRTFYDPEPILCPCFMPN"
+)
+
+predictor = TopiaryPredictor(
+    models=NetMHCpan,
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+    filter_by="affinity <= 500 | el.rank <= 2",
+    sort_by="el.score",
+)
+
+df = predictor.predict_from_named_sequences({"PRAME": PRAME})
+```
+
 ## Installation
 
 Requires Python ≥ 3.9.
@@ -32,24 +62,6 @@ For cancer-testis antigen and tissue expression features:
 
 ```bash
 pip install pirlygenes
-```
-
-## Quick example
-
-```python
-from topiary import TopiaryPredictor, Affinity, Presentation
-from mhctools import NetMHCpan
-
-predictor = TopiaryPredictor(
-    models=NetMHCpan,
-    alleles=["HLA-A*02:01", "HLA-B*07:02"],
-    filter_by=(Affinity <= 500) | (Presentation.rank <= 2.0),
-    sort_by=Presentation.score,
-)
-
-df = predictor.predict_from_named_sequences({
-    "BRAF_V600E": "MAALSGGGGG...LATEKSRWSG",
-})
 ```
 
 See the [Quickstart](quickstart.md) for more examples, [Protein Fragments](fragments.md) for the universal antigen abstraction, [Cached Predictions](cached.md) for running from pre-computed scores, [Ranking DSL](ranking.md) for the expression system, and [API Reference](api.md) for full details.

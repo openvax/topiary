@@ -32,9 +32,10 @@ edit_distance=1 beats a same-length substitution match at
 edit_distance≥2.
 
 Binding-aware axes (``self_mimic_*``, ``self_strongest_nearby_*``,
-``self_nearest_candidates``) are tracked for a follow-up PR — they
-require MHC prediction on candidate peptides, which is
-architecturally separate from the sequence-only ``nearest()`` method.
+``self_nearest_candidates``) are not implemented yet — they require
+MHC prediction on candidate peptides, which is architecturally
+separate from the sequence-only ``nearest()`` method. Tracked under
+`#124 <https://github.com/openvax/topiary/issues/124>`_.
 
 Algorithm
 ---------
@@ -183,7 +184,7 @@ def _resolve_cta_gene_ids(
         return set(_pirlygenes_cta_gene_ids())
     if cta_source == "tsarina":
         raise NotImplementedError(
-            "cta_source='tsarina' is reserved for a follow-up PR."
+            "cta_source='tsarina' is not implemented yet."
         )
     raise ValueError(
         f"Unsupported cta_source: {cta_source!r}.  Use 'pirlygenes', "
