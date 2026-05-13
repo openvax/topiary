@@ -249,6 +249,7 @@ Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use
 | `read_sequence_csv(path)` | CSV with `sequence` col | `{name: sequence}` |
 | `read_tsv(path)` / `read_csv(path)` | Topiary-format table with comment-block metadata | `TopiaryResult` |
 | `read_lens(path)` | LENS report (v1.4 / v1.5.1 / v1.9) | `TopiaryResult` (wide form) |
+| `read_pvacseq(path)` | pVACseq aggregated or `all_epitopes` TSV (MHC-I or MHC-II) | `TopiaryResult` (long form) |
 | `slice_regions(seqs, regions)` | Sequences + intervals | `{name:start-end: subseq}` |
 | `exclude_by(df, ref, mode)` | DataFrame + ref sequences | Filtered DataFrame |
 

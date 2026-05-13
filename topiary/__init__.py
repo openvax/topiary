@@ -59,6 +59,7 @@ from .self_proteome import SelfProteome
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
 from .io_protein_fragment import read_fragments, write_fragments, iter_fragments
 from .io_lens import detect_lens_version, read_lens
+from .io_pvacseq import detect_pvacseq_format, read_pvacseq
 from .result import TopiaryResult, concat
 from .wide import detect_form, from_wide, to_wide
 
@@ -124,8 +125,10 @@ __all__ = [
     "iter_fragments",
     "Metadata",
     "detect_lens_version",
+    "detect_pvacseq_format",
     "read_csv",
     "read_lens",
+    "read_pvacseq",
     "read_tsv",
     "to_csv",
     "to_tsv",

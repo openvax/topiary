@@ -1,0 +1,217 @@
+"""Tests for the pVACseq report loader (topiary.io_pvacseq)."""
+
+import math
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from topiary import (
+    Affinity,
+    TopiaryResult,
+    apply_filter,
+    apply_sort,
+    concat,
+    detect_pvacseq_format,
+    read_pvacseq,
+)
+
+FIXTURE_DIR = Path(__file__).parent / "data" / "pvacseq"
+
+MHC_I_AGG = FIXTURE_DIR / "mhc_i_aggregated.tsv"
+MHC_II_AGG = FIXTURE_DIR / "mhc_ii_aggregated.tsv"
+MHC_I_AE = FIXTURE_DIR / "mhc_i_all_epitopes.tsv"
+
+
+def _data_row_count(path):
+    return sum(1 for _ in open(path)) - 1
+
+
+# ---------------------------------------------------------------------------
+# Format detection
+# ---------------------------------------------------------------------------
+
+
+class TestDetectFormat:
+    def test_aggregated_detected(self):
+        cols = pd.read_csv(MHC_I_AGG, sep="\t", nrows=0).columns
+        assert detect_pvacseq_format(cols) == "aggregated"
+
+    def test_all_epitopes_detected(self):
+        cols = pd.read_csv(MHC_I_AE, sep="\t", nrows=0).columns
+        assert detect_pvacseq_format(cols) == "all_epitopes"
+
+    def test_unrelated_columns_return_none(self):
+        assert detect_pvacseq_format(["foo", "bar", "Peptide"]) is None
+
+
+# ---------------------------------------------------------------------------
+# Aggregated flavor
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAggregated:
+    def test_returns_topiary_result_in_long_form(self):
+        r = read_pvacseq(MHC_I_AGG)
+        assert isinstance(r, TopiaryResult)
+        assert r.form == "long"
+
+    def test_one_row_per_variant(self):
+        r = read_pvacseq(MHC_I_AGG)
+        assert len(r) == _data_row_count(MHC_I_AGG)
+
+    def test_metadata_records_flavor(self):
+        r = read_pvacseq(MHC_I_AGG)
+        assert r.extra["pvacseq_format"] == "aggregated"
+        assert any("pvacseq-aggregated" in s for s in r.sources)
+
+    def test_long_form_schema_present(self):
+        r = read_pvacseq(MHC_I_AGG)
+        required = {
+            "peptide", "allele", "kind", "score", "value", "affinity",
+            "percentile_rank", "prediction_method_name", "predictor_version",
+            "peptide_offset", "peptide_length", "source_sequence_name",
+            "wt_peptide", "wt_value", "wt_percentile_rank", "wt_affinity",
+            "wt_score",
+        }
+        assert required <= set(r.df.columns)
+
+    def test_alleles_normalized(self):
+        r = read_pvacseq(MHC_I_AGG)
+        # MHC-I sample carries HLA-A/B/C only; mhcgnomes leaves the prefix.
+        assert (r.df["allele"].dropna().str.startswith("HLA-")).all()
+
+    def test_mhc_ii_alleles_get_hla_prefix(self):
+        r = read_pvacseq(MHC_II_AGG)
+        # Raw "DRB1*04:05" / "DRB4*01:03" gain the HLA- prefix from mhcgnomes.
+        assert (r.df["allele"].dropna().str.startswith("HLA-DR")).all()
+
+    def test_ic50_mt_populates_value_affinity_score(self):
+        r = read_pvacseq(MHC_I_AGG)
+        row = r.df.iloc[0]
+        assert math.isclose(row["value"], 76.11, abs_tol=0.01)
+        assert row["value"] == row["affinity"] == row["score"]
+
+    def test_ic50_wt_populates_wt_columns(self):
+        r = read_pvacseq(MHC_I_AGG)
+        row = r.df.iloc[0]
+        assert math.isclose(row["wt_value"], 61.796, abs_tol=0.01)
+        assert row["wt_value"] == row["wt_affinity"] == row["wt_score"]
+
+    def test_missense_wt_peptide_reconstructed(self):
+        r = read_pvacseq(MHC_I_AGG)
+        # First HCC1395 aggregated row: AA Change=E806V, Pos=8,
+        # Best Peptide=AERMGFTVV → WT peptide AERMGFTEV.
+        first = r.df.iloc[0]
+        assert first["aa_change"] == "E806V"
+        assert first["peptide"] == "AERMGFTVV"
+        assert first["wt_peptide"] == "AERMGFTEV"
+        assert first["wt_peptide_length"] == 9
+
+    def test_effect_type_substitution_for_missense(self):
+        r = read_pvacseq(MHC_I_AGG)
+        missense = r.df[r.df["aa_change"].str.match(r"^[A-Z]\d+[A-Z]$", na=False)]
+        assert (missense["effect_type"] == "Substitution").all()
+
+    def test_dsl_filter_round_trip(self):
+        r = read_pvacseq(MHC_I_AGG)
+        strong = apply_filter(r.df, Affinity.value <= 500)
+        assert 0 < len(strong) <= len(r)
+        assert (strong["value"] <= 500).all()
+
+    def test_dsl_sort_round_trip(self):
+        r = read_pvacseq(MHC_I_AGG)
+        sorted_df = apply_sort(r.df, [Affinity.value])
+        values = sorted_df["value"].dropna().tolist()
+        assert values == sorted(values)
+
+    def test_wt_aware_sort(self):
+        # The wt-scoped accessor reads pvacseq's wt_* columns end-to-end.
+        from topiary import wt
+        r = read_pvacseq(MHC_I_AGG)
+        # Sort by MT-vs-WT IC50 delta — exercises wt.Affinity.value lookup.
+        sorted_df = apply_sort(
+            r.df, [Affinity.value - wt.Affinity.value], sort_direction="asc"
+        )
+        diffs = (sorted_df["value"] - sorted_df["wt_value"]).dropna().tolist()
+        assert diffs == sorted(diffs)
+
+
+# ---------------------------------------------------------------------------
+# all_epitopes flavor
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAllEpitopes:
+    def test_format_recorded(self):
+        r = read_pvacseq(MHC_I_AE)
+        assert r.extra["pvacseq_format"] == "all_epitopes"
+
+    def test_median_mt_ic50_becomes_value(self):
+        r = read_pvacseq(MHC_I_AE)
+        row = r.df.iloc[0]
+        assert math.isclose(row["value"], 76.11, abs_tol=0.01)
+
+    def test_wt_peptide_from_wt_epitope_seq(self):
+        r = read_pvacseq(MHC_I_AE)
+        # All fixture rows ship a WT epitope.
+        assert r.df["wt_peptide"].notna().all()
+        assert (r.df["wt_peptide_length"] == r.df["wt_peptide"].str.len()).all()
+
+    def test_per_algorithm_columns_pass_through(self):
+        r = read_pvacseq(MHC_I_AE)
+        expected = {
+            "pvacseq_netmhcpan_ic50_mt",
+            "pvacseq_netmhcpan_ic50_wt",
+            "pvacseq_netmhcpan_pct_mt",
+            "pvacseq_netmhcpan_pct_wt",
+            "pvacseq_mhcflurry_ic50_mt",
+            "pvacseq_mhcflurry_ic50_wt",
+            "pvacseq_mhcflurry_pct_mt",
+            "pvacseq_mhcflurry_pct_wt",
+        }
+        assert expected <= set(r.df.columns)
+
+    def test_na_per_algorithm_value_passes_as_nan(self):
+        # Fixture row 1 has "NA" in NetMHCpan columns.
+        r = read_pvacseq(MHC_I_AE)
+        assert pd.isna(r.df["pvacseq_netmhcpan_ic50_mt"].iloc[1])
+
+    def test_annotation_columns_renamed(self):
+        r = read_pvacseq(MHC_I_AE)
+        assert {"gene_expression", "tumor_dna_vaf", "variant_type"} <= set(r.df.columns)
+
+    def test_effect_type_substitution_for_missense(self):
+        r = read_pvacseq(MHC_I_AE)
+        assert (r.df["effect_type"] == "Substitution").all()
+
+
+# ---------------------------------------------------------------------------
+# Combining files via topiary.concat
+# ---------------------------------------------------------------------------
+
+
+class TestConcatMultipleFiles:
+    def test_mhc_i_plus_mhc_ii_via_concat(self):
+        combined = concat([read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG)])
+        assert len(combined) == _data_row_count(MHC_I_AGG) + _data_row_count(MHC_II_AGG)
+        alleles = set(combined.df["allele"].dropna())
+        assert any(a.startswith(("HLA-A", "HLA-B", "HLA-C")) for a in alleles)
+        assert any("D" in a for a in alleles)
+
+    def test_concat_mixed_flavors(self):
+        combined = concat([read_pvacseq(MHC_I_AE), read_pvacseq(MHC_II_AGG)])
+        assert len(combined) == _data_row_count(MHC_I_AE) + _data_row_count(MHC_II_AGG)
+
+
+# ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
+
+
+class TestErrors:
+    def test_unrecognized_file_raises(self, tmp_path):
+        bad = tmp_path / "bad.tsv"
+        bad.write_text("foo\tbar\n1\t2\n")
+        with pytest.raises(ValueError, match="Could not detect pVACseq format"):
+            read_pvacseq(bad)
