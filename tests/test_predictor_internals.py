@@ -91,6 +91,92 @@ def test_format_empty_df():
     assert len(result) == 0
 
 
+def test_format_value_backfilled_from_score_when_nan():
+    df = _raw_df(kind="pMHC_presentation", value=np.nan, score=0.42)
+    result = _make_predictor()._format_prediction_df(df)
+    assert result.iloc[0]["value"] == 0.42
+    assert result.iloc[0]["score"] == 0.42
+    assert np.isnan(result.iloc[0]["affinity"])
+
+
+def test_format_value_preserved_when_already_set():
+    df = _raw_df(kind="pMHC_affinity", value=120.0, score=0.8)
+    result = _make_predictor()._format_prediction_df(df)
+    assert result.iloc[0]["value"] == 120.0
+    assert result.iloc[0]["affinity"] == 120.0
+
+
+def test_format_value_backfill_mixed_kinds():
+    df = pd.DataFrame([
+        dict(
+            peptide="SIINFEKL", allele="HLA-A*02:01", kind="pMHC_affinity",
+            score=0.8, value=120.0, percentile_rank=0.5, offset=0,
+            predictor_name="random",
+        ),
+        dict(
+            peptide="SIINFEKL", allele="HLA-A*02:01", kind="pMHC_presentation",
+            score=0.42, value=np.nan, percentile_rank=2.0, offset=0,
+            predictor_name="random",
+        ),
+    ])
+    result = _make_predictor()._format_prediction_df(df)
+    aff = result[result["kind"] == "pMHC_affinity"].iloc[0]
+    pres = result[result["kind"] == "pMHC_presentation"].iloc[0]
+    assert aff["value"] == 120.0
+    assert aff["affinity"] == 120.0
+    assert pres["value"] == 0.42
+    assert np.isnan(pres["affinity"])
+
+
+def test_format_nan_value_on_affinity_row_not_backfilled():
+    # A NaN ``value`` on an affinity/stability row means the unit is
+    # genuinely unknown — must NOT be silently rewritten as ``score``,
+    # which would falsely advertise a normalized [0, 1] score as an
+    # IC50 in nM.
+    df = _raw_df(kind="pMHC_affinity", value=np.nan, score=0.8)
+    result = _make_predictor()._format_prediction_df(df)
+    assert np.isnan(result.iloc[0]["value"])
+    assert np.isnan(result.iloc[0]["affinity"])
+
+    df = _raw_df(kind="pMHC_stability", value=np.nan, score=0.8)
+    result = _make_predictor()._format_prediction_df(df)
+    assert np.isnan(result.iloc[0]["value"])
+
+
+class _AffinityPlusPresentationModel(RandomBindingPredictor):
+    """Wraps RandomBindingPredictor so each predicted peptide yields
+    both a pMHC_affinity row (carries IC50 from the random predictor)
+    and a pMHC_presentation row (score only, value left None)."""
+
+    def predict_proteins_dataframe(self, name_to_sequence_dict):
+        affinity_df = super().predict_proteins_dataframe(name_to_sequence_dict)
+        if affinity_df.empty:
+            return affinity_df
+        presentation_df = affinity_df.copy()
+        presentation_df["kind"] = "pMHC_presentation"
+        presentation_df["score"] = 0.7
+        presentation_df["value"] = np.nan
+        return pd.concat([affinity_df, presentation_df], ignore_index=True)
+
+
+def test_end_to_end_presentation_value_populated():
+    # Public-API check: presentation rows produced through
+    # predict_from_named_sequences must report value == score (not NaN),
+    # while affinity rows keep IC50 in value/affinity.
+    model = _AffinityPlusPresentationModel(alleles=["HLA-A*02:01"])
+    predictor = TopiaryPredictor(models=[model])
+    df = predictor.predict_from_named_sequences({"t": "SIINFEKLAAAAA"})
+    pres = df[df["kind"] == "pMHC_presentation"]
+    aff = df[df["kind"] == "pMHC_affinity"]
+    assert not pres.empty
+    assert not aff.empty
+    assert not pres["value"].isna().any()
+    assert (pres["value"] == pres["score"]).all()
+    assert pres["affinity"].isna().all()
+    assert not aff["value"].isna().any()
+    assert (aff["value"] == aff["affinity"]).all()
+
+
 # ---------------------------------------------------------------------------
 # _attach_expression_data: additional edge cases
 # ---------------------------------------------------------------------------

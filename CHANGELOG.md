@@ -1,5 +1,41 @@
 # Changelog
 
+## 5.15.0
+
+**Backfill `value` from `score` for [0, 1]-score predictor kinds (#165):**
+
+`TopiaryPredictor.predict_from_named_sequences` (and the rest of the
+predict pipeline) used to leave `value` as `NaN` for prediction kinds
+whose primary output is the [0, 1] score itself — most visibly
+`pMHC_presentation`, but also `antigen_processing` and the other kinds
+mhctools models without a distinct unit. Downstream consumers reading
+`value` uniformly across kinds tripped on the resulting NaNs: strict
+`simplejson.dumps` rejects them, `sorted()` is undefined on them, and
+arithmetic on `value` silently propagated NaN. Vaxrank just hit this in
+3.0.1 and worked around it in 3.0.2.
+
+A new `_backfill_value_from_score` helper populates `value` from `score`
+for any row whose `kind` is *not* in `mhctools.VALUE_BEST_DIRECTIONS`
+(i.e. whose `value` has no distinct unit). Unit-bearing kinds —
+`pMHC_affinity` (IC50 nM) and `pMHC_stability` (half-life) — are
+explicitly skipped, so a NaN `value` on those kinds stays NaN rather
+than being silently misrepresented as a [0, 1] score. The helper is
+applied uniformly across the producer surface:
+
+- `TopiaryPredictor._format_prediction_df` (the main predict path)
+- `CachedPredictor._bindings_to_dataframe` and
+  `_predictions_to_dataframe` (cached-predictor outputs, including
+  mhcflurry's class1_presentation pipeline and NetMHCpan `-BA`)
+
+`affinity` continues to be populated only for `pMHC_affinity` rows, so
+that column's semantics are unchanged.
+
+After this change the long-format schema is uniform: `value` is the
+predictor's primary numeric output for every row (IC50 for affinity,
+probability for presentation, ...) and `score` is the [0, 1] ranking
+score (equal to `value` for presentation, derived from IC50 for
+affinity).
+
 ## 5.14.1
 
 Raise the varcode floor to `>=4.18.0`, the first varcode release that
