@@ -45,6 +45,34 @@ _MODEL_KEY_COLUMN = "_topiary_model_key"
 _WT_OFFSET_COLUMN = "_topiary_wt_peptide_offset"
 
 
+def _backfill_value_from_score(df):
+    """Populate ``value`` from ``score`` for kinds whose primary output
+    *is* the [0, 1] score (presentation, antigen_processing, ...).
+
+    mhctools sets ``value`` only when the kind has a distinct unit
+    (IC50 nM for affinity, half-life for stability — anything in
+    ``mhctools.VALUE_BEST_DIRECTIONS``). For other kinds it leaves
+    ``value=None``, which arrives as ``NaN`` in the DataFrame and trips
+    downstream consumers reading ``value`` uniformly: strict
+    ``simplejson.dumps`` rejects NaN, ``sorted()`` is undefined on it,
+    and arithmetic silently propagates. Unit-bearing kinds are
+    intentionally left alone: a NaN ``value`` there means the unit is
+    genuinely unknown, not "fall back to the score".
+
+    Mutates ``df`` in place and returns it for chaining.
+    """
+    if df.empty or "value" not in df.columns or "score" not in df.columns:
+        return df
+    if "kind" not in df.columns:
+        return df
+    from mhctools import VALUE_BEST_DIRECTIONS
+    unit_kinds = set(VALUE_BEST_DIRECTIONS.keys())
+    needs_backfill = df["value"].isna() & ~df["kind"].isin(unit_kinds)
+    if needs_backfill.any():
+        df.loc[needs_backfill, "value"] = df.loc[needs_backfill, "score"]
+    return df
+
+
 def _unique_model_keys(models):
     """Readable, unique internal names for configured model instances."""
     bases = []
@@ -673,17 +701,7 @@ class TopiaryPredictor(object):
             df["affinity"] = np.where(
                 df["kind"] == "pMHC_affinity", df["value"], np.nan
             )
-        # Backfill ``value`` from ``score`` for kinds whose primary output
-        # is the [0, 1] score itself (presentation, antigen_processing,
-        # ...). mhctools sets ``value`` only when there is a distinct
-        # unit (IC50 nM for affinity, half-life for stability); leaving
-        # NaN elsewhere is a foot gun for downstream consumers that read
-        # ``value`` uniformly (NaN crashes strict JSON, sorts undefined).
-        if "value" in df.columns and "score" in df.columns:
-            value_is_nan = df["value"].isna()
-            if value_is_nan.any():
-                df.loc[value_is_nan, "value"] = df.loc[value_is_nan, "score"]
-        return df
+        return _backfill_value_from_score(df)
 
     def _apply_filter(self, df):
         """Apply filter and sort if configured."""

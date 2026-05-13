@@ -36,6 +36,8 @@ from typing import Callable, Iterable, List, Mapping, Optional, Union
 
 import pandas as pd
 
+from .predictor import _backfill_value_from_score
+
 
 # Columns a cache row must carry so the core invariant and lookup work.
 _REQUIRED_COLUMNS = (
@@ -1129,7 +1131,7 @@ def _bindings_to_dataframe(preds, *, kind: str) -> pd.DataFrame:
         }
         for p in preds
     ]
-    return pd.DataFrame(rows)
+    return _backfill_value_from_score(pd.DataFrame(rows))
 
 
 def _predictions_to_dataframe(preds) -> pd.DataFrame:
@@ -1158,7 +1160,7 @@ def _predictions_to_dataframe(preds) -> pd.DataFrame:
         }
         for p in preds
     ]
-    return pd.DataFrame(rows)
+    return _backfill_value_from_score(pd.DataFrame(rows))
 
 
 # NetMHC-family tools embed their version in the stdout preamble,

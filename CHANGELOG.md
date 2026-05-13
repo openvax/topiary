@@ -14,9 +14,19 @@ mhctools models without a distinct unit. Downstream consumers reading
 arithmetic on `value` silently propagated NaN. Vaxrank just hit this in
 3.0.1 and worked around it in 3.0.2.
 
-`_format_prediction_df` now backfills `value` from `score` wherever
-`value` is NaN. Rows that already carry a unit-bearing `value` (IC50 nM
-for `pMHC_affinity`, half-life for `pMHC_stability`) are untouched.
+A new `_backfill_value_from_score` helper populates `value` from `score`
+for any row whose `kind` is *not* in `mhctools.VALUE_BEST_DIRECTIONS`
+(i.e. whose `value` has no distinct unit). Unit-bearing kinds —
+`pMHC_affinity` (IC50 nM) and `pMHC_stability` (half-life) — are
+explicitly skipped, so a NaN `value` on those kinds stays NaN rather
+than being silently misrepresented as a [0, 1] score. The helper is
+applied uniformly across the producer surface:
+
+- `TopiaryPredictor._format_prediction_df` (the main predict path)
+- `CachedPredictor._bindings_to_dataframe` and
+  `_predictions_to_dataframe` (cached-predictor outputs, including
+  mhcflurry's class1_presentation pipeline and NetMHCpan `-BA`)
+
 `affinity` continues to be populated only for `pMHC_affinity` rows, so
 that column's semantics are unchanged.
 
