@@ -6,20 +6,12 @@ Predict which peptides from protein sequences will be presented by MHC molecules
 
 ## Features
 
-- **Multiple prediction models** — NetMHCpan, MHCflurry, NetMHCIIpan, etc. via [mhctools](https://github.com/openvax/mhctools)
-- **Multi-model disambiguation** — `Affinity["netmhcpan"]` bracket syntax when combining models
-- **Composable ranking DSL** — filter, rank, and score with operator expressions
-- **Transforms** — `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()`, `.hinge()`, `.log()` for composite scoring
-- **Aggregations** — `mean()`, `geomean()`, `minimum()`, `maximum()`, `median()` for combining expressions
-- **Arbitrary column access** — `Column("cysteine_count")` brings any DataFrame column into the DSL
-- **Wildtype comparison** — `wt.Affinity.score` for differential binding analysis
-- **Peptide-level expressions** — `len`, `count('C')`, `wt.len`, `wt.count('C')` for peptide properties in the DSL
-- **Peptide properties** — charge, hydrophobicity, aromaticity, manufacturability, TCR-facing residue analysis
-- **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, Ensembl lookups, CTA gene sets, LENS reports
-- **Universal protein-fragment abstraction** — `ProteinFragment` carries antigens from any origin (somatic variants, structural variants, ERVs, CTAs, viral, allergen, autoantigen, synthetic) through one prediction pipeline
-- **Cached predictions** — `CachedPredictor` loads pre-computed scores (mhcflurry CSV, NetMHCpan/NetMHC/NetMHCIIpan/NetMHCstabpan/NetMHCcons stdout captures, topiary's own output, generic TSV) and merges sharded caches from parallel jobs so you can iterate on filters and ranking without re-running the predictor
-- **Tissue-aware exclusion** — exclude peptides from vital-organ proteomes
-- **Tab completion** — `pip install 'topiary[completion]'`
+- **Multiple MHC prediction models** — NetMHCpan, MHCflurry, NetMHCIIpan, etc. via [mhctools](https://github.com/openvax/mhctools); combine and rank across models
+- **Composable ranking DSL** — filter, rank, and score with operator expressions over affinity, presentation, stability, wildtype comparisons, and peptide properties
+- **Universal antigen abstraction** — `ProteinFragment` runs somatic variants, fusions, ERVs, CTAs, viral, and synthetic antigens through one pipeline
+- **Cached predictions** — `CachedPredictor` reuses pre-computed scores (mhctools output, NetMHC stdout, generic TSV) so you can iterate on filters and ranking without re-running the predictor
+- **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, LENS reports
+- **Expression- and tissue-aware prioritization** — exclude peptides from vital-organ proteomes, prioritize by RNA expression
 
 ## Installation
 
