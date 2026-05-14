@@ -1,5 +1,116 @@
 # Changelog
 
+## 5.16.0
+
+**pVACseq report loader (#94):**
+
+`topiary.read_pvacseq(path)` parses both pVACtools output flavors into
+long form: aggregated (`*.all_epitopes.aggregated.tsv`, one row per
+variant) and the unaggregated `*.all_epitopes.tsv` (one row per
+candidate peptide × allele × length). Format and MHC class are
+auto-detected; the Median MT IC50 / percentile populate
+`value` / `percentile_rank` with `prediction_method_name="pvacseq"`,
+and WT IC50 / percentile populate the `wt_*` schema so DSL expressions
+like `wt.Affinity.value` and `Affinity.value - wt.Affinity.value` work
+without further setup.
+
+For missense aggregated rows the WT peptide sequence is reconstructed
+from `Best Peptide` + `Pos` + `AA Change` (the aggregated TSV doesn't
+ship the WT sequence). Indel / frameshift / multi-residue rows leave
+`wt_peptide` NaN; users wanting full WT context for those should load
+the unaggregated `all_epitopes.tsv` flavor, which carries
+`WT Epitope Seq` directly.
+
+Per-algorithm score columns in the all_epitopes flavor (e.g.
+"NetMHCpan MT IC50 Score", "MHCflurry WT Percentile") pass through as
+snake_cased `pvacseq_<algo>_{ic50,pct}_{mt,wt}` annotation columns,
+reachable via `Column("...")`. They are not melted into separate
+`prediction_method_name` rows, so the DSL's `Affinity['netmhcpan']`
+selector won't find them — callers wanting per-algorithm DSL access
+should melt them out themselves or re-predict via `TopiaryPredictor`.
+
+Multiple files (MHC-I + MHC-II, or a mix of flavors) compose through
+`topiary.concat([read_pvacseq(p1), read_pvacseq(p2)])`; no dedicated
+multi-file entry point is exposed.
+
+Loader-derived columns aligned with `TopiaryPredictor` output so
+downstream consumers (vaxrank, etc.) don't have to special-case the
+loader source:
+
+- `mhc_class` (`"I"` / `"II"`) — derived from the allele string;
+  lets concat-ed MHC-I + MHC-II results be filtered or split by class.
+- `contains_mutant_residues` (boolean) — true iff the row's mutation
+  position falls inside the candidate peptide; false for flanking-only
+  peptides that pVACseq scored but where the mutation lies outside.
+- `mutation_start_in_peptide` / `mutation_end_in_peptide` (Int64,
+  0-based half-open) — derived from pVACseq's 1-based Pos / Mutation
+  Position.
+- `source` — per-row provenance label, matching `read_tsv`
+  convention; keeps multi-file concats distinguishable without rooting
+  through `Metadata.sources`.
+
+`Metadata.extra["kind_support"]` mirrors `TopiaryPredictor.kind_support`
+shape (`model_key -> {kind -> {mhc_dependence, mhc_class}}`) so the
+loaded result can be passed straight to `apply_filter(... ,
+kind_support=r.extra["kind_support"])` / `evaluate_scores(...)` without
+constructing a parallel metadata dict.
+
+`melt_pvacseq_algorithms(result)` expands the all_epitopes flavor's
+per-algorithm `pvacseq_<algo>_<field>_<mtwt>` columns into separate
+`prediction_method_name=<algo>` rows so the DSL's
+`Affinity['mhcflurry'].value` / `Affinity['netmhcpan'].score` selectors
+reach individual scoring algorithms natively.  The Median rows
+(`prediction_method_name="pvacseq"`) are preserved; melt is a no-op on
+aggregated input.
+
+**DSL: categorical equality / membership for string columns:**
+
+The filter DSL gains `Column.eq(value)`, `Column.ne(value)`, and
+`Column.isin(values)` methods, plus a new `IsIn` node, so `mhc_class`,
+`source`, `gene`, and other non-numeric columns are filterable
+natively without pandas-side pre-masking:
+
+```python
+apply_filter(df, Column("mhc_class").eq("I"))
+apply_filter(df, Column("mhc_class").isin(["I", "II"]))
+apply_filter(df, (Affinity.value <= 500) & Column("mhc_class").eq("I"))
+```
+
+The string parser accepts string literals on the right-hand side of
+`==` and `!=` (still rejected with `<` / `<=` / `>` / `>=`):
+
+```python
+parse('mhc_class == "I"')
+parse('affinity.value <= 500 & mhc_class != "II"')
+```
+
+`IsIn` reads its column raw (bypasses `Column`'s float cast), so any
+dtype works.  `DSLNode.__eq__` is intentionally *not* overridden —
+nodes stay hashable for sets/dicts — these methods are the supported
+path for categorical equality.
+
+Why: vaxrank's typical filter shape combines numeric clauses with
+class-I/class-II / provenance discriminators in one expression.
+Pre-5.16.0 the categorical clause had to be applied as a pandas mask
+before `apply_filter`; now both clauses compose in one DSL expression.
+
+**Pre-built MHC-class filters:**
+
+`topiary.class_i` and `topiary.class_ii` are pre-built `IsIn` nodes
+referencing the `mhc_class` column.  Compose like any other DSL node:
+
+```python
+apply_filter(df, class_i & (Affinity.value <= 500))
+apply_filter(df, class_i | class_ii)
+```
+
+Both require the `mhc_class` column (present after `read_pvacseq`,
+absent from fresh `TopiaryPredictor` output where class lives in
+`kind_support` at the model level).  For freshly predicted DataFrames,
+`topiary.derive_mhc_class(allele_series)` returns a Series of `"I"` /
+`"II"` / `pd.NA` derived from allele strings — assign it to
+`df["mhc_class"]` and the shortcuts work.
+
 ## 5.15.0
 
 **Backfill `value` from `score` for [0, 1]-score predictor kinds (#165):**

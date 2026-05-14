@@ -554,6 +554,102 @@ class Column(DSLNode):
     def to_ast_string(self):
         return f"Column({self.col_name!r})"
 
+    # -- categorical / non-numeric equality --
+    #
+    # DSLNode intentionally doesn't override ``__eq__`` (keeps nodes
+    # hashable for sets/dicts), and the column-eval path raises on
+    # non-numeric values.  These helpers route categorical equality
+    # (mhc_class, source, gene, ...) around both restrictions by
+    # producing an ``IsIn`` node that reads the column raw.
+
+    def eq(self, value) -> "IsIn":
+        """Categorical equality: ``Column("mhc_class").eq("I")``."""
+        return IsIn(self.col_name, [value])
+
+    def ne(self, value) -> "IsIn":
+        """Categorical inequality: ``Column("mhc_class").ne("II")``."""
+        return IsIn(self.col_name, [value], negate=True)
+
+    def isin(self, values) -> "IsIn":
+        """Membership: ``Column("mhc_class").isin(["I", "II"])``."""
+        return IsIn(self.col_name, values)
+
+
+class IsIn(DSLNode):
+    """Categorical membership test against scalar values.
+
+    Unlike :class:`Comparison`, which routes through :class:`Column`'s
+    numeric-cast eval path, ``IsIn`` reads the column's raw Series and
+    uses pandas ``.isin()`` directly — so it works for string columns
+    (``mhc_class``, ``source``, ``gene``, ...), boolean columns, or any
+    mix of dtypes.
+
+    Construct directly or via :meth:`Column.eq` / :meth:`Column.ne` /
+    :meth:`Column.isin`.  Negation through ``~`` or the ``negate=True``
+    constructor kwarg.
+    """
+
+    __slots__ = ("col_name", "values", "negate")
+
+    def __init__(self, col_name: str, values, negate: bool = False):
+        if isinstance(values, (str, int, float, bool, type(None))):
+            # Scalar — wrap so .isin gets a singleton.  float covers NaN
+            # too (NaN is a float in Python's type system).
+            values = (values,)
+        else:
+            try:
+                values = tuple(values)
+            except TypeError as exc:
+                raise TypeError(
+                    f"IsIn values must be a scalar or iterable, got "
+                    f"{type(values).__name__}"
+                ) from exc
+        self.col_name = col_name
+        self.values = values
+        self.negate = negate
+
+    def child_nodes(self):
+        return []
+
+    def eval(self, ctx: EvalContext) -> pd.Series:
+        df = ctx.df
+        if df.empty:
+            # Mirror Column.eval's empty path so the result aligns with
+            # ctx.group_index regardless of whether the context happens
+            # to carry a stale non-empty index.
+            return ctx.empty_series().astype("boolean")
+        if self.col_name not in df.columns:
+            available = sorted(df.columns)
+            close = get_close_matches(self.col_name, available, n=3, cutoff=0.6)
+            msg = f"Column {self.col_name!r} not found in DataFrame."
+            if close:
+                msg += f" Did you mean: {close}?"
+            else:
+                msg += f" Available: {available}"
+            raise ValueError(msg)
+        vals = df.groupby(ctx.group_keys, sort=False)[self.col_name].first()
+        vals = vals.reindex(ctx.group_index)
+        mask = vals.isin(self.values)
+        if self.negate:
+            mask = ~mask
+        return mask
+
+    def __invert__(self):
+        return IsIn(self.col_name, self.values, negate=not self.negate)
+
+    def __repr__(self):
+        # Single-value: render as .eq(v) / .ne(v).  Multi-value: render
+        # as .isin([...]) or ~.isin([...]) when negated.
+        if len(self.values) == 1:
+            method = "ne" if self.negate else "eq"
+            return f"column({self.col_name}).{method}({self.values[0]!r})"
+        prefix = "~" if self.negate else ""
+        return f"{prefix}column({self.col_name}).isin({list(self.values)!r})"
+
+    def to_ast_string(self):
+        name = "NotIn" if self.negate else "In"
+        return f"{name}({self.col_name!r}, {list(self.values)!r})"
+
 
 def _filter_kind_method_version(ctx, kind, method, version):
     """Filter ``ctx.df`` to rows of a given kind/method/version.
@@ -1852,6 +1948,16 @@ Affinity = KindAccessor(Kind.pMHC_affinity)
 Presentation = KindAccessor(Kind.pMHC_presentation)
 Stability = KindAccessor(Kind.pMHC_stability)
 Processing = KindAccessor(Kind.antigen_processing)
+
+# Pre-built IsIn nodes for the most common categorical filter: MHC class.
+# Both require a ``mhc_class`` column in the DataFrame — present after
+# :func:`topiary.read_pvacseq` and other loaders that derive it from
+# alleles.  Fresh ``TopiaryPredictor`` output doesn't carry the column
+# (class lives in :attr:`kind_support` at the model level); derive with
+# ``df["mhc_class"] = df["allele"].map(...)`` first if you need these
+# on a fresh prediction result.
+class_i = IsIn("mhc_class", ["I"])
+class_ii = IsIn("mhc_class", ["II"])
 
 
 # =============================================================================

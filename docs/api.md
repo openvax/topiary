@@ -94,7 +94,39 @@ Column("charge")                  # reads 'charge' column
 Column("cysteine_count") <= 2     # returns a Comparison (boolean DSL node)
 ```
 
-Errors with close-match suggestions when column doesn't exist. Raises `TypeError` for non-numeric columns.
+Errors with close-match suggestions when column doesn't exist. Raises `TypeError` for non-numeric columns in arithmetic / ordered comparisons.
+
+### Categorical equality and membership
+
+For string / boolean / mixed-dtype columns, `Column.eq` / `Column.ne` / `Column.isin` produce an `IsIn` node that reads the column raw (no float cast):
+
+| Form | Behavior |
+|------|----------|
+| `Column("mhc_class").eq("I")` | True for rows whose `mhc_class` equals `"I"` |
+| `Column("mhc_class").ne("II")` | True for `mhc_class != "II"` (NaN survives, pandas-style) |
+| `Column("mhc_class").isin(["I", "II"])` | True for either value |
+| `~Column("mhc_class").isin([...])` | Negate via `~` |
+
+In the string DSL, string literals are legal on the RHS of `==` / `!=` only:
+
+```python
+parse('mhc_class == "I"')
+parse('affinity.value <= 500 & mhc_class != "II"')
+```
+
+### Pre-built shortcuts
+
+| Symbol | Definition |
+|--------|-----------|
+| `class_i` | `IsIn("mhc_class", ["I"])` |
+| `class_ii` | `IsIn("mhc_class", ["II"])` |
+
+Both require a `mhc_class` column. `read_pvacseq()` produces one; for fresh `TopiaryPredictor` results, derive it first:
+
+```python
+from topiary import derive_mhc_class
+df["mhc_class"] = derive_mhc_class(df["allele"])
+```
 
 ## DSL tree
 
@@ -104,6 +136,7 @@ Every DSL expression is a `DSLNode`. The tree is composed of:
 |------|----------|
 | `Const(v)` | Constant scalar |
 | `Column(name)` | Per-group first-row of that column |
+| `IsIn(name, values, negate=False)` | Per-group boolean membership test against scalar values (no float cast); reachable via `Column.eq` / `Column.ne` / `Column.isin` |
 | `Field(kind, field, method=None, version=None, scope="")` | Per-group first-row of `{scope}{field}` for rows matching `kind` (and `method` / `version` if given) |
 | `Len(scope="")` | Peptide length |
 | `Count(chars, scope="")` | Amino-acid character count |
@@ -249,6 +282,9 @@ Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use
 | `read_sequence_csv(path)` | CSV with `sequence` col | `{name: sequence}` |
 | `read_tsv(path)` / `read_csv(path)` | Topiary-format table with comment-block metadata | `TopiaryResult` |
 | `read_lens(path)` | LENS report (v1.4 / v1.5.1 / v1.9) | `TopiaryResult` (wide form) |
+| `read_pvacseq(path)` | pVACseq aggregated or `all_epitopes` TSV (MHC-I or MHC-II) | `TopiaryResult` (long form) |
+| `melt_pvacseq_algorithms(result)` | Loaded pVACseq `all_epitopes` result | `TopiaryResult` with one row per (peptide, allele, algorithm) |
+| `derive_mhc_class(allele_series)` | Allele Series (mhcgnomes-normalized or raw) | Series of `"I"` / `"II"` / `pd.NA` |
 | `slice_regions(seqs, regions)` | Sequences + intervals | `{name:start-end: subseq}` |
 | `exclude_by(df, ref, mode)` | DataFrame + ref sequences | Filtered DataFrame |
 
