@@ -14,7 +14,11 @@ from topiary import (
     concat,
     detect_pvacseq_format,
     read_pvacseq,
+    read_tsv,
+    to_tsv,
+    wt,
 )
+from topiary.io_pvacseq import _reconstruct_wt_peptide
 
 FIXTURE_DIR = Path(__file__).parent / "data" / "pvacseq"
 
@@ -127,7 +131,6 @@ class TestLoadAggregated:
 
     def test_wt_aware_sort(self):
         # The wt-scoped accessor reads pvacseq's wt_* columns end-to-end.
-        from topiary import wt
         r = read_pvacseq(MHC_I_AGG)
         # Sort by MT-vs-WT IC50 delta — exercises wt.Affinity.value lookup.
         sorted_df = apply_sort(
@@ -135,6 +138,25 @@ class TestLoadAggregated:
         )
         diffs = (sorted_df["value"] - sorted_df["wt_value"]).dropna().tolist()
         assert diffs == sorted(diffs)
+
+    def test_tag_overrides_source_label(self):
+        r = read_pvacseq(MHC_I_AGG, tag="patient-42")
+        assert r.sources == ["patient-42"]
+
+    def test_round_trip_through_topiary_tsv(self, tmp_path):
+        r = read_pvacseq(MHC_I_AGG)
+        out_path = tmp_path / "roundtrip.tsv"
+        to_tsv(r, out_path)
+        reloaded = read_tsv(out_path)
+        assert reloaded.form == "long"
+        assert len(reloaded) == len(r)
+        # All pVACseq columns survive (read_tsv may add a "source" provenance
+        # column on the way in — that's expected).
+        assert set(r.df.columns) <= set(reloaded.df.columns)
+        assert (reloaded.df["value"].fillna(-1) == r.df["value"].fillna(-1)).all()
+        assert (
+            reloaded.df["wt_peptide"].fillna("") == r.df["wt_peptide"].fillna("")
+        ).all()
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +224,37 @@ class TestConcatMultipleFiles:
     def test_concat_mixed_flavors(self):
         combined = concat([read_pvacseq(MHC_I_AE), read_pvacseq(MHC_II_AGG)])
         assert len(combined) == _data_row_count(MHC_I_AE) + _data_row_count(MHC_II_AGG)
+
+
+# ---------------------------------------------------------------------------
+# WT peptide reconstruction edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestReconstructWtPeptide:
+    def test_missense_substitutes_at_pos(self):
+        assert _reconstruct_wt_peptide("AERMGFTVV", 8, "E806V") == "AERMGFTEV"
+
+    def test_position_outside_peptide_returns_none(self):
+        # Flanking peptide that doesn't span the mutation: Pos points past
+        # the peptide's length.  We refuse to guess.
+        assert _reconstruct_wt_peptide("AERMGFTVV", 99, "E806V") is None
+
+    def test_pos_aa_change_disagreement_returns_none(self):
+        # AA Change says mutant residue is V, but position 1 of "AERMGFTVV"
+        # is A — disagreement, so refuse rather than corrupt the peptide.
+        assert _reconstruct_wt_peptide("AERMGFTVV", 1, "E806V") is None
+
+    def test_non_missense_aa_change_returns_none(self):
+        # Frameshift / indel / multi-residue formats don't match the
+        # single-AA regex.
+        assert _reconstruct_wt_peptide("AERMGFTVV", 5, "FS342") is None
+        assert _reconstruct_wt_peptide("AERMGFTVV", 5, "EE764-765EK") is None
+
+    def test_non_string_inputs_return_none(self):
+        assert _reconstruct_wt_peptide(None, 5, "E806V") is None
+        assert _reconstruct_wt_peptide("AERMGFTVV", 5, None) is None
+        assert _reconstruct_wt_peptide("AERMGFTVV", "not-a-number", "E806V") is None
 
 
 # ---------------------------------------------------------------------------

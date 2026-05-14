@@ -1,5 +1,37 @@
 # Changelog
 
+## 5.16.0
+
+**pVACseq report loader (#94):**
+
+`topiary.read_pvacseq(path)` parses both pVACtools output flavors into
+long form: aggregated (`*.all_epitopes.aggregated.tsv`, one row per
+variant) and the unaggregated `*.all_epitopes.tsv` (one row per
+candidate peptide × allele × length). Format and MHC class are
+auto-detected; the Median MT IC50 / percentile populate
+`value` / `percentile_rank` with `prediction_method_name="pvacseq"`,
+and WT IC50 / percentile populate the `wt_*` schema so DSL expressions
+like `Affinity.value - wt.Affinity.value` work without further setup.
+
+For missense aggregated rows the WT peptide sequence is reconstructed
+from `Best Peptide` + `Pos` + `AA Change` (the aggregated TSV doesn't
+ship the WT sequence). Indel / frameshift / multi-residue rows leave
+`wt_peptide` NaN; users wanting full WT context for those should load
+the unaggregated `all_epitopes.tsv` flavor, which carries
+`WT Epitope Seq` directly.
+
+Per-algorithm score columns in the all_epitopes flavor (e.g.
+"NetMHCpan MT IC50 Score", "MHCflurry WT Percentile") pass through as
+snake_cased `pvacseq_<algo>_{ic50,pct}_{mt,wt}` annotation columns,
+reachable via `Column("...")`. They are not melted into separate
+`prediction_method_name` rows, so the DSL's `Affinity['netmhcpan']`
+selector won't find them — callers wanting per-algorithm DSL access
+should melt them out themselves or re-predict via `TopiaryPredictor`.
+
+Multiple files (MHC-I + MHC-II, or a mix of flavors) compose through
+`topiary.concat([read_pvacseq(p1), read_pvacseq(p2)])`; no dedicated
+multi-file entry point is exposed.
+
 ## 5.15.0
 
 **Backfill `value` from `score` for [0, 1]-score predictor kinds (#165):**

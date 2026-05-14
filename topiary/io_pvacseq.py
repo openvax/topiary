@@ -25,7 +25,10 @@ should load the unaggregated ``all_epitopes.tsv`` flavor, which has a
 Per-algorithm score columns in the all_epitopes flavor (e.g.
 "NetMHCpan MT IC50 Score", "MHCflurry WT Percentile") pass through as
 snake_cased ``pvacseq_<algo>_{ic50,pct}_{mt,wt}`` annotation columns,
-accessible from the DSL via ``Column("...")``.
+accessible from the DSL via ``Column("...")``.  They aren't melted into
+extra ``prediction_method_name`` rows, so the DSL's ``Affinity['netmhcpan']``
+selector won't reach them — callers wanting per-algorithm DSL access
+should melt them out themselves or re-predict via :class:`TopiaryPredictor`.
 """
 
 from __future__ import annotations
@@ -217,23 +220,28 @@ _FIELD_SHORT = {"IC50 Score": "ic50", "Percentile": "pct"}
 
 
 def _parse_aggregated(df):
-    """Aggregated-format DataFrame → (parsed-rows DataFrame, source label)."""
+    """Aggregated-format DataFrame → parsed-rows DataFrame."""
     out = pd.DataFrame(index=df.index)
     out["peptide"] = df["Best Peptide"]
     out["allele"] = _normalize_alleles(df["Allele"])
     out["value"] = pd.to_numeric(df["IC50 MT"], errors="coerce")
     out["percentile_rank"] = pd.to_numeric(df["%ile MT"], errors="coerce")
-    out["wt_value"] = pd.to_numeric(df.get("IC50 WT"), errors="coerce")
-    out["wt_percentile_rank"] = pd.to_numeric(df.get("%ile WT"), errors="coerce")
+    out["wt_value"] = (
+        pd.to_numeric(df["IC50 WT"], errors="coerce")
+        if "IC50 WT" in df.columns else np.nan
+    )
+    out["wt_percentile_rank"] = (
+        pd.to_numeric(df["%ile WT"], errors="coerce")
+        if "%ile WT" in df.columns else np.nan
+    )
 
+    pos = df["Pos"] if "Pos" in df.columns else [None] * len(df)
+    aa_change = df["AA Change"] if "AA Change" in df.columns else [None] * len(df)
     out["wt_peptide"] = [
-        _reconstruct_wt_peptide(pep, pos, aa)
-        for pep, pos, aa in zip(
-            df["Best Peptide"], df.get("Pos"), df.get("AA Change"),
-        )
+        _reconstruct_wt_peptide(pep, p, a)
+        for pep, p, a in zip(df["Best Peptide"], pos, aa_change)
     ]
-
-    out["effect_type"] = [_classify_effect(aa, None) for aa in df.get("AA Change", [])]
+    out["effect_type"] = [_classify_effect(a, None) for a in aa_change]
 
     for src, dst in _AGG_ANNOTATIONS.items():
         if src in df.columns:
@@ -258,10 +266,13 @@ def _parse_all_epitopes(df):
     out["wt_percentile_rank"] = (
         pd.to_numeric(wt_pct, errors="coerce") if wt_pct is not None else np.nan
     )
-    out["wt_peptide"] = df.get("WT Epitope Seq")
-    out["effect_type"] = [
-        _classify_effect(None, v) for v in df.get("Variant Type", [])
-    ]
+    out["wt_peptide"] = (
+        df["WT Epitope Seq"].values if "WT Epitope Seq" in df.columns else None
+    )
+    variant_type = (
+        df["Variant Type"] if "Variant Type" in df.columns else [None] * len(df)
+    )
+    out["effect_type"] = [_classify_effect(None, v) for v in variant_type]
 
     # Stable variant id from chr-coords if "Index" isn't usable.
     if "Index" in df.columns:
@@ -321,7 +332,7 @@ def _finalize(parsed):
     parsed["peptide_offset"] = 0
     parsed["kind"] = "pMHC_affinity"
     parsed["prediction_method_name"] = "pvacseq"
-    parsed["predictor_version"] = None
+    parsed["predictor_version"] = pd.NA
     parsed["affinity"] = parsed["value"]
     parsed["score"] = parsed["value"]
 
@@ -331,10 +342,11 @@ def _finalize(parsed):
     parsed["wt_affinity"] = parsed["wt_value"]
     parsed["wt_score"] = parsed["wt_value"]
     parsed["wt_prediction_method_name"] = "pvacseq"
-    parsed["wt_predictor_version"] = None
+    parsed["wt_predictor_version"] = pd.NA
 
     # source_sequence_name: gene + variant when both available, else
-    # whichever is present, else fall back to peptide+allele uniqueness.
+    # whichever is present.  Both flavors guarantee at least one, so the
+    # column is always populated.
     if "gene" in parsed.columns and "variant" in parsed.columns:
         parsed["source_sequence_name"] = (
             parsed["gene"].astype(object).fillna("?") + ":"
@@ -377,7 +389,9 @@ def read_pvacseq(path, *, tag=None) -> TopiaryResult:
         Compose multiple files with :func:`topiary.concat`.
     """
     path = Path(path)
-    df = pd.read_csv(path, sep="\t", na_values=["NA", "X"])
+    # "X" is pVACseq's sentinel for "this algorithm didn't score this
+    # peptide × allele"; pandas already treats "NA" as NaN by default.
+    df = pd.read_csv(path, sep="\t", na_values=["X"])
     fmt = detect_pvacseq_format(df.columns)
     if fmt is None:
         raise ValueError(
