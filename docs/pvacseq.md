@@ -37,10 +37,10 @@ The loader produces Topiary's standard long-form schema. Median MT scores become
 |----------------|------------------------|--------------------------|
 | `peptide` | `Best Peptide` | `MT Epitope Seq` |
 | `allele` | `Allele` (mhcgnomes-normalized) | `HLA Allele` (mhcgnomes-normalized) |
-| `value`, `affinity`, `score` | `IC50 MT` | `Median MT IC50 Score` (or `Best MT IC50 Score`) |
-| `percentile_rank` | `%ile MT` | `Median MT Percentile` |
-| `wt_value`, `wt_affinity`, `wt_score` | `IC50 WT` | `Median WT IC50 Score` |
-| `wt_percentile_rank` | `%ile WT` | `Median WT Percentile` |
+| `value`, `affinity`, `score` | `IC50 MT` | `Median MT IC50 Score` (or `Best MT IC50 Score` when pVACseq was run with `--top-score-metric=Best`) |
+| `percentile_rank` | `%ile MT` | `Median MT Percentile` (or `Best MT Percentile`) |
+| `wt_value`, `wt_affinity`, `wt_score` | `IC50 WT` | `Median WT IC50 Score` (or `Corresponding WT IC50 Score`) |
+| `wt_percentile_rank` | `%ile WT` | `Median WT Percentile` (or `Corresponding WT Percentile`) |
 | `wt_peptide` | reconstructed from `Best Peptide` + `Pos` + `AA Change` for missense; NaN otherwise | `WT Epitope Seq` (always present) |
 | `kind` | `"pMHC_affinity"` (synthesized) | same |
 | `prediction_method_name` | `"pvacseq"` (synthesized) | same |
@@ -189,9 +189,7 @@ from mhctools import NetMHCpan, MHCflurry
 r = read_pvacseq("HCC1395.MHC_I.all_epitopes.aggregated.tsv")
 
 alleles = sorted(r.df["allele"].dropna().unique())
-peptides = dict(
-    zip(r.df["variant"] + "_" + r.df["peptide"], r.df["peptide"])
-)
+peptides = {f"{v}_{p}": p for v, p in zip(r.df["variant"], r.df["peptide"])}
 
 fresh = TopiaryPredictor(
     models=[NetMHCpan, MHCflurry],
@@ -199,23 +197,11 @@ fresh = TopiaryPredictor(
 ).predict_from_named_peptides(peptides)
 ```
 
-The fresh predictions and the pVACseq import share the same long-form schema, so you can `concat` and compare:
-
-```python
-from topiary import concat, Affinity, Column, apply_sort
-
-merged = concat([r, fresh_result])
-# Sort by min(pVACseq median, topiary fresh) IC50
-apply_sort(
-    merged.df,
-    [Affinity.value],
-    sort_direction="asc",
-)
-```
+`fresh` is a long-form prediction DataFrame using Topiary's standard schema, identical in shape to `r.df`. Side-by-side comparison of pVACseq's scores against the fresh predictions is a plain pandas operation (`pd.concat` to stack, `pd.pivot_table` to align per `prediction_method_name`) — see the [Ranking DSL](ranking.md) guide for the DSL-side primitives.
 
 ## `derive_mhc_class` for non-pVACseq DataFrames
 
-Fresh `TopiaryPredictor` output doesn't carry an `mhc_class` column — class lives in `Metadata.kind_support` at the model level, not per row. To use the `class_i` / `class_ii` shortcuts (or any `Column("mhc_class")` expression) on such a frame, stamp the column first:
+Fresh `TopiaryPredictor` output doesn't carry an `mhc_class` column — class lives in `TopiaryPredictor.kind_support` at the model level, not per row. To use the `class_i` / `class_ii` shortcuts (or any `Column("mhc_class")` expression) on such a frame, stamp the column first:
 
 ```python
 from topiary import derive_mhc_class
