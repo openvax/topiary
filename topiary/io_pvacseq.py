@@ -48,9 +48,9 @@ from .result import TopiaryResult
 # =============================================================================
 
 _AGG_SIGNATURE = frozenset({"Best Peptide", "IC50 MT", "%ile MT", "Allele"})
-_AE_SIGNATURE = frozenset({"MT Epitope Seq", "HLA Allele"})
-_AE_MEDIAN = frozenset({"Median MT IC50 Score", "Median MT Percentile"})
-_AE_BEST = frozenset({"Best MT IC50 Score", "Best MT Percentile"})
+_ALL_SIGNATURE = frozenset({"MT Epitope Seq", "HLA Allele"})
+_ALL_MEDIAN = frozenset({"Median MT IC50 Score", "Median MT Percentile"})
+_ALL_BEST = frozenset({"Best MT IC50 Score", "Best MT Percentile"})
 
 
 def detect_pvacseq_format(columns) -> str | None:
@@ -58,7 +58,7 @@ def detect_pvacseq_format(columns) -> str | None:
     cols = set(columns)
     if _AGG_SIGNATURE <= cols:
         return "aggregated"
-    if _AE_SIGNATURE <= cols and (_AE_MEDIAN <= cols or _AE_BEST <= cols):
+    if _ALL_SIGNATURE <= cols and (_ALL_MEDIAN <= cols or _ALL_BEST <= cols):
         return "all_epitopes"
     return None
 
@@ -186,7 +186,7 @@ _AGG_ANNOTATIONS = {
 }
 
 # (pVACseq column → topiary column) for all_epitopes-flavor annotations.
-_AE_ANNOTATIONS = {
+_ALL_ANNOTATIONS = {
     "Gene Name":             "gene",
     "Transcript":            "transcript",
     "Gene Expression":       "gene_expression",
@@ -292,7 +292,7 @@ def _parse_all_epitopes(df):
             + df["Variant"].astype(str)
         )
 
-    for src, dst in _AE_ANNOTATIONS.items():
+    for src, dst in _ALL_ANNOTATIONS.items():
         if src in df.columns:
             out[dst] = df[src].values
 

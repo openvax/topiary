@@ -24,8 +24,8 @@ FIXTURE_DIR = Path(__file__).parent / "data" / "pvacseq"
 
 MHC_I_AGG = FIXTURE_DIR / "mhc_i_aggregated.tsv"
 MHC_II_AGG = FIXTURE_DIR / "mhc_ii_aggregated.tsv"
-MHC_I_AE = FIXTURE_DIR / "mhc_i_all_epitopes.tsv"
-MHC_II_AE = FIXTURE_DIR / "mhc_ii_all_epitopes.tsv"
+MHC_I_ALL = FIXTURE_DIR / "mhc_i_all_epitopes.tsv"
+MHC_II_ALL = FIXTURE_DIR / "mhc_ii_all_epitopes.tsv"
 
 
 def _data_row_count(path):
@@ -43,7 +43,7 @@ class TestDetectFormat:
         assert detect_pvacseq_format(cols) == "aggregated"
 
     def test_all_epitopes_detected(self):
-        cols = pd.read_csv(MHC_I_AE, sep="\t", nrows=0).columns
+        cols = pd.read_csv(MHC_I_ALL, sep="\t", nrows=0).columns
         assert detect_pvacseq_format(cols) == "all_epitopes"
 
     def test_unrelated_columns_return_none(self):
@@ -171,22 +171,22 @@ class TestLoadAggregated:
 
 class TestLoadAllEpitopes:
     def test_format_recorded(self):
-        r = read_pvacseq(MHC_I_AE)
+        r = read_pvacseq(MHC_I_ALL)
         assert r.extra["pvacseq_format"] == "all_epitopes"
 
     def test_median_mt_ic50_becomes_value(self):
-        r = read_pvacseq(MHC_I_AE)
+        r = read_pvacseq(MHC_I_ALL)
         row = r.df.iloc[0]
         assert math.isclose(row["value"], 76.11, abs_tol=0.01)
 
     def test_wt_peptide_from_wt_epitope_seq(self):
-        r = read_pvacseq(MHC_I_AE)
+        r = read_pvacseq(MHC_I_ALL)
         # All fixture rows ship a WT epitope.
         assert r.df["wt_peptide"].notna().all()
         assert (r.df["wt_peptide_length"] == r.df["wt_peptide"].str.len()).all()
 
     def test_per_algorithm_columns_pass_through(self):
-        r = read_pvacseq(MHC_I_AE)
+        r = read_pvacseq(MHC_I_ALL)
         expected = {
             "pvacseq_netmhcpan_ic50_mt",
             "pvacseq_netmhcpan_ic50_wt",
@@ -201,21 +201,21 @@ class TestLoadAllEpitopes:
 
     def test_na_per_algorithm_value_passes_as_nan(self):
         # Fixture row 1 has "NA" in NetMHCpan columns.
-        r = read_pvacseq(MHC_I_AE)
+        r = read_pvacseq(MHC_I_ALL)
         assert pd.isna(r.df["pvacseq_netmhcpan_ic50_mt"].iloc[1])
 
     def test_annotation_columns_renamed(self):
-        r = read_pvacseq(MHC_I_AE)
+        r = read_pvacseq(MHC_I_ALL)
         assert {"gene_expression", "tumor_dna_vaf", "variant_type"} <= set(r.df.columns)
 
     def test_effect_type_substitution_for_missense(self):
-        r = read_pvacseq(MHC_I_AE)
+        r = read_pvacseq(MHC_I_ALL)
         assert (r.df["effect_type"] == "Substitution").all()
 
     def test_mhc_ii_all_epitopes_loads(self):
         # Class-II all_epitopes uses heterodimer alleles and a different
         # algorithm column ("NetMHCIIpan ..." instead of "NetMHCpan ...").
-        r = read_pvacseq(MHC_II_AE)
+        r = read_pvacseq(MHC_II_ALL)
         assert r.extra["pvacseq_format"] == "all_epitopes"
         alleles = set(r.df["allele"].dropna())
         assert all(a.startswith("HLA-D") for a in alleles)
@@ -230,13 +230,13 @@ class TestLoadAllEpitopes:
         } <= set(r.df.columns)
 
     def test_wt_peptide_length_is_nullable_int(self):
-        r = read_pvacseq(MHC_I_AE)
+        r = read_pvacseq(MHC_I_ALL)
         assert str(r.df["wt_peptide_length"].dtype) == "Int64"
 
     def test_chr_coord_variant_fallback_when_index_missing(self, tmp_path):
         # Strip the "Index" column from the fixture; _parse_all_epitopes
         # should fall back to building variant from chr/start/ref/alt.
-        df = pd.read_csv(MHC_I_AE, sep="\t").drop(columns=["Index"])
+        df = pd.read_csv(MHC_I_ALL, sep="\t").drop(columns=["Index"])
         path = tmp_path / "no_index.tsv"
         df.to_csv(path, sep="\t", index=False)
         r = read_pvacseq(path)
@@ -258,8 +258,8 @@ class TestConcatMultipleFiles:
         assert any("D" in a for a in alleles)
 
     def test_concat_mixed_flavors(self):
-        combined = concat([read_pvacseq(MHC_I_AE), read_pvacseq(MHC_II_AGG)])
-        assert len(combined) == _data_row_count(MHC_I_AE) + _data_row_count(MHC_II_AGG)
+        combined = concat([read_pvacseq(MHC_I_ALL), read_pvacseq(MHC_II_AGG)])
+        assert len(combined) == _data_row_count(MHC_I_ALL) + _data_row_count(MHC_II_AGG)
 
 
 # ---------------------------------------------------------------------------
