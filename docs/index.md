@@ -10,7 +10,7 @@ Predict which peptides from protein sequences will be presented by MHC molecules
 - **Composable ranking DSL** — filter, rank, and score with operator expressions over affinity, presentation, stability, wildtype comparisons, and peptide properties
 - **Universal antigen abstraction** — `ProteinFragment` runs somatic variants, fusions, ERVs, CTAs, viral, and synthetic antigens through one pipeline
 - **Cached predictions** — `CachedPredictor` reuses pre-computed scores ([mhctools](https://github.com/openvax/mhctools) output, [NetMHC](https://services.healthtech.dtu.dk/services/NetMHC-4.0/) stdout, generic TSV) so you can iterate on filters and ranking without re-running the predictor
-- **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, [LENS](https://www.uselens.io/) reports
+- **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, [LENS](https://www.uselens.io/) reports, [pVACseq](https://pvactools.readthedocs.io/) output
 - **Expression- and tissue-aware prioritization** — exclude peptides from vital-organ proteomes, prioritize by RNA expression
 
 ## Quick example
