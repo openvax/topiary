@@ -15,6 +15,20 @@ file's Median MT IC50 / percentile populate the primary
 ``wt_value`` / ``wt_percentile_rank`` so DSL expressions like
 ``wt.Affinity.value`` work without further setup.
 
+Derived columns aligned with :class:`TopiaryPredictor` output so vaxrank
+and other downstream consumers don't have to special-case loader source:
+
+- ``mhc_class`` (``"I"`` / ``"II"``) — derived from the allele string.
+- ``contains_mutant_residues`` (boolean) — true iff pVACseq's reported
+  mutation position falls inside the candidate peptide.
+- ``mutation_start_in_peptide`` / ``mutation_end_in_peptide`` (Int64,
+  0-based half-open) — derived from pVACseq's 1-based Pos / Mutation
+  Position.  Single-residue semantics; indels / frameshifts collapse to
+  a representative position.
+- ``source`` — per-row provenance label (tag or ``pvacseq-{flavor}:{filename}``),
+  matching :func:`read_tsv` convention so multi-file concats stay
+  distinguishable.
+
 For missense aggregated rows, the WT peptide sequence is reconstructed
 from ``Best Peptide`` + ``Pos`` + ``AA Change`` (the aggregated TSV
 itself doesn't carry the WT sequence).  Indel / frameshift / multi-AA
@@ -162,6 +176,8 @@ def _classify_effect(aa_change=None, variant_type=None):
 # =============================================================================
 
 # (pVACseq column → topiary column) for aggregated-flavor annotations.
+# "Pos" is pVACseq's position-of-mutation-within-the-Best-Peptide (1-based)
+# in aggregated TSVs; it's the analog of all_epitopes' "Mutation Position".
 _AGG_ANNOTATIONS = {
     "Gene":                    "gene",
     "Best Transcript":         "transcript",
@@ -179,7 +195,7 @@ _AGG_ANNOTATIONS = {
     "Canonical":               "canonical",
     "TSL":                     "transcript_support_level",
     "AA Change":               "aa_change",
-    "Mutation Position":       "mutation_position",
+    "Pos":                     "mutation_position",
     "Ref Match":               "pvacseq_ref_match",
     "Evaluation":              "pvacseq_evaluation",
     "Prob Pos":                "pvacseq_prob_pos",
@@ -218,6 +234,52 @@ def _first_present_column(df, *candidates):
         if name in df.columns:
             return df[name]
     return None
+
+
+def _derive_mhc_class(allele_series):
+    """Per-row MHC class ('I' or 'II'); ``pd.NA`` for unrecognized."""
+    def _class_of(allele):
+        if not isinstance(allele, str):
+            return pd.NA
+        a = allele.upper()
+        if a.startswith(("HLA-A", "HLA-B", "HLA-C")):
+            return "I"
+        if a.startswith("HLA-D") or a.startswith(("DRB", "DPA", "DPB", "DQA", "DQB")):
+            return "II"
+        return pd.NA
+    return allele_series.map(_class_of)
+
+
+def _derive_mutation_interval(parsed):
+    """Return contains_mutant_residues + 0-based half-open mutation interval
+    derived from the 1-based ``mutation_position`` column.
+
+    pVACseq's Pos / Mutation Position is the single-residue position of the
+    mutation within the candidate peptide.  Rows where the position is
+    missing or falls outside the peptide (flanking-only peptides) get
+    ``contains_mutant_residues = False`` and NaN start/end.
+
+    Multi-residue mutations (indels, frameshifts) collapse to a single
+    representative position; downstream code wanting full intervals
+    should re-derive from the source protein.
+    """
+    n = len(parsed)
+    if "mutation_position" not in parsed.columns:
+        return {
+            "contains_mutant_residues": pd.array([pd.NA] * n, dtype="boolean"),
+            "mutation_start_in_peptide": pd.array([pd.NA] * n, dtype="Int64"),
+            "mutation_end_in_peptide": pd.array([pd.NA] * n, dtype="Int64"),
+        }
+    pos = pd.to_numeric(parsed["mutation_position"], errors="coerce")
+    pep_len = parsed["peptide"].str.len()
+    valid = pos.notna() & (pos >= 1) & (pos <= pep_len)
+    start_int = (pos - 1).where(valid).astype("Int64")
+    end_int = pos.where(valid).astype("Int64")
+    return {
+        "contains_mutant_residues": valid.astype("boolean"),
+        "mutation_start_in_peptide": start_int,
+        "mutation_end_in_peptide": end_int,
+    }
 
 
 # =============================================================================
@@ -323,9 +385,13 @@ def _parse_all_epitopes(df):
 # are silently dropped.  Annotation pass-throughs (incl. pvacseq_*) sort
 # alphabetically after the canonical columns.
 _CANONICAL_ORDER = [
-    "source_sequence_name", "gene", "transcript", "variant", "effect_type",
+    "source", "source_sequence_name",
+    "gene", "transcript", "variant", "effect_type", "variant_type",
     "peptide", "peptide_offset", "peptide_length",
-    "allele", "kind", "score", "value", "affinity", "percentile_rank",
+    "contains_mutant_residues",
+    "mutation_start_in_peptide", "mutation_end_in_peptide",
+    "allele", "mhc_class",
+    "kind", "score", "value", "affinity", "percentile_rank",
     "prediction_method_name", "predictor_version",
     "wt_peptide", "wt_peptide_length",
     "wt_value", "wt_affinity", "wt_score", "wt_percentile_rank",
@@ -335,26 +401,40 @@ _CANONICAL_ORDER = [
 
 def _build_source_sequence_name(parsed):
     """Compose ``gene:variant`` when both are available; otherwise return
-    whichever is present.  Both flavors guarantee at least one, so the
-    column is always populated."""
-    if "gene" in parsed.columns and "variant" in parsed.columns:
+    whichever is present.  Both flavors guarantee at least one."""
+    has_gene = "gene" in parsed.columns
+    has_variant = "variant" in parsed.columns
+    if has_gene and has_variant:
         return (
             parsed["gene"].astype(object).fillna("?") + ":"
             + parsed["variant"].astype(object).fillna("?")
         )
-    if "variant" in parsed.columns:
+    if has_variant:
         return parsed["variant"]
-    return parsed["gene"]
+    if has_gene:
+        return parsed["gene"]
+    raise KeyError(
+        "source_sequence_name needs at least one of 'gene' or 'variant'; "
+        "neither column was populated by the flavor parser."
+    )
 
 
-def _finalize(parsed):
-    """Add synthesized constants, mirrors, and column order in one allocation."""
+def _finalize(parsed, *, source):
+    """Add synthesized constants, mirrors, and column order in one allocation.
+
+    *source* is stamped on every row to match topiary's read_tsv provenance
+    convention; downstream concat across MHC-I and MHC-II files stays
+    distinguishable without rooting through Metadata.
+    """
     # peptide_offset = 0: pVACseq doesn't ship the source-protein offset
     # of the peptide; LENS loader uses the same convention.
+    mutation_cols = _derive_mutation_interval(parsed)
     augmented = parsed.assign(
+        source=source,
         peptide_length=parsed["peptide"].str.len(),
         peptide_offset=0,
         kind="pMHC_affinity",
+        mhc_class=_derive_mhc_class(parsed["allele"]),
         prediction_method_name="pvacseq",
         predictor_version=pd.NA,
         affinity=parsed["value"],
@@ -367,6 +447,7 @@ def _finalize(parsed):
         wt_prediction_method_name="pvacseq",
         wt_predictor_version=pd.NA,
         source_sequence_name=_build_source_sequence_name(parsed),
+        **mutation_cols,
     )
 
     canonical = [c for c in _CANONICAL_ORDER if c in augmented.columns]
@@ -415,11 +496,9 @@ def read_pvacseq(path, *, tag=None) -> TopiaryResult:
         )
 
     parsed = (_parse_aggregated if fmt == "aggregated" else _parse_all_epitopes)(df)
-    out = _finalize(parsed)
+    source_label = tag or f"pvacseq-{fmt}:{path.name}"
+    out = _finalize(parsed, source=source_label)
 
-    meta = Metadata(
-        form="long",
-        sources=[tag or f"pvacseq-{fmt}:{path.name}"],
-    )
+    meta = Metadata(form="long", sources=[source_label])
     meta.extra["pvacseq_format"] = fmt
     return TopiaryResult(out, meta)

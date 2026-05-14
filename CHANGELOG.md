@@ -33,6 +33,22 @@ Multiple files (MHC-I + MHC-II, or a mix of flavors) compose through
 `topiary.concat([read_pvacseq(p1), read_pvacseq(p2)])`; no dedicated
 multi-file entry point is exposed.
 
+Loader-derived columns aligned with `TopiaryPredictor` output so
+downstream consumers (vaxrank, etc.) don't have to special-case the
+loader source:
+
+- `mhc_class` (`"I"` / `"II"`) — derived from the allele string;
+  lets concat-ed MHC-I + MHC-II results be filtered or split by class.
+- `contains_mutant_residues` (boolean) — true iff the row's mutation
+  position falls inside the candidate peptide; false for flanking-only
+  peptides that pVACseq scored but where the mutation lies outside.
+- `mutation_start_in_peptide` / `mutation_end_in_peptide` (Int64,
+  0-based half-open) — derived from pVACseq's 1-based Pos / Mutation
+  Position.
+- `source` — per-row provenance label, matching `read_tsv`
+  convention; keeps multi-file concats distinguishable without rooting
+  through `Metadata.sources`.
+
 ## 5.15.0
 
 **Backfill `value` from `score` for [0, 1]-score predictor kinds (#165):**

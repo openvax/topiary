@@ -88,8 +88,10 @@ class TestLoadAggregated:
 
     def test_mhc_ii_alleles_get_hla_prefix(self):
         r = read_pvacseq(MHC_II_AGG)
-        # Raw "DRB1*04:05" / "DRB4*01:03" gain the HLA- prefix from mhcgnomes.
-        assert (r.df["allele"].dropna().str.startswith("HLA-DR")).all()
+        # Raw "DRB1*04:05" / "DPA1*02:01-DPB1*01:01" gain the HLA- prefix
+        # from mhcgnomes; assertion is loose enough to survive future
+        # re-slicing of the fixture to include other class II loci.
+        assert (r.df["allele"].dropna().str.startswith("HLA-D")).all()
 
     def test_ic50_mt_populates_value_affinity_score(self):
         r = read_pvacseq(MHC_I_AGG)
@@ -151,17 +153,52 @@ class TestLoadAggregated:
         reloaded = read_tsv(out_path)
         assert reloaded.form == "long"
         assert len(reloaded) == len(r)
-        # read_tsv adds a "source" provenance column on read; otherwise the
-        # column set should round-trip exactly.
-        assert set(reloaded.df.columns) - {"source"} == set(r.df.columns)
-        for col in ("peptide", "allele", "wt_peptide"):
-            assert (
-                reloaded.df[col].fillna("") == r.df[col].fillna("")
-            ).all(), f"column {col} did not round-trip"
-        for col in ("value", "percentile_rank", "wt_value", "wt_percentile_rank"):
-            assert (
-                reloaded.df[col].fillna(-1) == r.df[col].fillna(-1)
-            ).all(), f"column {col} did not round-trip"
+        # Column set survives exactly (read_pvacseq itself stamps a
+        # `source` column, so no diff on that axis either).
+        assert set(reloaded.df.columns) == set(r.df.columns)
+        # NaN-aware equality for every column we control.
+        for col in ("peptide", "allele", "wt_peptide", "value",
+                    "percentile_rank", "wt_value", "wt_percentile_rank"):
+            assert reloaded.df[col].equals(r.df[col]), (
+                f"column {col} did not round-trip"
+            )
+
+    def test_predictor_version_is_na(self):
+        # Pinned at pd.NA so concat across files doesn't trigger the
+        # "conflicting versions" warning in topiary.concat.
+        r = read_pvacseq(MHC_I_AGG)
+        assert r.df["predictor_version"].isna().all()
+        assert r.df["wt_predictor_version"].isna().all()
+
+    def test_mhc_class_derived_from_alleles(self):
+        r = read_pvacseq(MHC_I_AGG)
+        assert (r.df["mhc_class"] == "I").all()
+        r2 = read_pvacseq(MHC_II_AGG)
+        assert (r2.df["mhc_class"] == "II").all()
+
+    def test_source_column_per_row(self):
+        # Per-row provenance matches read_tsv convention.
+        r = read_pvacseq(MHC_I_AGG)
+        assert r.df["source"].nunique() == 1
+        assert r.df["source"].iloc[0] == r.sources[0]
+
+    def test_tag_propagates_into_source_column(self):
+        r = read_pvacseq(MHC_I_AGG, tag="patient-42")
+        assert (r.df["source"] == "patient-42").all()
+
+    def test_mutation_interval_for_missense(self):
+        r = read_pvacseq(MHC_I_AGG)
+        # First fixture row: Best Peptide=AERMGFTVV, Pos=8 → 0-based [7, 8).
+        first = r.df.iloc[0]
+        assert bool(first["contains_mutant_residues"]) is True
+        assert int(first["mutation_start_in_peptide"]) == 7
+        assert int(first["mutation_end_in_peptide"]) == 8
+
+    def test_mutation_interval_dtype_is_int64(self):
+        r = read_pvacseq(MHC_I_AGG)
+        assert str(r.df["mutation_start_in_peptide"].dtype) == "Int64"
+        assert str(r.df["mutation_end_in_peptide"].dtype) == "Int64"
+        assert str(r.df["contains_mutant_residues"].dtype) == "boolean"
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +298,19 @@ class TestConcatMultipleFiles:
         combined = concat([read_pvacseq(MHC_I_ALL), read_pvacseq(MHC_II_AGG)])
         assert len(combined) == _data_row_count(MHC_I_ALL) + _data_row_count(MHC_II_AGG)
 
+    def test_concat_preserves_per_row_source_and_mhc_class(self):
+        # Vaxrank wants to combine MHC-I + MHC-II in one ranking run and
+        # split or filter by class afterward.
+        combined = concat([read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG)])
+        # Two distinct provenance labels.
+        assert combined.df["source"].nunique() == 2
+        # mhc_class lets downstream filter by class without parsing alleles.
+        assert set(combined.df["mhc_class"]) == {"I", "II"}
+        class_i_rows = (combined.df["mhc_class"] == "I").sum()
+        class_ii_rows = (combined.df["mhc_class"] == "II").sum()
+        assert class_i_rows == _data_row_count(MHC_I_AGG)
+        assert class_ii_rows == _data_row_count(MHC_II_AGG)
+
 
 # ---------------------------------------------------------------------------
 # WT peptide reconstruction edge cases
@@ -323,6 +373,30 @@ class TestClassifyEffect:
     def test_unknown_returns_none(self):
         assert _classify_effect(None) is None
         assert _classify_effect("nonsense-garbage") is None
+
+
+# ---------------------------------------------------------------------------
+# Mutation interval derivation on flanking-only peptides
+# ---------------------------------------------------------------------------
+
+
+class TestFlankingPeptideHandling:
+    def test_pos_outside_peptide_yields_no_mutation_interval(self, tmp_path):
+        # Construct a 1-row fixture where Pos points past peptide_length —
+        # mirrors the 3 HCC1395 rows where pVACseq's Best Peptide is a
+        # flank-only candidate (mutation outside the 9-mer).
+        agg_path = tmp_path / "flanking.tsv"
+        cols = pd.read_csv(MHC_I_AGG, sep="\t", nrows=0).columns.tolist()
+        df = pd.read_csv(MHC_I_AGG, sep="\t").head(1).copy()
+        df.loc[df.index[0], "Pos"] = 99  # past the peptide length
+        df.to_csv(agg_path, sep="\t", index=False, columns=cols)
+        r = read_pvacseq(agg_path)
+        row = r.df.iloc[0]
+        assert bool(row["contains_mutant_residues"]) is False
+        assert pd.isna(row["mutation_start_in_peptide"])
+        assert pd.isna(row["mutation_end_in_peptide"])
+        # And the unrelated WT-peptide reconstruction also bails.
+        assert pd.isna(row["wt_peptide"])
 
 
 # ---------------------------------------------------------------------------
