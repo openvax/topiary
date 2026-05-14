@@ -393,6 +393,15 @@ class TestIsIn:
         node = Column("mhc_class").eq("I")
         assert _collect_column_names(node) == {"mhc_class"}
 
+    def test_empty_dataframe(self):
+        # Empty df shouldn't raise; result aligns with the empty group_index.
+        df = _make_df([]).reindex(columns=[
+            "source_sequence_name", "peptide", "peptide_offset", "allele",
+            "kind", "value", "percentile_rank", "mhc_class",
+        ])
+        kept = apply_filter(df, Column("mhc_class").eq("I"))
+        assert len(kept) == 0
+
     def test_class_i_shortcut(self):
         from topiary import class_i
         df = _categorical_df()

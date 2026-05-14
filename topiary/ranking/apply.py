@@ -10,10 +10,8 @@ import pandas as pd
 from mhctools import Kind
 
 from .nodes import (
-    Column,
     EvalContext,
     Field,
-    IsIn,
     _kind_matches,
 )
 
@@ -47,12 +45,13 @@ def _check_boolean_like(values: pd.Series):
 
 
 def _collect_column_names(node):
-    """Walk a DSLNode tree and return all explicit Column references.
+    """Walk a DSLNode tree and return all explicit column references.
 
-    Uses ``DSLNode.child_nodes()`` so adding a new node type doesn't
-    require touching this walker — new composites just need to
-    implement ``child_nodes()``.  ``IsIn`` is a leaf that *names* a
-    column without holding it as a child, so it's picked up explicitly.
+    Composites contribute via ``DSLNode.child_nodes()``; leaves that
+    reference a column do so by exposing a ``col_name: str`` attribute
+    (``Column``, ``IsIn``, future column-bearing leaves).  Both axes
+    are open: adding a new composite just needs ``child_nodes()``,
+    adding a new column-referencing leaf just needs ``col_name``.
     """
     names = set()
     stack = [node]
@@ -60,10 +59,9 @@ def _collect_column_names(node):
         n = stack.pop()
         if n is None:
             continue
-        if isinstance(n, Column):
-            names.add(n.col_name)
-        elif isinstance(n, IsIn):
-            names.add(n.col_name)
+        col_name = getattr(n, "col_name", None)
+        if isinstance(col_name, str):
+            names.add(col_name)
         stack.extend(n.child_nodes())
     return names
 

@@ -614,10 +614,10 @@ class IsIn(DSLNode):
     def eval(self, ctx: EvalContext) -> pd.Series:
         df = ctx.df
         if df.empty:
-            return pd.Series(
-                pd.array([], dtype="boolean"),
-                index=ctx.group_index,
-            )
+            # Mirror Column.eval's empty path so the result aligns with
+            # ctx.group_index regardless of whether the context happens
+            # to carry a stale non-empty index.
+            return ctx.empty_series().astype("boolean")
         if self.col_name not in df.columns:
             available = sorted(df.columns)
             close = get_close_matches(self.col_name, available, n=3, cutoff=0.6)
