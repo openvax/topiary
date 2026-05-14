@@ -18,7 +18,7 @@ from topiary import (
     to_tsv,
     wt,
 )
-from topiary.io_pvacseq import _reconstruct_wt_peptide
+from topiary.io_pvacseq import _classify_effect, _reconstruct_wt_peptide
 
 FIXTURE_DIR = Path(__file__).parent / "data" / "pvacseq"
 
@@ -150,13 +150,17 @@ class TestLoadAggregated:
         reloaded = read_tsv(out_path)
         assert reloaded.form == "long"
         assert len(reloaded) == len(r)
-        # All pVACseq columns survive (read_tsv may add a "source" provenance
-        # column on the way in — that's expected).
-        assert set(r.df.columns) <= set(reloaded.df.columns)
-        assert (reloaded.df["value"].fillna(-1) == r.df["value"].fillna(-1)).all()
-        assert (
-            reloaded.df["wt_peptide"].fillna("") == r.df["wt_peptide"].fillna("")
-        ).all()
+        # read_tsv adds a "source" provenance column on read; otherwise the
+        # column set should round-trip exactly.
+        assert set(reloaded.df.columns) - {"source"} == set(r.df.columns)
+        for col in ("peptide", "allele", "wt_peptide"):
+            assert (
+                reloaded.df[col].fillna("") == r.df[col].fillna("")
+            ).all(), f"column {col} did not round-trip"
+        for col in ("value", "percentile_rank", "wt_value", "wt_percentile_rank"):
+            assert (
+                reloaded.df[col].fillna(-1) == r.df[col].fillna(-1)
+            ).all(), f"column {col} did not round-trip"
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +211,16 @@ class TestLoadAllEpitopes:
         r = read_pvacseq(MHC_I_AE)
         assert (r.df["effect_type"] == "Substitution").all()
 
+    def test_chr_coord_variant_fallback_when_index_missing(self, tmp_path):
+        # Strip the "Index" column from the fixture; _parse_all_epitopes
+        # should fall back to building variant from chr/start/ref/alt.
+        df = pd.read_csv(MHC_I_AE, sep="\t").drop(columns=["Index"])
+        path = tmp_path / "no_index.tsv"
+        df.to_csv(path, sep="\t", index=False)
+        r = read_pvacseq(path)
+        first = r.df.iloc[0]
+        assert first["variant"] == "chr1-154590262-T-A"
+
 
 # ---------------------------------------------------------------------------
 # Combining files via topiary.concat
@@ -255,6 +269,38 @@ class TestReconstructWtPeptide:
         assert _reconstruct_wt_peptide(None, 5, "E806V") is None
         assert _reconstruct_wt_peptide("AERMGFTVV", 5, None) is None
         assert _reconstruct_wt_peptide("AERMGFTVV", "not-a-number", "E806V") is None
+
+
+# ---------------------------------------------------------------------------
+# Effect-type classifier
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyEffect:
+    def test_missense(self):
+        assert _classify_effect("E806V") == "Substitution"
+
+    def test_frameshift_pvacseq_format(self):
+        # pVACseq frameshifts: "FS<pos>" or "FS<start>-<end>".
+        assert _classify_effect("FS342") == "FrameShift"
+        assert _classify_effect("FS113-120") == "FrameShift"
+        assert _classify_effect("fs778") == "FrameShift"
+
+    def test_missense_with_fs_substring_is_not_frameshift(self):
+        # Strict regex prevents a missense whose residues contain F/S
+        # from being misclassified.  "F206S" is a Substitution.
+        assert _classify_effect("F206S") == "Substitution"
+
+    def test_multi_residue_substitution(self):
+        assert _classify_effect("EE764-765EK") == "Substitution"
+
+    def test_variant_type_overrides_aa_change(self):
+        # When Variant Type is provided, it wins over AA-Change-shape parsing.
+        assert _classify_effect("FS342", variant_type="missense") == "Substitution"
+
+    def test_unknown_returns_none(self):
+        assert _classify_effect(None) is None
+        assert _classify_effect("nonsense-garbage") is None
 
 
 # ---------------------------------------------------------------------------

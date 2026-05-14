@@ -11,7 +11,8 @@ candidate peptide × allele × length). Format and MHC class are
 auto-detected; the Median MT IC50 / percentile populate
 `value` / `percentile_rank` with `prediction_method_name="pvacseq"`,
 and WT IC50 / percentile populate the `wt_*` schema so DSL expressions
-like `Affinity.value - wt.Affinity.value` work without further setup.
+like `wt.Affinity.value` and `Affinity.value - wt.Affinity.value` work
+without further setup.
 
 For missense aggregated rows the WT peptide sequence is reconstructed
 from `Best Peptide` + `Pos` + `AA Change` (the aggregated TSV doesn't

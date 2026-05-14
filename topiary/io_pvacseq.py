@@ -13,7 +13,7 @@ Both flavors map onto the same long-form schema with
 file's Median MT IC50 / percentile populate the primary
 ``value`` / ``percentile_rank``; the WT companions populate
 ``wt_value`` / ``wt_percentile_rank`` so DSL expressions like
-``wt(Affinity.value)`` work without further setup.
+``wt.Affinity.value`` work without further setup.
 
 For missense aggregated rows, the WT peptide sequence is reconstructed
 from ``Best Peptide`` + ``Pos`` + ``AA Change`` (the aggregated TSV
@@ -145,7 +145,8 @@ def _classify_effect(aa_change=None, variant_type=None):
             return mapped
     if isinstance(aa_change, str):
         s = aa_change.strip()
-        if s.upper().startswith("FS") or "fs" in s.lower():
+        # pVACseq frameshifts are "FS<pos>" or "FS<start>-<end>" (e.g. "FS342").
+        if re.match(r"^FS\d", s, re.IGNORECASE):
             return "FrameShift"
         if _MISSENSE_AA_CHANGE.match(s):
             return "Substitution"
@@ -214,6 +215,14 @@ _PER_ALGO_RE = re.compile(
 _FIELD_SHORT = {"IC50 Score": "ic50", "Percentile": "pct"}
 
 
+def _first_present_column(df, *candidates):
+    """Return the first DataFrame column whose name is in *candidates*, or None."""
+    for name in candidates:
+        if name in df.columns:
+            return df[name]
+    return None
+
+
 # =============================================================================
 # Per-flavor parsing
 # =============================================================================
@@ -255,24 +264,25 @@ def _parse_all_epitopes(df):
     out["peptide"] = df["MT Epitope Seq"]
     out["allele"] = _normalize_alleles(df["HLA Allele"])
 
-    mt_ic50 = df.get("Median MT IC50 Score", df.get("Best MT IC50 Score"))
-    wt_ic50 = df.get("Median WT IC50 Score", df.get("Corresponding WT IC50 Score"))
-    mt_pct  = df.get("Median MT Percentile", df.get("Best MT Percentile"))
-    wt_pct  = df.get("Median WT Percentile", df.get("Corresponding WT Percentile"))
+    mt_ic50 = _first_present_column(df, "Median MT IC50 Score", "Best MT IC50 Score")
+    wt_ic50 = _first_present_column(df, "Median WT IC50 Score", "Corresponding WT IC50 Score")
+    mt_pct  = _first_present_column(df, "Median MT Percentile", "Best MT Percentile")
+    wt_pct  = _first_present_column(df, "Median WT Percentile", "Corresponding WT Percentile")
 
-    out["value"] = pd.to_numeric(mt_ic50, errors="coerce")
-    out["percentile_rank"] = pd.to_numeric(mt_pct, errors="coerce")
+    out["value"] = pd.to_numeric(mt_ic50, errors="coerce") if mt_ic50 is not None else np.nan
+    out["percentile_rank"] = pd.to_numeric(mt_pct, errors="coerce") if mt_pct is not None else np.nan
     out["wt_value"] = pd.to_numeric(wt_ic50, errors="coerce") if wt_ic50 is not None else np.nan
-    out["wt_percentile_rank"] = (
-        pd.to_numeric(wt_pct, errors="coerce") if wt_pct is not None else np.nan
-    )
-    out["wt_peptide"] = (
-        df["WT Epitope Seq"].values if "WT Epitope Seq" in df.columns else None
-    )
-    variant_type = (
-        df["Variant Type"] if "Variant Type" in df.columns else [None] * len(df)
-    )
-    out["effect_type"] = [_classify_effect(None, v) for v in variant_type]
+    out["wt_percentile_rank"] = pd.to_numeric(wt_pct, errors="coerce") if wt_pct is not None else np.nan
+
+    if "WT Epitope Seq" in df.columns:
+        out["wt_peptide"] = df["WT Epitope Seq"].values
+    else:
+        out["wt_peptide"] = None
+
+    if "Variant Type" in df.columns:
+        out["effect_type"] = [_classify_effect(None, v) for v in df["Variant Type"]]
+    else:
+        out["effect_type"] = None
 
     # Stable variant id from chr-coords if "Index" isn't usable.
     if "Index" in df.columns:
@@ -328,6 +338,7 @@ _CANONICAL_ORDER = [
 
 def _finalize(parsed):
     """Add synthesized constants, mirrors, and column order to a parsed frame."""
+    parsed = parsed.copy()
     parsed["peptide_length"] = parsed["peptide"].str.len()
     parsed["peptide_offset"] = 0
     parsed["kind"] = "pMHC_affinity"
