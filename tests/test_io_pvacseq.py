@@ -501,19 +501,29 @@ class TestMeltAlgorithms:
 class TestVaxrankComposition:
     def test_vaxrank_shape_filter_expression(self):
         # Mirrors the shape of filter vaxrank applies after swapping its
-        # epitope_io.py loader for topiary.read_pvacseq: pandas masking
-        # for categorical (mhc_class / contains_mutant_residues) clauses,
-        # topiary DSL for the numeric / kind-aware clauses.
+        # epitope_io.py loader for topiary.read_pvacseq.  Fully native
+        # DSL: numeric + categorical clauses in one expression via the
+        # IsIn nodes introduced for class-I/II filtering.
         combined = concat([read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG)])
-        class_i_novel = combined.df[
-            (combined.df["mhc_class"] == "I")
-            & combined.df["contains_mutant_residues"].fillna(False)
-        ]
-        strong = apply_filter(class_i_novel, Affinity.value <= 500)
-        # Every survivor meets every clause.
+        strong = apply_filter(
+            combined.df,
+            (Affinity.value <= 500)
+            & Column("mhc_class").eq("I")
+            & Column("contains_mutant_residues").eq(True),
+        )
         assert (strong["value"] <= 500).all()
         assert (strong["mhc_class"] == "I").all()
         assert strong["contains_mutant_residues"].all()
+        assert len(strong) > 0
+
+    def test_vaxrank_shape_filter_via_parsed_string(self):
+        # Same filter shape via the string DSL — what a CLI flag would feed.
+        from topiary import parse
+        combined = concat([read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG)])
+        node = parse('affinity.value <= 500 & mhc_class == "I"')
+        strong = apply_filter(combined.df, node)
+        assert (strong["value"] <= 500).all()
+        assert (strong["mhc_class"] == "I").all()
         assert len(strong) > 0
 
     def test_exclude_by_filters_loaded_pvacseq_rows(self):

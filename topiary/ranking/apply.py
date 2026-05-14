@@ -13,6 +13,7 @@ from .nodes import (
     Column,
     EvalContext,
     Field,
+    IsIn,
     _kind_matches,
 )
 
@@ -50,7 +51,8 @@ def _collect_column_names(node):
 
     Uses ``DSLNode.child_nodes()`` so adding a new node type doesn't
     require touching this walker — new composites just need to
-    implement ``child_nodes()``.
+    implement ``child_nodes()``.  ``IsIn`` is a leaf that *names* a
+    column without holding it as a child, so it's picked up explicitly.
     """
     names = set()
     stack = [node]
@@ -59,6 +61,8 @@ def _collect_column_names(node):
         if n is None:
             continue
         if isinstance(n, Column):
+            names.add(n.col_name)
+        elif isinstance(n, IsIn):
             names.add(n.col_name)
         stack.extend(n.child_nodes())
     return names

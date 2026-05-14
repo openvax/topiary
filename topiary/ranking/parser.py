@@ -34,6 +34,7 @@ from .nodes import (
     Const,
     Count,
     DSLNode,
+    IsIn,
     KindAccessor,
     Len,
     PeptideProperty,
@@ -290,17 +291,36 @@ class _Parser:
     def _cmp(self):
         left = self._arith()
         tok = self.tokenizer.peek()
-        if tok[0] == "CMP":
+        if tok[0] != "CMP":
+            return left
+        op_str = tok[1]
+        self.tokenizer.advance()
+        # String literal on the RHS (only legal with == / !=): build an
+        # IsIn so the column is read raw (no float cast).  Avoids needing
+        # a string-aware Comparison while still letting users write
+        # ``mhc_class == "I"`` in the DSL grammar.
+        next_tok = self.tokenizer.peek()
+        if next_tok[0] == "STRING":
+            if op_str not in ("==", "!="):
+                raise ValueError(
+                    f"String literals only support == / != in {self.text!r}; "
+                    f"got {op_str!r}."
+                )
+            if not isinstance(left, Column):
+                raise ValueError(
+                    f"String equality requires a column reference on the "
+                    f"LHS in {self.text!r}; got {type(left).__name__}."
+                )
             self.tokenizer.advance()
-            right = self._arith()
-            op_map = {
-                "<=": operator.le, ">=": operator.ge,
-                "<": operator.lt, ">": operator.gt,
-                "==": operator.eq, "!=": operator.ne,
-            }
-            op = op_map[tok[1]]
-            return Comparison(_parser_as_node(left), op, _parser_as_node(right))
-        return left
+            return IsIn(left.col_name, [next_tok[1]], negate=(op_str == "!="))
+        right = self._arith()
+        op_map = {
+            "<=": operator.le, ">=": operator.ge,
+            "<": operator.lt, ">": operator.gt,
+            "==": operator.eq, "!=": operator.ne,
+        }
+        op = op_map[op_str]
+        return Comparison(_parser_as_node(left), op, _parser_as_node(right))
 
     def _arith(self):
         left = self._term()

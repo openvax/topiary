@@ -554,6 +554,106 @@ class Column(DSLNode):
     def to_ast_string(self):
         return f"Column({self.col_name!r})"
 
+    # -- categorical / non-numeric equality --
+    #
+    # DSLNode intentionally doesn't override ``__eq__`` (keeps nodes
+    # hashable for sets/dicts), and the column-eval path raises on
+    # non-numeric values.  These helpers route categorical equality
+    # (mhc_class, source, gene, ...) around both restrictions by
+    # producing an ``IsIn`` node that reads the column raw.
+
+    def eq(self, value) -> "IsIn":
+        """Categorical equality: ``Column("mhc_class").eq("I")``."""
+        return IsIn(self.col_name, [value])
+
+    def ne(self, value) -> "IsIn":
+        """Categorical inequality: ``Column("mhc_class").ne("II")``."""
+        return IsIn(self.col_name, [value], negate=True)
+
+    def isin(self, values) -> "IsIn":
+        """Membership: ``Column("mhc_class").isin(["I", "II"])``."""
+        return IsIn(self.col_name, values)
+
+
+class IsIn(DSLNode):
+    """Categorical membership test against scalar values.
+
+    Unlike :class:`Comparison`, which routes through :class:`Column`'s
+    numeric-cast eval path, ``IsIn`` reads the column's raw Series and
+    uses pandas ``.isin()`` directly — so it works for string columns
+    (``mhc_class``, ``source``, ``gene``, ...), boolean columns, or any
+    mix of dtypes.
+
+    Construct directly or via :meth:`Column.eq` / :meth:`Column.ne` /
+    :meth:`Column.isin`.  Negation through ``~`` or the ``negate=True``
+    constructor kwarg.
+    """
+
+    __slots__ = ("col_name", "values", "negate")
+
+    def __init__(self, col_name: str, values, negate: bool = False):
+        if isinstance(values, (str, int, float, bool, type(None))) or (
+            isinstance(values, float) and math.isnan(values)
+        ):
+            values = (values,)
+        else:
+            try:
+                values = tuple(values)
+            except TypeError as exc:
+                raise TypeError(
+                    f"IsIn values must be a scalar or iterable, got "
+                    f"{type(values).__name__}"
+                ) from exc
+        self.col_name = col_name
+        self.values = values
+        self.negate = negate
+
+    def child_nodes(self):
+        return []
+
+    def eval(self, ctx: EvalContext) -> pd.Series:
+        df = ctx.df
+        if df.empty:
+            return pd.Series(
+                pd.array([], dtype="boolean"),
+                index=ctx.group_index,
+            )
+        if self.col_name not in df.columns:
+            available = sorted(df.columns)
+            close = get_close_matches(self.col_name, available, n=3, cutoff=0.6)
+            msg = f"Column {self.col_name!r} not found in DataFrame."
+            if close:
+                msg += f" Did you mean: {close}?"
+            else:
+                msg += f" Available: {available}"
+            raise ValueError(msg)
+        vals = df.groupby(ctx.group_keys, sort=False)[self.col_name].first()
+        vals = vals.reindex(ctx.group_index)
+        mask = vals.isin(self.values)
+        if self.negate:
+            mask = ~mask
+        return mask
+
+    def __invert__(self):
+        return IsIn(self.col_name, self.values, negate=not self.negate)
+
+    def __repr__(self):
+        op = ".ne(" if self.negate and len(self.values) == 1 else (
+            ".isin(" if not self.negate and len(self.values) != 1 else (
+                ".eq(" if not self.negate else ".isin("
+            )
+        )
+        if op in (".eq(", ".ne("):
+            inner = repr(self.values[0])
+        else:
+            inner = repr(list(self.values))
+        prefix = "~" if (self.negate and op == ".isin(") else ""
+        return f"{prefix}column({self.col_name}){op}{inner})"
+
+    def to_ast_string(self):
+        name = "NotIn" if self.negate else "In"
+        return f"{name}({self.col_name!r}, {list(self.values)!r})"
+
 
 def _filter_kind_method_version(ctx, kind, method, version):
     """Filter ``ctx.df`` to rows of a given kind/method/version.

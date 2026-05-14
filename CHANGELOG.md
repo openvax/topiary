@@ -63,6 +63,37 @@ reach individual scoring algorithms natively.  The Median rows
 (`prediction_method_name="pvacseq"`) are preserved; melt is a no-op on
 aggregated input.
 
+**DSL: categorical equality / membership for string columns:**
+
+The filter DSL gains `Column.eq(value)`, `Column.ne(value)`, and
+`Column.isin(values)` methods, plus a new `IsIn` node, so `mhc_class`,
+`source`, `gene`, and other non-numeric columns are filterable
+natively without pandas-side pre-masking:
+
+```python
+apply_filter(df, Column("mhc_class").eq("I"))
+apply_filter(df, Column("mhc_class").isin(["I", "II"]))
+apply_filter(df, (Affinity.value <= 500) & Column("mhc_class").eq("I"))
+```
+
+The string parser accepts string literals on the right-hand side of
+`==` and `!=` (still rejected with `<` / `<=` / `>` / `>=`):
+
+```python
+parse('mhc_class == "I"')
+parse('affinity.value <= 500 & mhc_class != "II"')
+```
+
+`IsIn` reads its column raw (bypasses `Column`'s float cast), so any
+dtype works.  `DSLNode.__eq__` is intentionally *not* overridden —
+nodes stay hashable for sets/dicts — these methods are the supported
+path for categorical equality.
+
+Why: vaxrank's typical filter shape combines numeric clauses with
+class-I/class-II / provenance discriminators in one expression.
+Pre-5.16.0 the categorical clause had to be applied as a pandas mask
+before `apply_filter`; now both clauses compose in one DSL expression.
+
 ## 5.15.0
 
 **Backfill `value` from `score` for [0, 1]-score predictor kinds (#165):**

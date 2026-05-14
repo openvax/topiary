@@ -11,6 +11,7 @@ from topiary.ranking import (
     BoolOp,
     Column,
     Comparison,
+    IsIn,
     KindAccessor,
     Presentation,
     Stability,
@@ -271,6 +272,115 @@ class TestColumnFilter:
     def test_parse_column_nested_parens_raises(self):
         with pytest.raises(ValueError):
             parse("column(func()) <= 5")
+
+
+# ---------------------------------------------------------------------------
+# Tests: IsIn (categorical equality / membership)
+# ---------------------------------------------------------------------------
+
+
+def _categorical_df():
+    """Two source proteins × three classes; covers I/II/None for IsIn paths."""
+    return _make_df([
+        dict(source_sequence_name="seq1", peptide="AAA", peptide_offset=0,
+             allele="HLA-A*02:01", kind="pMHC_affinity", score=0.9,
+             value=50.0, percentile_rank=0.1, mhc_class="I"),
+        dict(source_sequence_name="seq2", peptide="CCC", peptide_offset=0,
+             allele="HLA-B*07:02", kind="pMHC_affinity", score=0.8,
+             value=80.0, percentile_rank=0.2, mhc_class="I"),
+        dict(source_sequence_name="seq3", peptide="DDD", peptide_offset=0,
+             allele="HLA-DRB1*04:05", kind="pMHC_affinity", score=0.7,
+             value=120.0, percentile_rank=0.5, mhc_class="II"),
+        dict(source_sequence_name="seq4", peptide="EEE", peptide_offset=0,
+             allele="UNKNOWN", kind="pMHC_affinity", score=0.6,
+             value=200.0, percentile_rank=1.0, mhc_class=None),
+    ])
+
+
+class TestIsIn:
+    def test_column_eq_filters_to_single_value(self):
+        df = _categorical_df()
+        kept = apply_filter(df, Column("mhc_class").eq("I"))
+        assert set(kept["mhc_class"]) == {"I"}
+        assert len(kept) == 2
+
+    def test_column_ne_excludes_value(self):
+        df = _categorical_df()
+        kept = apply_filter(df, Column("mhc_class").ne("II"))
+        # Excludes "II" only; NaN survives because .isin(["II"]) is False for NaN.
+        assert "II" not in set(kept["mhc_class"].dropna())
+
+    def test_column_isin_accepts_list(self):
+        df = _categorical_df()
+        kept = apply_filter(df, Column("mhc_class").isin(["I", "II"]))
+        assert set(kept["mhc_class"]) == {"I", "II"}
+
+    def test_invert_negates(self):
+        df = _categorical_df()
+        # ~eq("I") removes class I rows.
+        kept = apply_filter(df, ~Column("mhc_class").eq("I"))
+        assert "I" not in set(kept["mhc_class"].dropna())
+
+    def test_compose_with_boolean_ops(self):
+        df = _categorical_df()
+        # Class I rows that also pass an affinity threshold.
+        kept = apply_filter(
+            df,
+            Column("mhc_class").eq("I") & (Affinity.value <= 60),
+        )
+        assert set(kept["peptide"]) == {"AAA"}
+
+    def test_isin_does_not_require_numeric_column(self):
+        # Pre-IsIn, Column("source").eq(...) would raise because Column
+        # tries to cast to float — IsIn reads raw so strings pass through.
+        df = _make_df([
+            dict(source_sequence_name="seq", peptide="AAA", peptide_offset=0,
+                 allele="A", kind="pMHC_affinity", score=0.9, value=50.0,
+                 percentile_rank=0.1, source="patient-A"),
+            dict(source_sequence_name="seq", peptide="CCC", peptide_offset=1,
+                 allele="A", kind="pMHC_affinity", score=0.8, value=80.0,
+                 percentile_rank=0.2, source="patient-B"),
+        ])
+        kept = apply_filter(df, Column("source").eq("patient-A"))
+        assert set(kept["peptide"]) == {"AAA"}
+
+    def test_parser_emits_isin_for_string_rhs(self):
+        node = parse('mhc_class == "I"')
+        assert isinstance(node, IsIn)
+        assert node.values == ("I",)
+        assert node.negate is False
+
+    def test_parser_ne_string_negates(self):
+        node = parse('mhc_class != "II"')
+        assert isinstance(node, IsIn)
+        assert node.negate is True
+
+    def test_parser_compound_string_and_numeric(self):
+        node = parse('affinity.value <= 500 & mhc_class == "I"')
+        assert isinstance(node, BoolOp)
+        df = _categorical_df()
+        kept = apply_filter(df, node)
+        assert (kept["mhc_class"] == "I").all()
+
+    def test_parser_string_with_lt_raises(self):
+        with pytest.raises(ValueError, match="only support"):
+            parse('mhc_class < "I"')
+
+    def test_parser_string_lhs_raises(self):
+        # We only support `column == "..."`, not `"..." == column`.
+        with pytest.raises(ValueError):
+            parse('"I" == mhc_class')
+
+    def test_unknown_column_raises(self):
+        df = _categorical_df()
+        with pytest.raises(ValueError, match="Column 'nope' not found"):
+            apply_filter(df, Column("nope").eq("foo"))
+
+    def test_validation_runs_for_isin(self):
+        # _validate_columns must see the IsIn's column reference.
+        from topiary.ranking.apply import _collect_column_names
+        node = Column("mhc_class").eq("I")
+        assert _collect_column_names(node) == {"mhc_class"}
 
 
 # ---------------------------------------------------------------------------
