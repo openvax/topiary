@@ -68,7 +68,25 @@ _ALL_BEST = frozenset({"Best MT IC50 Score", "Best MT Percentile"})
 
 
 def detect_pvacseq_format(columns) -> str | None:
-    """Return ``'aggregated'``, ``'all_epitopes'``, or ``None``."""
+    """Identify which pVACseq output flavor a column header set represents.
+
+    Used by :func:`read_pvacseq` to dispatch to the right parser, and
+    exposed publicly so callers writing their own readers (or routing
+    code that needs to choose between flavor-specific handlers) can
+    classify a TSV without loading it.
+
+    Parameters
+    ----------
+    columns : iterable of str
+        Column headers from a pVACseq TSV (e.g. the ``columns``
+        attribute of a ``pd.read_csv(..., nrows=0)`` DataFrame).
+
+    Returns
+    -------
+    ``"aggregated"`` for ``*.all_epitopes.aggregated.tsv``;
+    ``"all_epitopes"`` for the unaggregated flavor; ``None`` if the
+    header doesn't match either signature.
+    """
     cols = set(columns)
     if _AGG_SIGNATURE <= cols:
         return "aggregated"
@@ -248,7 +266,7 @@ def _class_of_allele(allele):
     return pd.NA
 
 
-def derive_mhc_class(allele_series):
+def derive_mhc_class(allele_series: pd.Series) -> pd.Series:
     """Map an allele Series to its MHC class (``"I"`` / ``"II"`` / NA).
 
     Useful for stamping the ``mhc_class`` column on a DataFrame that
@@ -569,7 +587,7 @@ _ALGO_COL_RE = re.compile(
 )
 
 
-def melt_pvacseq_algorithms(result):
+def melt_pvacseq_algorithms(result: TopiaryResult) -> TopiaryResult:
     """Expand per-algorithm columns into one row per (peptide, allele, algorithm).
 
     The all_epitopes flavor carries individual-algorithm scores as
