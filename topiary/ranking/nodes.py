@@ -1953,6 +1953,16 @@ Presentation = KindAccessor(Kind.pMHC_presentation)
 Stability = KindAccessor(Kind.pMHC_stability)
 Processing = KindAccessor(Kind.antigen_processing)
 
+# Pre-built IsIn nodes for the most common categorical filter: MHC class.
+# Both require a ``mhc_class`` column in the DataFrame — present after
+# :func:`topiary.read_pvacseq` and other loaders that derive it from
+# alleles.  Fresh ``TopiaryPredictor`` output doesn't carry the column
+# (class lives in :attr:`kind_support` at the model level); derive with
+# ``df["mhc_class"] = df["allele"].map(...)`` first if you need these
+# on a fresh prediction result.
+class_i = IsIn("mhc_class", ["I"])
+class_ii = IsIn("mhc_class", ["II"])
+
 
 # =============================================================================
 # Scope — alternate peptide context (wt, shuffled, self)

@@ -94,6 +94,23 @@ class-I/class-II / provenance discriminators in one expression.
 Pre-5.16.0 the categorical clause had to be applied as a pandas mask
 before `apply_filter`; now both clauses compose in one DSL expression.
 
+**Pre-built MHC-class filters:**
+
+`topiary.class_i` and `topiary.class_ii` are pre-built `IsIn` nodes
+referencing the `mhc_class` column.  Compose like any other DSL node:
+
+```python
+apply_filter(df, class_i & (Affinity.value <= 500))
+apply_filter(df, class_i | class_ii)
+```
+
+Both require the `mhc_class` column (present after `read_pvacseq`,
+absent from fresh `TopiaryPredictor` output where class lives in
+`kind_support` at the model level).  For freshly predicted DataFrames,
+`topiary.derive_mhc_class(allele_series)` returns a Series of `"I"` /
+`"II"` / `pd.NA` derived from allele strings — assign it to
+`df["mhc_class"]` and the shortcuts work.
+
 ## 5.15.0
 
 **Backfill `value` from `score` for [0, 1]-score predictor kinds (#165):**

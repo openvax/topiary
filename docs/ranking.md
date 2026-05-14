@@ -155,11 +155,64 @@ ValueError: Column 'hydrophobicty' not found in DataFrame.
 Did you mean: ['hydrophobicity']?
 ```
 
-If the column contains non-numeric data:
+Arithmetic and `<` / `<=` / `>` / `>=` comparisons require numeric values; using a non-numeric column in those contexts raises:
 
 ```
 TypeError: Column 'gene_name' contains non-numeric value 'BRAF' (str).
 Only numeric columns can be used in ranking expressions.
+```
+
+For categorical filtering on string columns (`mhc_class`, `gene`, `source`, ...) use the equality / membership methods described below.
+
+### Equality / membership on any dtype
+
+`Column("...").eq(value)`, `Column("...").ne(value)`, and `Column("...").isin(values)` produce an `IsIn` node that reads the column raw — no float cast — so string, boolean, and mixed-dtype columns work:
+
+```python
+from topiary import apply_filter, Affinity, Column
+
+# Categorical equality
+apply_filter(df, Column("mhc_class").eq("I"))
+apply_filter(df, Column("gene").ne("HLA-A"))
+
+# Membership
+apply_filter(df, Column("mhc_class").isin(["I", "II"]))
+
+# Compose with numeric clauses
+apply_filter(
+    df,
+    (Affinity.value <= 500) & Column("mhc_class").eq("I"),
+)
+
+# Negate with ~
+apply_filter(df, ~Column("source").isin(["control", "blacklist"]))
+```
+
+`DSLNode.__eq__` is intentionally not overridden — `Column("x") == "y"` still does Python identity equality and won't compose. Always use `.eq()` / `.ne()` / `.isin()`.
+
+The string parser accepts string literals on the right-hand side of `==` and `!=` (rejected with `<` / `<=` / `>` / `>=` since ordering on arbitrary strings isn't meaningful):
+
+```python
+from topiary import parse
+
+parse('mhc_class == "I"')
+parse('affinity.value <= 500 & mhc_class != "II"')
+```
+
+For the two most common categorical filters, `class_i` and `class_ii` are pre-built shortcuts:
+
+```python
+from topiary import apply_filter, Affinity, class_i, class_ii
+
+apply_filter(df, class_i & (Affinity.value <= 500))
+apply_filter(df, class_i | class_ii)   # both classes; identity filter
+```
+
+Both reference the `mhc_class` column. That column is present after `topiary.read_pvacseq()` (and any future loader that derives it); fresh `TopiaryPredictor` output doesn't ship a per-row `mhc_class` (class lives in `kind_support` at the model level), so derive it first if you need these on a freshly predicted DataFrame:
+
+```python
+from topiary import derive_mhc_class
+df["mhc_class"] = derive_mhc_class(df["allele"])
 ```
 
 ## wt. — wildtype comparison

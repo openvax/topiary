@@ -179,6 +179,21 @@ class TestLoadAggregated:
         r2 = read_pvacseq(MHC_II_AGG)
         assert (r2.df["mhc_class"] == "II").all()
 
+    def test_derive_mhc_class_public_utility(self):
+        # Available at the package root for stamping mhc_class onto a
+        # DataFrame produced outside the pvacseq loader (e.g. a fresh
+        # TopiaryPredictor result).
+        from topiary import derive_mhc_class
+        alleles = pd.Series([
+            "HLA-A*02:01", "HLA-B*07:02", "HLA-C*06:02",
+            "HLA-DRB1*04:05", "HLA-DPA1*02:01/DPB1*01:01",
+            "UNKNOWN", None,
+        ])
+        classes = derive_mhc_class(alleles)
+        assert classes.tolist()[:3] == ["I", "I", "I"]
+        assert classes.tolist()[3:5] == ["II", "II"]
+        assert pd.isna(classes.iloc[5]) and pd.isna(classes.iloc[6])
+
     def test_source_column_per_row(self):
         # Per-row provenance matches read_tsv convention.
         r = read_pvacseq(MHC_I_AGG)

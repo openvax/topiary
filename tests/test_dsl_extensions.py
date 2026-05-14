@@ -382,6 +382,32 @@ class TestIsIn:
         node = Column("mhc_class").eq("I")
         assert _collect_column_names(node) == {"mhc_class"}
 
+    def test_class_i_shortcut(self):
+        from topiary import class_i
+        df = _categorical_df()
+        kept = apply_filter(df, class_i)
+        assert set(kept["mhc_class"]) == {"I"}
+
+    def test_class_ii_shortcut(self):
+        from topiary import class_ii
+        df = _categorical_df()
+        kept = apply_filter(df, class_ii)
+        assert set(kept["mhc_class"]) == {"II"}
+
+    def test_class_shortcuts_compose(self):
+        from topiary import class_i, class_ii
+        df = _categorical_df()
+        kept = apply_filter(df, class_i | class_ii)
+        # Drops the UNKNOWN/None row, keeps both I and II.
+        assert set(kept["mhc_class"].dropna()) == {"I", "II"}
+        assert len(kept) == 3
+
+    def test_class_shortcuts_compose_with_numeric(self):
+        from topiary import class_i
+        df = _categorical_df()
+        kept = apply_filter(df, class_i & (Affinity.value <= 60))
+        assert set(kept["peptide"]) == {"AAA"}
+
 
 # ---------------------------------------------------------------------------
 # Tests: wt scope

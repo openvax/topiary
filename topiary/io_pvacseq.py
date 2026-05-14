@@ -248,9 +248,30 @@ def _class_of_allele(allele):
     return pd.NA
 
 
-def _derive_mhc_class(allele_series):
-    """Per-row MHC class ('I' or 'II'); ``pd.NA`` for unrecognized."""
+def derive_mhc_class(allele_series):
+    """Map an allele Series to its MHC class (``"I"`` / ``"II"`` / NA).
+
+    Useful for stamping the ``mhc_class`` column on a DataFrame that
+    doesn't already have it (e.g. a fresh ``TopiaryPredictor`` result),
+    so the :data:`topiary.class_i` / :data:`topiary.class_ii` filters
+    work without rooting through ``Metadata.kind_support``.
+
+    Parameters
+    ----------
+    allele_series : pandas.Series
+        Allele strings (mhcgnomes-normalized or raw).
+
+    Returns
+    -------
+    pandas.Series
+        Same index as the input.  Class I (``HLA-A/B/C``) → ``"I"``;
+        any HLA-D* locus → ``"II"``; anything else → ``pd.NA``.
+    """
     return allele_series.map(_class_of_allele)
+
+
+# Backwards-compatible alias kept for internal callers.
+_derive_mhc_class = derive_mhc_class
 
 
 def _summarize_mhc_class(allele_series):
