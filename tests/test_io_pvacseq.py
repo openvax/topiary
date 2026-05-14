@@ -25,6 +25,7 @@ FIXTURE_DIR = Path(__file__).parent / "data" / "pvacseq"
 MHC_I_AGG = FIXTURE_DIR / "mhc_i_aggregated.tsv"
 MHC_II_AGG = FIXTURE_DIR / "mhc_ii_aggregated.tsv"
 MHC_I_AE = FIXTURE_DIR / "mhc_i_all_epitopes.tsv"
+MHC_II_AE = FIXTURE_DIR / "mhc_ii_all_epitopes.tsv"
 
 
 def _data_row_count(path):
@@ -210,6 +211,27 @@ class TestLoadAllEpitopes:
     def test_effect_type_substitution_for_missense(self):
         r = read_pvacseq(MHC_I_AE)
         assert (r.df["effect_type"] == "Substitution").all()
+
+    def test_mhc_ii_all_epitopes_loads(self):
+        # Class-II all_epitopes uses heterodimer alleles and a different
+        # algorithm column ("NetMHCIIpan ..." instead of "NetMHCpan ...").
+        r = read_pvacseq(MHC_II_AE)
+        assert r.extra["pvacseq_format"] == "all_epitopes"
+        alleles = set(r.df["allele"].dropna())
+        assert all(a.startswith("HLA-D") for a in alleles)
+        # Heterodimer separator gets normalized by mhcgnomes.
+        assert any("/" in a for a in alleles)
+        # Per-algorithm passthrough handles NetMHCIIpan the same way.
+        assert {
+            "pvacseq_netmhciipan_ic50_mt",
+            "pvacseq_netmhciipan_ic50_wt",
+            "pvacseq_netmhciipan_pct_mt",
+            "pvacseq_netmhciipan_pct_wt",
+        } <= set(r.df.columns)
+
+    def test_wt_peptide_length_is_nullable_int(self):
+        r = read_pvacseq(MHC_I_AE)
+        assert str(r.df["wt_peptide_length"].dtype) == "Int64"
 
     def test_chr_coord_variant_fallback_when_index_missing(self, tmp_path):
         # Strip the "Index" column from the fixture; _parse_all_epitopes

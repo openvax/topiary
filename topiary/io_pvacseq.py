@@ -33,7 +33,6 @@ should melt them out themselves or re-predict via :class:`TopiaryPredictor`.
 
 from __future__ import annotations
 
-import logging
 import re
 from pathlib import Path
 
@@ -42,8 +41,6 @@ import pandas as pd
 
 from .io import Metadata
 from .result import TopiaryResult
-
-logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -277,12 +274,12 @@ def _parse_all_epitopes(df):
     if "WT Epitope Seq" in df.columns:
         out["wt_peptide"] = df["WT Epitope Seq"].values
     else:
-        out["wt_peptide"] = None
+        out["wt_peptide"] = pd.NA
 
     if "Variant Type" in df.columns:
         out["effect_type"] = [_classify_effect(None, v) for v in df["Variant Type"]]
     else:
-        out["effect_type"] = None
+        out["effect_type"] = pd.NA
 
     # Stable variant id from chr-coords if "Index" isn't usable.
     if "Index" in df.columns:
@@ -336,41 +333,47 @@ _CANONICAL_ORDER = [
 ]
 
 
-def _finalize(parsed):
-    """Add synthesized constants, mirrors, and column order to a parsed frame."""
-    parsed = parsed.copy()
-    parsed["peptide_length"] = parsed["peptide"].str.len()
-    parsed["peptide_offset"] = 0
-    parsed["kind"] = "pMHC_affinity"
-    parsed["prediction_method_name"] = "pvacseq"
-    parsed["predictor_version"] = pd.NA
-    parsed["affinity"] = parsed["value"]
-    parsed["score"] = parsed["value"]
-
-    parsed["wt_peptide_length"] = parsed["wt_peptide"].map(
-        lambda s: len(s) if isinstance(s, str) else pd.NA
-    )
-    parsed["wt_affinity"] = parsed["wt_value"]
-    parsed["wt_score"] = parsed["wt_value"]
-    parsed["wt_prediction_method_name"] = "pvacseq"
-    parsed["wt_predictor_version"] = pd.NA
-
-    # source_sequence_name: gene + variant when both available, else
-    # whichever is present.  Both flavors guarantee at least one, so the
-    # column is always populated.
+def _build_source_sequence_name(parsed):
+    """Compose ``gene:variant`` when both are available; otherwise return
+    whichever is present.  Both flavors guarantee at least one, so the
+    column is always populated."""
     if "gene" in parsed.columns and "variant" in parsed.columns:
-        parsed["source_sequence_name"] = (
+        return (
             parsed["gene"].astype(object).fillna("?") + ":"
             + parsed["variant"].astype(object).fillna("?")
         )
-    elif "variant" in parsed.columns:
-        parsed["source_sequence_name"] = parsed["variant"]
-    elif "gene" in parsed.columns:
-        parsed["source_sequence_name"] = parsed["gene"]
+    if "variant" in parsed.columns:
+        return parsed["variant"]
+    return parsed["gene"]
 
-    canonical = [c for c in _CANONICAL_ORDER if c in parsed.columns]
-    extra = sorted(c for c in parsed.columns if c not in canonical)
-    return parsed[canonical + extra].copy()
+
+def _finalize(parsed):
+    """Add synthesized constants, mirrors, and column order in one allocation."""
+    # peptide_offset = 0: pVACseq doesn't ship the source-protein offset
+    # of the peptide; LENS loader uses the same convention.
+    augmented = parsed.assign(
+        peptide_length=parsed["peptide"].str.len(),
+        peptide_offset=0,
+        kind="pMHC_affinity",
+        prediction_method_name="pvacseq",
+        predictor_version=pd.NA,
+        affinity=parsed["value"],
+        score=parsed["value"],
+        wt_peptide_length=parsed["wt_peptide"]
+            .map(lambda s: len(s) if isinstance(s, str) else pd.NA)
+            .astype("Int64"),
+        wt_affinity=parsed["wt_value"],
+        wt_score=parsed["wt_value"],
+        wt_prediction_method_name="pvacseq",
+        wt_predictor_version=pd.NA,
+        source_sequence_name=_build_source_sequence_name(parsed),
+    )
+
+    canonical = [c for c in _CANONICAL_ORDER if c in augmented.columns]
+    extra = sorted(c for c in augmented.columns if c not in canonical)
+    # DataFrame.__getitem__ with a column list returns a fresh frame —
+    # no extra .copy() needed.
+    return augmented[canonical + extra]
 
 
 # =============================================================================
