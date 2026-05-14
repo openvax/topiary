@@ -49,6 +49,20 @@ loader source:
   convention; keeps multi-file concats distinguishable without rooting
   through `Metadata.sources`.
 
+`Metadata.extra["kind_support"]` mirrors `TopiaryPredictor.kind_support`
+shape (`model_key -> {kind -> {mhc_dependence, mhc_class}}`) so the
+loaded result can be passed straight to `apply_filter(... ,
+kind_support=r.extra["kind_support"])` / `evaluate_scores(...)` without
+constructing a parallel metadata dict.
+
+`melt_pvacseq_algorithms(result)` expands the all_epitopes flavor's
+per-algorithm `pvacseq_<algo>_<field>_<mtwt>` columns into separate
+`prediction_method_name=<algo>` rows so the DSL's
+`Affinity['mhcflurry'].value` / `Affinity['netmhcpan'].score` selectors
+reach individual scoring algorithms natively.  The Median rows
+(`prediction_method_name="pvacseq"`) are preserved; melt is a no-op on
+aggregated input.
+
 ## 5.15.0
 
 **Backfill `value` from `score` for [0, 1]-score predictor kinds (#165):**

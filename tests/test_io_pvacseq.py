@@ -8,11 +8,14 @@ import pytest
 
 from topiary import (
     Affinity,
+    Column,
+    SelfProteome,
     TopiaryResult,
     apply_filter,
     apply_sort,
     concat,
     detect_pvacseq_format,
+    melt_pvacseq_algorithms,
     read_pvacseq,
     read_tsv,
     to_tsv,
@@ -397,6 +400,132 @@ class TestFlankingPeptideHandling:
         assert pd.isna(row["mutation_end_in_peptide"])
         # And the unrelated WT-peptide reconstruction also bails.
         assert pd.isna(row["wt_peptide"])
+
+
+# ---------------------------------------------------------------------------
+# kind_support metadata
+# ---------------------------------------------------------------------------
+
+
+class TestKindSupport:
+    def test_mhc_i_file_records_single_allele_class_i(self):
+        r = read_pvacseq(MHC_I_AGG)
+        ks = r.extra["kind_support"]
+        assert ks == {
+            "pvacseq": {
+                "pMHC_affinity": {
+                    "mhc_dependence": "single_allele",
+                    "mhc_class": "I",
+                },
+            },
+        }
+
+    def test_mhc_ii_file_records_single_allele_class_ii(self):
+        r = read_pvacseq(MHC_II_AGG)
+        assert r.extra["kind_support"]["pvacseq"]["pMHC_affinity"]["mhc_class"] == "II"
+
+    def test_concat_summary_can_be_recomputed_post_concat(self):
+        # concat doesn't merge kind_support — callers can recompute
+        # from the combined allele column if needed.
+        from topiary.io_pvacseq import _summarize_mhc_class
+        combined = concat([read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG)])
+        assert _summarize_mhc_class(combined.df["allele"]) == "both"
+
+
+# ---------------------------------------------------------------------------
+# melt_pvacseq_algorithms
+# ---------------------------------------------------------------------------
+
+
+class TestMeltAlgorithms:
+    def test_aggregated_is_noop(self):
+        # Aggregated TSVs only carry Median scores; melt produces the same frame.
+        r = read_pvacseq(MHC_I_AGG)
+        melted = melt_pvacseq_algorithms(r)
+        assert len(melted) == len(r)
+        assert melted.df.columns.equals(r.df.columns)
+
+    def test_all_epitopes_expands_one_row_per_algorithm(self):
+        r = read_pvacseq(MHC_I_ALL)
+        melted = melt_pvacseq_algorithms(r)
+        # The MHC-I all_epitopes fixture has NetMHCpan + MHCflurry per-algo
+        # columns, so each (peptide, allele) row gets 2 new sibling rows.
+        n_rows_original = len(r)
+        n_rows_melted = len(melted)
+        assert n_rows_melted == n_rows_original * 3  # median + 2 algos
+
+    def test_melted_rows_have_distinct_method_names(self):
+        r = read_pvacseq(MHC_I_ALL)
+        melted = melt_pvacseq_algorithms(r)
+        methods = set(melted.df["prediction_method_name"].dropna())
+        assert {"pvacseq", "mhcflurry", "netmhcpan"} <= methods
+
+    def test_per_algorithm_value_lifts_from_passthrough_column(self):
+        r = read_pvacseq(MHC_I_ALL)
+        melted = melt_pvacseq_algorithms(r)
+        # First fixture row's NetMHCpan MT IC50 was 20.16; after melt that
+        # value should appear on the netmhcpan row for that peptide.
+        netmhcpan_rows = melted.df[melted.df["prediction_method_name"] == "netmhcpan"]
+        first = netmhcpan_rows.iloc[0]
+        assert math.isclose(first["value"], 20.16, abs_tol=0.01)
+
+    def test_kind_support_extends_with_algorithm_models(self):
+        r = read_pvacseq(MHC_I_ALL)
+        melted = melt_pvacseq_algorithms(r)
+        ks = melted.extra["kind_support"]
+        assert {"pvacseq", "netmhcpan", "mhcflurry"} <= set(ks.keys())
+        for name in ("netmhcpan", "mhcflurry"):
+            assert ks[name]["pMHC_affinity"]["mhc_class"] == "I"
+
+    def test_dsl_per_algorithm_selector_after_melt(self):
+        # The whole point of melting: Affinity['mhcflurry'] reaches per-algo rows.
+        r = read_pvacseq(MHC_I_ALL)
+        melted = melt_pvacseq_algorithms(r)
+        passing_groups = apply_filter(
+            melted.df, Affinity["mhcflurry"].value <= 100
+        )
+        # The filter keeps every row of any (peptide, allele) group whose
+        # mhcflurry row passes; check the mhcflurry rows themselves.
+        mhcflurry_rows = passing_groups[
+            passing_groups["prediction_method_name"] == "mhcflurry"
+        ]
+        assert len(mhcflurry_rows) >= 1
+        assert (mhcflurry_rows["value"] <= 100).all()
+
+
+# ---------------------------------------------------------------------------
+# Integration: vaxrank-shaped filters + exclude_by composition
+# ---------------------------------------------------------------------------
+
+
+class TestVaxrankComposition:
+    def test_vaxrank_shape_filter_expression(self):
+        # Mirrors the shape of filter vaxrank applies after swapping its
+        # epitope_io.py loader for topiary.read_pvacseq: pandas masking
+        # for categorical (mhc_class / contains_mutant_residues) clauses,
+        # topiary DSL for the numeric / kind-aware clauses.
+        combined = concat([read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG)])
+        class_i_novel = combined.df[
+            (combined.df["mhc_class"] == "I")
+            & combined.df["contains_mutant_residues"].fillna(False)
+        ]
+        strong = apply_filter(class_i_novel, Affinity.value <= 500)
+        # Every survivor meets every clause.
+        assert (strong["value"] <= 500).all()
+        assert (strong["mhc_class"] == "I").all()
+        assert strong["contains_mutant_residues"].all()
+        assert len(strong) > 0
+
+    def test_exclude_by_filters_loaded_pvacseq_rows(self):
+        # exclude_by removes predicted peptides found in a reference proteome.
+        # Use the first fixture peptide itself as the "reference" — verify
+        # the row gets dropped and the rest survive.
+        r = read_pvacseq(MHC_I_AGG)
+        sentinel_peptide = r.df["peptide"].iloc[0]
+        from topiary.inputs import exclude_by
+        kept = exclude_by(r.df, {"sentinel": sentinel_peptide}, mode="exact")
+        assert sentinel_peptide not in set(kept["peptide"])
+        assert len(kept) == len(r) - 1
 
 
 # ---------------------------------------------------------------------------

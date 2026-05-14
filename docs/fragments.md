@@ -169,4 +169,4 @@ Prefix is sanitized to `[A-Za-z0-9._:-]`; runs of other characters collapse to `
 
 - **Coordinate remapping for indel / frameshift `wt_peptide`** — `wt_peptide` is only populated when the baseline is the same length as the mutant sequence (substitution-compatible). Length-changing edits yield `None` until remapping lands.
 - **Nearest-self compute** — the scope is reserved but no Topiary module produces the columns. Populate externally for now.
-- **Format-specific loaders** (`read_pvacseq_fragments`, `read_isovar_fragments`, `read_exacto_fragments`) — each ~50-100 lines on top of the core abstraction; separate PRs. `read_lens` is already shipped (5.1.0).
+- **Format-specific loaders** (`read_isovar_fragments`, `read_exacto_fragments`) — each ~50-100 lines on top of the core abstraction; separate PRs. `read_lens` is already shipped (5.1.0); pVACseq is loaded via `read_pvacseq` (5.16.0) at the *row* level — its output is already at peptide × allele granularity, so the fragment-window abstraction doesn't apply.

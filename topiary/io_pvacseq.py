@@ -236,18 +236,52 @@ def _first_present_column(df, *candidates):
     return None
 
 
+def _class_of_allele(allele):
+    """Return ``"I"`` / ``"II"`` for an allele string, else ``pd.NA``."""
+    if not isinstance(allele, str):
+        return pd.NA
+    a = allele.upper()
+    if a.startswith(("HLA-A", "HLA-B", "HLA-C")):
+        return "I"
+    if a.startswith("HLA-D") or a.startswith(("DRB", "DPA", "DPB", "DQA", "DQB")):
+        return "II"
+    return pd.NA
+
+
 def _derive_mhc_class(allele_series):
     """Per-row MHC class ('I' or 'II'); ``pd.NA`` for unrecognized."""
-    def _class_of(allele):
-        if not isinstance(allele, str):
-            return pd.NA
-        a = allele.upper()
-        if a.startswith(("HLA-A", "HLA-B", "HLA-C")):
-            return "I"
-        if a.startswith("HLA-D") or a.startswith(("DRB", "DPA", "DPB", "DQA", "DQB")):
-            return "II"
-        return pd.NA
-    return allele_series.map(_class_of)
+    return allele_series.map(_class_of_allele)
+
+
+def _summarize_mhc_class(allele_series):
+    """File-level MHC class summary: ``"I"`` / ``"II"`` / ``"both"`` / ``None``."""
+    classes = {c for c in (_class_of_allele(a) for a in allele_series) if c is not pd.NA}
+    if classes == {"I"}:
+        return "I"
+    if classes == {"II"}:
+        return "II"
+    if classes == {"I", "II"}:
+        return "both"
+    return None
+
+
+def _build_kind_support(mhc_class):
+    """Synthesize a kind_support dict for pVACseq's single-allele scoring.
+
+    pVACseq always operates per allele, so ``mhc_dependence`` is
+    ``"single_allele"``.  ``mhc_class`` reflects what's actually in the
+    file ("I", "II", "both", or "none" when alleles are unrecognized).
+    Shape matches ``TopiaryPredictor.kind_support``: dict of
+    ``model_key -> {kind -> {mhc_dependence, mhc_class}}``.
+    """
+    return {
+        "pvacseq": {
+            "pMHC_affinity": {
+                "mhc_dependence": "single_allele",
+                "mhc_class": mhc_class or "none",
+            },
+        },
+    }
 
 
 def _derive_mutation_interval(parsed):
@@ -499,6 +533,105 @@ def read_pvacseq(path, *, tag=None) -> TopiaryResult:
     source_label = tag or f"pvacseq-{fmt}:{path.name}"
     out = _finalize(parsed, source=source_label)
 
+    mhc_class = _summarize_mhc_class(out["allele"])
     meta = Metadata(form="long", sources=[source_label])
     meta.extra["pvacseq_format"] = fmt
+    # kind_support has the same shape as TopiaryPredictor.kind_support so
+    # downstream callers (e.g. vaxrank's evaluate_scores) can pass
+    # `r.extra["kind_support"]` through without branching on loader source.
+    meta.extra["kind_support"] = _build_kind_support(mhc_class)
     return TopiaryResult(out, meta)
+
+
+# =============================================================================
+# Per-algorithm melt helper
+# =============================================================================
+
+_ALGO_COL_RE = re.compile(
+    r"^pvacseq_(?P<algo>[\w]+)_(?P<field>ic50|pct)_(?P<mtwt>mt|wt)$"
+)
+
+
+def melt_pvacseq_algorithms(result):
+    """Expand per-algorithm columns into one row per (peptide, allele, algorithm).
+
+    The all_epitopes flavor carries individual-algorithm scores as
+    ``pvacseq_<algo>_{ic50,pct}_{mt,wt}`` columns (see :func:`read_pvacseq`).
+    By default the DSL only sees the Median row
+    (``prediction_method_name="pvacseq"``); after melting, each algorithm
+    becomes a separate row with ``prediction_method_name=<algo>``, so
+    expressions like ``Affinity['mhcflurry'].value`` reach it natively.
+
+    The original Median rows are preserved.  Algorithms that don't have
+    any non-null score for a given (peptide, allele) still get a row
+    (with NaN value / percentile_rank); the caller can filter those out
+    if undesired.
+
+    Parameters
+    ----------
+    result : TopiaryResult
+        A long-form result from :func:`read_pvacseq` (typically the
+        all_epitopes flavor; aggregated TSVs only carry Median scores
+        and round-trip unchanged).
+
+    Returns
+    -------
+    TopiaryResult
+        Same metadata, longer DataFrame.  ``Metadata.extra["kind_support"]``
+        is extended to register each melted algorithm under the same
+        ``mhc_class`` as ``"pvacseq"``.
+    """
+    df = result.df
+    algos = sorted({
+        m.group("algo")
+        for m in (_ALGO_COL_RE.match(c) for c in df.columns)
+        if m is not None
+    })
+    if not algos:
+        return result
+
+    rows_per_algo = []
+    for algo in algos:
+        row = df.copy()
+        row["prediction_method_name"] = algo
+        mt_ic50 = f"pvacseq_{algo}_ic50_mt"
+        mt_pct = f"pvacseq_{algo}_pct_mt"
+        wt_ic50 = f"pvacseq_{algo}_ic50_wt"
+        wt_pct = f"pvacseq_{algo}_pct_wt"
+        if mt_ic50 in df.columns:
+            row["value"] = df[mt_ic50]
+            row["affinity"] = df[mt_ic50]
+            row["score"] = df[mt_ic50]
+        if mt_pct in df.columns:
+            row["percentile_rank"] = df[mt_pct]
+        if wt_ic50 in df.columns:
+            row["wt_value"] = df[wt_ic50]
+            row["wt_affinity"] = df[wt_ic50]
+            row["wt_score"] = df[wt_ic50]
+        if wt_pct in df.columns:
+            row["wt_percentile_rank"] = df[wt_pct]
+        row["wt_prediction_method_name"] = algo
+        rows_per_algo.append(row)
+
+    combined = pd.concat([df] + rows_per_algo, ignore_index=True)
+
+    # Preserve & extend kind_support so DSL evaluations of
+    # `Affinity['<algo>'].value` find consistent metadata for each.
+    new_kind_support = dict(result.extra.get("kind_support", {}))
+    template = new_kind_support.get("pvacseq", {}).get("pMHC_affinity")
+    if template is not None:
+        for algo in algos:
+            new_kind_support.setdefault(algo, {"pMHC_affinity": dict(template)})
+
+    new_extra = dict(result.extra)
+    new_extra["kind_support"] = new_kind_support
+    new_extra["pvacseq_algorithms_melted"] = ",".join(algos)
+
+    return TopiaryResult(
+        combined,
+        topiary_version=result.topiary_version,
+        form=result.form,
+        models=result.models,
+        sources=result.sources,
+        extra=new_extra,
+    )
