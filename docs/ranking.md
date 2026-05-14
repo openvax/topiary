@@ -190,6 +190,8 @@ apply_filter(df, ~Column("source").isin(["control", "blacklist"]))
 
 `DSLNode.__eq__` is intentionally not overridden — `Column("x") == "y"` still does Python identity equality and won't compose. Always use `.eq()` / `.ne()` / `.isin()`.
 
+NaN handling matches pandas, not SQL: missing values evaluate to `False` for `.eq()` / `.isin()` and to `True` for `.ne()` / `~.eq()` (the inverse). To exclude NaN explicitly, compose with the source-of-truth column — e.g. `Column("mhc_class").ne("II") & Column("mhc_class").isin(["I", "II"])`.
+
 The string parser accepts string literals on the right-hand side of `==` and `!=` (rejected with `<` / `<=` / `>` / `>=` since ordering on arbitrary strings isn't meaningful):
 
 ```python

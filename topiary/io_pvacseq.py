@@ -270,10 +270,6 @@ def derive_mhc_class(allele_series):
     return allele_series.map(_class_of_allele)
 
 
-# Backwards-compatible alias kept for internal callers.
-_derive_mhc_class = derive_mhc_class
-
-
 def _summarize_mhc_class(allele_series):
     """File-level MHC class summary: ``"I"`` / ``"II"`` / ``"both"`` / ``None``."""
     classes = {c for c in (_class_of_allele(a) for a in allele_series) if c is not pd.NA}
@@ -489,7 +485,7 @@ def _finalize(parsed, *, source):
         peptide_length=parsed["peptide"].str.len(),
         peptide_offset=0,
         kind="pMHC_affinity",
-        mhc_class=_derive_mhc_class(parsed["allele"]),
+        mhc_class=derive_mhc_class(parsed["allele"]),
         prediction_method_name="pvacseq",
         predictor_version=pd.NA,
         affinity=parsed["value"],

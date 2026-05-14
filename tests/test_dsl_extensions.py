@@ -317,9 +317,12 @@ class TestIsIn:
 
     def test_invert_negates(self):
         df = _categorical_df()
-        # ~eq("I") removes class I rows.
+        # ~eq("I") drops class-I rows; class-II and NaN survive (NaN
+        # matches pandas !=  semantics: ~isin(["I"]) is True for NaN).
         kept = apply_filter(df, ~Column("mhc_class").eq("I"))
         assert "I" not in set(kept["mhc_class"].dropna())
+        assert set(kept["peptide"]) == {"DDD", "EEE"}
+        assert len(kept) == 2
 
     def test_compose_with_boolean_ops(self):
         df = _categorical_df()
@@ -368,8 +371,16 @@ class TestIsIn:
 
     def test_parser_string_lhs_raises(self):
         # We only support `column == "..."`, not `"..." == column`.
+        # A bare STRING in atom position trips _atom's "Unexpected token".
         with pytest.raises(ValueError):
             parse('"I" == mhc_class')
+
+    def test_parser_non_column_lhs_with_string_raises(self):
+        # Triggers the parser's explicit "column reference on the LHS"
+        # guard — a non-Column LHS (here a Field expression) parses fine
+        # but should be rejected with a string on the RHS.
+        with pytest.raises(ValueError, match="column reference on the LHS"):
+            parse('affinity.value == "I"')
 
     def test_unknown_column_raises(self):
         df = _categorical_df()

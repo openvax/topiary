@@ -592,9 +592,9 @@ class IsIn(DSLNode):
     __slots__ = ("col_name", "values", "negate")
 
     def __init__(self, col_name: str, values, negate: bool = False):
-        if isinstance(values, (str, int, float, bool, type(None))) or (
-            isinstance(values, float) and math.isnan(values)
-        ):
+        if isinstance(values, (str, int, float, bool, type(None))):
+            # Scalar — wrap so .isin gets a singleton.  float covers NaN
+            # too (NaN is a float in Python's type system).
             values = (values,)
         else:
             try:
@@ -638,17 +638,13 @@ class IsIn(DSLNode):
         return IsIn(self.col_name, self.values, negate=not self.negate)
 
     def __repr__(self):
-        op = ".ne(" if self.negate and len(self.values) == 1 else (
-            ".isin(" if not self.negate and len(self.values) != 1 else (
-                ".eq(" if not self.negate else ".isin("
-            )
-        )
-        if op in (".eq(", ".ne("):
-            inner = repr(self.values[0])
-        else:
-            inner = repr(list(self.values))
-        prefix = "~" if (self.negate and op == ".isin(") else ""
-        return f"{prefix}column({self.col_name}){op}{inner})"
+        # Single-value: render as .eq(v) / .ne(v).  Multi-value: render
+        # as .isin([...]) or ~.isin([...]) when negated.
+        if len(self.values) == 1:
+            method = "ne" if self.negate else "eq"
+            return f"column({self.col_name}).{method}({self.values[0]!r})"
+        prefix = "~" if self.negate else ""
+        return f"{prefix}column({self.col_name}).isin({list(self.values)!r})"
 
     def to_ast_string(self):
         name = "NotIn" if self.negate else "In"
