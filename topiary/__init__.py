@@ -71,7 +71,7 @@ from .io_pvacseq import (
 from .result import TopiaryResult, concat
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.15.0"
+__version__ = "5.16.0"
 
 __all__ = [
     "TopiaryPredictor",
