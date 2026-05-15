@@ -212,8 +212,8 @@ def tissue_expressed_gene_ids(tissues, min_ntpm=1.0):
     if not tissues:
         raise ValueError("tissues must be a non-empty list")
     _check_pirlygenes()
-    from pirlygenes import load_all_dataframes_dict
-    pce = load_all_dataframes_dict()["pan-cancer-expression.csv"]
+    from pirlygenes import pan_cancer_expression
+    pce = pan_cancer_expression()
 
     cols = [f"nTPM_{t}" for t in tissues]
     _validate_tissue_cols(pce, cols)
@@ -243,8 +243,8 @@ def tissue_expressed_sequences(tissues, min_ntpm=1.0, release=None):
 def available_tissues():
     """List all available tissue names from PirlyGenes expression data."""
     _check_pirlygenes()
-    from pirlygenes import load_all_dataframes_dict
-    pce = load_all_dataframes_dict()["pan-cancer-expression.csv"]
+    from pirlygenes import pan_cancer_expression
+    pce = pan_cancer_expression()
     return sorted(c.replace("nTPM_", "") for c in pce.columns if c.startswith("nTPM_"))
 
 
@@ -298,14 +298,24 @@ def _validate_tissue_cols(pce, cols):
         )
 
 
+_PIRLYGENES_MIN = (5, 1, 0)
+
+
 def _check_pirlygenes():
     try:
-        import pirlygenes  # noqa: F401
+        import pirlygenes
     except ImportError:
         raise ImportError(
             "pirlygenes is required for CTA/tissue gene lists. "
-            "Install with: pip install pirlygenes"
+            "Install with: pip install 'pirlygenes>=5.1.0'"
         ) from None
+    version = getattr(pirlygenes, "__version__", "0.0.0")
+    parts = tuple(int(p) for p in version.split(".")[:3] if p.isdigit())
+    if parts < _PIRLYGENES_MIN:
+        raise ImportError(
+            f"pirlygenes>=5.1.0 required for tissue-expression access; "
+            f"found {version}. Upgrade with: pip install -U 'pirlygenes>=5.1.0'"
+        )
 
 
 def _pirlygenes_cta_gene_ids():
