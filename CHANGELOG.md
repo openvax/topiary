@@ -1,5 +1,24 @@
 # Changelog
 
+## 5.16.1
+
+**pirlygenes 5.1.0 integration:**
+
+`tissue_expressed_gene_ids` and `available_tissues` in
+`topiary.sources` now call the typed
+`pirlygenes.pan_cancer_expression()` accessor introduced in
+pirlygenes 5.1.0 instead of indexing
+`load_all_dataframes_dict()["pan-cancer-expression.csv"]`. pirlygenes
+5.0.x had stripped the expression CSVs entirely, which broke the
+tissue-exclusion path with a `KeyError` for anyone on that release
+line; the 5.1.0 restore puts the data back next to the curated gene
+lists, and the new accessor is the canonical handle.
+
+`_check_pirlygenes` now also enforces `pirlygenes>=5.1.0` so a stale
+install surfaces a clear upgrade message rather than a downstream
+`AttributeError`. pirlygenes remains an optional dependency — only
+the CTA / tissue-exclusion paths require it.
+
 ## 5.16.0
 
 **pVACseq report loader (#94):**

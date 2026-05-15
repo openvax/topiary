@@ -74,6 +74,34 @@ def test_tissue_expressed_gene_ids_strict():
     assert len(strict) < len(loose)
 
 
+def test_check_pirlygenes_rejects_old_version(monkeypatch):
+    pirlygenes = pytest.importorskip("pirlygenes")
+    from topiary.sources import _check_pirlygenes
+
+    monkeypatch.setattr(pirlygenes, "__version__", "5.0.2")
+    with pytest.raises(ImportError, match="pirlygenes>=5.1.0"):
+        _check_pirlygenes()
+
+
+@pytest.mark.parametrize(
+    "version, accepted",
+    [
+        ("5.0.2", False),
+        ("5.1.0rc1", False),
+        ("5.1.0.dev1", False),
+        ("5.1.0", True),
+        ("5.1", True),
+        ("5.1.0+local", True),
+        ("5.1.0.post1", True),
+        ("5.1.1", True),
+    ],
+)
+def test_pirlygenes_version_check(version, accepted):
+    from topiary.sources import _pirlygenes_version_at_least
+
+    assert _pirlygenes_version_at_least(version) is accepted
+
+
 def test_predictor_with_alleles_and_model_classes():
     from mhctools import RandomBindingPredictor
     from topiary import TopiaryPredictor, Affinity

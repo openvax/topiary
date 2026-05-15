@@ -15,5 +15,5 @@ def test_check_pirlygenes_raises_clear_error(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
-    with pytest.raises(ImportError, match="pip install pirlygenes"):
+    with pytest.raises(ImportError, match="pirlygenes>=5.1.0"):
         sources._check_pirlygenes()

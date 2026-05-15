@@ -16,6 +16,7 @@ Ensembl data is downloaded on first use via pyensembl.
 """
 
 import logging
+import re
 
 from pyensembl import EnsemblRelease, ensembl_grch38
 
@@ -212,8 +213,8 @@ def tissue_expressed_gene_ids(tissues, min_ntpm=1.0):
     if not tissues:
         raise ValueError("tissues must be a non-empty list")
     _check_pirlygenes()
-    from pirlygenes import load_all_dataframes_dict
-    pce = load_all_dataframes_dict()["pan-cancer-expression.csv"]
+    from pirlygenes import pan_cancer_expression
+    pce = pan_cancer_expression()
 
     cols = [f"nTPM_{t}" for t in tissues]
     _validate_tissue_cols(pce, cols)
@@ -243,8 +244,8 @@ def tissue_expressed_sequences(tissues, min_ntpm=1.0, release=None):
 def available_tissues():
     """List all available tissue names from PirlyGenes expression data."""
     _check_pirlygenes()
-    from pirlygenes import load_all_dataframes_dict
-    pce = load_all_dataframes_dict()["pan-cancer-expression.csv"]
+    from pirlygenes import pan_cancer_expression
+    pce = pan_cancer_expression()
     return sorted(c.replace("nTPM_", "") for c in pce.columns if c.startswith("nTPM_"))
 
 
@@ -298,14 +299,42 @@ def _validate_tissue_cols(pce, cols):
         )
 
 
+_PIRLYGENES_MIN = (5, 1, 0)
+_PIRLYGENES_MIN_TEXT = "5.1.0"
+_PIRLYGENES_VERSION_RE = re.compile(r"^\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?")
+_PIRLYGENES_PRERELEASE_RE = re.compile(
+    r"^\s*[-_.]?\s*(?:a|alpha|b|beta|rc|c|pre|preview|dev)",
+    re.I,
+)
+
+
 def _check_pirlygenes():
     try:
-        import pirlygenes  # noqa: F401
+        import pirlygenes
     except ImportError:
         raise ImportError(
             "pirlygenes is required for CTA/tissue gene lists. "
-            "Install with: pip install pirlygenes"
+            "Install with: pip install 'pirlygenes>=5.1.0'"
         ) from None
+    version = getattr(pirlygenes, "__version__", "0.0.0")
+    if not _pirlygenes_version_at_least(version):
+        raise ImportError(
+            f"pirlygenes>={_PIRLYGENES_MIN_TEXT} required for CTA/tissue "
+            f"gene lists; found {version}. Upgrade with: "
+            f"pip install -U 'pirlygenes>={_PIRLYGENES_MIN_TEXT}'"
+        )
+
+
+def _pirlygenes_version_at_least(version):
+    text = str(version)
+    match = _PIRLYGENES_VERSION_RE.match(text)
+    if match is None:
+        return False
+    parts = tuple(int(p) if p is not None else 0 for p in match.groups())
+    if parts != _PIRLYGENES_MIN:
+        return parts > _PIRLYGENES_MIN
+    suffix = text[match.end():]
+    return _PIRLYGENES_PRERELEASE_RE.match(suffix) is None
 
 
 def _pirlygenes_cta_gene_ids():
