@@ -7,7 +7,6 @@ AST form (for programmatic use without re-parsing).
 
 import warnings
 from collections import OrderedDict
-from collections.abc import Mapping
 
 import pandas as pd
 
@@ -80,10 +79,6 @@ class TopiaryResult:
 
         if models is None and hasattr(df, "attrs"):
             models = df.attrs.get("topiary_models")
-        if extra is None and hasattr(df, "attrs"):
-            kind_support = df.attrs.get("topiary_kind_support")
-            if kind_support:
-                extra = OrderedDict([("kind_support", kind_support)])
 
         self.df = df
         self.topiary_version = topiary_version
@@ -463,8 +458,7 @@ def combine_predictor_results(results, on=("peptide", "allele")):
     Returns
     -------
     TopiaryResult
-        Combined long-form result with merged model metadata and, when present
-        on the inputs, merged ``extra["kind_support"]`` metadata.
+        Combined long-form result with merged model metadata.
     """
     results = [_as_topiary_result(r) for r in results]
     if not results:
@@ -479,12 +473,11 @@ def combine_predictor_results(results, on=("peptide", "allele")):
 
     _validate_unique_prediction_methods(results)
     _validate_same_identity_keys(results, on)
-    merged_kind_support = _merge_kind_support(results)
 
     combined = concat(results)
-    if merged_kind_support:
+    if "kind_support" in combined.extra:
         extra = OrderedDict(combined.extra)
-        extra["kind_support"] = merged_kind_support
+        extra.pop("kind_support", None)
         combined.extra = extra
     return combined
 
@@ -575,70 +568,3 @@ def _format_key_examples(keys, limit=5):
     shown = ordered[:limit]
     suffix = "" if len(ordered) <= limit else f" ... +{len(ordered) - limit} more"
     return f"{shown}{suffix}"
-
-
-def _merge_kind_support(results):
-    merged = OrderedDict()
-    for index, result in enumerate(results):
-        kind_support = _normalize_kind_support(
-            result.extra.get("kind_support"), index
-        )
-        if not kind_support:
-            continue
-        _validate_single_allele_kind_support(kind_support, index)
-        for model_key, kind_map in kind_support.items():
-            if model_key in merged:
-                raise ValueError(
-                    "combine_predictor_results cannot merge duplicate "
-                    f"kind_support model key {model_key!r}"
-                )
-            merged[model_key] = OrderedDict(
-                (kind, dict(meta)) for kind, meta in kind_map.items()
-            )
-    return merged
-
-
-def _normalize_kind_support(kind_support, result_index):
-    if not kind_support:
-        return OrderedDict()
-    if not isinstance(kind_support, Mapping):
-        raise ValueError(
-            "combine_predictor_results expected "
-            f"extra['kind_support'] for result {result_index} to be a "
-            f"mapping, got {type(kind_support).__name__}"
-        )
-
-    normalized = OrderedDict()
-    for model_key, kind_map in kind_support.items():
-        if not isinstance(kind_map, Mapping):
-            raise ValueError(
-                "combine_predictor_results expected "
-                f"extra['kind_support'][{model_key!r}] for result "
-                f"{result_index} to be a mapping, got "
-                f"{type(kind_map).__name__}"
-            )
-        normalized[model_key] = OrderedDict()
-        for kind, meta in kind_map.items():
-            if not isinstance(meta, Mapping):
-                raise ValueError(
-                    "combine_predictor_results expected "
-                    f"extra['kind_support'][{model_key!r}][{kind!r}] "
-                    f"for result {result_index} to be a mapping, got "
-                    f"{type(meta).__name__}"
-                )
-            normalized[model_key][kind] = dict(meta)
-    return normalized
-
-
-def _validate_single_allele_kind_support(kind_support, result_index):
-    for model_key, kind_map in kind_support.items():
-        for kind, meta in kind_map.items():
-            dependence = meta.get("mhc_dependence")
-            if dependence != "single_allele":
-                raise ValueError(
-                    "combine_predictor_results currently supports only "
-                    "single_allele predictor rows. "
-                    f"Result {result_index} reports {dependence!r} for "
-                    f"{model_key!r}/{kind!r}; haplotype-mode combining "
-                    "depends on #168/#169."
-                )

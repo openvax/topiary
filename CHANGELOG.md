@@ -10,12 +10,15 @@ by running those predictors together. It accepts `TopiaryResult` or
 fresh `TopiaryPredictor` DataFrame outputs, strictly validates that all
 inputs cover the same `(peptide, allele)` identity set, rejects
 duplicate `prediction_method_name` values across inputs, and merges
-model / `kind_support` metadata when present.
+model metadata when present.
 
 Fresh `TopiaryPredictor` DataFrames now carry lightweight
-`DataFrame.attrs` metadata (`topiary_models`, `topiary_kind_support`) so
-this helper can preserve predictor provenance without changing the
-public return type.
+`DataFrame.attrs` model-version metadata (`topiary_models`) so this
+helper can preserve model provenance without changing the public return
+type. The emitted rows remain the source of truth for which predictor
+produced which quantities: `prediction_method_name`, `predictor_version`,
+`kind`, and the value/rank columns are not duplicated into separate
+`kind_support` metadata.
 
 ## 5.16.1
 

@@ -249,10 +249,6 @@ def _write_delimited(df, path, sep, metadata, index):
                     (str(model), str(version))
                     for model, version in attr_models.items()
                 )
-        if "kind_support" not in metadata.extra:
-            kind_support = df.attrs.get("topiary_kind_support")
-            if kind_support:
-                metadata.extra["kind_support"] = kind_support
 
     # Auto-extract model versions from long-form data.
     if (

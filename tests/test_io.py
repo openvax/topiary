@@ -246,24 +246,6 @@ class TestReadWriteTSV:
         assert "test_cohort" in meta2.sources
         assert meta2.extra.get("patient") == "PT01"
 
-    def test_dataframe_attrs_kind_support_preserved(self, tmp_path):
-        df = _sample_long_df()
-        kind_support = {
-            "netmhcpan": {
-                "pMHC_affinity": {
-                    "mhc_dependence": "single_allele",
-                    "mhc_class": "I",
-                },
-            },
-        }
-        df.attrs["topiary_kind_support"] = kind_support
-        path = tmp_path / "attrs.tsv"
-
-        to_tsv(df, path)
-        result = read_tsv(path)
-
-        assert result.extra["kind_support"] == kind_support
-
     def test_model_versions_auto_extracted(self, tmp_path):
         df = _sample_long_df()
         path = tmp_path / "out.tsv"

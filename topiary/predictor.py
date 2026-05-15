@@ -699,20 +699,7 @@ class TopiaryPredictor(object):
                     model_versions[str(name)] = str(version)
         if model_versions:
             df.attrs["topiary_models"] = model_versions
-        kind_support = self._result_kind_support()
-        if kind_support:
-            df.attrs["topiary_kind_support"] = kind_support
         return df
-
-    def _result_kind_support(self):
-        """Return kind_support for public DataFrame attrs when available."""
-        support = {}
-        for key, model in zip(self._model_keys, self.models):
-            kind_support = getattr(model, "kind_support", None)
-            if kind_support is None:
-                return {}
-            support[key] = dict(kind_support())
-        return support
 
     def _expand_named_peptide_predictions(self, model_df, peptide_names_df):
         """Attach the original peptide names to model predictions."""

@@ -23,14 +23,6 @@ class ToyAffinityPredictor:
         self.alleles = alleles
         self.offset = offset
 
-    def kind_support(self):
-        return {
-            "pMHC_affinity": {
-                "mhc_dependence": "single_allele",
-                "mhc_class": "I",
-            }
-        }
-
     def predict_dataframe(self, peptides):
         rows = []
         for peptide_i, peptide in enumerate(peptides):
@@ -82,16 +74,6 @@ def _simple_result(method="netmhcpan", peptide="SIINFEKLA", allele="HLA-A*02:01"
             form="long",
             models={method: "1.0"},
             sources=[method],
-            extra={
-                "kind_support": {
-                    method: {
-                        "pMHC_affinity": {
-                            "mhc_dependence": "single_allele",
-                            "mhc_class": "I",
-                        }
-                    }
-                }
-            },
         ),
     )
 
@@ -115,7 +97,7 @@ def test_combine_separate_predictor_runs_matches_combined_run():
         _sort_predictions(direct),
     )
     assert combined.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
-    assert combined.extra["kind_support"] == direct.attrs["topiary_kind_support"]
+    assert "kind_support" not in combined.extra
 
 
 def test_combine_roundtripped_topiary_results(tmp_path):
@@ -150,7 +132,7 @@ def test_combine_roundtripped_topiary_results(tmp_path):
         _sort_predictions(direct),
     )
     assert combined.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
-    assert combined.extra["kind_support"] == direct.attrs["topiary_kind_support"]
+    assert "kind_support" not in combined.extra
 
 
 def test_combine_rejects_different_identity_sets():
@@ -169,28 +151,17 @@ def test_combine_rejects_duplicate_prediction_methods():
         combine_predictor_results([r1, r2])
 
 
-def test_combine_rejects_invalid_kind_support_metadata():
+def test_combine_ignores_legacy_kind_support_metadata():
     r1 = _simple_result("netmhcpan")
     r1.extra["kind_support"] = "not a mapping"
     r2 = _simple_result("mhcflurry")
 
-    with pytest.raises(ValueError, match="kind_support.*mapping"):
-        combine_predictor_results([r1, r2])
+    combined = combine_predictor_results([r1, r2])
+
+    assert "kind_support" not in combined.extra
 
 
-def test_combine_rejects_haplotype_kind_support():
-    haplotype = _simple_result("mhcflurry")
-    haplotype.extra["kind_support"]["mhcflurry"]["pMHC_affinity"] = {
-        "mhc_dependence": "haplotype",
-        "mhc_class": "I",
-    }
-    single_allele = _simple_result("netmhcpan")
-
-    with pytest.raises(ValueError, match="#168/#169"):
-        combine_predictor_results([haplotype, single_allele])
-
-
-def test_topiary_result_reads_predictor_dataframe_attrs():
+def test_topiary_result_reads_predictor_model_attrs():
     peptides = {"pep1": "SIINFEKLA"}
     predictor = ToyAffinityPredictor(
         "netmhcpan", "4.1b", ["HLA-A*02:01"], offset=100,
@@ -200,4 +171,4 @@ def test_topiary_result_reads_predictor_dataframe_attrs():
     result = TopiaryResult(df)
 
     assert result.models == {"netmhcpan": "4.1b"}
-    assert result.extra["kind_support"] == df.attrs["topiary_kind_support"]
+    assert result.extra == {}

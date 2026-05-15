@@ -392,8 +392,9 @@ combined = combine_predictor_results([netmhcpan_rows, mhcflurry_rows])
 
 The helper is intentionally strict. Every input must cover the same
 `(peptide, allele)` keys, and each `prediction_method_name` may appear in only
-one input. It supports the common single-allele predictor case today; haplotype
-mode needs the allele-set schema work tracked separately.
+one input. The combined result preserves the original rows: use each row's
+`prediction_method_name`, `predictor_version`, `kind`, and value/rank columns
+to inspect which predictor produced which quantity.
 
 ## Putting it together
 
