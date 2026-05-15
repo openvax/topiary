@@ -77,6 +77,13 @@ class TopiaryResult:
             sort_by_str = sort_by_str or getattr(metadata, "sort_by", None)
             extra = extra if extra is not None else metadata.extra
 
+        if models is None and hasattr(df, "attrs"):
+            models = df.attrs.get("topiary_models")
+        if extra is None and hasattr(df, "attrs"):
+            kind_support = df.attrs.get("topiary_kind_support")
+            if kind_support:
+                extra = OrderedDict([("kind_support", kind_support)])
+
         self.df = df
         self.topiary_version = topiary_version
         self.form = form or detect_form(df)
@@ -433,3 +440,170 @@ def concat(results):
         sort_by_ast=sort_by_ast,
         extra=merged_extra,
     )
+
+
+def combine_predictor_results(results, on=("peptide", "allele")):
+    """Combine separate predictor outputs into one predictor-equivalent result.
+
+    This is stricter than :func:`concat`: every input must cover the same
+    identity key set, and no prediction method may appear in more than one
+    input. It is intended for the common single-allele case where, for example,
+    NetMHCpan and MHCflurry are run separately and then stacked into the same
+    long-form shape produced by running both models together.
+
+    Parameters
+    ----------
+    results : iterable of TopiaryResult or pandas.DataFrame
+        Separate predictor outputs to combine.
+    on : tuple of str
+        Columns defining the strict identity set. Defaults to
+        ``("peptide", "allele")``.
+
+    Returns
+    -------
+    TopiaryResult
+        Combined long-form result with merged model metadata and, when present
+        on the inputs, merged ``extra["kind_support"]`` metadata.
+    """
+    results = [_as_topiary_result(r) for r in results]
+    if not results:
+        return TopiaryResult(pd.DataFrame())
+
+    if isinstance(on, str):
+        on = (on,)
+    on = tuple(on)
+
+    for i, result in enumerate(results):
+        _validate_predictor_result(result, i, on)
+
+    _validate_unique_prediction_methods(results)
+    _validate_same_identity_keys(results, on)
+    merged_kind_support = _merge_kind_support(results)
+
+    combined = concat(results)
+    if merged_kind_support:
+        extra = OrderedDict(combined.extra)
+        extra["kind_support"] = merged_kind_support
+        combined.extra = extra
+    return combined
+
+
+def _as_topiary_result(result):
+    if isinstance(result, TopiaryResult):
+        return result
+    if isinstance(result, pd.DataFrame):
+        return TopiaryResult(result)
+    raise TypeError(
+        "combine_predictor_results expects TopiaryResult or pandas.DataFrame "
+        f"inputs, got {type(result).__name__}"
+    )
+
+
+def _validate_predictor_result(result, index, on):
+    if result.form != "long":
+        raise ValueError(
+            "combine_predictor_results only supports long-form predictor "
+            f"results; result {index} has form {result.form!r}"
+        )
+    required = set(on) | {"kind", "prediction_method_name"}
+    missing = sorted(c for c in required if c not in result.df.columns)
+    if missing:
+        raise ValueError(
+            f"combine_predictor_results result {index} is missing required "
+            f"column(s): {missing}"
+        )
+    if not _prediction_methods(result):
+        raise ValueError(
+            f"combine_predictor_results result {index} has no "
+            "prediction_method_name values"
+        )
+
+
+def _prediction_methods(result):
+    return {
+        str(method)
+        for method in result.df["prediction_method_name"].dropna().unique()
+    }
+
+
+def _validate_unique_prediction_methods(results):
+    seen = {}
+    for index, result in enumerate(results):
+        for method in sorted(_prediction_methods(result)):
+            if method in seen:
+                raise ValueError(
+                    "combine_predictor_results cannot combine duplicate "
+                    f"prediction method {method!r}; found in results "
+                    f"{seen[method]} and {index}"
+                )
+            seen[method] = index
+
+
+def _identity_keys(result, on):
+    return set(
+        result.df.loc[:, list(on)]
+        .drop_duplicates()
+        .itertuples(index=False, name=None)
+    )
+
+
+def _validate_same_identity_keys(results, on):
+    baseline = _identity_keys(results[0], on)
+    for index, result in enumerate(results[1:], start=1):
+        current = _identity_keys(result, on)
+        missing = baseline - current
+        extra = current - baseline
+        if missing or extra:
+            message = [
+                "combine_predictor_results requires every input to cover the "
+                f"same {on!r} keys; result {index} differs from result 0."
+            ]
+            if missing:
+                message.append(
+                    f"Missing from result {index}: {_format_key_examples(missing)}"
+                )
+            if extra:
+                message.append(
+                    f"Extra in result {index}: {_format_key_examples(extra)}"
+                )
+            raise ValueError(" ".join(message))
+
+
+def _format_key_examples(keys, limit=5):
+    ordered = sorted(keys, key=repr)
+    shown = ordered[:limit]
+    suffix = "" if len(ordered) <= limit else f" ... +{len(ordered) - limit} more"
+    return f"{shown}{suffix}"
+
+
+def _merge_kind_support(results):
+    merged = OrderedDict()
+    for index, result in enumerate(results):
+        kind_support = result.extra.get("kind_support")
+        if not kind_support:
+            continue
+        _validate_single_allele_kind_support(kind_support, index)
+        for model_key, kind_map in kind_support.items():
+            if model_key in merged:
+                raise ValueError(
+                    "combine_predictor_results cannot merge duplicate "
+                    f"kind_support model key {model_key!r}"
+                )
+            merged[model_key] = OrderedDict(
+                (kind, dict(meta)) for kind, meta in kind_map.items()
+            )
+    return merged
+
+
+def _validate_single_allele_kind_support(kind_support, result_index):
+    for model_key, kind_map in kind_support.items():
+        for kind, meta in kind_map.items():
+            dependence = meta.get("mhc_dependence")
+            if dependence != "single_allele":
+                raise ValueError(
+                    "combine_predictor_results currently supports only "
+                    "single_allele predictor rows. "
+                    f"Result {result_index} reports {dependence!r} for "
+                    f"{model_key!r}/{kind!r}; haplotype-mode combining "
+                    "depends on #168/#169."
+                )

@@ -356,6 +356,45 @@ should use the recommended forms above.
 default is `auto`: raw affinity values and percentile ranks sort ascending,
 while all other sort expressions sort descending.
 
+## Combining Separate Predictor Runs
+
+Run predictors together when that is convenient:
+
+```python
+from mhctools import NetMHCpan, MHCflurry
+from topiary import TopiaryPredictor
+
+combined = TopiaryPredictor(
+    models=[NetMHCpan, MHCflurry],
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+).predict_from_named_peptides(peptides)
+```
+
+When predictors need to run separately, use `combine_predictor_results` to
+stack the outputs back into the same long-form shape:
+
+```python
+from mhctools import NetMHCpan, MHCflurry
+from topiary import TopiaryPredictor, combine_predictor_results
+
+netmhcpan_rows = TopiaryPredictor(
+    models=NetMHCpan,
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+).predict_from_named_peptides(peptides)
+
+mhcflurry_rows = TopiaryPredictor(
+    models=MHCflurry,
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+).predict_from_named_peptides(peptides)
+
+combined = combine_predictor_results([netmhcpan_rows, mhcflurry_rows])
+```
+
+The helper is intentionally strict. Every input must cover the same
+`(peptide, allele)` keys, and each `prediction_method_name` may appear in only
+one input. It supports the common single-allele predictor case today; haplotype
+mode needs the allele-set schema work tracked separately.
+
 ## Putting it together
 
 ```python

@@ -1,0 +1,153 @@
+"""Tests for combining separately-run predictor outputs."""
+
+import pandas as pd
+import pytest
+
+from topiary import TopiaryPredictor, TopiaryResult, combine_predictor_results
+from topiary.io import Metadata
+
+
+class ToyAffinityPredictor:
+    default_peptide_lengths = [9]
+    supported_kinds = ("pMHC_affinity",)
+
+    def __init__(self, name, version, alleles, offset):
+        self.prediction_method_name = name
+        self.predictor_version = version
+        self.alleles = alleles
+        self.offset = offset
+
+    def kind_support(self):
+        return {
+            "pMHC_affinity": {
+                "mhc_dependence": "single_allele",
+                "mhc_class": "I",
+            }
+        }
+
+    def predict_dataframe(self, peptides):
+        rows = []
+        for peptide_i, peptide in enumerate(peptides):
+            for allele_i, allele in enumerate(self.alleles):
+                affinity = self.offset + 10 * peptide_i + allele_i
+                rows.append({
+                    "peptide": peptide,
+                    "allele": allele,
+                    "kind": "pMHC_affinity",
+                    "value": float(affinity),
+                    "score": 1.0 / affinity,
+                    "percentile_rank": affinity / 100.0,
+                    "predictor_name": self.prediction_method_name,
+                    "predictor_version": self.predictor_version,
+                })
+        return pd.DataFrame(rows)
+
+
+def _sort_predictions(df):
+    cols = [
+        "source_sequence_name", "peptide", "allele", "kind",
+        "prediction_method_name", "predictor_version",
+    ]
+    return (
+        df.sort_values(cols)
+        .reset_index(drop=True)
+        .loc[:, sorted(df.columns)]
+    )
+
+
+def _simple_result(method="netmhcpan", peptide="SIINFEKLA", allele="HLA-A*02:01"):
+    df = pd.DataFrame([{
+        "source_sequence_name": "pep1",
+        "peptide": peptide,
+        "peptide_offset": 0,
+        "peptide_length": len(peptide),
+        "allele": allele,
+        "kind": "pMHC_affinity",
+        "value": 100.0,
+        "score": 0.9,
+        "percentile_rank": 1.0,
+        "affinity": 100.0,
+        "prediction_method_name": method,
+        "predictor_version": "1.0",
+    }])
+    return TopiaryResult(
+        df,
+        Metadata(
+            form="long",
+            models={method: "1.0"},
+            sources=[method],
+            extra={
+                "kind_support": {
+                    method: {
+                        "pMHC_affinity": {
+                            "mhc_dependence": "single_allele",
+                            "mhc_class": "I",
+                        }
+                    }
+                }
+            },
+        ),
+    )
+
+
+def test_combine_separate_predictor_runs_matches_combined_run():
+    peptides = {"pep1": "SIINFEKLA", "pep2": "ELAGIGILT"}
+    alleles = ["HLA-A*02:01", "HLA-B*07:02"]
+    netmhcpan = ToyAffinityPredictor("netmhcpan", "4.1b", alleles, offset=100)
+    mhcflurry = ToyAffinityPredictor("mhcflurry", "2.1.1", alleles, offset=200)
+
+    direct = TopiaryPredictor(
+        models=[netmhcpan, mhcflurry]
+    ).predict_from_named_peptides(peptides)
+    net_only = TopiaryPredictor(models=netmhcpan).predict_from_named_peptides(peptides)
+    flurry_only = TopiaryPredictor(models=mhcflurry).predict_from_named_peptides(peptides)
+
+    combined = combine_predictor_results([net_only, flurry_only])
+
+    pd.testing.assert_frame_equal(
+        _sort_predictions(combined.df),
+        _sort_predictions(direct),
+    )
+    assert combined.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
+    assert combined.extra["kind_support"] == direct.attrs["topiary_kind_support"]
+
+
+def test_combine_rejects_different_identity_sets():
+    r1 = _simple_result("netmhcpan", peptide="SIINFEKLA")
+    r2 = _simple_result("mhcflurry", peptide="ELAGIGILT")
+
+    with pytest.raises(ValueError, match="same .* keys"):
+        combine_predictor_results([r1, r2])
+
+
+def test_combine_rejects_duplicate_prediction_methods():
+    r1 = _simple_result("netmhcpan")
+    r2 = _simple_result("netmhcpan")
+
+    with pytest.raises(ValueError, match="duplicate prediction method"):
+        combine_predictor_results([r1, r2])
+
+
+def test_combine_rejects_haplotype_kind_support():
+    haplotype = _simple_result("mhcflurry")
+    haplotype.extra["kind_support"]["mhcflurry"]["pMHC_affinity"] = {
+        "mhc_dependence": "haplotype",
+        "mhc_class": "I",
+    }
+    single_allele = _simple_result("netmhcpan")
+
+    with pytest.raises(ValueError, match="#168/#169"):
+        combine_predictor_results([haplotype, single_allele])
+
+
+def test_topiary_result_reads_predictor_dataframe_attrs():
+    peptides = {"pep1": "SIINFEKLA"}
+    predictor = ToyAffinityPredictor(
+        "netmhcpan", "4.1b", ["HLA-A*02:01"], offset=100,
+    )
+    df = TopiaryPredictor(models=predictor).predict_from_named_peptides(peptides)
+
+    result = TopiaryResult(df)
+
+    assert result.models == {"netmhcpan": "4.1b"}
+    assert result.extra["kind_support"] == df.attrs["topiary_kind_support"]

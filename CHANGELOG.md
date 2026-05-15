@@ -1,5 +1,22 @@
 # Changelog
 
+## 5.16.2
+
+**Combine separate predictor runs (#170):**
+
+`topiary.combine_predictor_results([a, b, ...])` stacks separate
+single-allele predictor outputs into the same long-form shape produced
+by running those predictors together. It accepts `TopiaryResult` or
+fresh `TopiaryPredictor` DataFrame outputs, strictly validates that all
+inputs cover the same `(peptide, allele)` identity set, rejects
+duplicate `prediction_method_name` values across inputs, and merges
+model / `kind_support` metadata when present.
+
+Fresh `TopiaryPredictor` DataFrames now carry lightweight
+`DataFrame.attrs` metadata (`topiary_models`, `topiary_kind_support`) so
+this helper can preserve predictor provenance without changing the
+public return type.
+
 ## 5.16.1
 
 **pirlygenes 5.1.0 integration:**
