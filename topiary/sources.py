@@ -16,6 +16,7 @@ Ensembl data is downloaded on first use via pyensembl.
 """
 
 import logging
+import re
 
 from pyensembl import EnsemblRelease, ensembl_grch38
 
@@ -299,6 +300,12 @@ def _validate_tissue_cols(pce, cols):
 
 
 _PIRLYGENES_MIN = (5, 1, 0)
+_PIRLYGENES_MIN_TEXT = "5.1.0"
+_PIRLYGENES_VERSION_RE = re.compile(r"^\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?")
+_PIRLYGENES_PRERELEASE_RE = re.compile(
+    r"^\s*[-_.]?\s*(?:a|alpha|b|beta|rc|c|pre|preview|dev)",
+    re.I,
+)
 
 
 def _check_pirlygenes():
@@ -310,12 +317,24 @@ def _check_pirlygenes():
             "Install with: pip install 'pirlygenes>=5.1.0'"
         ) from None
     version = getattr(pirlygenes, "__version__", "0.0.0")
-    parts = tuple(int(p) for p in version.split(".")[:3] if p.isdigit())
-    if parts < _PIRLYGENES_MIN:
+    if not _pirlygenes_version_at_least(version):
         raise ImportError(
-            f"pirlygenes>=5.1.0 required for tissue-expression access; "
-            f"found {version}. Upgrade with: pip install -U 'pirlygenes>=5.1.0'"
+            f"pirlygenes>={_PIRLYGENES_MIN_TEXT} required for CTA/tissue "
+            f"gene lists; found {version}. Upgrade with: "
+            f"pip install -U 'pirlygenes>={_PIRLYGENES_MIN_TEXT}'"
         )
+
+
+def _pirlygenes_version_at_least(version):
+    text = str(version)
+    match = _PIRLYGENES_VERSION_RE.match(text)
+    if match is None:
+        return False
+    parts = tuple(int(p) if p is not None else 0 for p in match.groups())
+    if parts != _PIRLYGENES_MIN:
+        return parts > _PIRLYGENES_MIN
+    suffix = text[match.end():]
+    return _PIRLYGENES_PRERELEASE_RE.match(suffix) is None
 
 
 def _pirlygenes_cta_gene_ids():

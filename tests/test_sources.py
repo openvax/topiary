@@ -83,6 +83,25 @@ def test_check_pirlygenes_rejects_old_version(monkeypatch):
         _check_pirlygenes()
 
 
+@pytest.mark.parametrize(
+    "version, accepted",
+    [
+        ("5.0.2", False),
+        ("5.1.0rc1", False),
+        ("5.1.0.dev1", False),
+        ("5.1.0", True),
+        ("5.1", True),
+        ("5.1.0+local", True),
+        ("5.1.0.post1", True),
+        ("5.1.1", True),
+    ],
+)
+def test_pirlygenes_version_check(version, accepted):
+    from topiary.sources import _pirlygenes_version_at_least
+
+    assert _pirlygenes_version_at_least(version) is accepted
+
+
 def test_predictor_with_alleles_and_model_classes():
     from mhctools import RandomBindingPredictor
     from topiary import TopiaryPredictor, Affinity
