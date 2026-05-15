@@ -3,7 +3,13 @@
 import pandas as pd
 import pytest
 
-from topiary import TopiaryPredictor, TopiaryResult, combine_predictor_results
+from topiary import (
+    TopiaryPredictor,
+    TopiaryResult,
+    combine_predictor_results,
+    read_csv,
+    read_tsv,
+)
 from topiary.io import Metadata
 
 
@@ -112,6 +118,41 @@ def test_combine_separate_predictor_runs_matches_combined_run():
     assert combined.extra["kind_support"] == direct.attrs["topiary_kind_support"]
 
 
+def test_combine_roundtripped_topiary_results(tmp_path):
+    peptides = {"pep1": "SIINFEKLA", "pep2": "ELAGIGILT"}
+    alleles = ["HLA-A*02:01", "HLA-B*07:02"]
+    netmhcpan = ToyAffinityPredictor("netmhcpan", "4.1b", alleles, offset=100)
+    mhcflurry = ToyAffinityPredictor("mhcflurry", "2.1.1", alleles, offset=200)
+
+    direct = TopiaryPredictor(
+        models=[netmhcpan, mhcflurry]
+    ).predict_from_named_peptides(peptides)
+    net_only = TopiaryResult(
+        TopiaryPredictor(models=netmhcpan).predict_from_named_peptides(peptides)
+    )
+    flurry_only = TopiaryResult(
+        TopiaryPredictor(models=mhcflurry).predict_from_named_peptides(peptides)
+    )
+
+    net_path = tmp_path / "netmhcpan.tsv"
+    flurry_path = tmp_path / "mhcflurry.csv"
+    net_only.to_tsv(net_path)
+    flurry_only.to_csv(flurry_path)
+
+    combined = combine_predictor_results([
+        read_tsv(net_path),
+        read_csv(flurry_path),
+    ])
+
+    combined_df = combined.df.drop(columns=["source"], errors="ignore")
+    pd.testing.assert_frame_equal(
+        _sort_predictions(combined_df),
+        _sort_predictions(direct),
+    )
+    assert combined.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
+    assert combined.extra["kind_support"] == direct.attrs["topiary_kind_support"]
+
+
 def test_combine_rejects_different_identity_sets():
     r1 = _simple_result("netmhcpan", peptide="SIINFEKLA")
     r2 = _simple_result("mhcflurry", peptide="ELAGIGILT")
@@ -125,6 +166,15 @@ def test_combine_rejects_duplicate_prediction_methods():
     r2 = _simple_result("netmhcpan")
 
     with pytest.raises(ValueError, match="duplicate prediction method"):
+        combine_predictor_results([r1, r2])
+
+
+def test_combine_rejects_invalid_kind_support_metadata():
+    r1 = _simple_result("netmhcpan")
+    r1.extra["kind_support"] = "not a mapping"
+    r2 = _simple_result("mhcflurry")
+
+    with pytest.raises(ValueError, match="kind_support.*mapping"):
         combine_predictor_results([r1, r2])
 
 

@@ -7,6 +7,7 @@ AST form (for programmatic use without re-parsing).
 
 import warnings
 from collections import OrderedDict
+from collections.abc import Mapping
 
 import pandas as pd
 
@@ -579,7 +580,9 @@ def _format_key_examples(keys, limit=5):
 def _merge_kind_support(results):
     merged = OrderedDict()
     for index, result in enumerate(results):
-        kind_support = result.extra.get("kind_support")
+        kind_support = _normalize_kind_support(
+            result.extra.get("kind_support"), index
+        )
         if not kind_support:
             continue
         _validate_single_allele_kind_support(kind_support, index)
@@ -593,6 +596,38 @@ def _merge_kind_support(results):
                 (kind, dict(meta)) for kind, meta in kind_map.items()
             )
     return merged
+
+
+def _normalize_kind_support(kind_support, result_index):
+    if not kind_support:
+        return OrderedDict()
+    if not isinstance(kind_support, Mapping):
+        raise ValueError(
+            "combine_predictor_results expected "
+            f"extra['kind_support'] for result {result_index} to be a "
+            f"mapping, got {type(kind_support).__name__}"
+        )
+
+    normalized = OrderedDict()
+    for model_key, kind_map in kind_support.items():
+        if not isinstance(kind_map, Mapping):
+            raise ValueError(
+                "combine_predictor_results expected "
+                f"extra['kind_support'][{model_key!r}] for result "
+                f"{result_index} to be a mapping, got "
+                f"{type(kind_map).__name__}"
+            )
+        normalized[model_key] = OrderedDict()
+        for kind, meta in kind_map.items():
+            if not isinstance(meta, Mapping):
+                raise ValueError(
+                    "combine_predictor_results expected "
+                    f"extra['kind_support'][{model_key!r}][{kind!r}] "
+                    f"for result {result_index} to be a mapping, got "
+                    f"{type(meta).__name__}"
+                )
+            normalized[model_key][kind] = dict(meta)
+    return normalized
 
 
 def _validate_single_allele_kind_support(kind_support, result_index):

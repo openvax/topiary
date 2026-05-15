@@ -15,12 +15,17 @@ the data normally.  Topiary's ``read_tsv`` / ``read_csv`` additionally
 parse the comment block into a :class:`Metadata` object.
 """
 
+import ast
+import json
 from collections import OrderedDict
 from dataclasses import dataclass, field as dataclass_field
 from io import StringIO
 from pathlib import Path
 
 import pandas as pd
+
+
+_JSON_EXTRA_PREFIX = "json:"
 
 
 @dataclass
@@ -72,7 +77,7 @@ def _parse_comment_block(lines):
             model_name = key[len("model:"):]
             meta.models[model_name] = value
         else:
-            meta.extra[key] = value
+            meta.extra[key] = _parse_extra_value(key, value)
 
     # Also parse bare #model:name lines (no =, version-less).
     # These were skipped by the "=" check above, so re-scan.
@@ -108,8 +113,44 @@ def _format_comment_block(meta):
     if meta.sort_by:
         lines.append(f"#sort_by={meta.sort_by}")
     for key, value in meta.extra.items():
-        lines.append(f"#{key}={value}")
+        lines.append(f"#{key}={_format_extra_value(value)}")
     return "\n".join(lines)
+
+
+def _parse_extra_value(key, value):
+    """Parse a comment-block extra value."""
+    if value.startswith(_JSON_EXTRA_PREFIX):
+        json_value = value[len(_JSON_EXTRA_PREFIX):]
+        try:
+            return json.loads(json_value, object_pairs_hook=OrderedDict)
+        except json.JSONDecodeError:
+            return value
+
+    if key == "kind_support":
+        # Compatibility for files written before structured extras used an
+        # explicit JSON marker.
+        for parser in (
+            lambda v: json.loads(v, object_pairs_hook=OrderedDict),
+            ast.literal_eval,
+        ):
+            try:
+                parsed = parser(value)
+            except (SyntaxError, ValueError, TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+
+    return value
+
+
+def _format_extra_value(value):
+    """Format a Metadata.extra value for the comment block."""
+    if isinstance(value, (dict, list)):
+        try:
+            return _JSON_EXTRA_PREFIX + json.dumps(value, separators=(",", ":"))
+        except TypeError:
+            pass
+    return str(value)
 
 
 # -- Read ------------------------------------------------------------------
@@ -199,6 +240,19 @@ def _write_delimited(df, path, sep, metadata, index):
 
     if not metadata.form:
         metadata.form = detect_form(df)
+
+    if hasattr(df, "attrs"):
+        if not metadata.models:
+            attr_models = df.attrs.get("topiary_models")
+            if attr_models:
+                metadata.models.update(
+                    (str(model), str(version))
+                    for model, version in attr_models.items()
+                )
+        if "kind_support" not in metadata.extra:
+            kind_support = df.attrs.get("topiary_kind_support")
+            if kind_support:
+                metadata.extra["kind_support"] = kind_support
 
     # Auto-extract model versions from long-form data.
     if (

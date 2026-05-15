@@ -47,6 +47,23 @@ class TestParseCommentBlock:
         assert n == 3
         assert meta.extra == {"custom_key": "custom_value", "other_key": "other_value"}
 
+    def test_kind_support_legacy_literal_extra(self):
+        lines = [
+            "#kind_support={'netmhcpan': {'pMHC_affinity': "
+            "{'mhc_dependence': 'single_allele', 'mhc_class': 'I'}}}\n",
+            "peptide\n",
+        ]
+        meta, n = _parse_comment_block(lines)
+        assert n == 1
+        assert meta.extra["kind_support"] == {
+            "netmhcpan": {
+                "pMHC_affinity": {
+                    "mhc_dependence": "single_allele",
+                    "mhc_class": "I",
+                },
+            },
+        }
+
     def test_source_lines(self):
         lines = [
             "#source=patient01.tsv\n",
@@ -118,6 +135,24 @@ class TestFormatCommentBlock:
         meta = Metadata(extra={"custom_key": "custom_value"})
         block = _format_comment_block(meta)
         assert "#custom_key=custom_value" in block
+
+    def test_structured_extra_roundtrip(self):
+        kind_support = {
+            "netmhcpan": {
+                "pMHC_affinity": {
+                    "mhc_dependence": "single_allele",
+                    "mhc_class": "I",
+                },
+            },
+        }
+        meta = Metadata(extra={"kind_support": kind_support})
+        block = _format_comment_block(meta)
+        assert "#kind_support=json:" in block
+
+        lines = [line + "\n" for line in block.split("\n")] + ["data\n"]
+        parsed, _ = _parse_comment_block(lines)
+
+        assert parsed.extra["kind_support"] == kind_support
 
     def test_sources_formatted(self):
         meta = Metadata(sources=["patient01.tsv", "patient02.tsv"])
@@ -210,6 +245,24 @@ class TestReadWriteTSV:
         meta2 = read_tsv(path).metadata
         assert "test_cohort" in meta2.sources
         assert meta2.extra.get("patient") == "PT01"
+
+    def test_dataframe_attrs_kind_support_preserved(self, tmp_path):
+        df = _sample_long_df()
+        kind_support = {
+            "netmhcpan": {
+                "pMHC_affinity": {
+                    "mhc_dependence": "single_allele",
+                    "mhc_class": "I",
+                },
+            },
+        }
+        df.attrs["topiary_kind_support"] = kind_support
+        path = tmp_path / "attrs.tsv"
+
+        to_tsv(df, path)
+        result = read_tsv(path)
+
+        assert result.extra["kind_support"] == kind_support
 
     def test_model_versions_auto_extracted(self, tmp_path):
         df = _sample_long_df()
