@@ -22,6 +22,13 @@ class _MissingIdentityValue:
 _MISSING_IDENTITY_VALUE = _MissingIdentityValue()
 
 
+_SOURCE_CONTEXT_IDENTITY_COLUMNS = (
+    "source_sequence_name",
+    "peptide_offset",
+    "peptide_length",
+)
+
+
 class TopiaryResult:
     """A prediction DataFrame bundled with its provenance and pipeline state.
 
@@ -461,7 +468,9 @@ def combine_predictor_results(results, on=("peptide", "allele")):
         Separate predictor outputs to combine.
     on : tuple of str
         Columns defining the strict identity set. Defaults to
-        ``("peptide", "allele")``.
+        ``("peptide", "allele")``.  Source context columns such as
+        ``source_sequence_name`` and ``peptide_offset`` are also checked
+        when present so repeated peptide/allele rows remain distinct.
 
     Returns
     -------
@@ -480,11 +489,12 @@ def combine_predictor_results(results, on=("peptide", "allele")):
         _validate_predictor_result(result, i, on)
 
     _validate_unique_prediction_methods(results)
-    _validate_same_identity_keys(results, on)
+    identity_columns = _identity_columns(results, on)
+    _validate_same_identity_keys(results, identity_columns)
 
     results = [_drop_non_identity_source(result, on) for result in results]
     combined = concat(results)
-    combined.models = _models_from_dataframe(combined.df)
+    combined.models = _models_from_observed_rows(combined.df, combined.models)
     if "kind_support" in combined.extra:
         extra = OrderedDict(combined.extra)
         extra.pop("kind_support", None)
@@ -552,11 +562,65 @@ def _drop_non_identity_source(result, on):
     )
 
 
-def _identity_keys(result, on):
+def _models_from_observed_rows(df, fallback_models):
+    models = OrderedDict()
+    fallback = OrderedDict(
+        (str(model).strip(), _model_version_str(version))
+        for model, version in fallback_models.items()
+        if str(model).strip()
+    )
+    for method, rows in (
+        df.dropna(subset=["prediction_method_name"])
+        .groupby("prediction_method_name", sort=False)
+    ):
+        method_str = str(method).strip()
+        if not method_str:
+            continue
+        version = _version_from_rows(rows)
+        if not version:
+            version = fallback.get(method_str, "")
+        models[method_str] = version
+    return models
+
+
+def _version_from_rows(rows):
+    if "predictor_version" not in rows.columns:
+        return ""
+    for version in rows["predictor_version"]:
+        version_str = _model_version_str(version)
+        if version_str:
+            return version_str
+    return ""
+
+
+def _model_version_str(value):
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
+
+
+def _identity_columns(results, on):
+    columns = list(on)
+    for column in _SOURCE_CONTEXT_IDENTITY_COLUMNS:
+        if column not in columns and any(column in r.df.columns for r in results):
+            columns.append(column)
+    return tuple(columns)
+
+
+def _identity_keys(result, columns):
+    identity_df = pd.DataFrame(index=result.df.index)
+    for column in columns:
+        if column in result.df.columns:
+            identity_df[column] = result.df[column]
+        else:
+            identity_df[column] = pd.NA
     return {
         tuple(_normalize_identity_value(value) for value in key)
         for key in (
-            result.df.loc[:, list(on)]
+            identity_df
             .drop_duplicates()
             .itertuples(index=False, name=None)
         )

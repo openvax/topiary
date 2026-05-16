@@ -219,6 +219,10 @@ def _models_from_dataframe(df):
     """Extract model metadata from the DataFrame contents before attrs."""
     row_models = _models_from_long_rows(df)
     if row_models is not None:
+        attr_models = _models_from_attrs(df)
+        for model, version in row_models.items():
+            if not version and model in attr_models:
+                row_models[model] = attr_models[model]
         return row_models
     return _models_from_attrs(df)
 

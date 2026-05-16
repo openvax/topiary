@@ -186,11 +186,48 @@ def test_combine_recomputes_models_from_combined_rows():
     assert combined.metadata.models == combined.models
 
 
+def test_combine_fills_missing_row_versions_from_observed_metadata():
+    net_only = _simple_result("netmhcpan")
+    net_df = net_only.df.drop(columns=["predictor_version"])
+    net_df.attrs["topiary_models"] = {
+        "netmhcpan": "4.1b",
+        "old_model": "0.1",
+    }
+
+    flurry_only = _simple_result("mhcflurry")
+    flurry_df = flurry_only.df.assign(predictor_version="")
+    flurry_df.attrs["topiary_models"] = {"mhcflurry": "2.1.1"}
+
+    assert TopiaryResult(flurry_df).models == {"mhcflurry": "2.1.1"}
+
+    combined = combine_predictor_results([net_df, flurry_df])
+
+    assert combined.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
+
+
 def test_combine_rejects_different_identity_sets():
     r1 = _simple_result("netmhcpan", peptide="SIINFEKLA")
     r2 = _simple_result("mhcflurry", peptide="ELAGIGILT")
 
     with pytest.raises(ValueError, match="same .* keys"):
+        combine_predictor_results([r1, r2])
+
+
+def test_combine_rejects_mismatched_source_context():
+    r1 = _simple_result("netmhcpan")
+    r1 = TopiaryResult(
+        pd.concat(
+            [
+                r1.df,
+                r1.df.assign(source_sequence_name="pep1-copy"),
+            ],
+            ignore_index=True,
+        ),
+        models=r1.models,
+    )
+    r2 = _simple_result("mhcflurry")
+
+    with pytest.raises(ValueError, match="source_sequence_name"):
         combine_predictor_results([r1, r2])
 
 
