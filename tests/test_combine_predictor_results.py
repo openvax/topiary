@@ -9,6 +9,7 @@ from topiary import (
     combine_predictor_results,
     read_csv,
     read_tsv,
+    to_wide,
 )
 from topiary.io import Metadata
 
@@ -45,6 +46,18 @@ def _sort_predictions(df):
     cols = [
         "source_sequence_name", "peptide", "allele", "kind",
         "prediction_method_name", "predictor_version",
+    ]
+    return (
+        df.sort_values(cols)
+        .reset_index(drop=True)
+        .loc[:, sorted(df.columns)]
+    )
+
+
+def _sort_wide(df):
+    cols = [
+        c for c in ["source_sequence_name", "peptide", "allele"]
+        if c in df.columns
     ]
     return (
         df.sort_values(cols)
@@ -96,6 +109,10 @@ def test_combine_separate_predictor_runs_matches_combined_run():
         _sort_predictions(combined.df),
         _sort_predictions(direct),
     )
+    pd.testing.assert_frame_equal(
+        _sort_wide(to_wide(combined.df)),
+        _sort_wide(to_wide(direct)),
+    )
     assert combined.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
     assert "kind_support" not in combined.extra
 
@@ -126,13 +143,47 @@ def test_combine_roundtripped_topiary_results(tmp_path):
         read_csv(flurry_path),
     ])
 
-    combined_df = combined.df.drop(columns=["source"], errors="ignore")
+    assert "source" not in combined.df.columns
+    assert combined.sources == ["netmhcpan.tsv", "mhcflurry.csv"]
     pd.testing.assert_frame_equal(
-        _sort_predictions(combined_df),
+        _sort_predictions(combined.df),
         _sort_predictions(direct),
+    )
+    pd.testing.assert_frame_equal(
+        _sort_wide(to_wide(combined.df)),
+        _sort_wide(to_wide(direct)),
     )
     assert combined.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
     assert "kind_support" not in combined.extra
+
+
+def test_combine_recomputes_models_from_combined_rows():
+    peptides = {"pep1": "SIINFEKLA"}
+    alleles = ["HLA-A*02:01"]
+    netmhcpan = ToyAffinityPredictor("netmhcpan", "4.1b", alleles, offset=100)
+    mhcflurry = ToyAffinityPredictor("mhcflurry", "2.1.1", alleles, offset=200)
+    direct = TopiaryPredictor(
+        models=[netmhcpan, mhcflurry]
+    ).predict_from_named_peptides(peptides)
+
+    stale_models = {
+        "netmhcpan": "4.1b",
+        "mhcflurry": "2.1.1",
+        "old_model": "0.1",
+    }
+    net_only = TopiaryResult(
+        direct[direct["prediction_method_name"] == "netmhcpan"],
+        models=stale_models,
+    )
+    flurry_only = TopiaryResult(
+        direct[direct["prediction_method_name"] == "mhcflurry"],
+        models=stale_models,
+    )
+
+    combined = combine_predictor_results([net_only, flurry_only])
+
+    assert combined.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
+    assert combined.metadata.models == combined.models
 
 
 def test_combine_rejects_different_identity_sets():

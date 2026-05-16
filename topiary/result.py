@@ -482,7 +482,9 @@ def combine_predictor_results(results, on=("peptide", "allele")):
     _validate_unique_prediction_methods(results)
     _validate_same_identity_keys(results, on)
 
+    results = [_drop_non_identity_source(result, on) for result in results]
     combined = concat(results)
+    combined.models = _models_from_dataframe(combined.df)
     if "kind_support" in combined.extra:
         extra = OrderedDict(combined.extra)
         extra.pop("kind_support", None)
@@ -539,6 +541,15 @@ def _validate_unique_prediction_methods(results):
                     f"{seen[method]} and {index}"
                 )
             seen[method] = index
+
+
+def _drop_non_identity_source(result, on):
+    if "source" not in result.df.columns or "source" in on:
+        return result
+    return TopiaryResult(
+        result.df.drop(columns=["source"]),
+        **result._field_kwargs(),
+    )
 
 
 def _identity_keys(result, on):
