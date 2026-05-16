@@ -153,6 +153,76 @@ def _format_extra_value(value):
     return str(value)
 
 
+def _models_from_long_rows(df):
+    """Extract observed model versions from long-form rows, if possible."""
+    if (
+        "prediction_method_name" not in df.columns
+        or "predictor_version" not in df.columns
+    ):
+        return None
+
+    models = OrderedDict()
+    for method, version in (
+        df.dropna(subset=["prediction_method_name"])
+        .groupby("prediction_method_name", sort=False)["predictor_version"]
+        .first()
+        .items()
+    ):
+        method_str = str(method).strip()
+        if not method_str:
+            continue
+        version_str = str(version).strip() if pd.notna(version) else ""
+        models[method_str] = version_str
+    return models
+
+
+def _observed_model_names(df):
+    """Return model names visible in prediction columns, or None if unknown."""
+    if "prediction_method_name" in df.columns:
+        return {
+            str(method).strip()
+            for method in df["prediction_method_name"].dropna().unique()
+            if str(method).strip()
+        }
+
+    from .wide import _parse_wide_column
+
+    models = set()
+    for column in df.columns:
+        parsed = _parse_wide_column(str(column))
+        if parsed is not None and parsed[0]:
+            models.add(str(parsed[0]))
+    return models if models else None
+
+
+def _models_from_attrs(df):
+    """Extract non-stale model attrs by intersecting with observed models."""
+    if not hasattr(df, "attrs"):
+        return OrderedDict()
+
+    attr_models = df.attrs.get("topiary_models")
+    if not attr_models:
+        return OrderedDict()
+
+    observed = _observed_model_names(df)
+    if observed is None:
+        return OrderedDict()
+
+    return OrderedDict(
+        (str(model), str(version))
+        for model, version in attr_models.items()
+        if str(model) in observed
+    )
+
+
+def _models_from_dataframe(df):
+    """Extract model metadata from the DataFrame contents before attrs."""
+    row_models = _models_from_long_rows(df)
+    if row_models is not None:
+        return row_models
+    return _models_from_attrs(df)
+
+
 # -- Read ------------------------------------------------------------------
 
 
@@ -223,11 +293,13 @@ def _write_delimited(df, path, sep, metadata, index):
     from . import __version__
     from .wide import detect_form
 
+    metadata_from_result = False
     # Accept TopiaryResult too — pull out its df and metadata.
     # Use duck typing to avoid a circular import.
     if hasattr(df, "df") and hasattr(df, "metadata"):
         if metadata is None:
             metadata = df.metadata
+            metadata_from_result = True
         df = df.df
 
     path = Path(path)
@@ -241,33 +313,14 @@ def _write_delimited(df, path, sep, metadata, index):
     if not metadata.form:
         metadata.form = detect_form(df)
 
-    if hasattr(df, "attrs"):
-        if not metadata.models:
-            attr_models = df.attrs.get("topiary_models")
-            if attr_models:
-                metadata.models.update(
-                    (str(model), str(version))
-                    for model, version in attr_models.items()
-                )
-
-    # Auto-extract model versions from long-form data.
-    if (
-        not metadata.models
-        and "prediction_method_name" in df.columns
-        and "predictor_version" in df.columns
-    ):
-        for method, version in (
-            df.dropna(subset=["prediction_method_name"])
-            .groupby("prediction_method_name")["predictor_version"]
-            .first()
-            .items()
-        ):
-            version_str = str(version).strip() if pd.notna(version) else ""
-            if version_str:
-                metadata.models[str(method)] = version_str
-            else:
-                # Record model even without version
-                metadata.models[str(method)] = ""
+    row_models = _models_from_long_rows(df)
+    if metadata_from_result and row_models is not None:
+        metadata.models = row_models
+    elif not metadata.models:
+        if row_models is not None:
+            metadata.models.update(row_models)
+        else:
+            metadata.models.update(_models_from_attrs(df))
 
     comment_block = _format_comment_block(metadata)
 

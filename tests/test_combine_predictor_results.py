@@ -143,6 +143,15 @@ def test_combine_rejects_different_identity_sets():
         combine_predictor_results([r1, r2])
 
 
+def test_combine_treats_null_identity_keys_as_equal():
+    r1 = _simple_result("netmhcpan", allele=pd.NA)
+    r2 = _simple_result("mhcflurry", allele=pd.NA)
+
+    combined = combine_predictor_results([r1, r2])
+
+    assert len(combined) == 2
+
+
 def test_combine_rejects_duplicate_prediction_methods():
     r1 = _simple_result("netmhcpan")
     r2 = _simple_result("netmhcpan")
@@ -172,3 +181,19 @@ def test_topiary_result_reads_predictor_model_attrs():
 
     assert result.models == {"netmhcpan": "4.1b"}
     assert result.extra == {}
+
+
+def test_topiary_result_model_attrs_filtered_to_observed_rows():
+    peptides = {"pep1": "SIINFEKLA"}
+    alleles = ["HLA-A*02:01"]
+    df = TopiaryPredictor(
+        models=[
+            ToyAffinityPredictor("netmhcpan", "4.1b", alleles, offset=100),
+            ToyAffinityPredictor("mhcflurry", "2.1.1", alleles, offset=200),
+        ]
+    ).predict_from_named_peptides(peptides)
+    filtered = df[df["prediction_method_name"] == "netmhcpan"]
+
+    result = TopiaryResult(filtered)
+
+    assert result.models == {"netmhcpan": "4.1b"}

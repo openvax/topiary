@@ -10,8 +10,16 @@ from collections import OrderedDict
 
 import pandas as pd
 
-from .io import Metadata
+from .io import Metadata, _models_from_dataframe
 from .wide import detect_form
+
+
+class _MissingIdentityValue:
+    def __repr__(self):
+        return "<NA>"
+
+
+_MISSING_IDENTITY_VALUE = _MissingIdentityValue()
 
 
 class TopiaryResult:
@@ -78,7 +86,7 @@ class TopiaryResult:
             extra = extra if extra is not None else metadata.extra
 
         if models is None and hasattr(df, "attrs"):
-            models = df.attrs.get("topiary_models")
+            models = _models_from_dataframe(df)
 
         self.df = df
         self.topiary_version = topiary_version
@@ -534,11 +542,23 @@ def _validate_unique_prediction_methods(results):
 
 
 def _identity_keys(result, on):
-    return set(
-        result.df.loc[:, list(on)]
-        .drop_duplicates()
-        .itertuples(index=False, name=None)
-    )
+    return {
+        tuple(_normalize_identity_value(value) for value in key)
+        for key in (
+            result.df.loc[:, list(on)]
+            .drop_duplicates()
+            .itertuples(index=False, name=None)
+        )
+    }
+
+
+def _normalize_identity_value(value):
+    try:
+        if pd.isna(value):
+            return _MISSING_IDENTITY_VALUE
+    except (TypeError, ValueError):
+        pass
+    return value
 
 
 def _validate_same_identity_keys(results, on):

@@ -253,6 +253,40 @@ class TestReadWriteTSV:
         meta = read_tsv(path).metadata
         assert meta.models.get("netmhcpan") == "4.1b"
 
+    def test_model_attrs_filtered_to_observed_long_rows(self, tmp_path):
+        df = _sample_long_df()
+        df.loc[1, "prediction_method_name"] = "mhcflurry"
+        df.loc[1, "predictor_version"] = "2.1.1"
+        df.attrs["topiary_models"] = {
+            "netmhcpan": "4.1b",
+            "mhcflurry": "2.1.1",
+        }
+        filtered = df[df["prediction_method_name"] == "netmhcpan"]
+
+        path = tmp_path / "filtered.tsv"
+        to_tsv(filtered, path)
+        meta = read_tsv(path).metadata
+
+        assert meta.models == {"netmhcpan": "4.1b"}
+
+    def test_result_metadata_filtered_to_observed_long_rows(self, tmp_path):
+        from topiary import TopiaryResult
+
+        df = _sample_long_df()
+        df.loc[1, "prediction_method_name"] = "mhcflurry"
+        df.loc[1, "predictor_version"] = "2.1.1"
+        result = TopiaryResult(
+            df,
+            models={"netmhcpan": "4.1b", "mhcflurry": "2.1.1"},
+        )
+        filtered = result[result["prediction_method_name"] == "netmhcpan"]
+
+        path = tmp_path / "filtered_result.tsv"
+        to_tsv(filtered, path)
+        meta = read_tsv(path).metadata
+
+        assert meta.models == {"netmhcpan": "4.1b"}
+
 
 class TestReadWriteCSV:
     def test_csv_roundtrip(self, tmp_path):
