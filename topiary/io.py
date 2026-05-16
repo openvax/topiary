@@ -155,25 +155,38 @@ def _format_extra_value(value):
 
 def _models_from_long_rows(df):
     """Extract observed model versions from long-form rows, if possible."""
-    if (
-        "prediction_method_name" not in df.columns
-        or "predictor_version" not in df.columns
-    ):
+    if "prediction_method_name" not in df.columns:
         return None
 
     models = OrderedDict()
-    for method, version in (
+    for method, rows in (
         df.dropna(subset=["prediction_method_name"])
-        .groupby("prediction_method_name", sort=False)["predictor_version"]
-        .first()
-        .items()
+        .groupby("prediction_method_name", sort=False)
     ):
         method_str = str(method).strip()
         if not method_str:
             continue
-        version_str = str(version).strip() if pd.notna(version) else ""
-        models[method_str] = version_str
+        models[method_str] = _version_from_rows(rows)
     return models
+
+
+def _version_from_rows(rows):
+    if "predictor_version" not in rows.columns:
+        return ""
+    for version in rows["predictor_version"]:
+        version_str = _model_version_str(version)
+        if version_str:
+            return version_str
+    return ""
+
+
+def _model_version_str(value):
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
 
 
 def _observed_model_names(df):
@@ -219,12 +232,29 @@ def _models_from_dataframe(df):
     """Extract model metadata from the DataFrame contents before attrs."""
     row_models = _models_from_long_rows(df)
     if row_models is not None:
-        attr_models = _models_from_attrs(df)
-        for model, version in row_models.items():
-            if not version and model in attr_models:
-                row_models[model] = attr_models[model]
-        return row_models
+        return _fill_missing_model_versions(row_models, _models_from_attrs(df))
     return _models_from_attrs(df)
+
+
+def _fill_missing_model_versions(models, *fallbacks):
+    models = OrderedDict(models)
+    fallback_models = [
+        OrderedDict(
+            (str(model).strip(), _model_version_str(version))
+            for model, version in fallback.items()
+            if str(model).strip()
+        )
+        for fallback in fallbacks
+        if fallback
+    ]
+    for model, version in models.items():
+        if version:
+            continue
+        for fallback in fallback_models:
+            if fallback.get(model):
+                models[model] = fallback[model]
+                break
+    return models
 
 
 # -- Read ------------------------------------------------------------------
@@ -318,13 +348,13 @@ def _write_delimited(df, path, sep, metadata, index):
         metadata.form = detect_form(df)
 
     row_models = _models_from_long_rows(df)
+    df_models = _models_from_dataframe(df)
     if metadata_from_result and row_models is not None:
-        metadata.models = row_models
+        metadata.models = _fill_missing_model_versions(
+            df_models, metadata.models,
+        )
     elif not metadata.models:
-        if row_models is not None:
-            metadata.models.update(row_models)
-        else:
-            metadata.models.update(_models_from_attrs(df))
+        metadata.models.update(df_models)
 
     comment_block = _format_comment_block(metadata)
 

@@ -91,6 +91,41 @@ def _simple_result(method="netmhcpan", peptide="SIINFEKLA", allele="HLA-A*02:01"
     )
 
 
+_CONTEXT_MISMATCH_VALUES = {
+    "source_sequence_name": ("pep1", "pep1-copy"),
+    "peptide_offset": (0, 1),
+    "peptide_length": (9, 10),
+    "n_flank": ("AAA", "BBB"),
+    "c_flank": ("CCC", "DDD"),
+}
+
+
+def _mismatched_context_results(column, right_has_column=True):
+    left, right = _CONTEXT_MISMATCH_VALUES[column]
+    r1 = _simple_result("netmhcpan")
+    r2 = _simple_result("mhcflurry")
+    r1.df[column] = left
+    if right_has_column:
+        r2.df[column] = right
+    elif column in r2.df.columns:
+        r2.df = r2.df.drop(columns=[column])
+    return r1, r2
+
+
+def _input_pair(tmp_path, input_type, r1, r2):
+    if input_type == "dataframe":
+        return [r1.df, r2.df]
+    if input_type == "result":
+        return [r1, r2]
+    if input_type == "roundtrip":
+        r1_path = tmp_path / "netmhcpan.tsv"
+        r2_path = tmp_path / "mhcflurry.csv"
+        r1.to_tsv(r1_path)
+        r2.to_csv(r2_path)
+        return [read_tsv(r1_path), read_csv(r2_path)]
+    raise ValueError(f"unknown input type: {input_type}")
+
+
 def test_combine_separate_predictor_runs_matches_combined_run():
     peptides = {"pep1": "SIINFEKLA", "pep2": "ELAGIGILT"}
     alleles = ["HLA-A*02:01", "HLA-B*07:02"]
@@ -213,22 +248,17 @@ def test_combine_rejects_different_identity_sets():
         combine_predictor_results([r1, r2])
 
 
-def test_combine_rejects_mismatched_source_context():
-    r1 = _simple_result("netmhcpan")
-    r1 = TopiaryResult(
-        pd.concat(
-            [
-                r1.df,
-                r1.df.assign(source_sequence_name="pep1-copy"),
-            ],
-            ignore_index=True,
-        ),
-        models=r1.models,
-    )
-    r2 = _simple_result("mhcflurry")
+@pytest.mark.parametrize("column", sorted(_CONTEXT_MISMATCH_VALUES))
+@pytest.mark.parametrize("input_type", ["dataframe", "result", "roundtrip"])
+@pytest.mark.parametrize("right_has_column", [True, False])
+def test_combine_rejects_mismatched_context_columns(
+    tmp_path, column, input_type, right_has_column,
+):
+    r1, r2 = _mismatched_context_results(column, right_has_column)
+    inputs = _input_pair(tmp_path, input_type, r1, r2)
 
-    with pytest.raises(ValueError, match="source_sequence_name"):
-        combine_predictor_results([r1, r2])
+    with pytest.raises(ValueError, match=column):
+        combine_predictor_results(inputs)
 
 
 def test_combine_treats_null_identity_keys_as_equal():

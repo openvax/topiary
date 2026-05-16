@@ -204,6 +204,19 @@ def _sample_long_df():
     ])
 
 
+def _sample_long_df_with_version_state(version_state):
+    df = _sample_long_df().iloc[[0]].copy()
+    if version_state == "missing":
+        return df.drop(columns=["predictor_version"])
+    if version_state == "blank":
+        df["predictor_version"] = ""
+        return df
+    if version_state == "na":
+        df["predictor_version"] = pd.NA
+        return df
+    raise ValueError(f"unknown version state: {version_state}")
+
+
 # ---------------------------------------------------------------------------
 # Read/write round-trip tests
 # ---------------------------------------------------------------------------
@@ -285,6 +298,56 @@ class TestReadWriteTSV:
         to_tsv(filtered, path)
         meta = read_tsv(path).metadata
 
+        assert meta.models == {"netmhcpan": "4.1b"}
+
+    @pytest.mark.parametrize("version_state", ["missing", "blank", "na"])
+    @pytest.mark.parametrize(
+        "writer,reader,suffix",
+        [(to_tsv, read_tsv, "tsv"), (to_csv, read_csv, "csv")],
+    )
+    def test_dataframe_writer_fills_blank_row_versions_from_attrs(
+        self, tmp_path, version_state, writer, reader, suffix,
+    ):
+        df = _sample_long_df_with_version_state(version_state)
+        df.attrs["topiary_models"] = {
+            "netmhcpan": "4.1b",
+            "old_model": "0.1",
+        }
+
+        path = tmp_path / f"attrs.{suffix}"
+        writer(df, path)
+
+        meta = reader(path).metadata
+        assert meta.models == {"netmhcpan": "4.1b"}
+
+    @pytest.mark.parametrize("version_state", ["missing", "blank", "na"])
+    @pytest.mark.parametrize(
+        "writer,method_name,reader,suffix",
+        [
+            (to_tsv, "to_tsv", read_tsv, "tsv"),
+            (to_csv, "to_csv", read_csv, "csv"),
+        ],
+    )
+    @pytest.mark.parametrize("call_style", ["function", "method"])
+    def test_result_writer_fills_blank_row_versions_from_metadata(
+        self, tmp_path, version_state, writer, method_name, reader, suffix,
+        call_style,
+    ):
+        from topiary import TopiaryResult
+
+        df = _sample_long_df_with_version_state(version_state)
+        result = TopiaryResult(
+            df,
+            models={"netmhcpan": "4.1b", "old_model": "0.1"},
+        )
+
+        path = tmp_path / f"result.{suffix}"
+        if call_style == "function":
+            writer(result, path)
+        else:
+            getattr(result, method_name)(path)
+
+        meta = reader(path).metadata
         assert meta.models == {"netmhcpan": "4.1b"}
 
 

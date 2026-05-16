@@ -10,7 +10,7 @@ from collections import OrderedDict
 
 import pandas as pd
 
-from .io import Metadata, _models_from_dataframe
+from .io import Metadata, _model_version_str, _models_from_dataframe
 from .wide import detect_form
 
 
@@ -26,6 +26,8 @@ _SOURCE_CONTEXT_IDENTITY_COLUMNS = (
     "source_sequence_name",
     "peptide_offset",
     "peptide_length",
+    "n_flank",
+    "c_flank",
 )
 
 
@@ -279,11 +281,11 @@ class TopiaryResult:
 
     def to_tsv(self, path):
         from .io import to_tsv as _to_tsv
-        _to_tsv(self.df, path, metadata=self.metadata)
+        _to_tsv(self, path)
 
     def to_csv(self, path):
         from .io import to_csv as _to_csv
-        _to_csv(self.df, path, metadata=self.metadata)
+        _to_csv(self, path)
 
     # -- Accessors / helpers ----------------------------------------------
 
@@ -591,15 +593,6 @@ def _version_from_rows(rows):
         if version_str:
             return version_str
     return ""
-
-
-def _model_version_str(value):
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    return str(value).strip()
 
 
 def _identity_columns(results, on):
