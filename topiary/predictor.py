@@ -28,6 +28,7 @@ from .ranking import (
     apply_sort,
     parse,
 )
+from .io import _model_version_str
 from .protein_fragment import ProteinFragment
 from .sequence_helpers import (
     check_padding_around_mutation,
@@ -95,6 +96,25 @@ def _unique_model_keys(models):
         else:
             keys.append(f"{base}__{seen[base]}")
     return keys
+
+
+def _model_metadata_name(model):
+    return (
+        getattr(model, "prediction_method_name", None)
+        or getattr(model, "predictor_name", None)
+        or getattr(model, "name", None)
+        or type(model).__name__
+    )
+
+
+def _model_metadata_versions(models):
+    versions = {}
+    for model in models:
+        name = _model_metadata_name(model)
+        version = _model_version_str(getattr(model, "predictor_version", None))
+        if name and version:
+            versions[str(name)] = version
+    return versions
 
 
 def _build_model_lookup():
@@ -677,26 +697,35 @@ class TopiaryPredictor(object):
     def _attach_result_attrs(self, df):
         """Attach lightweight metadata to public DataFrame outputs."""
         model_versions = {}
+        observed_methods = []
+        if "prediction_method_name" in df.columns:
+            observed_methods = [
+                str(method).strip()
+                for method in df["prediction_method_name"].dropna().unique()
+                if str(method).strip()
+            ]
         if "prediction_method_name" in df.columns and "predictor_version" in df.columns:
-            for method, version in (
+            for method, rows in (
                 df.dropna(subset=["prediction_method_name"])
-                .groupby("prediction_method_name")["predictor_version"]
-                .first()
-                .items()
+                .groupby("prediction_method_name", sort=False)
             ):
-                if pd.notna(version) and str(version):
-                    model_versions[str(method)] = str(version)
-        if not model_versions:
-            for model in self.models:
-                name = (
-                    getattr(model, "prediction_method_name", None)
-                    or getattr(model, "predictor_name", None)
-                    or getattr(model, "name", None)
-                    or type(model).__name__
-                )
-                version = getattr(model, "predictor_version", None)
-                if name and version:
-                    model_versions[str(name)] = str(version)
+                method_str = str(method).strip()
+                if not method_str:
+                    continue
+                for version in rows["predictor_version"]:
+                    version_str = _model_version_str(version)
+                    if version_str:
+                        model_versions[method_str] = version_str
+                        break
+
+        fallback_versions = _model_metadata_versions(self.models)
+        if observed_methods:
+            for method in observed_methods:
+                if not model_versions.get(method) and fallback_versions.get(method):
+                    model_versions[method] = fallback_versions[method]
+        elif not model_versions:
+            model_versions.update(fallback_versions)
+
         if model_versions:
             df.attrs["topiary_models"] = model_versions
         return df
