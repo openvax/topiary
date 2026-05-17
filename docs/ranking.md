@@ -390,11 +390,36 @@ mhcflurry_rows = TopiaryPredictor(
 combined = combine_predictor_results([netmhcpan_rows, mhcflurry_rows])
 ```
 
-The helper is intentionally strict. Every input must cover the same
-`(peptide, allele)` keys, and each `prediction_method_name` may appear in only
-one input. The combined result preserves the original rows: use each row's
+You can also shard the same predictor over allele or peptide-length batches and
+combine the shards:
+
+```python
+shards = []
+for allele in ["HLA-A*02:01", "HLA-B*07:02"]:
+    shards.append(
+        TopiaryPredictor(
+            models=NetMHCpan,
+            alleles=[allele],
+        ).predict_from_named_peptides(peptides)
+    )
+
+combined = combine_predictor_results(shards)
+```
+
+The helper is intentionally strict. It rejects duplicate
+`(prediction_method_name, kind, identity)` rows, and by default requires every
+emitted `(prediction_method_name, kind)` group to cover the same peptide/allele
+identity grid. This catches incomplete split runs before `to_wide()` can
+produce half-populated rows. If you intentionally want a sparse union, pass
+`coverage="partial"`; duplicate predictions are still rejected.
+
+The combined result preserves the original rows: use each row's
 `prediction_method_name`, `predictor_version`, `kind`, and value/rank columns
-to inspect which predictor produced which quantity.
+to inspect which predictor produced which quantity. Allele aggregation remains
+part of the ranking DSL: for example,
+`Affinity["netmhcpan"].best_value_allele` and
+`Presentation["netmhcpan"].best_score_allele` report the allele associated
+with the best BA or EL value across the combined allele grid.
 
 ## Putting it together
 

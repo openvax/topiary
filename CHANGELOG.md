@@ -5,12 +5,14 @@
 **Combine separate predictor runs (#170):**
 
 `topiary.combine_predictor_results([a, b, ...])` stacks separate
-single-allele predictor outputs into the same long-form shape produced
-by running those predictors together. It accepts `TopiaryResult` or
-fresh `TopiaryPredictor` DataFrame outputs, strictly validates that all
-inputs cover the same `(peptide, allele)` identity set, rejects
-duplicate `prediction_method_name` values across inputs, and merges
-model metadata when present.
+predictor outputs into the same long-form shape produced by running
+those predictors together. It accepts `TopiaryResult` or fresh
+`TopiaryPredictor` DataFrame outputs, supports both split-by-predictor
+and split-by-allele/peptide-length runs, rejects duplicate
+`(prediction_method_name, kind, identity)` predictions, and by default
+requires every emitted `(prediction_method_name, kind)` group to cover
+the same identity grid. Use `coverage="partial"` only for deliberate
+sparse unions.
 
 Fresh `TopiaryPredictor` DataFrames now carry lightweight
 `DataFrame.attrs` model-version metadata (`topiary_models`) so this

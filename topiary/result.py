@@ -455,14 +455,15 @@ def concat(results):
     )
 
 
-def combine_predictor_results(results, on=("peptide", "allele")):
+def combine_predictor_results(results, on=("peptide", "allele"), coverage="complete"):
     """Combine separate predictor outputs into one predictor-equivalent result.
 
-    This is stricter than :func:`concat`: every input must cover the same
-    identity key set, and no prediction method may appear in more than one
-    input. It is intended for the common single-allele case where, for example,
-    NetMHCpan and MHCflurry are run separately and then stacked into the same
-    long-form shape produced by running both models together.
+    This is stricter than :func:`concat`: duplicate predictions are rejected,
+    and by default every emitted prediction method/kind must cover the same
+    identity key set.  It supports both common split patterns:
+
+    - different predictors run separately on the same peptides;
+    - the same predictor run separately over disjoint allele/length shards.
 
     Parameters
     ----------
@@ -473,6 +474,13 @@ def combine_predictor_results(results, on=("peptide", "allele")):
         ``("peptide", "allele")``.  Source context columns such as
         ``source_sequence_name`` and ``peptide_offset`` are also checked
         when present so repeated peptide/allele rows remain distinct.
+    coverage : {"complete", "partial"} or bool
+        ``"complete"`` (default) requires each emitted
+        ``(prediction_method_name, kind)`` group to cover the same identity
+        key set, matching a normal multi-predictor run.  ``"partial"``
+        allows sparse unions but still rejects duplicate predictions.
+        ``True`` and ``False`` are accepted as aliases for ``"complete"``
+        and ``"partial"``.
 
     Returns
     -------
@@ -480,22 +488,24 @@ def combine_predictor_results(results, on=("peptide", "allele")):
         Combined long-form result with merged model metadata.
     """
     results = [_as_topiary_result(r) for r in results]
+    results = [r for r in results if not r.df.empty]
     if not results:
         return TopiaryResult(pd.DataFrame())
 
     if isinstance(on, str):
         on = (on,)
     on = tuple(on)
+    coverage = _normalize_coverage_mode(coverage)
 
     for i, result in enumerate(results):
         _validate_predictor_result(result, i, on)
 
-    _validate_unique_prediction_methods(results)
-    identity_columns = _identity_columns(results, on)
-    _validate_same_identity_keys(results, identity_columns)
-
     results = [_drop_non_identity_source(result, on) for result in results]
+    identity_columns = _identity_columns(results, on)
     combined = concat(results)
+    _validate_no_duplicate_predictions(combined.df, identity_columns)
+    if coverage == "complete":
+        _validate_complete_prediction_coverage(combined.df, identity_columns)
     combined.models = _models_from_observed_rows(combined.df, combined.models)
     if "kind_support" in combined.extra:
         extra = OrderedDict(combined.extra)
@@ -542,17 +552,17 @@ def _prediction_methods(result):
     }
 
 
-def _validate_unique_prediction_methods(results):
-    seen = {}
-    for index, result in enumerate(results):
-        for method in sorted(_prediction_methods(result)):
-            if method in seen:
-                raise ValueError(
-                    "combine_predictor_results cannot combine duplicate "
-                    f"prediction method {method!r}; found in results "
-                    f"{seen[method]} and {index}"
-                )
-            seen[method] = index
+def _normalize_coverage_mode(coverage):
+    if coverage is True:
+        return "complete"
+    if coverage is False:
+        return "partial"
+    if coverage not in {"complete", "partial"}:
+        raise ValueError(
+            "combine_predictor_results coverage must be 'complete' or "
+            f"'partial', got {coverage!r}"
+        )
+    return coverage
 
 
 def _drop_non_identity_source(result, on):
@@ -603,20 +613,20 @@ def _identity_columns(results, on):
     return tuple(columns)
 
 
-def _identity_keys(result, columns):
-    identity_df = pd.DataFrame(index=result.df.index)
+def _identity_frame(df, columns):
+    identity_df = pd.DataFrame(index=df.index)
     for column in columns:
-        if column in result.df.columns:
-            identity_df[column] = result.df[column]
+        if column in df.columns:
+            identity_df[column] = df[column]
         else:
             identity_df[column] = pd.NA
+    return identity_df
+
+
+def _key_set(df):
     return {
         tuple(_normalize_identity_value(value) for value in key)
-        for key in (
-            identity_df
-            .drop_duplicates()
-            .itertuples(index=False, name=None)
-        )
+        for key in df.drop_duplicates().itertuples(index=False, name=None)
     }
 
 
@@ -629,24 +639,77 @@ def _normalize_identity_value(value):
     return value
 
 
-def _validate_same_identity_keys(results, on):
-    baseline = _identity_keys(results[0], on)
-    for index, result in enumerate(results[1:], start=1):
-        current = _identity_keys(result, on)
-        missing = baseline - current
-        extra = current - baseline
+def _prediction_key_frame(df, identity_columns):
+    return pd.concat(
+        [
+            _identity_frame(df, ("prediction_method_name", "kind")),
+            _identity_frame(df, identity_columns),
+        ],
+        axis=1,
+    )
+
+
+def _validate_no_duplicate_predictions(df, identity_columns):
+    key_df = _prediction_key_frame(df, identity_columns)
+    seen = {}
+    duplicates = []
+    for row_index, key in zip(
+        key_df.index, key_df.itertuples(index=False, name=None)
+    ):
+        normalized = tuple(_normalize_identity_value(value) for value in key)
+        if normalized in seen:
+            duplicates.append(normalized)
+        else:
+            seen[normalized] = row_index
+    if duplicates:
+        raise ValueError(
+            "combine_predictor_results found duplicate predictions for "
+            "(prediction_method_name, kind, identity) keys: "
+            f"{_format_key_examples(set(duplicates))}"
+        )
+
+
+def _prediction_group_key_sets(df, identity_columns):
+    key_df = _prediction_key_frame(df, identity_columns)
+    key_df = key_df.rename(
+        columns={
+            "prediction_method_name": "_prediction_method_name",
+            "kind": "_kind",
+        }
+    )
+    groups = OrderedDict()
+    for (method, kind), group in key_df.groupby(
+        ["_prediction_method_name", "_kind"], dropna=False, sort=False
+    ):
+        method_key = _normalize_identity_value(method)
+        kind_key = _normalize_identity_value(kind)
+        groups[(method_key, kind_key)] = _key_set(group.loc[:, list(identity_columns)])
+    return groups
+
+
+def _validate_complete_prediction_coverage(df, identity_columns):
+    groups = _prediction_group_key_sets(df, identity_columns)
+    if not groups:
+        return
+
+    baseline_group, baseline_keys = next(iter(groups.items()))
+    for group, keys in list(groups.items())[1:]:
+        missing = baseline_keys - keys
+        extra = keys - baseline_keys
         if missing or extra:
             message = [
-                "combine_predictor_results requires every input to cover the "
-                f"same {on!r} keys; result {index} differs from result 0."
+                "combine_predictor_results coverage='complete' requires every "
+                "(prediction_method_name, kind) group to cover the same "
+                f"{identity_columns!r} keys; group {group!r} differs from "
+                f"group {baseline_group!r}."
             ]
             if missing:
                 message.append(
-                    f"Missing from result {index}: {_format_key_examples(missing)}"
+                    f"Missing from group {group!r}: {_format_key_examples(missing)}"
                 )
             if extra:
                 message.append(
-                    f"Extra in result {index}: {_format_key_examples(extra)}"
+                    f"Extra in group {group!r}: {_format_key_examples(extra)}"
                 )
             raise ValueError(" ".join(message))
 
