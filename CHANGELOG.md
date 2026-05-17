@@ -22,6 +22,21 @@ produced which quantities: `prediction_method_name`, `predictor_version`,
 `kind`, and the value/rank columns are not duplicated into separate
 `kind_support` metadata.
 
+`TopiaryPredictor(name=...)` now optionally records per-run provenance
+in a `prediction_run_name` column. This is intended for split predictor
+grids such as one NetMHCpan run per allele/peptide length: the logical
+method remains `prediction_method_name="netmhcpan"`, while
+`prediction_run_name` records the shard. `combine_predictor_results`
+and `to_wide()` treat the run name as provenance, not as a separate
+prediction identity, so disjoint shards combine cleanly and overlapping
+shards still fail as duplicate predictions.
+
+The combine docs now spell out the recommended allele-grid strategy:
+split NetMHCpan-style per-allele predictors can be combined under
+`coverage="complete"`, while intentionally sparse grids such as
+MHCflurry haplotype-mode presentation should use `coverage="partial"`
+and the ranking DSL's `best_*_allele` accessors for allele attribution.
+
 ## 5.16.1
 
 **pirlygenes 5.1.0 integration:**

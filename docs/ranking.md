@@ -391,20 +391,37 @@ combined = combine_predictor_results([netmhcpan_rows, mhcflurry_rows])
 ```
 
 You can also shard the same predictor over allele or peptide-length batches and
-combine the shards:
+combine the shards.  Use `TopiaryPredictor(name=...)` when you want to keep
+track of which batch produced each row:
 
 ```python
 shards = []
 for allele in ["HLA-A*02:01", "HLA-B*07:02"]:
-    shards.append(
-        TopiaryPredictor(
-            models=NetMHCpan,
-            alleles=[allele],
-        ).predict_from_named_peptides(peptides)
-    )
+    for length in [8, 9, 10, 11]:
+        length_peptides = {
+            name: peptide
+            for name, peptide in peptides.items()
+            if len(peptide) == length
+        }
+        shards.append(
+            TopiaryPredictor(
+                models=NetMHCpan,
+                alleles=[allele],
+                name=f"netmhcpan_{allele}_len{length}",
+            ).predict_from_named_peptides(length_peptides)
+        )
 
 combined = combine_predictor_results(shards)
 ```
+
+`prediction_method_name` is still the logical predictor name (`netmhcpan` in
+the example above).  The optional `prediction_run_name` column is only
+provenance for a particular run or shard.  That distinction lets distinct
+NetMHCpan allele/length shards combine into one logical NetMHCpan result,
+while overlapping shards with the same `(prediction_method_name, kind,
+peptide, allele, source context)` still fail as duplicates.  `to_wide()` drops
+`prediction_run_name` from the grouping keys, so a named split run has the same
+wide shape as a single unsplit run.
 
 The helper is intentionally strict. It rejects duplicate
 `(prediction_method_name, kind, identity)` rows, and by default requires every
@@ -415,11 +432,24 @@ produce half-populated rows. If you intentionally want a sparse union, pass
 
 The combined result preserves the original rows: use each row's
 `prediction_method_name`, `predictor_version`, `kind`, and value/rank columns
-to inspect which predictor produced which quantity. Allele aggregation remains
-part of the ranking DSL: for example,
+to inspect which predictor produced which quantity.  Use
+`prediction_run_name` only to audit the batch that produced a row, not as a DSL
+selector.
+
+Allele aggregation remains part of the ranking DSL: for example,
 `Affinity["netmhcpan"].best_value_allele` and
 `Presentation["netmhcpan"].best_score_allele` report the allele associated
-with the best BA or EL value across the combined allele grid.
+with the best BA or EL value across the combined allele grid.  For predictors
+that emit one row per allele, such as NetMHCpan or MHCflurry in single-allele
+mode, this is the best per-allele row after all shards are combined.  For
+MHCflurry presentation in haplotype mode, MHCflurry itself sees the allele set
+together and may emit one deconvolved best-allele row; combining independent
+single-allele MHCflurry shards is therefore not the same calculation as a
+direct haplotype-mode MHCflurry run.  If you intentionally combine haplotype
+presentation rows with per-allele rows, use `coverage="partial"` because those
+kinds have different identity grids by construction.  Processing-only
+quantities that do not depend on allele should be read directly rather than
+through `best_*`.
 
 ## Putting it together
 

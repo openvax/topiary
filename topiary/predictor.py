@@ -434,6 +434,7 @@ class TopiaryPredictor(object):
         mhc_models=None,
         self_proteome=None,
         predict_wt=False,
+        name=None,
     ):
         """
         Parameters
@@ -497,6 +498,12 @@ class TopiaryPredictor(object):
             ``wt_peptide`` and attach ``wt_*`` prediction columns before
             filter/sort expressions are evaluated.  Rows without a
             length-compatible wildtype peptide keep NaN ``wt_*`` values.
+
+        name : str, optional
+            Human-readable name for this predictor run.  When provided,
+            public prediction outputs include ``prediction_run_name`` with
+            this value.  This is run/shard provenance only; logical model
+            identity remains ``prediction_method_name``.
         """
         # --- model setup ---
         raw_models = models or mhc_models or (mhc_model and [mhc_model])
@@ -539,6 +546,11 @@ class TopiaryPredictor(object):
         self.raise_on_error = raise_on_error
         self.self_proteome = self_proteome
         self.predict_wt = predict_wt
+        if name is None:
+            self.name = None
+        else:
+            name = str(name).strip()
+            self.name = name or None
 
     @property
     def mhc_model(self):
@@ -596,7 +608,9 @@ class TopiaryPredictor(object):
         pandas.DataFrame with columns:
             source_sequence_name, peptide, peptide_offset, peptide_length,
             allele, kind, score, value, affinity, percentile_rank,
-            prediction_method_name, predictor_version, n_flank, c_flank
+            prediction_method_name, predictor_version, n_flank, c_flank.
+            If ``name`` was provided at construction time, also includes
+            ``prediction_run_name``.
         """
         df = self._predict_raw(name_to_sequence_dict)
         return self._attach_result_attrs(
@@ -615,7 +629,9 @@ class TopiaryPredictor(object):
         pandas.DataFrame with columns:
             source_sequence_name, peptide, peptide_offset, peptide_length,
             allele, kind, score, value, affinity, percentile_rank,
-            prediction_method_name, predictor_version, n_flank, c_flank
+            prediction_method_name, predictor_version, n_flank, c_flank.
+            If ``name`` was provided at construction time, also includes
+            ``prediction_run_name``.
         """
         df = self._predict_raw_peptides(name_to_peptide_dict)
         return self._attach_result_attrs(
@@ -696,6 +712,10 @@ class TopiaryPredictor(object):
 
     def _attach_result_attrs(self, df):
         """Attach lightweight metadata to public DataFrame outputs."""
+        if self.name is not None:
+            df = df.copy()
+            df["prediction_run_name"] = self.name
+
         model_versions = {}
         observed_methods = []
         if "prediction_method_name" in df.columns:

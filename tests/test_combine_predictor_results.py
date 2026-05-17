@@ -99,6 +99,45 @@ class ToyGridPredictor:
         return pd.DataFrame(rows)
 
 
+class ToyHaplotypeMHCflurryPredictor:
+    default_peptide_lengths = [9, 10]
+    supported_kinds = ("pMHC_affinity", "pMHC_presentation")
+
+    def __init__(self, alleles):
+        self.prediction_method_name = "mhcflurry"
+        self.predictor_version = "2.1.1"
+        self.alleles = alleles
+
+    def predict_dataframe(self, peptides):
+        rows = []
+        best_allele = self.alleles[-1]
+        for peptide in peptides:
+            peptide_length = len(peptide)
+            for allele_i, allele in enumerate(self.alleles):
+                affinity = 50.0 + peptide_length * 10 + allele_i * 100
+                rows.append({
+                    "peptide": peptide,
+                    "allele": allele,
+                    "kind": "pMHC_affinity",
+                    "value": affinity,
+                    "score": 1.0 / affinity,
+                    "percentile_rank": affinity / 100.0,
+                    "predictor_name": self.prediction_method_name,
+                    "predictor_version": self.predictor_version,
+                })
+            rows.append({
+                "peptide": peptide,
+                "allele": best_allele,
+                "kind": "pMHC_presentation",
+                "value": 0.9,
+                "score": 0.9,
+                "percentile_rank": 0.5,
+                "predictor_name": self.prediction_method_name,
+                "predictor_version": self.predictor_version,
+            })
+        return pd.DataFrame(rows)
+
+
 def _sort_predictions(df):
     cols = [
         "source_sequence_name", "peptide", "allele", "kind",
@@ -121,6 +160,10 @@ def _sort_wide(df):
         .reset_index(drop=True)
         .loc[:, sorted(df.columns)]
     )
+
+
+def _without_run_name(df):
+    return df.drop(columns=["prediction_run_name"], errors="ignore")
 
 
 def _simple_result(method="netmhcpan", peptide="SIINFEKLA", allele="HLA-A*02:01"):
@@ -231,14 +274,15 @@ def test_combine_same_method_split_by_allele_and_length_matches_direct_run():
                     models=ToyGridPredictor(
                         "netmhcpan", "4.1b", [allele], offset=10,
                         peptide_lengths=[peptide_length],
-                    )
+                    ),
+                    name=f"netmhcpan_{allele}_len{peptide_length}",
                 ).predict_from_named_peptides(peptides)
             )
 
     combined = combine_predictor_results(split_results)
 
     pd.testing.assert_frame_equal(
-        _sort_predictions(combined.df),
+        _sort_predictions(_without_run_name(combined.df)),
         _sort_predictions(direct),
     )
     pd.testing.assert_frame_equal(
@@ -246,6 +290,11 @@ def test_combine_same_method_split_by_allele_and_length_matches_direct_run():
         _sort_wide(to_wide(direct)),
     )
     assert combined.models == {"netmhcpan": "4.1b"}
+    assert set(combined.df["prediction_run_name"]) == {
+        f"netmhcpan_{allele}_len{peptide_length}"
+        for allele in alleles
+        for peptide_length in [9, 10]
+    }
 
 
 def test_combine_multi_method_inputs_split_by_allele_match_direct_run():
@@ -296,7 +345,8 @@ def test_combined_split_grid_supports_best_ba_and_el_allele_aggregation():
             models=ToyGridPredictor(
                 "netmhcpan", "4.1b", [allele], offset=10,
                 peptide_lengths=[peptide_length],
-            )
+            ),
+            name=f"netmhcpan_{allele}_len{peptide_length}",
         ).predict_from_named_peptides(peptides)
         for allele in alleles
         for peptide_length in [8, 9, 10]
@@ -312,6 +362,113 @@ def test_combined_split_grid_supports_best_ba_and_el_allele_aggregation():
             key = (source_name, peptide, 0, allele)
             assert best_ba_allele.loc[key] == "HLA-A*02:01"
             assert best_el_allele.loc[key] == "HLA-B*07:02"
+
+
+def test_combine_haplotype_style_presentation_uses_partial_coverage():
+    peptides = _grid_peptides()
+    alleles = _grid_alleles()
+    netmhcpan_rows = TopiaryPredictor(
+        models=ToyGridPredictor("netmhcpan", "4.1b", alleles, offset=10),
+        name="netmhcpan_all",
+    ).predict_from_named_peptides(peptides)
+    mhcflurry_rows = TopiaryPredictor(
+        models=ToyHaplotypeMHCflurryPredictor(alleles),
+        name="mhcflurry_haplotype",
+    ).predict_from_named_peptides(peptides)
+
+    with pytest.raises(ValueError, match="coverage='complete'"):
+        combine_predictor_results([netmhcpan_rows, mhcflurry_rows])
+
+    combined = combine_predictor_results(
+        [netmhcpan_rows, mhcflurry_rows],
+        coverage="partial",
+    )
+    ctx = EvalContext(combined.df)
+    best_flurry_allele = Presentation["mhcflurry"].best_score_allele.eval(ctx)
+
+    for source_name, peptide in peptides.items():
+        for allele in alleles:
+            key = (source_name, peptide, 0, allele)
+            assert best_flurry_allele.loc[key] == "HLA-B*07:02"
+
+    wide = to_wide(combined.df)
+    assert len(wide) == len(peptides) * len(alleles)
+    assert not wide["mhcflurry_affinity_value"].isna().any()
+    assert wide.loc[
+        wide["allele"] == "HLA-A*02:01",
+        "mhcflurry_presentation_score",
+    ].isna().all()
+    assert not wide.loc[
+        wide["allele"] == "HLA-B*07:02",
+        "mhcflurry_presentation_score",
+    ].isna().any()
+
+
+def test_topiary_predictor_name_adds_run_provenance(tmp_path):
+    peptides = {"pep1": "SIINFEKLA"}
+    run_name = "netmhcpan_A0201_len9"
+    predictor = TopiaryPredictor(
+        models=ToyGridPredictor(
+            "netmhcpan", "4.1b", ["HLA-A*02:01"], offset=10,
+            peptide_lengths=[9],
+        ),
+        name=run_name,
+    )
+
+    df = predictor.predict_from_named_peptides(peptides)
+
+    assert set(df["prediction_run_name"]) == {run_name}
+    assert set(df["prediction_method_name"]) == {"netmhcpan"}
+
+    path = tmp_path / "named-run.tsv"
+    TopiaryResult(df).to_tsv(path)
+    roundtripped = read_tsv(path)
+
+    assert set(roundtripped.df["prediction_run_name"]) == {run_name}
+    assert roundtripped.models == {"netmhcpan": "4.1b"}
+
+
+def test_prediction_run_name_does_not_split_wide_rows():
+    peptides = _grid_peptides()
+    alleles = _grid_alleles()
+    split_results = [
+        TopiaryPredictor(
+            models=ToyGridPredictor(
+                "netmhcpan", "4.1b", [allele], offset=10,
+                peptide_lengths=[len(peptide)],
+            ),
+            name=f"netmhcpan_{allele}_{source_name}",
+        ).predict_from_named_peptides({source_name: peptide})
+        for source_name, peptide in peptides.items()
+        for allele in alleles
+    ]
+
+    combined = combine_predictor_results(split_results)
+    wide = to_wide(combined.df)
+
+    assert "prediction_run_name" not in wide.columns
+    assert len(wide) == len(peptides) * len(alleles)
+    assert not wide["netmhcpan_affinity_value"].isna().any()
+    assert not wide["netmhcpan_presentation_score"].isna().any()
+
+
+def test_combine_rejects_overlapping_named_shards():
+    peptides = {"pep1": "SIINFEKLA"}
+    shard_a = TopiaryPredictor(
+        models=ToyGridPredictor(
+            "netmhcpan", "4.1b", ["HLA-A*02:01"], offset=10,
+        ),
+        name="netmhcpan_A0201_first",
+    ).predict_from_named_peptides(peptides)
+    shard_b = TopiaryPredictor(
+        models=ToyGridPredictor(
+            "netmhcpan", "4.1b", ["HLA-A*02:01"], offset=20,
+        ),
+        name="netmhcpan_A0201_second",
+    ).predict_from_named_peptides(peptides)
+
+    with pytest.raises(ValueError, match="duplicate predictions"):
+        combine_predictor_results([shard_a, shard_b])
 
 
 def test_combine_roundtripped_topiary_results(tmp_path):

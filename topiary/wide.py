@@ -16,7 +16,8 @@ from .ranking import _iter_known_kinds, _kind_name, _kind_short_name, KIND_ALIAS
 # Columns that are prediction-specific and get pivoted in wide form.
 PREDICTION_COLUMNS = frozenset({
     "kind", "score", "value", "percentile_rank",
-    "prediction_method_name", "predictor_version", "affinity",
+    "prediction_method_name", "predictor_version", "prediction_run_name",
+    "affinity",
 })
 
 # Wide-form field suffixes.
