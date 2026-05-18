@@ -167,6 +167,37 @@ class TestFormConversion:
         assert wide.df is wide.wide_df
         assert "kind" in wide.long_df.columns
 
+    def test_to_wide_result_does_not_alias_source_cache(self):
+        r = TopiaryResult(_sample_long_df())
+        source_wide = r.wide_df
+
+        wide = r.to_wide()
+        wide.df.loc[
+            wide.df["peptide"] == "SIINFEKL",
+            "netmhcpan_affinity_value",
+        ] = 999.0
+
+        assert wide.df is not source_wide
+        source_row = r.wide_df[r.wide_df["peptide"] == "SIINFEKL"].iloc[0]
+        converted_row = wide.wide_df[wide.wide_df["peptide"] == "SIINFEKL"].iloc[0]
+        assert source_row["netmhcpan_affinity_value"] == 120.0
+        assert converted_row["netmhcpan_affinity_value"] == 999.0
+
+    def test_to_long_result_does_not_alias_source_cache(self):
+        wide_source = TopiaryResult(_sample_long_df()).to_wide()
+        source_long = wide_source.long_df
+
+        long = wide_source.to_long()
+        long.df.loc[long.df["peptide"] == "SIINFEKL", "value"] = 999.0
+
+        assert long.df is not source_long
+        source_row = wide_source.long_df[
+            wide_source.long_df["peptide"] == "SIINFEKL"
+        ].iloc[0]
+        converted_row = long.long_df[long.long_df["peptide"] == "SIINFEKL"].iloc[0]
+        assert source_row["value"] == 120.0
+        assert converted_row["value"] == 999.0
+
     def test_wide_view_recomputes_after_active_long_mutation(self):
         r = TopiaryResult(_sample_long_df())
         wide_before = r.wide_df

@@ -250,25 +250,27 @@ class TopiaryResult:
     # -- Form conversion --------------------------------------------------
 
     def to_wide(self):
-        wide_df = self.wide_df
+        wide_df = self.wide_df.copy()
+        long_df = self.long_df.copy() if self._long_df is not None else None
         kwargs = self._field_kwargs()
         kwargs["form"] = "wide"
         return TopiaryResult(
             wide_df,
             **kwargs,
-            _long_df=self._long_df,
+            _long_df=long_df,
             _wide_df=wide_df,
         )
 
     def to_long(self):
-        long_df = self.long_df
+        long_df = self.long_df.copy()
+        wide_df = self.wide_df.copy() if self._wide_df is not None else None
         kwargs = self._field_kwargs()
         kwargs["form"] = "long"
         return TopiaryResult(
             long_df,
             **kwargs,
             _long_df=long_df,
-            _wide_df=self._wide_df,
+            _wide_df=wide_df,
         )
 
     @property

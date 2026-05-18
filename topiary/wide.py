@@ -51,6 +51,15 @@ def _kind_short_to_canonical(short_name):
     return _kind_name(kind)
 
 
+def _version_str(value):
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
+
+
 def _parse_wide_column(col_name):
     """Parse a wide-form column name into (model_key, kind_short, field).
 
@@ -157,15 +166,35 @@ def to_wide(df):
 
     # Build model→version metadata for .attrs.
     model_versions = {}
+    observed_methods = set()
+    if "prediction_method_name" in df.columns:
+        observed_methods = {
+            str(method).strip()
+            for method in df["prediction_method_name"].dropna().unique()
+            if str(method).strip()
+        }
     if "prediction_method_name" in df.columns and "predictor_version" in df.columns:
-        for method, version in (
+        for method, rows in (
             df.dropna(subset=["prediction_method_name"])
-            .groupby("prediction_method_name")["predictor_version"]
-            .first()
-            .items()
+            .groupby("prediction_method_name", sort=False)
         ):
-            if pd.notna(version) and str(version):
-                model_versions[str(method)] = str(version)
+            method_str = str(method).strip()
+            if not method_str:
+                continue
+            for version in rows["predictor_version"]:
+                version_str = _version_str(version)
+                if version_str:
+                    model_versions[method_str] = version_str
+                    break
+    attr_models = getattr(df, "attrs", {}).get("topiary_models", {})
+    if observed_methods and hasattr(attr_models, "items"):
+        for method, version in attr_models.items():
+            method_str = str(method).strip()
+            if not method_str or method_str not in observed_methods:
+                continue
+            version_str = _version_str(version)
+            if version_str and not model_versions.get(method_str):
+                model_versions[method_str] = version_str
 
     # Melt each long field into wide column entries.
     records = []
