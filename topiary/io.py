@@ -167,7 +167,7 @@ def _models_from_long_rows(df):
         if not method_str:
             continue
         models[method_str] = _version_from_rows(rows)
-    return models
+    return models or None
 
 
 def _version_from_rows(rows):

@@ -63,6 +63,9 @@ class TestLoadAggregated:
         r = read_pvacseq(MHC_I_AGG)
         assert isinstance(r, TopiaryResult)
         assert r.form == "long"
+        assert r.df is r.long_df
+        assert "pvacseq_affinity_value" in r.wide_df.columns
+        assert len(r.wide_df) == len(r.df)
 
     def test_one_row_per_variant(self):
         r = read_pvacseq(MHC_I_AGG)

@@ -230,6 +230,8 @@ class TestReadWriteTSV:
         result = read_tsv(path)
         df2, meta = result.df, result.metadata
         assert meta.form == "long"
+        assert result.df is result.long_df
+        assert "netmhcpan_affinity_value" in result.wide_df.columns
         assert meta.topiary_version is not None
         assert meta.models.get("netmhcpan") == "4.1b"
         assert len(df2) == len(df)
@@ -244,6 +246,8 @@ class TestReadWriteTSV:
         result = read_tsv(path)
         df2, meta = result.df, result.metadata
         assert meta.form == "wide"
+        assert result.df is result.wide_df
+        assert "kind" in result.long_df.columns
         assert "netmhcpan_affinity_value" in df2.columns
         assert len(df2) == len(wide)
 
@@ -350,6 +354,40 @@ class TestReadWriteTSV:
         meta = reader(path).metadata
         assert meta.models == {"netmhcpan": "4.1b"}
 
+    @pytest.mark.parametrize(
+        "writer,method_name,reader,suffix",
+        [
+            (to_tsv, "to_tsv", read_tsv, "tsv"),
+            (to_csv, "to_csv", read_csv, "csv"),
+        ],
+    )
+    @pytest.mark.parametrize("call_style", ["function", "method"])
+    def test_result_writer_preserves_empty_result_model_metadata(
+        self, tmp_path, writer, method_name, reader, suffix, call_style,
+    ):
+        from topiary import TopiaryResult
+
+        df = _sample_long_df().iloc[0:0].copy()
+        result = TopiaryResult(
+            df,
+            models={"netmhcpan": "4.1b"},
+            sources=["empty-run"],
+        )
+
+        path = tmp_path / f"empty_result.{suffix}"
+        if call_style == "function":
+            writer(result, path)
+        else:
+            getattr(result, method_name)(path)
+
+        reloaded = reader(path)
+        assert reloaded.form == "long"
+        assert reloaded.models == {"netmhcpan": "4.1b"}
+        assert reloaded.sources[:1] == ["empty-run"]
+        assert reloaded.long_df.empty
+        assert reloaded.wide_df.empty
+        assert "peptide" in reloaded.wide_df.columns
+
 
 class TestReadWriteCSV:
     def test_csv_roundtrip(self, tmp_path):
@@ -359,6 +397,8 @@ class TestReadWriteCSV:
         result = read_csv(path)
         df2, meta = result.df, result.metadata
         assert meta.form == "long"
+        assert result.df is result.long_df
+        assert "netmhcpan_affinity_value" in result.wide_df.columns
         assert len(df2) == len(df)
         assert df2.iloc[0]["value"] == pytest.approx(120.0)
 

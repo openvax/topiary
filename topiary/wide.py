@@ -212,12 +212,17 @@ def to_wide(df):
         return work[group_cols].drop_duplicates().reset_index(drop=True)
 
     melted = pd.concat(records, ignore_index=True)
+    if group_cols:
+        group_index = melted[group_cols].drop_duplicates().reset_index(drop=True)
+        group_index["_topiary_group_id"] = range(len(group_index))
+        melted = melted.merge(group_index, on=group_cols, how="left")
+    else:
+        group_index = pd.DataFrame({"_topiary_group_id": [0]})
+        melted["_topiary_group_id"] = 0
 
     # Check for duplicates that would silently collapse in the pivot.
-    # Fill NaN with sentinel to avoid pandas groupby NaN-skipping.
-    dup_cols = group_cols + ["_wide_col"]
-    dup_df = melted[dup_cols].fillna("__nan__")
-    dup_check = dup_df.groupby(dup_cols).size()
+    dup_cols = ["_topiary_group_id", "_wide_col"]
+    dup_check = melted.groupby(dup_cols, dropna=False).size()
     n_dupes = (dup_check > 1).sum()
     if n_dupes > 0:
         warnings.warn(
@@ -227,14 +232,18 @@ def to_wide(df):
             stacklevel=2,
         )
 
-    # Pivot: group keys as index, wide column names as columns.
-    wide = melted.pivot_table(
-        index=group_cols,
+    wide_values = melted.pivot_table(
+        index="_topiary_group_id",
         columns="_wide_col",
         values="_wide_val",
         aggfunc="first",
     ).reset_index()
-    wide.columns.name = None
+    wide_values.columns.name = None
+    wide = (
+        group_index
+        .merge(wide_values, on="_topiary_group_id", how="left")
+        .drop(columns=["_topiary_group_id"])
+    )
 
     if model_versions:
         wide.attrs["topiary_models"] = model_versions

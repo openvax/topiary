@@ -671,14 +671,44 @@ def test_combine_allows_same_method_across_samples():
     sample_a.df["sample_name"] = "sample-a"
     sample_b = _simple_result("netmhcpan")
     sample_b.df["sample_name"] = "sample-b"
+    sample_b.df["value"] = 1000.0
+    sample_b.df["affinity"] = 1000.0
 
     combined = combine_predictor_results([sample_a, sample_b])
+    ctx = EvalContext(combined.df)
+    scores = Affinity["netmhcpan"].value.eval(ctx)
+    filtered = combined.filter_by("affinity <= 500")
     wide = to_wide(combined.df)
 
+    sample_a_key = (
+        "sample-a", "pep1", "SIINFEKLA", 0, "HLA-A*02:01",
+    )
+    sample_b_key = (
+        "sample-b", "pep1", "SIINFEKLA", 0, "HLA-A*02:01",
+    )
+
     assert len(combined) == 2
+    assert ctx.group_keys == [
+        "sample_name", "source_sequence_name", "peptide",
+        "peptide_offset", "allele",
+    ]
+    assert scores.loc[sample_a_key] == 100.0
+    assert scores.loc[sample_b_key] == 1000.0
+    assert filtered.df["sample_name"].tolist() == ["sample-a"]
     assert len(wide) == 2
     assert set(wide["sample_name"]) == {"sample-a", "sample-b"}
     assert not wide["netmhcpan_affinity_value"].isna().any()
+
+
+def test_null_sample_name_is_not_a_ranking_group_key():
+    result = _simple_result("netmhcpan")
+    result.df["sample_name"] = pd.NA
+
+    ctx = EvalContext(result.df)
+    filtered = result.filter_by("affinity <= 500")
+
+    assert "sample_name" not in ctx.group_keys
+    assert len(filtered.df) == 1
 
 
 def test_combine_ignores_legacy_kind_support_metadata():
