@@ -192,6 +192,7 @@ def _simple_result(method="netmhcpan", peptide="SIINFEKLA", allele="HLA-A*02:01"
 
 
 _CONTEXT_MISMATCH_VALUES = {
+    "sample_name": ("sample-a", "sample-b"),
     "source_sequence_name": ("pep1", "pep1-copy"),
     "peptide_offset": (0, 1),
     "peptide_length": (9, 10),
@@ -629,6 +630,21 @@ def test_combine_rejects_duplicate_prediction_methods():
 
     with pytest.raises(ValueError, match="duplicate predictions"):
         combine_predictor_results([r1, r2])
+
+
+def test_combine_allows_same_method_across_samples():
+    sample_a = _simple_result("netmhcpan")
+    sample_a.df["sample_name"] = "sample-a"
+    sample_b = _simple_result("netmhcpan")
+    sample_b.df["sample_name"] = "sample-b"
+
+    combined = combine_predictor_results([sample_a, sample_b])
+    wide = to_wide(combined.df)
+
+    assert len(combined) == 2
+    assert len(wide) == 2
+    assert set(wide["sample_name"]) == {"sample-a", "sample-b"}
+    assert not wide["netmhcpan_affinity_value"].isna().any()
 
 
 def test_combine_ignores_legacy_kind_support_metadata():

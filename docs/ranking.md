@@ -419,9 +419,9 @@ the example above).  The optional `prediction_run_name` column is only
 provenance for a particular run or shard.  That distinction lets distinct
 NetMHCpan allele/length shards combine into one logical NetMHCpan result,
 while overlapping shards with the same `(prediction_method_name, kind,
-peptide, allele, source context)` still fail as duplicates.  `to_wide()` drops
-`prediction_run_name` from the grouping keys, so a named split run has the same
-wide shape as a single unsplit run.
+peptide, allele, sample/source context)` still fail as duplicates.
+`to_wide()` drops `prediction_run_name` from the grouping keys, so a named
+split run has the same wide shape as a single unsplit run.
 
 The helper is intentionally strict. It rejects duplicate
 `(prediction_method_name, kind, identity)` rows, and by default requires every

@@ -31,6 +31,10 @@ and `to_wide()` treat the run name as provenance, not as a separate
 prediction identity, so disjoint shards combine cleanly and overlapping
 shards still fail as duplicate predictions.
 
+`combine_predictor_results` also treats `sample_name` as part of the
+implicit row identity when present, matching `to_wide()` grouping for
+multi-sample predictor outputs.
+
 The combine docs now spell out the recommended allele-grid strategy:
 split NetMHCpan-style per-allele predictors can be combined under
 `coverage="complete"`, while intentionally sparse grids such as

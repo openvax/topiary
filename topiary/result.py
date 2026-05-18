@@ -23,6 +23,7 @@ _MISSING_IDENTITY_VALUE = _MissingIdentityValue()
 
 
 _SOURCE_CONTEXT_IDENTITY_COLUMNS = (
+    "sample_name",
     "source_sequence_name",
     "peptide_offset",
     "peptide_length",
@@ -472,8 +473,9 @@ def combine_predictor_results(results, on=("peptide", "allele"), coverage="compl
     on : tuple of str
         Columns defining the strict identity set. Defaults to
         ``("peptide", "allele")``.  Source context columns such as
-        ``source_sequence_name`` and ``peptide_offset`` are also checked
-        when present so repeated peptide/allele rows remain distinct.
+        ``sample_name``, ``source_sequence_name``, and ``peptide_offset``
+        are also checked when present so repeated peptide/allele rows
+        remain distinct.
     coverage : {"complete", "partial"} or bool
         ``"complete"`` (default) requires each emitted
         ``(prediction_method_name, kind)`` group to cover the same identity
