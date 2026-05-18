@@ -428,6 +428,26 @@ class TopiaryResult:
         kwargs["sort_by_ast"] = new_ast
         return TopiaryResult(sorted_df, **kwargs)
 
+    # -- Result merging ----------------------------------------------------
+
+    def append(self, *others):
+        """Append independent TopiaryResults as more result rows.
+
+        This is the object-oriented form of :func:`append_results`.
+        """
+        return append_results(_with_self(self, others))
+
+    def combine_predictions(
+        self, *others, on=("peptide", "allele"), coverage="complete",
+    ):
+        """Combine complementary predictor outputs for the same identity grid.
+
+        This is the object-oriented form of :func:`combine_predictions`.
+        """
+        return combine_predictions(
+            _with_self(self, others), on=on, coverage=coverage,
+        )
+
     # -- Serialization -----------------------------------------------------
 
     def to_tsv(self, path):
@@ -500,37 +520,45 @@ def _dsl_filter_to_string(node):
     return repr(node)
 
 
-def concat(results):
-    """Concatenate TopiaryResults, preserving provenance.
+def _with_self(result, others):
+    """Build a merge input list for instance methods."""
+    if len(others) == 1 and isinstance(others[0], (list, tuple)):
+        return [result, *others[0]]
+    return [result, *others]
+
+
+def append_results(results):
+    """Append independent TopiaryResults as more result rows.
 
     Parameters
     ----------
-    results : list of TopiaryResult
-        Results to concatenate.  Long and wide results may be mixed; mixed
+    results : iterable of TopiaryResult
+        Results to append. Long and wide results may be mixed; mixed
         inputs are normalized to long form.
 
     Returns
     -------
     TopiaryResult
-        DataFrames concatenated; metadata merged (sources concatenated,
+        DataFrames appended; metadata merged (sources concatenated,
         models union with warning on version conflicts; filter_by / sort_by
         preserved only if all inputs agree).  The active output form is the
         shared input form when all inputs match, otherwise long.
     """
+    results = list(results)
     if not results:
         return TopiaryResult(pd.DataFrame())
     for result in results:
         if not isinstance(result, TopiaryResult):
             raise TypeError(
-                "topiary.concat expects TopiaryResult inputs; use "
+                "topiary.append_results expects TopiaryResult inputs; use "
                 "TopiaryResult(df) to attach Topiary semantics before "
-                f"concatenating, got {type(result).__name__}"
+                f"appending, got {type(result).__name__}"
             )
 
     forms = {r.form for r in results}
     if "unknown" in forms:
         raise ValueError(
-            f"Cannot concat TopiaryResults with unknown form: {forms}"
+            f"Cannot append TopiaryResults with unknown form: {forms}"
         )
     form = results[0].form if len(forms) == 1 else "long"
 
@@ -573,7 +601,7 @@ def concat(results):
         if any(r.filter_by_str for r in results):
             present = sorted({r.filter_by_str for r in results if r.filter_by_str})
             warnings.warn(
-                "Dropping filter_by metadata: inputs to concat() have "
+                "Dropping filter_by metadata: inputs to append_results() have "
                 f"differing filter history (found: {present}).  The rows are "
                 "still filtered per their individual histories, but the "
                 "combined result has no single filter expression that "
@@ -592,7 +620,7 @@ def concat(results):
         if any(r.sort_by_str for r in results):
             present = sorted({r.sort_by_str for r in results if r.sort_by_str})
             warnings.warn(
-                "Dropping sort_by metadata: inputs to concat() have "
+                "Dropping sort_by metadata: inputs to append_results() have "
                 f"differing sort history (found: {present}).  The concatenated "
                 "rows are no longer in a consistent sort order.",
                 UserWarning,
@@ -604,7 +632,7 @@ def concat(results):
     elif form == "wide":
         frames = [r.wide_df for r in results]
     else:
-        raise ValueError(f"Cannot concat TopiaryResults with form {form!r}")
+        raise ValueError(f"Cannot append TopiaryResults with form {form!r}")
 
     df = pd.concat(frames, ignore_index=True)
 
@@ -622,12 +650,17 @@ def concat(results):
     )
 
 
-def combine_predictor_results(results, on=("peptide", "allele"), coverage="complete"):
-    """Combine separate predictor outputs into one predictor-equivalent result.
+def concat(results):
+    """Compatibility alias for :func:`append_results`."""
+    return append_results(results)
 
-    This is stricter than :func:`concat`: duplicate predictions are rejected,
-    and by default every emitted prediction method/kind must cover the same
-    identity key set.  It supports both common split patterns:
+
+def combine_predictions(results, on=("peptide", "allele"), coverage="complete"):
+    """Combine complementary predictor outputs into one prediction result.
+
+    This is stricter than :func:`append_results`: duplicate predictions are
+    rejected, and by default every emitted prediction method/kind must cover
+    the same identity key set.  It supports both common split patterns:
 
     - different predictors run separately on the same peptides;
     - the same predictor run separately over disjoint allele/length shards.
@@ -671,7 +704,7 @@ def combine_predictor_results(results, on=("peptide", "allele"), coverage="compl
 
     results = [_drop_non_identity_source(result, on) for result in results]
     identity_columns = _identity_columns(results, on)
-    combined = concat(results)
+    combined = append_results(results)
     _validate_no_duplicate_predictions(combined.df, identity_columns)
     if coverage == "complete":
         _validate_complete_prediction_coverage(combined.df, identity_columns)
@@ -683,13 +716,20 @@ def combine_predictor_results(results, on=("peptide", "allele"), coverage="compl
     return combined
 
 
+def combine_predictor_results(
+    results, on=("peptide", "allele"), coverage="complete",
+):
+    """Compatibility alias for :func:`combine_predictions`."""
+    return combine_predictions(results, on=on, coverage=coverage)
+
+
 def _as_topiary_result(result):
     if isinstance(result, TopiaryResult):
         return result
     if isinstance(result, pd.DataFrame):
         return TopiaryResult(result)
     raise TypeError(
-        "combine_predictor_results expects TopiaryResult or pandas.DataFrame "
+        "combine_predictions expects TopiaryResult or pandas.DataFrame "
         f"inputs, got {type(result).__name__}"
     )
 
@@ -697,19 +737,19 @@ def _as_topiary_result(result):
 def _validate_predictor_result(result, index, on):
     if result.form != "long":
         raise ValueError(
-            "combine_predictor_results only supports long-form predictor "
+            "combine_predictions only supports long-form predictor "
             f"results; result {index} has form {result.form!r}"
         )
     required = set(on) | {"kind", "prediction_method_name"}
     missing = sorted(c for c in required if c not in result.df.columns)
     if missing:
         raise ValueError(
-            f"combine_predictor_results result {index} is missing required "
+            f"combine_predictions result {index} is missing required "
             f"column(s): {missing}"
         )
     if not _prediction_methods(result):
         raise ValueError(
-            f"combine_predictor_results result {index} has no "
+            f"combine_predictions result {index} has no "
             "prediction_method_name values"
         )
 
@@ -728,7 +768,7 @@ def _normalize_coverage_mode(coverage):
         return "partial"
     if coverage not in {"complete", "partial"}:
         raise ValueError(
-            "combine_predictor_results coverage must be 'complete' or "
+            "combine_predictions coverage must be 'complete' or "
             f"'partial', got {coverage!r}"
         )
     return coverage
@@ -832,7 +872,7 @@ def _validate_no_duplicate_predictions(df, identity_columns):
             seen[normalized] = row_index
     if duplicates:
         raise ValueError(
-            "combine_predictor_results found duplicate predictions for "
+            "combine_predictions found duplicate predictions for "
             "(prediction_method_name, kind, identity) keys: "
             f"{_format_key_examples(set(duplicates))}"
         )
@@ -867,7 +907,7 @@ def _validate_complete_prediction_coverage(df, identity_columns):
         extra = keys - baseline_keys
         if missing or extra:
             message = [
-                "combine_predictor_results coverage='complete' requires every "
+                "combine_predictions coverage='complete' requires every "
                 "(prediction_method_name, kind) group to cover the same "
                 f"{identity_columns!r} keys; group {group!r} differs from "
                 f"group {baseline_group!r}."

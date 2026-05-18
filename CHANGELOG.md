@@ -4,7 +4,7 @@
 
 **Combine separate predictor runs (#170):**
 
-`topiary.combine_predictor_results([a, b, ...])` stacks separate
+`topiary.combine_predictions([a, b, ...])` stacks separate
 predictor outputs into the same long-form shape produced by running
 those predictors together. It accepts `TopiaryResult` or fresh
 `TopiaryPredictor` DataFrame outputs, supports both split-by-predictor
@@ -26,12 +26,12 @@ produced which quantities: `prediction_method_name`, `predictor_version`,
 in a `prediction_run_name` column. This is intended for split predictor
 grids such as one NetMHCpan run per allele/peptide length: the logical
 method remains `prediction_method_name="netmhcpan"`, while
-`prediction_run_name` records the shard. `combine_predictor_results`
+`prediction_run_name` records the shard. `combine_predictions`
 and `to_wide()` treat the run name as provenance, not as a separate
 prediction identity, so disjoint shards combine cleanly and overlapping
 shards still fail as duplicate predictions.
 
-`combine_predictor_results` also treats `sample_name` as part of the
+`combine_predictions` also treats `sample_name` as part of the
 implicit row identity when present, matching `to_wide()` grouping for
 multi-sample predictor outputs.
 
@@ -44,8 +44,15 @@ and the ranking DSL's `best_*_allele` accessors for allele attribution.
 `TopiaryResult` now treats long/wide representation as an internal,
 cached view concern. Results expose `long_df` and `wide_df` on demand,
 `to_long()` / `to_wide()` return results with that active compatibility
-`df` view, and `topiary.concat()` normalizes mixed-form TopiaryResults
+`df` view, and `topiary.append_results()` normalizes mixed-form TopiaryResults
 internally rather than requiring callers to pre-convert them.
+
+Result merging now has user-facing names for the two distinct operations:
+use `append_results` / `result.append(...)` when inputs are more rows
+(files, samples, cohorts), and use `combine_predictions` /
+`result.combine_predictions(...)` when inputs are complementary predictor
+outputs for the same logical identity grid. The older `concat` and
+`combine_predictor_results` names remain as compatibility aliases.
 
 ## 5.16.1
 
@@ -96,7 +103,7 @@ selector won't find them — callers wanting per-algorithm DSL access
 should melt them out themselves or re-predict via `TopiaryPredictor`.
 
 Multiple files (MHC-I + MHC-II, or a mix of flavors) compose through
-`topiary.concat([read_pvacseq(p1), read_pvacseq(p2)])`; no dedicated
+`topiary.append_results([read_pvacseq(p1), read_pvacseq(p2)])`; no dedicated
 multi-file entry point is exposed.
 
 Loader-derived columns aligned with `TopiaryPredictor` output so

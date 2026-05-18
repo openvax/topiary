@@ -9,6 +9,7 @@ from topiary import (
     Presentation,
     TopiaryPredictor,
     TopiaryResult,
+    combine_predictions,
     combine_predictor_results,
     read_csv,
     read_tsv,
@@ -247,7 +248,7 @@ def test_combine_separate_predictor_runs_matches_combined_run():
     net_only = TopiaryPredictor(models=netmhcpan).predict_from_named_peptides(peptides)
     flurry_only = TopiaryPredictor(models=mhcflurry).predict_from_named_peptides(peptides)
 
-    combined = combine_predictor_results([net_only, flurry_only])
+    combined = combine_predictions([net_only, flurry_only])
 
     pd.testing.assert_frame_equal(
         _sort_predictions(combined.df),
@@ -698,6 +699,17 @@ def test_combine_allows_same_method_across_samples():
     assert len(wide) == 2
     assert set(wide["sample_name"]) == {"sample-a", "sample-b"}
     assert not wide["netmhcpan_affinity_value"].isna().any()
+
+
+def test_result_combine_predictions_convenience():
+    net_only = _simple_result("netmhcpan")
+    flurry_only = _simple_result("mhcflurry")
+
+    combined = net_only.combine_predictions(flurry_only)
+
+    assert set(combined.df["prediction_method_name"]) == {
+        "netmhcpan", "mhcflurry",
+    }
 
 
 def test_null_sample_name_is_not_a_ranking_group_key():

@@ -76,12 +76,12 @@ print(ranked.head())
 
 ### MHC-I + MHC-II combined
 
-`read_pvacseq()` doesn't expose a multi-file entry point — composition is just `topiary.concat`:
+`read_pvacseq()` doesn't expose a multi-file entry point — composition is just `topiary.append_results`:
 
 ```python
-from topiary import read_pvacseq, concat
+from topiary import read_pvacseq, append_results
 
-combined = concat([
+combined = append_results([
     read_pvacseq("HCC1395.MHC_I.all_epitopes.aggregated.tsv"),
     read_pvacseq("HCC1395.MHC_II.all_epitopes.aggregated.tsv"),
 ])

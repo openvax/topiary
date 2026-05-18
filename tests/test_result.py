@@ -3,7 +3,15 @@
 import pandas as pd
 import pytest
 
-from topiary import TopiaryResult, concat, from_wide, read_tsv, to_tsv, to_wide
+from topiary import (
+    TopiaryResult,
+    append_results,
+    concat,
+    from_wide,
+    read_tsv,
+    to_tsv,
+    to_wide,
+)
 from topiary.io import Metadata
 
 
@@ -346,13 +354,23 @@ class TestConcat:
     def test_concat_basic(self):
         r1 = self._make_r(100.0, "patient01")
         r2 = self._make_r(200.0, "patient02")
-        combined = concat([r1, r2])
+        combined = append_results([r1, r2])
         assert len(combined) == 2
+
+    def test_result_append_convenience(self):
+        r1 = self._make_r(100.0, "patient01")
+        r2 = self._make_r(200.0, "patient02")
+        r3 = self._make_r(300.0, "patient03")
+
+        combined = r1.append([r2, r3])
+
+        assert len(combined) == 3
+        assert combined.sources == ["patient01", "patient02", "patient03"]
 
     def test_concat_sources_merged(self):
         r1 = self._make_r(100.0, "patient01")
         r2 = self._make_r(200.0, "patient02")
-        combined = concat([r1, r2])
+        combined = append_results([r1, r2])
         assert combined.sources == ["patient01", "patient02"]
 
     def test_concat_preserves_source_column(self):

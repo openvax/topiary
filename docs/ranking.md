@@ -370,12 +370,12 @@ combined = TopiaryPredictor(
 ).predict_from_named_peptides(peptides)
 ```
 
-When predictors need to run separately, use `combine_predictor_results` to
+When predictors need to run separately, use `combine_predictions` to
 stack the outputs back into the same long-form shape:
 
 ```python
 from mhctools import NetMHCpan, MHCflurry
-from topiary import TopiaryPredictor, combine_predictor_results
+from topiary import TopiaryPredictor, combine_predictions
 
 netmhcpan_rows = TopiaryPredictor(
     models=NetMHCpan,
@@ -387,7 +387,7 @@ mhcflurry_rows = TopiaryPredictor(
     alleles=["HLA-A*02:01", "HLA-B*07:02"],
 ).predict_from_named_peptides(peptides)
 
-combined = combine_predictor_results([netmhcpan_rows, mhcflurry_rows])
+combined = combine_predictions([netmhcpan_rows, mhcflurry_rows])
 ```
 
 `TopiaryResult` owns the long/wide representation.  Loaders may naturally
@@ -418,7 +418,7 @@ for allele in ["HLA-A*02:01", "HLA-B*07:02"]:
             ).predict_from_named_peptides(length_peptides)
         )
 
-combined = combine_predictor_results(shards)
+combined = combine_predictions(shards)
 ```
 
 `prediction_method_name` is still the logical predictor name (`netmhcpan` in

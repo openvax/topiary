@@ -68,7 +68,13 @@ from .io_pvacseq import (
     melt_pvacseq_algorithms,
     read_pvacseq,
 )
-from .result import TopiaryResult, combine_predictor_results, concat
+from .result import (
+    TopiaryResult,
+    append_results,
+    combine_predictions,
+    combine_predictor_results,
+    concat,
+)
 from .wide import detect_form, from_wide, to_wide
 
 __version__ = "5.16.2"
@@ -149,6 +155,8 @@ __all__ = [
     "from_wide",
     "to_wide",
     "TopiaryResult",
+    "append_results",
+    "combine_predictions",
     "combine_predictor_results",
     "concat",
 ]

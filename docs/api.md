@@ -36,10 +36,20 @@ view only for pandas compatibility, and materializes cached `long_df` and
 result state. Use `result.to_long()` / `result.to_wide()` when you want a new
 `TopiaryResult` whose active `df` is that form.
 
-Topiary merge APIs operate on this semantic object. `topiary.concat()` accepts
-mixed long/wide `TopiaryResult` inputs and normalizes internally; bare
-DataFrames are still accepted by predictor-combine APIs for compatibility, but
-are coerced into `TopiaryResult` before validation.
+Topiary has two result-merging operations:
+
+| Operation | Meaning | Use when |
+| --- | --- | --- |
+| `topiary.append_results([a, b])` / `a.append(b)` | More result rows | Inputs are separate files, samples, cohorts, or independent result sets. |
+| `topiary.combine_predictions([a, b])` / `a.combine_predictions(b)` | More predictions for the same logical identity grid | Inputs are separate predictors or predictor shards that should behave like one run. |
+
+Both operations accept mixed long/wide `TopiaryResult` inputs and normalize
+internally. `combine_predictions` is stricter: it rejects duplicate
+`(prediction_method_name, kind, identity)` predictions and validates prediction
+coverage. Bare DataFrames are still accepted by `combine_predictions` for
+compatibility with fresh `TopiaryPredictor` outputs, but are coerced into
+`TopiaryResult` before validation. The older `concat` and
+`combine_predictor_results` names remain compatibility aliases.
 
 ## CachedPredictor
 
