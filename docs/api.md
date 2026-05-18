@@ -30,9 +30,11 @@
 
 `TopiaryResult` is the semantic result object for Topiary prediction tables.
 It can ingest either long or wide prediction tables, keeps the active `df`
-view for pandas compatibility, and materializes cached `long_df` and `wide_df`
-views on demand. Use `result.to_long()` / `result.to_wide()` when you want a
-new `TopiaryResult` whose active `df` is that form.
+view only for pandas compatibility, and materializes cached `long_df` and
+`wide_df` views on demand. The public `form` value describes that compatibility
+`df` view; it is derived from the stored views rather than acting as separate
+result state. Use `result.to_long()` / `result.to_wide()` when you want a new
+`TopiaryResult` whose active `df` is that form.
 
 Topiary merge APIs operate on this semantic object. `topiary.concat()` accepts
 mixed long/wide `TopiaryResult` inputs and normalizes internally; bare

@@ -123,23 +123,25 @@ class TopiaryResult:
             models = _models_from_dataframe(df)
 
         self.topiary_version = topiary_version
-        self._active_form = form or detect_form(df)
+        input_form = form or detect_form(df)
+        if input_form not in {"long", "wide", "unknown"}:
+            raise ValueError(f"Unknown TopiaryResult form: {input_form!r}")
+        self._df = df
         self._unknown_df = None
         self._long_df = _long_df
         self._wide_df = _wide_df
-        if self._active_form == "long":
+        if input_form == "long":
             self._long_df = df
-        elif self._active_form == "wide":
+        elif input_form == "wide":
             self._wide_df = df
         else:
             self._unknown_df = df
         self._long_source_fingerprint = None
         self._wide_source_fingerprint = None
-        active_fingerprint = _dataframe_fingerprint(df)
-        if self._active_form == "long" and self._wide_df is not None:
-            self._wide_source_fingerprint = active_fingerprint
-        if self._active_form == "wide" and self._long_df is not None:
-            self._long_source_fingerprint = active_fingerprint
+        if self._df is self._long_df and self._wide_df is not None:
+            self._wide_source_fingerprint = _dataframe_fingerprint(self._long_df)
+        if self._df is self._wide_df and self._long_df is not None:
+            self._long_source_fingerprint = _dataframe_fingerprint(self._wide_df)
         self.models = OrderedDict(models) if models else OrderedDict()
         self.sources = list(sources) if sources else []
         self.filter_by_str = filter_by_str
@@ -152,53 +154,47 @@ class TopiaryResult:
 
     @property
     def form(self):
-        """Active DataFrame form, kept for backward compatibility."""
-        return self._active_form
+        """Form of the active ``.df`` view, kept for backward compatibility."""
+        if self._df is self._long_df:
+            return "long"
+        if self._df is self._wide_df:
+            return "wide"
+        if self._df is self._unknown_df:
+            return "unknown"
+        return detect_form(self._df)
 
     @form.setter
     def form(self, value):
         value = value or "unknown"
-        if value == self._active_form:
+        if value == self.form:
             return
         if value == "long":
-            if self._long_df is None:
-                if self._wide_df is None:
-                    raise ValueError("Cannot set TopiaryResult form to 'long'")
-                from .wide import from_wide
-                self._long_df = from_wide(self._wide_df, metadata=self.metadata)
-                self._long_source_fingerprint = _dataframe_fingerprint(self._wide_df)
-            self._active_form = "long"
+            self._df = self.long_df
+            if self._wide_df is not None:
+                self._wide_source_fingerprint = _dataframe_fingerprint(self._long_df)
             return
         if value == "wide":
-            if self._wide_df is None:
-                if self._long_df is None:
-                    raise ValueError("Cannot set TopiaryResult form to 'wide'")
-                from .wide import to_wide as _to_wide
-                self._wide_df = _to_wide(self._long_df)
-                self._wide_source_fingerprint = _dataframe_fingerprint(self._long_df)
-            self._active_form = "wide"
+            self._df = self.wide_df
+            if self._long_df is not None:
+                self._long_source_fingerprint = _dataframe_fingerprint(self._wide_df)
             return
         if value == "unknown":
             if self._unknown_df is None:
                 raise ValueError("Cannot set TopiaryResult form to 'unknown'")
-            self._active_form = "unknown"
+            self._df = self._unknown_df
             return
         raise ValueError(f"Unknown TopiaryResult form: {value!r}")
 
     @property
     def df(self):
         """Active DataFrame view for backward-compatible pandas access."""
-        if self._active_form == "long":
-            return self._long_df
-        if self._active_form == "wide":
-            return self._wide_df
-        return self._unknown_df
+        return self._df
 
     @df.setter
     def df(self, value):
         """Replace the active DataFrame and invalidate converted views."""
         detected = detect_form(value)
-        self._active_form = detected
+        self._df = value
         self._unknown_df = None
         self._long_df = value if detected == "long" else None
         self._wide_df = value if detected == "wide" else None
@@ -279,19 +275,17 @@ class TopiaryResult:
     def long_df(self):
         """Long-form DataFrame view, computed lazily when needed."""
         if (
-            self._active_form == "wide"
+            self._df is self._wide_df
             and self._long_df is not None
-            and self._long_source_fingerprint != _dataframe_fingerprint(self.df)
+            and self._long_source_fingerprint != _dataframe_fingerprint(self._wide_df)
         ):
             self._long_df = None
             self._long_source_fingerprint = None
         if self._long_df is None:
-            if self._active_form == "long":
-                self._long_df = self.df
-            elif self._active_form == "wide":
+            if self._wide_df is not None:
                 from .wide import from_wide
-                self._long_df = from_wide(self.df, metadata=self.metadata)
-                self._long_source_fingerprint = _dataframe_fingerprint(self.df)
+                self._long_df = from_wide(self._wide_df, metadata=self.metadata)
+                self._long_source_fingerprint = _dataframe_fingerprint(self._wide_df)
             else:
                 raise ValueError(
                     f"Cannot convert TopiaryResult with form {self.form!r} "
@@ -303,19 +297,17 @@ class TopiaryResult:
     def wide_df(self):
         """Wide-form DataFrame view, computed lazily when needed."""
         if (
-            self._active_form == "long"
+            self._df is self._long_df
             and self._wide_df is not None
-            and self._wide_source_fingerprint != _dataframe_fingerprint(self.df)
+            and self._wide_source_fingerprint != _dataframe_fingerprint(self._long_df)
         ):
             self._wide_df = None
             self._wide_source_fingerprint = None
         if self._wide_df is None:
-            if self._active_form == "wide":
-                self._wide_df = self.df
-            elif self._active_form == "long":
+            if self._long_df is not None:
                 from .wide import to_wide as _to_wide
-                self._wide_df = _to_wide(self.df)
-                self._wide_source_fingerprint = _dataframe_fingerprint(self.df)
+                self._wide_df = _to_wide(self._long_df)
+                self._wide_source_fingerprint = _dataframe_fingerprint(self._long_df)
             else:
                 raise ValueError(
                     f"Cannot convert TopiaryResult with form {self.form!r} "

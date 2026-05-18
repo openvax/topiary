@@ -43,9 +43,9 @@ and the ranking DSL's `best_*_allele` accessors for allele attribution.
 
 `TopiaryResult` now treats long/wide representation as an internal,
 cached view concern. Results expose `long_df` and `wide_df` on demand,
-`to_long()` / `to_wide()` return results with that active form, and
-`topiary.concat()` normalizes mixed-form TopiaryResults internally
-rather than requiring callers to pre-convert them.
+`to_long()` / `to_wide()` return results with that active compatibility
+`df` view, and `topiary.concat()` normalizes mixed-form TopiaryResults
+internally rather than requiring callers to pre-convert them.
 
 ## 5.16.1
 
