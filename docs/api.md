@@ -30,26 +30,35 @@
 
 `TopiaryResult` is the semantic result object for Topiary prediction tables.
 It can ingest either long or wide prediction tables, keeps the active `df`
-view only for pandas compatibility, and materializes cached `long_df` and
-`wide_df` views on demand. The public `form` value describes that compatibility
-`df` view; it is derived from the stored views rather than acting as separate
-result state. Use `result.to_long()` / `result.to_wide()` when you want a new
-`TopiaryResult` whose active `df` is that form.
+view for pandas-style access, and materializes cached `long_df` and `wide_df`
+views on demand. The public `form` value describes the active `df` view; it is
+derived from the stored views rather than acting as separate result state. Use
+`result.to_long()` / `result.to_wide()` when you want a new `TopiaryResult`
+whose active `df` is that form.
 
 Topiary has two result-merging operations:
 
 | Operation | Meaning | Use when |
 | --- | --- | --- |
-| `topiary.append_results([a, b])` / `a.append(b)` | More result rows | Inputs are separate files, samples, cohorts, or independent result sets. |
+| `topiary.stack_results([a, b])` / `a.stack_with(b)` | More result sets | Inputs are separate files, samples, cohorts, or independent result sets. |
 | `topiary.combine_predictions([a, b])` / `a.combine_predictions(b)` | More predictions for the same logical identity grid | Inputs are separate predictors or predictor shards that should behave like one run. |
 
+`stack_results` is a row-union operation. The inputs do not need to describe
+the same peptides, alleles, samples, sources, predictors, or score kinds; they
+are just more Topiary result rows with merged provenance.
+
+`combine_predictions` is a prediction-union operation. The inputs are pieces
+of one logical prediction table: separate predictors over the same candidates,
+or one predictor split into disjoint allele/peptide-length shards. It rejects
+duplicate `(prediction_method_name, kind, identity)` rows and, by default,
+requires every emitted `(prediction_method_name, kind)` group to cover the
+same identity grid. Use `coverage="partial"` only for intentionally sparse
+prediction unions.
+
 Both operations accept mixed long/wide `TopiaryResult` inputs and normalize
-internally. `combine_predictions` is stricter: it rejects duplicate
-`(prediction_method_name, kind, identity)` predictions and validates prediction
-coverage. Bare DataFrames are still accepted by `combine_predictions` for
-compatibility with fresh `TopiaryPredictor` outputs, but are coerced into
-`TopiaryResult` before validation. The older `concat` and
-`combine_predictor_results` names remain compatibility aliases.
+internally. Fresh `TopiaryPredictor` DataFrame outputs may also be passed to
+`combine_predictions`; they are first wrapped as `TopiaryResult` objects and
+then validated with the same rules.
 
 ## CachedPredictor
 

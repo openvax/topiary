@@ -1,14 +1,13 @@
-"""Tests for topiary.result — TopiaryResult wrapper and concat()."""
+"""Tests for topiary.result — TopiaryResult wrapper and stack_results()."""
 
 import pandas as pd
 import pytest
 
 from topiary import (
     TopiaryResult,
-    append_results,
-    concat,
     from_wide,
     read_tsv,
+    stack_results,
     to_tsv,
     to_wide,
 )
@@ -249,7 +248,7 @@ class TestFormConversion:
         assert "netmhcpan_affinity_value" in wide_df.columns
         assert "kind" in long_df.columns
 
-    def test_form_assignment_switches_active_view_for_compatibility(self):
+    def test_form_assignment_switches_active_view(self):
         r = TopiaryResult(_sample_long_df())
 
         r.form = "wide"
@@ -289,7 +288,7 @@ class TestSerialization:
         assert len(r2) == 2
 
     def test_to_tsv_accepts_bare_df(self, tmp_path):
-        """Backward compat: to_tsv still works on a bare DataFrame."""
+        """Top-level writers still accept a bare DataFrame."""
         df = _sample_long_df()
         path = tmp_path / "bare.tsv"
         to_tsv(df, path)
@@ -330,11 +329,11 @@ class TestLoaderSource:
 
 
 # ---------------------------------------------------------------------------
-# concat()
+# stack_results()
 # ---------------------------------------------------------------------------
 
 
-class TestConcat:
+class TestStackResults:
     def _make_r(self, value, source_tag, model_version="4.1b"):
         df = pd.DataFrame([dict(
             peptide="SIINFEKL", allele="HLA-A*02:01",
@@ -351,35 +350,35 @@ class TestConcat:
         )
         return TopiaryResult(df, meta)
 
-    def test_concat_basic(self):
+    def test_stack_basic(self):
         r1 = self._make_r(100.0, "patient01")
         r2 = self._make_r(200.0, "patient02")
-        combined = append_results([r1, r2])
+        combined = stack_results([r1, r2])
         assert len(combined) == 2
 
-    def test_result_append_convenience(self):
+    def test_result_stack_with_convenience(self):
         r1 = self._make_r(100.0, "patient01")
         r2 = self._make_r(200.0, "patient02")
         r3 = self._make_r(300.0, "patient03")
 
-        combined = r1.append([r2, r3])
+        combined = r1.stack_with([r2, r3])
 
         assert len(combined) == 3
         assert combined.sources == ["patient01", "patient02", "patient03"]
 
-    def test_concat_sources_merged(self):
+    def test_stack_sources_merged(self):
         r1 = self._make_r(100.0, "patient01")
         r2 = self._make_r(200.0, "patient02")
-        combined = append_results([r1, r2])
+        combined = stack_results([r1, r2])
         assert combined.sources == ["patient01", "patient02"]
 
-    def test_concat_preserves_source_column(self):
+    def test_stack_preserves_source_column(self):
         r1 = self._make_r(100.0, "patient01")
         r2 = self._make_r(200.0, "patient02")
-        combined = concat([r1, r2])
+        combined = stack_results([r1, r2])
         assert set(combined["source"].unique()) == {"patient01", "patient02"}
 
-    def test_concat_models_union(self):
+    def test_stack_models_union(self):
         r1 = self._make_r(100.0, "p1", model_version="4.1b")
         r2 = pd.DataFrame([dict(
             peptide="X", allele="A",
@@ -389,55 +388,55 @@ class TestConcat:
             source="p2",
         )])
         r2 = TopiaryResult(r2, Metadata(form="long", models={"mhcflurry": "2.1.1"}, sources=["p2"]))
-        combined = concat([r1, r2])
+        combined = stack_results([r1, r2])
         assert combined.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
 
-    def test_concat_version_conflict_warns(self):
+    def test_stack_version_conflict_warns(self):
         r1 = self._make_r(100.0, "p1", model_version="4.1b")
         r2 = self._make_r(200.0, "p2", model_version="4.2")
         with pytest.warns(UserWarning, match="conflicting versions"):
-            concat([r1, r2])
+            stack_results([r1, r2])
 
-    def test_concat_mixed_forms_materializes_long_result(self):
+    def test_stack_mixed_forms_materializes_long_result(self):
         r_long = self._make_r(100.0, "p1")
         r_wide = self._make_r(200.0, "p2").to_wide()
 
-        combined = concat([r_long, r_wide])
+        combined = stack_results([r_long, r_wide])
 
         assert combined.form == "long"
         assert "kind" in combined.columns
         assert len(combined) == 2
         assert combined.sources == ["p1", "p2"]
 
-    def test_concat_all_wide_preserves_wide_active_form(self):
+    def test_stack_all_wide_preserves_wide_active_form(self):
         r1 = self._make_r(100.0, "p1").to_wide()
         r2 = self._make_r(200.0, "p2").to_wide()
 
-        combined = concat([r1, r2])
+        combined = stack_results([r1, r2])
 
         assert combined.form == "wide"
         assert "netmhcpan_affinity_value" in combined.columns
         assert "kind" not in combined.columns
 
-    def test_concat_empty_list(self):
-        combined = concat([])
+    def test_stack_empty_list(self):
+        combined = stack_results([])
         assert isinstance(combined, TopiaryResult)
         assert len(combined) == 0
 
-    def test_concat_single(self):
+    def test_stack_single(self):
         r = self._make_r(100.0, "p1")
-        combined = concat([r])
+        combined = stack_results([r])
         assert len(combined) == 1
 
-    def test_concat_requires_topiary_results(self):
+    def test_stack_requires_topiary_results(self):
         with pytest.raises(TypeError, match="TopiaryResult"):
-            concat([self._make_r(100.0, "p1").df])
+            stack_results([self._make_r(100.0, "p1").df])
 
-    def test_concat_then_write_roundtrip(self, tmp_path):
-        """Concat + write + read preserves sources in comment block."""
+    def test_stack_then_write_roundtrip(self, tmp_path):
+        """Stack + write + read preserves sources in comment block."""
         r1 = self._make_r(100.0, "patient01")
         r2 = self._make_r(200.0, "patient02")
-        combined = concat([r1, r2])
+        combined = stack_results([r1, r2])
 
         path = tmp_path / "merged.tsv"
         combined.to_tsv(path)
@@ -653,11 +652,11 @@ class TestFilterSortComposition:
 
 
 # ---------------------------------------------------------------------------
-# concat warnings for dropped filter/sort history
+# stack_results warnings for dropped filter/sort history
 # ---------------------------------------------------------------------------
 
 
-class TestConcatHistoryDrop:
+class TestStackHistoryDrop:
     def _make_r(self, value, source_tag, filter_str=None, sort_str=None):
         df = pd.DataFrame([dict(
             peptide="SIINFEKL", allele="HLA-A*02:01",
@@ -679,7 +678,7 @@ class TestConcatHistoryDrop:
     def test_matching_filters_preserved_silently(self, recwarn):
         r1 = self._make_r(100, "p1", filter_str="affinity <= 500")
         r2 = self._make_r(200, "p2", filter_str="affinity <= 500")
-        combined = concat([r1, r2])
+        combined = stack_results([r1, r2])
         assert combined.filter_by_str == "affinity <= 500"
         # No warning about filter/sort drop
         filter_warnings = [w for w in recwarn.list if "Dropping" in str(w.message)]
@@ -689,27 +688,27 @@ class TestConcatHistoryDrop:
         r1 = self._make_r(100, "p1", filter_str="affinity <= 500")
         r2 = self._make_r(200, "p2", filter_str="affinity <= 1000")
         with pytest.warns(UserWarning, match="Dropping filter_by metadata"):
-            combined = concat([r1, r2])
+            combined = stack_results([r1, r2])
         assert combined.filter_by_str is None
 
     def test_one_has_filter_one_doesnt_warns(self):
         r1 = self._make_r(100, "p1", filter_str="affinity <= 500")
         r2 = self._make_r(200, "p2", filter_str=None)
         with pytest.warns(UserWarning, match="Dropping filter_by metadata"):
-            combined = concat([r1, r2])
+            combined = stack_results([r1, r2])
         assert combined.filter_by_str is None
 
     def test_differing_sorts_warn_and_drop(self):
         r1 = self._make_r(100, "p1", sort_str="affinity.score")
         r2 = self._make_r(200, "p2", sort_str="presentation.score")
         with pytest.warns(UserWarning, match="Dropping sort_by metadata"):
-            combined = concat([r1, r2])
+            combined = stack_results([r1, r2])
         assert combined.sort_by_str is None
 
     def test_matching_sorts_preserved_silently(self, recwarn):
         r1 = self._make_r(100, "p1", sort_str="affinity.score")
         r2 = self._make_r(200, "p2", sort_str="affinity.score")
-        combined = concat([r1, r2])
+        combined = stack_results([r1, r2])
         assert combined.sort_by_str == "affinity.score"
         sort_warnings = [w for w in recwarn.list if "Dropping sort_by" in str(w.message)]
         assert not sort_warnings

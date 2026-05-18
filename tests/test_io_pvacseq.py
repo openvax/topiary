@@ -13,11 +13,11 @@ from topiary import (
     TopiaryResult,
     apply_filter,
     apply_sort,
-    concat,
     detect_pvacseq_format,
     melt_pvacseq_algorithms,
     read_pvacseq,
     read_tsv,
+    stack_results,
     to_tsv,
     wt,
 )
@@ -170,8 +170,8 @@ class TestLoadAggregated:
             )
 
     def test_predictor_version_is_na(self):
-        # Pinned at pd.NA so concat across files doesn't trigger the
-        # "conflicting versions" warning in topiary.concat.
+        # Pinned at pd.NA so stacking files doesn't trigger the
+        # "conflicting versions" warning in topiary.stack_results.
         r = read_pvacseq(MHC_I_AGG)
         assert r.df["predictor_version"].isna().all()
         assert r.df["wt_predictor_version"].isna().all()
@@ -303,26 +303,32 @@ class TestLoadAllEpitopes:
 
 
 # ---------------------------------------------------------------------------
-# Combining files via topiary.concat
+# Stacking files via topiary.stack_results
 # ---------------------------------------------------------------------------
 
 
-class TestConcatMultipleFiles:
-    def test_mhc_i_plus_mhc_ii_via_concat(self):
-        combined = concat([read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG)])
+class TestStackMultipleFiles:
+    def test_mhc_i_plus_mhc_ii_via_stack_results(self):
+        combined = stack_results([
+            read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG),
+        ])
         assert len(combined) == _data_row_count(MHC_I_AGG) + _data_row_count(MHC_II_AGG)
         alleles = set(combined.df["allele"].dropna())
         assert any(a.startswith(("HLA-A", "HLA-B", "HLA-C")) for a in alleles)
         assert any("D" in a for a in alleles)
 
-    def test_concat_mixed_flavors(self):
-        combined = concat([read_pvacseq(MHC_I_ALL), read_pvacseq(MHC_II_AGG)])
+    def test_stack_mixed_flavors(self):
+        combined = stack_results([
+            read_pvacseq(MHC_I_ALL), read_pvacseq(MHC_II_AGG),
+        ])
         assert len(combined) == _data_row_count(MHC_I_ALL) + _data_row_count(MHC_II_AGG)
 
-    def test_concat_preserves_per_row_source_and_mhc_class(self):
+    def test_stack_preserves_per_row_source_and_mhc_class(self):
         # Vaxrank wants to combine MHC-I + MHC-II in one ranking run and
         # split or filter by class afterward.
-        combined = concat([read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG)])
+        combined = stack_results([
+            read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG),
+        ])
         # Two distinct provenance labels.
         assert combined.df["source"].nunique() == 2
         # mhc_class lets downstream filter by class without parsing alleles.
@@ -442,11 +448,13 @@ class TestKindSupport:
         r = read_pvacseq(MHC_II_AGG)
         assert r.extra["kind_support"]["pvacseq"]["pMHC_affinity"]["mhc_class"] == "II"
 
-    def test_concat_summary_can_be_recomputed_post_concat(self):
-        # concat doesn't merge kind_support — callers can recompute
+    def test_stack_summary_can_be_recomputed_post_stack(self):
+        # stack_results doesn't merge kind_support — callers can recompute
         # from the combined allele column if needed.
         from topiary.io_pvacseq import _summarize_mhc_class
-        combined = concat([read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG)])
+        combined = stack_results([
+            read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG),
+        ])
         assert _summarize_mhc_class(combined.df["allele"]) == "both"
 
 
@@ -522,7 +530,9 @@ class TestVaxrankComposition:
         # epitope_io.py loader for topiary.read_pvacseq.  Fully native
         # DSL: numeric + categorical clauses in one expression via the
         # IsIn nodes introduced for class-I/II filtering.
-        combined = concat([read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG)])
+        combined = stack_results([
+            read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG),
+        ])
         strong = apply_filter(
             combined.df,
             (Affinity.value <= 500)
@@ -537,7 +547,9 @@ class TestVaxrankComposition:
     def test_vaxrank_shape_filter_via_parsed_string(self):
         # Same filter shape via the string DSL — what a CLI flag would feed.
         from topiary import parse
-        combined = concat([read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG)])
+        combined = stack_results([
+            read_pvacseq(MHC_I_AGG), read_pvacseq(MHC_II_AGG),
+        ])
         node = parse('affinity.value <= 500 & mhc_class == "I"')
         strong = apply_filter(combined.df, node)
         assert (strong["value"] <= 500).all()

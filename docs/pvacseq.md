@@ -52,10 +52,10 @@ Loader-derived columns aligned with `TopiaryPredictor` output so downstream code
 
 | Column | Type | What it carries |
 |--------|------|-----------------|
-| `mhc_class` | `"I"` / `"II"` / `pd.NA` | Per-row class derived from the allele. Lets concat-ed multi-class results be filtered or split by class without re-parsing alleles. |
+| `mhc_class` | `"I"` / `"II"` / `pd.NA` | Per-row class derived from the allele. Lets stacked multi-class results be filtered or split by class without re-parsing alleles. |
 | `contains_mutant_residues` | `boolean` (nullable) | True iff the row's mutation position falls inside the candidate peptide. False for flanking-only peptides where pVACseq scored a 9-mer adjacent to the mutation but the mutation lies outside. |
 | `mutation_start_in_peptide` / `mutation_end_in_peptide` | `Int64` | 0-based half-open mutation interval within the peptide. Derived from pVACseq's 1-based Pos (aggregated) or Mutation Position (all_epitopes). Single-residue semantics — multi-residue mutations collapse to a representative position. |
-| `source` | `str` | Per-row provenance label, matching `read_tsv` convention so multi-file concats stay distinguishable without rooting through `Metadata.sources`. |
+| `source` | `str` | Per-row provenance label, matching `read_tsv` convention so multi-file stacks stay distinguishable without rooting through `Metadata.sources`. |
 
 ### Annotation passthroughs
 
@@ -76,12 +76,12 @@ print(ranked.head())
 
 ### MHC-I + MHC-II combined
 
-`read_pvacseq()` doesn't expose a multi-file entry point — composition is just `topiary.append_results`:
+`read_pvacseq()` doesn't expose a multi-file entry point — composition is just `topiary.stack_results`:
 
 ```python
-from topiary import read_pvacseq, append_results
+from topiary import read_pvacseq, stack_results
 
-combined = append_results([
+combined = stack_results([
     read_pvacseq("HCC1395.MHC_I.all_epitopes.aggregated.tsv"),
     read_pvacseq("HCC1395.MHC_II.all_epitopes.aggregated.tsv"),
 ])
@@ -232,7 +232,7 @@ r.extra["kind_support"]
 apply_filter(r.df, my_filter, kind_support=r.extra["kind_support"])
 ```
 
-`pvacseq_format` is `"aggregated"` or `"all_epitopes"` (or a comma-joined string after melting / concat-ing).
+`pvacseq_format` is `"aggregated"` or `"all_epitopes"` (or a comma-joined string after melting / stacking).
 
 ## Caveats and known limitations
 

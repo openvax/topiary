@@ -154,7 +154,7 @@ class TopiaryResult:
 
     @property
     def form(self):
-        """Form of the active ``.df`` view, kept for backward compatibility."""
+        """Form of the active ``.df`` view."""
         if self._df is self._long_df:
             return "long"
         if self._df is self._wide_df:
@@ -187,7 +187,7 @@ class TopiaryResult:
 
     @property
     def df(self):
-        """Active DataFrame view for backward-compatible pandas access."""
+        """Active DataFrame view for pandas-style access."""
         return self._df
 
     @df.setter
@@ -430,12 +430,12 @@ class TopiaryResult:
 
     # -- Result merging ----------------------------------------------------
 
-    def append(self, *others):
-        """Append independent TopiaryResults as more result rows.
+    def stack_with(self, *others):
+        """Stack independent TopiaryResults as more result rows.
 
-        This is the object-oriented form of :func:`append_results`.
+        This is the object-oriented form of :func:`stack_results`.
         """
-        return append_results(_with_self(self, others))
+        return stack_results(_with_self(self, others))
 
     def combine_predictions(
         self, *others, on=("peptide", "allele"), coverage="complete",
@@ -527,19 +527,19 @@ def _with_self(result, others):
     return [result, *others]
 
 
-def append_results(results):
-    """Append independent TopiaryResults as more result rows.
+def stack_results(results):
+    """Stack independent TopiaryResults as more result rows.
 
     Parameters
     ----------
     results : iterable of TopiaryResult
-        Results to append. Long and wide results may be mixed; mixed
+        Results to stack. Long and wide results may be mixed; mixed
         inputs are normalized to long form.
 
     Returns
     -------
     TopiaryResult
-        DataFrames appended; metadata merged (sources concatenated,
+        DataFrames stacked; metadata merged (sources combined,
         models union with warning on version conflicts; filter_by / sort_by
         preserved only if all inputs agree).  The active output form is the
         shared input form when all inputs match, otherwise long.
@@ -550,15 +550,15 @@ def append_results(results):
     for result in results:
         if not isinstance(result, TopiaryResult):
             raise TypeError(
-                "topiary.append_results expects TopiaryResult inputs; use "
+                "topiary.stack_results expects TopiaryResult inputs; use "
                 "TopiaryResult(df) to attach Topiary semantics before "
-                f"appending, got {type(result).__name__}"
+                f"stacking, got {type(result).__name__}"
             )
 
     forms = {r.form for r in results}
     if "unknown" in forms:
         raise ValueError(
-            f"Cannot append TopiaryResults with unknown form: {forms}"
+            f"Cannot stack TopiaryResults with unknown form: {forms}"
         )
     form = results[0].form if len(forms) == 1 else "long"
 
@@ -601,7 +601,7 @@ def append_results(results):
         if any(r.filter_by_str for r in results):
             present = sorted({r.filter_by_str for r in results if r.filter_by_str})
             warnings.warn(
-                "Dropping filter_by metadata: inputs to append_results() have "
+                "Dropping filter_by metadata: inputs to stack_results() have "
                 f"differing filter history (found: {present}).  The rows are "
                 "still filtered per their individual histories, but the "
                 "combined result has no single filter expression that "
@@ -620,8 +620,8 @@ def append_results(results):
         if any(r.sort_by_str for r in results):
             present = sorted({r.sort_by_str for r in results if r.sort_by_str})
             warnings.warn(
-                "Dropping sort_by metadata: inputs to append_results() have "
-                f"differing sort history (found: {present}).  The concatenated "
+                "Dropping sort_by metadata: inputs to stack_results() have "
+                f"differing sort history (found: {present}).  The stacked "
                 "rows are no longer in a consistent sort order.",
                 UserWarning,
                 stacklevel=2,
@@ -632,7 +632,7 @@ def append_results(results):
     elif form == "wide":
         frames = [r.wide_df for r in results]
     else:
-        raise ValueError(f"Cannot append TopiaryResults with form {form!r}")
+        raise ValueError(f"Cannot stack TopiaryResults with form {form!r}")
 
     df = pd.concat(frames, ignore_index=True)
 
@@ -650,15 +650,10 @@ def append_results(results):
     )
 
 
-def concat(results):
-    """Compatibility alias for :func:`append_results`."""
-    return append_results(results)
-
-
 def combine_predictions(results, on=("peptide", "allele"), coverage="complete"):
     """Combine complementary predictor outputs into one prediction result.
 
-    This is stricter than :func:`append_results`: duplicate predictions are
+    This is stricter than :func:`stack_results`: duplicate predictions are
     rejected, and by default every emitted prediction method/kind must cover
     the same identity key set.  It supports both common split patterns:
 
@@ -704,7 +699,7 @@ def combine_predictions(results, on=("peptide", "allele"), coverage="complete"):
 
     results = [_drop_non_identity_source(result, on) for result in results]
     identity_columns = _identity_columns(results, on)
-    combined = append_results(results)
+    combined = stack_results(results)
     _validate_no_duplicate_predictions(combined.df, identity_columns)
     if coverage == "complete":
         _validate_complete_prediction_coverage(combined.df, identity_columns)
@@ -714,13 +709,6 @@ def combine_predictions(results, on=("peptide", "allele"), coverage="complete"):
         extra.pop("kind_support", None)
         combined.extra = extra
     return combined
-
-
-def combine_predictor_results(
-    results, on=("peptide", "allele"), coverage="complete",
-):
-    """Compatibility alias for :func:`combine_predictions`."""
-    return combine_predictions(results, on=on, coverage=coverage)
 
 
 def _as_topiary_result(result):

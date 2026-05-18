@@ -10,7 +10,6 @@ from topiary import (
     TopiaryPredictor,
     TopiaryResult,
     combine_predictions,
-    combine_predictor_results,
     read_csv,
     read_tsv,
     to_wide,
@@ -281,7 +280,7 @@ def test_combine_same_method_split_by_allele_and_length_matches_direct_run():
                 ).predict_from_named_peptides(peptides)
             )
 
-    combined = combine_predictor_results(split_results)
+    combined = combine_predictions(split_results)
 
     pd.testing.assert_frame_equal(
         _sort_predictions(_without_run_name(combined.df)),
@@ -326,7 +325,7 @@ def test_combine_multi_method_inputs_split_by_allele_match_direct_run():
             ]).predict_from_named_peptides(peptides)
         )
 
-    combined = combine_predictor_results(split_results)
+    combined = combine_predictions(split_results)
 
     pd.testing.assert_frame_equal(
         _sort_predictions(combined.df),
@@ -353,7 +352,7 @@ def test_combined_split_grid_supports_best_ba_and_el_allele_aggregation():
         for allele in alleles
         for peptide_length in [8, 9, 10]
     ]
-    combined = combine_predictor_results(split_results)
+    combined = combine_predictions(split_results)
     ctx = EvalContext(combined.df)
 
     best_ba_allele = Affinity["netmhcpan"].best_value_allele.eval(ctx)
@@ -379,9 +378,9 @@ def test_combine_haplotype_style_presentation_uses_partial_coverage():
     ).predict_from_named_peptides(peptides)
 
     with pytest.raises(ValueError, match="coverage='complete'"):
-        combine_predictor_results([netmhcpan_rows, mhcflurry_rows])
+        combine_predictions([netmhcpan_rows, mhcflurry_rows])
 
-    combined = combine_predictor_results(
+    combined = combine_predictions(
         [netmhcpan_rows, mhcflurry_rows],
         coverage="partial",
     )
@@ -445,7 +444,7 @@ def test_prediction_run_name_does_not_split_wide_rows():
         for allele in alleles
     ]
 
-    combined = combine_predictor_results(split_results)
+    combined = combine_predictions(split_results)
     wide = to_wide(combined.df)
 
     assert "prediction_run_name" not in wide.columns
@@ -470,7 +469,7 @@ def test_combine_rejects_overlapping_named_shards():
     ).predict_from_named_peptides(peptides)
 
     with pytest.raises(ValueError, match="duplicate predictions"):
-        combine_predictor_results([shard_a, shard_b])
+        combine_predictions([shard_a, shard_b])
 
 
 def test_combine_roundtripped_topiary_results(tmp_path):
@@ -494,7 +493,7 @@ def test_combine_roundtripped_topiary_results(tmp_path):
     net_only.to_tsv(net_path)
     flurry_only.to_csv(flurry_path)
 
-    combined = combine_predictor_results([
+    combined = combine_predictions([
         read_tsv(net_path),
         read_csv(flurry_path),
     ])
@@ -529,7 +528,7 @@ def test_combine_accepts_wide_topiary_results():
         TopiaryPredictor(models=mhcflurry).predict_from_named_peptides(peptides)
     ).to_wide()
 
-    combined = combine_predictor_results([net_wide, flurry_wide])
+    combined = combine_predictions([net_wide, flurry_wide])
 
     assert combined.form == "long"
     pd.testing.assert_frame_equal(
@@ -541,7 +540,7 @@ def test_combine_accepts_wide_topiary_results():
 def test_combine_ignores_empty_bare_dataframes():
     result = _simple_result("netmhcpan")
 
-    combined = combine_predictor_results([pd.DataFrame(), result])
+    combined = combine_predictions([pd.DataFrame(), result])
 
     assert len(combined) == 1
     assert combined.models == {"netmhcpan": "1.0"}
@@ -570,7 +569,7 @@ def test_combine_recomputes_models_from_combined_rows():
         models=stale_models,
     )
 
-    combined = combine_predictor_results([net_only, flurry_only])
+    combined = combine_predictions([net_only, flurry_only])
 
     assert combined.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
     assert combined.metadata.models == combined.models
@@ -590,7 +589,7 @@ def test_combine_fills_missing_row_versions_from_observed_metadata():
 
     assert TopiaryResult(flurry_df).models == {"mhcflurry": "2.1.1"}
 
-    combined = combine_predictor_results([net_df, flurry_df])
+    combined = combine_predictions([net_df, flurry_df])
 
     assert combined.models == {"netmhcpan": "4.1b", "mhcflurry": "2.1.1"}
 
@@ -600,7 +599,7 @@ def test_combine_rejects_different_identity_sets():
     r2 = _simple_result("mhcflurry", peptide="ELAGIGILT")
 
     with pytest.raises(ValueError, match="coverage='complete'"):
-        combine_predictor_results([r1, r2])
+        combine_predictions([r1, r2])
 
 
 def test_combine_rejects_incomplete_method_coverage_within_one_input():
@@ -620,21 +619,21 @@ def test_combine_rejects_incomplete_method_coverage_within_one_input():
     result = TopiaryResult(pd.concat([method_a, method_b], ignore_index=True))
 
     with pytest.raises(ValueError, match="coverage='complete'"):
-        combine_predictor_results([result])
+        combine_predictions([result])
 
 
 def test_combine_partial_coverage_allows_sparse_union():
     r1 = _simple_result("netmhcpan", peptide="SIINFEKLA")
     r2 = _simple_result("mhcflurry", peptide="ELAGIGILT")
 
-    combined = combine_predictor_results([r1, r2], coverage="partial")
+    combined = combine_predictions([r1, r2], coverage="partial")
 
     assert len(combined) == 2
 
 
 def test_combine_rejects_unknown_coverage_mode():
     with pytest.raises(ValueError, match="coverage"):
-        combine_predictor_results([_simple_result("netmhcpan")], coverage="loose")
+        combine_predictions([_simple_result("netmhcpan")], coverage="loose")
 
 
 @pytest.mark.parametrize("column", sorted(_CONTEXT_MISMATCH_VALUES))
@@ -647,14 +646,14 @@ def test_combine_rejects_mismatched_context_columns(
     inputs = _input_pair(tmp_path, input_type, r1, r2)
 
     with pytest.raises(ValueError, match=column):
-        combine_predictor_results(inputs)
+        combine_predictions(inputs)
 
 
 def test_combine_treats_null_identity_keys_as_equal():
     r1 = _simple_result("netmhcpan", allele=pd.NA)
     r2 = _simple_result("mhcflurry", allele=pd.NA)
 
-    combined = combine_predictor_results([r1, r2])
+    combined = combine_predictions([r1, r2])
 
     assert len(combined) == 2
 
@@ -664,7 +663,7 @@ def test_combine_rejects_duplicate_prediction_methods():
     r2 = _simple_result("netmhcpan")
 
     with pytest.raises(ValueError, match="duplicate predictions"):
-        combine_predictor_results([r1, r2])
+        combine_predictions([r1, r2])
 
 
 def test_combine_allows_same_method_across_samples():
@@ -675,7 +674,7 @@ def test_combine_allows_same_method_across_samples():
     sample_b.df["value"] = 1000.0
     sample_b.df["affinity"] = 1000.0
 
-    combined = combine_predictor_results([sample_a, sample_b])
+    combined = combine_predictions([sample_a, sample_b])
     ctx = EvalContext(combined.df)
     scores = Affinity["netmhcpan"].value.eval(ctx)
     filtered = combined.filter_by("affinity <= 500")
@@ -728,7 +727,7 @@ def test_combine_ignores_legacy_kind_support_metadata():
     r1.extra["kind_support"] = "not a mapping"
     r2 = _simple_result("mhcflurry")
 
-    combined = combine_predictor_results([r1, r2])
+    combined = combine_predictions([r1, r2])
 
     assert "kind_support" not in combined.extra
 

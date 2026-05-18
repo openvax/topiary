@@ -4,7 +4,7 @@
 
 **Combine separate predictor runs (#170):**
 
-`topiary.combine_predictions([a, b, ...])` stacks separate
+`topiary.combine_predictions([a, b, ...])` combines separate
 predictor outputs into the same long-form shape produced by running
 those predictors together. It accepts `TopiaryResult` or fresh
 `TopiaryPredictor` DataFrame outputs, supports both split-by-predictor
@@ -43,16 +43,15 @@ and the ranking DSL's `best_*_allele` accessors for allele attribution.
 
 `TopiaryResult` now treats long/wide representation as an internal,
 cached view concern. Results expose `long_df` and `wide_df` on demand,
-`to_long()` / `to_wide()` return results with that active compatibility
-`df` view, and `topiary.append_results()` normalizes mixed-form TopiaryResults
+`to_long()` / `to_wide()` return results with that active `df` view,
+and `topiary.stack_results()` normalizes mixed-form TopiaryResults
 internally rather than requiring callers to pre-convert them.
 
 Result merging now has user-facing names for the two distinct operations:
-use `append_results` / `result.append(...)` when inputs are more rows
-(files, samples, cohorts), and use `combine_predictions` /
+use `stack_results` / `result.stack_with(...)` when inputs are independent
+result sets (files, samples, cohorts), and use `combine_predictions` /
 `result.combine_predictions(...)` when inputs are complementary predictor
-outputs for the same logical identity grid. The older `concat` and
-`combine_predictor_results` names remain as compatibility aliases.
+outputs for the same logical identity grid.
 
 ## 5.16.1
 
@@ -103,7 +102,7 @@ selector won't find them — callers wanting per-algorithm DSL access
 should melt them out themselves or re-predict via `TopiaryPredictor`.
 
 Multiple files (MHC-I + MHC-II, or a mix of flavors) compose through
-`topiary.append_results([read_pvacseq(p1), read_pvacseq(p2)])`; no dedicated
+`topiary.stack_results([read_pvacseq(p1), read_pvacseq(p2)])`; no dedicated
 multi-file entry point is exposed.
 
 Loader-derived columns aligned with `TopiaryPredictor` output so
@@ -111,7 +110,7 @@ downstream consumers (vaxrank, etc.) don't have to special-case the
 loader source:
 
 - `mhc_class` (`"I"` / `"II"`) — derived from the allele string;
-  lets concat-ed MHC-I + MHC-II results be filtered or split by class.
+  lets stacked MHC-I + MHC-II results be filtered or split by class.
 - `contains_mutant_residues` (boolean) — true iff the row's mutation
   position falls inside the candidate peptide; false for flanking-only
   peptides that pVACseq scored but where the mutation lies outside.
@@ -119,7 +118,7 @@ loader source:
   0-based half-open) — derived from pVACseq's 1-based Pos / Mutation
   Position.
 - `source` — per-row provenance label, matching `read_tsv`
-  convention; keeps multi-file concats distinguishable without rooting
+  convention; keeps multi-file stacks distinguishable without rooting
   through `Metadata.sources`.
 
 `Metadata.extra["kind_support"]` mirrors `TopiaryPredictor.kind_support`
@@ -912,7 +911,7 @@ changes, just internal cleanup.
   `iterrows`, etc.) so most existing DataFrame-style code continues to
   work.  Provides `to_wide()`, `to_long()`, `to_tsv()`, `to_csv()`,
   `filter_by()`, `sort_by()`.
-- `topiary.concat([r1, r2, ...])` merges `TopiaryResult`s, unioning
+- `topiary.stack_results([r1, r2, ...])` merges `TopiaryResult`s, unioning
   models (warns on version conflicts), concatenating sources, and
   preserving filter/sort history only if all inputs agree.
 - `read_tsv` / `read_csv` accept a `tag=` kwarg to label the source of

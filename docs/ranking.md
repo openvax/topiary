@@ -371,7 +371,8 @@ combined = TopiaryPredictor(
 ```
 
 When predictors need to run separately, use `combine_predictions` to
-stack the outputs back into the same long-form shape:
+turn their complementary prediction rows back into the same long-form
+shape:
 
 ```python
 from mhctools import NetMHCpan, MHCflurry
