@@ -15,12 +15,17 @@ the data normally.  Topiary's ``read_tsv`` / ``read_csv`` additionally
 parse the comment block into a :class:`Metadata` object.
 """
 
+import ast
+import json
 from collections import OrderedDict
 from dataclasses import dataclass, field as dataclass_field
 from io import StringIO
 from pathlib import Path
 
 import pandas as pd
+
+
+_JSON_EXTRA_PREFIX = "json:"
 
 
 @dataclass
@@ -72,7 +77,7 @@ def _parse_comment_block(lines):
             model_name = key[len("model:"):]
             meta.models[model_name] = value
         else:
-            meta.extra[key] = value
+            meta.extra[key] = _parse_extra_value(key, value)
 
     # Also parse bare #model:name lines (no =, version-less).
     # These were skipped by the "=" check above, so re-scan.
@@ -108,8 +113,148 @@ def _format_comment_block(meta):
     if meta.sort_by:
         lines.append(f"#sort_by={meta.sort_by}")
     for key, value in meta.extra.items():
-        lines.append(f"#{key}={value}")
+        lines.append(f"#{key}={_format_extra_value(value)}")
     return "\n".join(lines)
+
+
+def _parse_extra_value(key, value):
+    """Parse a comment-block extra value."""
+    if value.startswith(_JSON_EXTRA_PREFIX):
+        json_value = value[len(_JSON_EXTRA_PREFIX):]
+        try:
+            return json.loads(json_value, object_pairs_hook=OrderedDict)
+        except json.JSONDecodeError:
+            return value
+
+    if key == "kind_support":
+        # Compatibility for files written before structured extras used an
+        # explicit JSON marker.
+        for parser in (
+            lambda v: json.loads(v, object_pairs_hook=OrderedDict),
+            ast.literal_eval,
+        ):
+            try:
+                parsed = parser(value)
+            except (SyntaxError, ValueError, TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+
+    return value
+
+
+def _format_extra_value(value):
+    """Format a Metadata.extra value for the comment block."""
+    if isinstance(value, (dict, list)):
+        try:
+            return _JSON_EXTRA_PREFIX + json.dumps(value, separators=(",", ":"))
+        except TypeError:
+            pass
+    return str(value)
+
+
+def _models_from_long_rows(df):
+    """Extract observed model versions from long-form rows, if possible."""
+    if "prediction_method_name" not in df.columns:
+        return None
+
+    models = OrderedDict()
+    for method, rows in (
+        df.dropna(subset=["prediction_method_name"])
+        .groupby("prediction_method_name", sort=False)
+    ):
+        method_str = str(method).strip()
+        if not method_str:
+            continue
+        models[method_str] = _version_from_rows(rows)
+    return models or None
+
+
+def _version_from_rows(rows):
+    if "predictor_version" not in rows.columns:
+        return ""
+    for version in rows["predictor_version"]:
+        version_str = _model_version_str(version)
+        if version_str:
+            return version_str
+    return ""
+
+
+def _model_version_str(value):
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
+
+
+def _observed_model_names(df):
+    """Return model names visible in prediction columns, or None if unknown."""
+    if "prediction_method_name" in df.columns:
+        return {
+            str(method).strip()
+            for method in df["prediction_method_name"].dropna().unique()
+            if str(method).strip()
+        }
+
+    from .wide import _parse_wide_column
+
+    models = set()
+    for column in df.columns:
+        parsed = _parse_wide_column(str(column))
+        if parsed is not None and parsed[0]:
+            models.add(str(parsed[0]))
+    return models if models else None
+
+
+def _models_from_attrs(df):
+    """Extract non-stale model attrs by intersecting with observed models."""
+    if not hasattr(df, "attrs"):
+        return OrderedDict()
+
+    attr_models = df.attrs.get("topiary_models")
+    if not attr_models:
+        return OrderedDict()
+
+    observed = _observed_model_names(df)
+    if observed is None:
+        return OrderedDict()
+
+    return OrderedDict(
+        (str(model), str(version))
+        for model, version in attr_models.items()
+        if str(model) in observed
+    )
+
+
+def _models_from_dataframe(df):
+    """Extract model metadata from the DataFrame contents before attrs."""
+    row_models = _models_from_long_rows(df)
+    if row_models is not None:
+        return _fill_missing_model_versions(row_models, _models_from_attrs(df))
+    return _models_from_attrs(df)
+
+
+def _fill_missing_model_versions(models, *fallbacks):
+    models = OrderedDict(models)
+    fallback_models = [
+        OrderedDict(
+            (str(model).strip(), _model_version_str(version))
+            for model, version in fallback.items()
+            if str(model).strip()
+        )
+        for fallback in fallbacks
+        if fallback
+    ]
+    for model, version in models.items():
+        if version:
+            continue
+        for fallback in fallback_models:
+            if fallback.get(model):
+                models[model] = fallback[model]
+                break
+    return models
 
 
 # -- Read ------------------------------------------------------------------
@@ -182,11 +327,13 @@ def _write_delimited(df, path, sep, metadata, index):
     from . import __version__
     from .wide import detect_form
 
+    metadata_from_result = False
     # Accept TopiaryResult too — pull out its df and metadata.
     # Use duck typing to avoid a circular import.
     if hasattr(df, "df") and hasattr(df, "metadata"):
         if metadata is None:
             metadata = df.metadata
+            metadata_from_result = True
         df = df.df
 
     path = Path(path)
@@ -200,24 +347,14 @@ def _write_delimited(df, path, sep, metadata, index):
     if not metadata.form:
         metadata.form = detect_form(df)
 
-    # Auto-extract model versions from long-form data.
-    if (
-        not metadata.models
-        and "prediction_method_name" in df.columns
-        and "predictor_version" in df.columns
-    ):
-        for method, version in (
-            df.dropna(subset=["prediction_method_name"])
-            .groupby("prediction_method_name")["predictor_version"]
-            .first()
-            .items()
-        ):
-            version_str = str(version).strip() if pd.notna(version) else ""
-            if version_str:
-                metadata.models[str(method)] = version_str
-            else:
-                # Record model even without version
-                metadata.models[str(method)] = ""
+    row_models = _models_from_long_rows(df)
+    df_models = _models_from_dataframe(df)
+    if metadata_from_result and row_models is not None:
+        metadata.models = _fill_missing_model_versions(
+            df_models, metadata.models,
+        )
+    elif not metadata.models:
+        metadata.models.update(df_models)
 
     comment_block = _format_comment_block(metadata)
 

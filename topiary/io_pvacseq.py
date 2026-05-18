@@ -26,7 +26,7 @@ and other downstream consumers don't have to special-case loader source:
   Position.  Single-residue semantics; indels / frameshifts collapse to
   a representative position.
 - ``source`` — per-row provenance label (tag or ``pvacseq-{flavor}:{filename}``),
-  matching :func:`read_tsv` convention so multi-file concats stay
+  matching :func:`read_tsv` convention so multi-file stacks stay
   distinguishable.
 
 For missense aggregated rows, the WT peptide sequence is reconstructed
@@ -492,7 +492,7 @@ def _finalize(parsed, *, source):
     """Add synthesized constants, mirrors, and column order in one allocation.
 
     *source* is stamped on every row to match topiary's read_tsv provenance
-    convention; downstream concat across MHC-I and MHC-II files stays
+    convention; downstream stacking across MHC-I and MHC-II files stays
     distinguishable without rooting through Metadata.
     """
     # peptide_offset = 0: pVACseq doesn't ship the source-protein offset
@@ -550,7 +550,7 @@ def read_pvacseq(path, *, tag=None) -> TopiaryResult:
     TopiaryResult
         Long-form DataFrame with one row per (peptide, allele) and
         ``Metadata.extra["pvacseq_format"]`` recording the file flavor.
-        Compose multiple files with :func:`topiary.concat`.
+        Compose multiple files with :func:`topiary.stack_results`.
     """
     path = Path(path)
     # "X" is pVACseq's sentinel for "this algorithm didn't score this

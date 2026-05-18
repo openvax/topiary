@@ -159,6 +159,39 @@ class _AffinityPlusPresentationModel(RandomBindingPredictor):
         return pd.concat([affinity_df, presentation_df], ignore_index=True)
 
 
+class _ToyVersionModel:
+    default_peptide_lengths = [9]
+    supported_kinds = ("pMHC_affinity",)
+
+    def __init__(self, name, version, row_version):
+        self.prediction_method_name = name
+        self.predictor_version = version
+        self.row_version = row_version
+
+    def predict_dataframe(self, peptides):
+        rows = []
+        for peptide in peptides:
+            rows.append({
+                "peptide": peptide,
+                "allele": "HLA-A*02:01",
+                "kind": "pMHC_affinity",
+                "score": 0.5,
+                "value": 100.0,
+                "percentile_rank": 1.0,
+                "predictor_name": self.prediction_method_name,
+            })
+        df = pd.DataFrame(rows)
+        if self.row_version == "missing":
+            return df
+        if self.row_version == "blank":
+            df["predictor_version"] = ""
+        elif self.row_version == "na":
+            df["predictor_version"] = pd.NA
+        else:
+            df["predictor_version"] = self.row_version
+        return df
+
+
 def test_end_to_end_presentation_value_populated():
     # Public-API check: presentation rows produced through
     # predict_from_named_sequences must report value == score (not NaN),
@@ -175,6 +208,35 @@ def test_end_to_end_presentation_value_populated():
     assert pres["affinity"].isna().all()
     assert not aff["value"].isna().any()
     assert (aff["value"] == aff["affinity"]).all()
+
+
+@pytest.mark.parametrize("missing_state", ["missing", "blank", "na"])
+def test_result_attrs_fill_versions_per_missing_method(tmp_path, missing_state):
+    from topiary import TopiaryResult, read_tsv
+
+    predictor = TopiaryPredictor(models=[
+        _ToyVersionModel("with_rows", "1.0", "1.0"),
+        _ToyVersionModel("from_model", "2.0", missing_state),
+    ])
+
+    df = predictor.predict_from_named_peptides({"pep": "SIINFEKLA"})
+
+    assert df.attrs["topiary_models"] == {
+        "with_rows": "1.0",
+        "from_model": "2.0",
+    }
+    assert TopiaryResult(df).models == {
+        "with_rows": "1.0",
+        "from_model": "2.0",
+    }
+
+    path = tmp_path / "predictions.tsv"
+    TopiaryResult(df).to_tsv(path)
+
+    assert read_tsv(path).models == {
+        "with_rows": "1.0",
+        "from_model": "2.0",
+    }
 
 
 # ---------------------------------------------------------------------------

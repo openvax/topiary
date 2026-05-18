@@ -356,6 +356,109 @@ should use the recommended forms above.
 default is `auto`: raw affinity values and percentile ranks sort ascending,
 while all other sort expressions sort descending.
 
+## Combining Separate Predictor Runs
+
+Run predictors together when that is convenient:
+
+```python
+from mhctools import NetMHCpan, MHCflurry
+from topiary import TopiaryPredictor
+
+combined = TopiaryPredictor(
+    models=[NetMHCpan, MHCflurry],
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+).predict_from_named_peptides(peptides)
+```
+
+When predictors need to run separately, use `combine_predictions` to
+turn their complementary prediction rows back into the same long-form
+shape:
+
+```python
+from mhctools import NetMHCpan, MHCflurry
+from topiary import TopiaryPredictor, combine_predictions
+
+netmhcpan_rows = TopiaryPredictor(
+    models=NetMHCpan,
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+).predict_from_named_peptides(peptides)
+
+mhcflurry_rows = TopiaryPredictor(
+    models=MHCflurry,
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+).predict_from_named_peptides(peptides)
+
+combined = combine_predictions([netmhcpan_rows, mhcflurry_rows])
+```
+
+`TopiaryResult` owns the long/wide representation.  Loaders may naturally
+produce wide results (for example LENS) or long results (for example pVACseq
+and fresh predictor outputs), but callers can use `result.long_df`,
+`result.wide_df`, `result.to_long()`, or `result.to_wide()` on demand. Topiary
+merge functions normalize those forms internally instead of making callers
+choose a representation before combining results.
+
+You can also shard the same predictor over allele or peptide-length batches and
+combine the shards.  Use `TopiaryPredictor(name=...)` when you want to keep
+track of which batch produced each row:
+
+```python
+shards = []
+for allele in ["HLA-A*02:01", "HLA-B*07:02"]:
+    for length in [8, 9, 10, 11]:
+        length_peptides = {
+            name: peptide
+            for name, peptide in peptides.items()
+            if len(peptide) == length
+        }
+        shards.append(
+            TopiaryPredictor(
+                models=NetMHCpan,
+                alleles=[allele],
+                name=f"netmhcpan_{allele}_len{length}",
+            ).predict_from_named_peptides(length_peptides)
+        )
+
+combined = combine_predictions(shards)
+```
+
+`prediction_method_name` is still the logical predictor name (`netmhcpan` in
+the example above).  The optional `prediction_run_name` column is only
+provenance for a particular run or shard.  That distinction lets distinct
+NetMHCpan allele/length shards combine into one logical NetMHCpan result,
+while overlapping shards with the same `(prediction_method_name, kind,
+peptide, allele, sample/source context)` still fail as duplicates.
+`to_wide()` drops `prediction_run_name` from the grouping keys, so a named
+split run has the same wide shape as a single unsplit run.
+
+The helper is intentionally strict. It rejects duplicate
+`(prediction_method_name, kind, identity)` rows, and by default requires every
+emitted `(prediction_method_name, kind)` group to cover the same peptide/allele
+identity grid. This catches incomplete split runs before `to_wide()` can
+produce half-populated rows. If you intentionally want a sparse union, pass
+`coverage="partial"`; duplicate predictions are still rejected.
+
+The combined result preserves the original rows: use each row's
+`prediction_method_name`, `predictor_version`, `kind`, and value/rank columns
+to inspect which predictor produced which quantity.  Use
+`prediction_run_name` only to audit the batch that produced a row, not as a DSL
+selector.
+
+Allele aggregation remains part of the ranking DSL: for example,
+`Affinity["netmhcpan"].best_value_allele` and
+`Presentation["netmhcpan"].best_score_allele` report the allele associated
+with the best BA or EL value across the combined allele grid.  For predictors
+that emit one row per allele, such as NetMHCpan or MHCflurry in single-allele
+mode, this is the best per-allele row after all shards are combined.  For
+MHCflurry presentation in haplotype mode, MHCflurry itself sees the allele set
+together and may emit one deconvolved best-allele row; combining independent
+single-allele MHCflurry shards is therefore not the same calculation as a
+direct haplotype-mode MHCflurry run.  If you intentionally combine haplotype
+presentation rows with per-allele rows, use `coverage="partial"` because those
+kinds have different identity grids by construction.  Processing-only
+quantities that do not depend on allele should be read directly rather than
+through `best_*`.
+
 ## Putting it together
 
 ```python

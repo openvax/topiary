@@ -297,6 +297,16 @@ class TestToWide:
         assert "gene_tpm" in wide.columns
         assert wide.iloc[0]["gene"] == "BRAF"
 
+    def test_null_context_columns_do_not_drop_wide_rows(self):
+        df = _long_df_single_model()
+        df["gene"] = [pd.NA, "BRAF"]
+
+        wide = to_wide(df)
+
+        assert len(wide) == len(df)
+        assert wide["gene"].isna().sum() == 1
+        assert not wide["netmhcpan_affinity_value"].isna().any()
+
     def test_missing_kind_raises(self):
         df = pd.DataFrame({"peptide": ["A"], "score": [0.5]})
         with pytest.raises(ValueError, match="missing 'kind' column"):
@@ -308,6 +318,33 @@ class TestToWide:
         models = wide.attrs.get("topiary_models", {})
         assert models.get("netmhcpan") == "4.1b"
         assert models.get("mhcflurry") == "2.1.1"
+
+    def test_model_versions_fill_blank_rows_from_attrs(self):
+        df = _long_df_multi_model()
+        df.loc[
+            df["prediction_method_name"] == "mhcflurry",
+            "predictor_version",
+        ] = ""
+        df.attrs["topiary_models"] = {
+            "netmhcpan": "4.1b",
+            "mhcflurry": "2.1.1",
+            "stale": "0.0",
+        }
+
+        wide = to_wide(df)
+
+        assert wide.attrs["topiary_models"] == {
+            "netmhcpan": "4.1b",
+            "mhcflurry": "2.1.1",
+        }
+        long = from_wide(wide)
+        mhcflurry_versions = set(
+            long.loc[
+                long["prediction_method_name"] == "mhcflurry",
+                "predictor_version",
+            ]
+        )
+        assert mhcflurry_versions == {"2.1.1"}
 
     def test_flanks_preserved(self):
         df = _long_df_single_model()

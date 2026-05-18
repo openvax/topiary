@@ -16,7 +16,8 @@ from .ranking import _iter_known_kinds, _kind_name, _kind_short_name, KIND_ALIAS
 # Columns that are prediction-specific and get pivoted in wide form.
 PREDICTION_COLUMNS = frozenset({
     "kind", "score", "value", "percentile_rank",
-    "prediction_method_name", "predictor_version", "affinity",
+    "prediction_method_name", "predictor_version", "prediction_run_name",
+    "affinity",
 })
 
 # Wide-form field suffixes.
@@ -48,6 +49,15 @@ def _kind_short_to_canonical(short_name):
     if kind is None:
         return short_name
     return _kind_name(kind)
+
+
+def _version_str(value):
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
 
 
 def _parse_wide_column(col_name):
@@ -107,6 +117,9 @@ def to_wide(df):
         Wide-form DataFrame where prediction columns become
         ``{model}_{kind}_{field}`` columns.
     """
+    if hasattr(df, "wide_df") and hasattr(df, "metadata") and hasattr(df, "df"):
+        return df.wide_df
+
     if "kind" not in df.columns:
         raise ValueError(
             "DataFrame is not in long form: missing 'kind' column"
@@ -153,15 +166,35 @@ def to_wide(df):
 
     # Build model→version metadata for .attrs.
     model_versions = {}
+    observed_methods = set()
+    if "prediction_method_name" in df.columns:
+        observed_methods = {
+            str(method).strip()
+            for method in df["prediction_method_name"].dropna().unique()
+            if str(method).strip()
+        }
     if "prediction_method_name" in df.columns and "predictor_version" in df.columns:
-        for method, version in (
+        for method, rows in (
             df.dropna(subset=["prediction_method_name"])
-            .groupby("prediction_method_name")["predictor_version"]
-            .first()
-            .items()
+            .groupby("prediction_method_name", sort=False)
         ):
-            if pd.notna(version) and str(version):
-                model_versions[str(method)] = str(version)
+            method_str = str(method).strip()
+            if not method_str:
+                continue
+            for version in rows["predictor_version"]:
+                version_str = _version_str(version)
+                if version_str:
+                    model_versions[method_str] = version_str
+                    break
+    attr_models = getattr(df, "attrs", {}).get("topiary_models", {})
+    if observed_methods and hasattr(attr_models, "items"):
+        for method, version in attr_models.items():
+            method_str = str(method).strip()
+            if not method_str or method_str not in observed_methods:
+                continue
+            version_str = _version_str(version)
+            if version_str and not model_versions.get(method_str):
+                model_versions[method_str] = version_str
 
     # Melt each long field into wide column entries.
     records = []
@@ -179,12 +212,17 @@ def to_wide(df):
         return work[group_cols].drop_duplicates().reset_index(drop=True)
 
     melted = pd.concat(records, ignore_index=True)
+    if group_cols:
+        group_index = melted[group_cols].drop_duplicates().reset_index(drop=True)
+        group_index["_topiary_group_id"] = range(len(group_index))
+        melted = melted.merge(group_index, on=group_cols, how="left")
+    else:
+        group_index = pd.DataFrame({"_topiary_group_id": [0]})
+        melted["_topiary_group_id"] = 0
 
     # Check for duplicates that would silently collapse in the pivot.
-    # Fill NaN with sentinel to avoid pandas groupby NaN-skipping.
-    dup_cols = group_cols + ["_wide_col"]
-    dup_df = melted[dup_cols].fillna("__nan__")
-    dup_check = dup_df.groupby(dup_cols).size()
+    dup_cols = ["_topiary_group_id", "_wide_col"]
+    dup_check = melted.groupby(dup_cols, dropna=False).size()
     n_dupes = (dup_check > 1).sum()
     if n_dupes > 0:
         warnings.warn(
@@ -194,14 +232,18 @@ def to_wide(df):
             stacklevel=2,
         )
 
-    # Pivot: group keys as index, wide column names as columns.
-    wide = melted.pivot_table(
-        index=group_cols,
+    wide_values = melted.pivot_table(
+        index="_topiary_group_id",
         columns="_wide_col",
         values="_wide_val",
         aggfunc="first",
     ).reset_index()
-    wide.columns.name = None
+    wide_values.columns.name = None
+    wide = (
+        group_index
+        .merge(wide_values, on="_topiary_group_id", how="left")
+        .drop(columns=["_topiary_group_id"])
+    )
 
     if model_versions:
         wide.attrs["topiary_models"] = model_versions
@@ -227,6 +269,9 @@ def from_wide(df, metadata=None):
         ``percentile_rank``, ``prediction_method_name``, and
         ``predictor_version`` columns.
     """
+    if hasattr(df, "long_df") and hasattr(df, "metadata") and hasattr(df, "df"):
+        return df.long_df
+
     # Classify columns.
     pred_mapping = {}  # (model_key, kind_short) → {field: col_name}
     group_cols = []

@@ -47,6 +47,23 @@ class TestParseCommentBlock:
         assert n == 3
         assert meta.extra == {"custom_key": "custom_value", "other_key": "other_value"}
 
+    def test_kind_support_legacy_literal_extra(self):
+        lines = [
+            "#kind_support={'netmhcpan': {'pMHC_affinity': "
+            "{'mhc_dependence': 'single_allele', 'mhc_class': 'I'}}}\n",
+            "peptide\n",
+        ]
+        meta, n = _parse_comment_block(lines)
+        assert n == 1
+        assert meta.extra["kind_support"] == {
+            "netmhcpan": {
+                "pMHC_affinity": {
+                    "mhc_dependence": "single_allele",
+                    "mhc_class": "I",
+                },
+            },
+        }
+
     def test_source_lines(self):
         lines = [
             "#source=patient01.tsv\n",
@@ -119,6 +136,24 @@ class TestFormatCommentBlock:
         block = _format_comment_block(meta)
         assert "#custom_key=custom_value" in block
 
+    def test_structured_extra_roundtrip(self):
+        kind_support = {
+            "netmhcpan": {
+                "pMHC_affinity": {
+                    "mhc_dependence": "single_allele",
+                    "mhc_class": "I",
+                },
+            },
+        }
+        meta = Metadata(extra={"kind_support": kind_support})
+        block = _format_comment_block(meta)
+        assert "#kind_support=json:" in block
+
+        lines = [line + "\n" for line in block.split("\n")] + ["data\n"]
+        parsed, _ = _parse_comment_block(lines)
+
+        assert parsed.extra["kind_support"] == kind_support
+
     def test_sources_formatted(self):
         meta = Metadata(sources=["patient01.tsv", "patient02.tsv"])
         block = _format_comment_block(meta)
@@ -169,6 +204,19 @@ def _sample_long_df():
     ])
 
 
+def _sample_long_df_with_version_state(version_state):
+    df = _sample_long_df().iloc[[0]].copy()
+    if version_state == "missing":
+        return df.drop(columns=["predictor_version"])
+    if version_state == "blank":
+        df["predictor_version"] = ""
+        return df
+    if version_state == "na":
+        df["predictor_version"] = pd.NA
+        return df
+    raise ValueError(f"unknown version state: {version_state}")
+
+
 # ---------------------------------------------------------------------------
 # Read/write round-trip tests
 # ---------------------------------------------------------------------------
@@ -182,6 +230,8 @@ class TestReadWriteTSV:
         result = read_tsv(path)
         df2, meta = result.df, result.metadata
         assert meta.form == "long"
+        assert result.df is result.long_df
+        assert "netmhcpan_affinity_value" in result.wide_df.columns
         assert meta.topiary_version is not None
         assert meta.models.get("netmhcpan") == "4.1b"
         assert len(df2) == len(df)
@@ -196,6 +246,8 @@ class TestReadWriteTSV:
         result = read_tsv(path)
         df2, meta = result.df, result.metadata
         assert meta.form == "wide"
+        assert result.df is result.wide_df
+        assert "kind" in result.long_df.columns
         assert "netmhcpan_affinity_value" in df2.columns
         assert len(df2) == len(wide)
 
@@ -218,6 +270,124 @@ class TestReadWriteTSV:
         meta = read_tsv(path).metadata
         assert meta.models.get("netmhcpan") == "4.1b"
 
+    def test_model_attrs_filtered_to_observed_long_rows(self, tmp_path):
+        df = _sample_long_df()
+        df.loc[1, "prediction_method_name"] = "mhcflurry"
+        df.loc[1, "predictor_version"] = "2.1.1"
+        df.attrs["topiary_models"] = {
+            "netmhcpan": "4.1b",
+            "mhcflurry": "2.1.1",
+        }
+        filtered = df[df["prediction_method_name"] == "netmhcpan"]
+
+        path = tmp_path / "filtered.tsv"
+        to_tsv(filtered, path)
+        meta = read_tsv(path).metadata
+
+        assert meta.models == {"netmhcpan": "4.1b"}
+
+    def test_result_metadata_filtered_to_observed_long_rows(self, tmp_path):
+        from topiary import TopiaryResult
+
+        df = _sample_long_df()
+        df.loc[1, "prediction_method_name"] = "mhcflurry"
+        df.loc[1, "predictor_version"] = "2.1.1"
+        result = TopiaryResult(
+            df,
+            models={"netmhcpan": "4.1b", "mhcflurry": "2.1.1"},
+        )
+        filtered = result[result["prediction_method_name"] == "netmhcpan"]
+
+        path = tmp_path / "filtered_result.tsv"
+        to_tsv(filtered, path)
+        meta = read_tsv(path).metadata
+
+        assert meta.models == {"netmhcpan": "4.1b"}
+
+    @pytest.mark.parametrize("version_state", ["missing", "blank", "na"])
+    @pytest.mark.parametrize(
+        "writer,reader,suffix",
+        [(to_tsv, read_tsv, "tsv"), (to_csv, read_csv, "csv")],
+    )
+    def test_dataframe_writer_fills_blank_row_versions_from_attrs(
+        self, tmp_path, version_state, writer, reader, suffix,
+    ):
+        df = _sample_long_df_with_version_state(version_state)
+        df.attrs["topiary_models"] = {
+            "netmhcpan": "4.1b",
+            "old_model": "0.1",
+        }
+
+        path = tmp_path / f"attrs.{suffix}"
+        writer(df, path)
+
+        meta = reader(path).metadata
+        assert meta.models == {"netmhcpan": "4.1b"}
+
+    @pytest.mark.parametrize("version_state", ["missing", "blank", "na"])
+    @pytest.mark.parametrize(
+        "writer,method_name,reader,suffix",
+        [
+            (to_tsv, "to_tsv", read_tsv, "tsv"),
+            (to_csv, "to_csv", read_csv, "csv"),
+        ],
+    )
+    @pytest.mark.parametrize("call_style", ["function", "method"])
+    def test_result_writer_fills_blank_row_versions_from_metadata(
+        self, tmp_path, version_state, writer, method_name, reader, suffix,
+        call_style,
+    ):
+        from topiary import TopiaryResult
+
+        df = _sample_long_df_with_version_state(version_state)
+        result = TopiaryResult(
+            df,
+            models={"netmhcpan": "4.1b", "old_model": "0.1"},
+        )
+
+        path = tmp_path / f"result.{suffix}"
+        if call_style == "function":
+            writer(result, path)
+        else:
+            getattr(result, method_name)(path)
+
+        meta = reader(path).metadata
+        assert meta.models == {"netmhcpan": "4.1b"}
+
+    @pytest.mark.parametrize(
+        "writer,method_name,reader,suffix",
+        [
+            (to_tsv, "to_tsv", read_tsv, "tsv"),
+            (to_csv, "to_csv", read_csv, "csv"),
+        ],
+    )
+    @pytest.mark.parametrize("call_style", ["function", "method"])
+    def test_result_writer_preserves_empty_result_model_metadata(
+        self, tmp_path, writer, method_name, reader, suffix, call_style,
+    ):
+        from topiary import TopiaryResult
+
+        df = _sample_long_df().iloc[0:0].copy()
+        result = TopiaryResult(
+            df,
+            models={"netmhcpan": "4.1b"},
+            sources=["empty-run"],
+        )
+
+        path = tmp_path / f"empty_result.{suffix}"
+        if call_style == "function":
+            writer(result, path)
+        else:
+            getattr(result, method_name)(path)
+
+        reloaded = reader(path)
+        assert reloaded.form == "long"
+        assert reloaded.models == {"netmhcpan": "4.1b"}
+        assert reloaded.sources[:1] == ["empty-run"]
+        assert reloaded.long_df.empty
+        assert reloaded.wide_df.empty
+        assert "peptide" in reloaded.wide_df.columns
+
 
 class TestReadWriteCSV:
     def test_csv_roundtrip(self, tmp_path):
@@ -227,6 +397,8 @@ class TestReadWriteCSV:
         result = read_csv(path)
         df2, meta = result.df, result.metadata
         assert meta.form == "long"
+        assert result.df is result.long_df
+        assert "netmhcpan_affinity_value" in result.wide_df.columns
         assert len(df2) == len(df)
         assert df2.iloc[0]["value"] == pytest.approx(120.0)
 

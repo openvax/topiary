@@ -28,6 +28,7 @@ from .ranking import (
     apply_sort,
     parse,
 )
+from .io import _model_version_str
 from .protein_fragment import ProteinFragment
 from .sequence_helpers import (
     check_padding_around_mutation,
@@ -95,6 +96,25 @@ def _unique_model_keys(models):
         else:
             keys.append(f"{base}__{seen[base]}")
     return keys
+
+
+def _model_metadata_name(model):
+    return (
+        getattr(model, "prediction_method_name", None)
+        or getattr(model, "predictor_name", None)
+        or getattr(model, "name", None)
+        or type(model).__name__
+    )
+
+
+def _model_metadata_versions(models):
+    versions = {}
+    for model in models:
+        name = _model_metadata_name(model)
+        version = _model_version_str(getattr(model, "predictor_version", None))
+        if name and version:
+            versions[str(name)] = version
+    return versions
 
 
 def _build_model_lookup():
@@ -414,6 +434,7 @@ class TopiaryPredictor(object):
         mhc_models=None,
         self_proteome=None,
         predict_wt=False,
+        name=None,
     ):
         """
         Parameters
@@ -477,6 +498,12 @@ class TopiaryPredictor(object):
             ``wt_peptide`` and attach ``wt_*`` prediction columns before
             filter/sort expressions are evaluated.  Rows without a
             length-compatible wildtype peptide keep NaN ``wt_*`` values.
+
+        name : str, optional
+            Human-readable name for this predictor run.  When provided,
+            public prediction outputs include ``prediction_run_name`` with
+            this value.  This is run/shard provenance only; logical model
+            identity remains ``prediction_method_name``.
         """
         # --- model setup ---
         raw_models = models or mhc_models or (mhc_model and [mhc_model])
@@ -519,6 +546,11 @@ class TopiaryPredictor(object):
         self.raise_on_error = raise_on_error
         self.self_proteome = self_proteome
         self.predict_wt = predict_wt
+        if name is None:
+            self.name = None
+        else:
+            name = str(name).strip()
+            self.name = name or None
 
     @property
     def mhc_model(self):
@@ -576,10 +608,14 @@ class TopiaryPredictor(object):
         pandas.DataFrame with columns:
             source_sequence_name, peptide, peptide_offset, peptide_length,
             allele, kind, score, value, affinity, percentile_rank,
-            prediction_method_name, predictor_version, n_flank, c_flank
+            prediction_method_name, predictor_version, n_flank, c_flank.
+            If ``name`` was provided at construction time, also includes
+            ``prediction_run_name``.
         """
         df = self._predict_raw(name_to_sequence_dict)
-        return self._strip_internal_columns(self._apply_filter(df))
+        return self._attach_result_attrs(
+            self._strip_internal_columns(self._apply_filter(df))
+        )
 
     def predict_from_named_peptides(self, name_to_peptide_dict):
         """
@@ -593,10 +629,14 @@ class TopiaryPredictor(object):
         pandas.DataFrame with columns:
             source_sequence_name, peptide, peptide_offset, peptide_length,
             allele, kind, score, value, affinity, percentile_rank,
-            prediction_method_name, predictor_version, n_flank, c_flank
+            prediction_method_name, predictor_version, n_flank, c_flank.
+            If ``name`` was provided at construction time, also includes
+            ``prediction_run_name``.
         """
         df = self._predict_raw_peptides(name_to_peptide_dict)
-        return self._strip_internal_columns(self._apply_filter(df))
+        return self._attach_result_attrs(
+            self._strip_internal_columns(self._apply_filter(df))
+        )
 
     def _predict_raw(self, name_to_sequence_dict):
         """Run models and format output, without applying filter/ranking."""
@@ -669,6 +709,46 @@ class TopiaryPredictor(object):
             columns=[_MODEL_KEY_COLUMN, _WT_OFFSET_COLUMN],
             errors="ignore",
         )
+
+    def _attach_result_attrs(self, df):
+        """Attach lightweight metadata to public DataFrame outputs."""
+        if self.name is not None:
+            df = df.copy()
+            df["prediction_run_name"] = self.name
+
+        model_versions = {}
+        observed_methods = []
+        if "prediction_method_name" in df.columns:
+            observed_methods = [
+                str(method).strip()
+                for method in df["prediction_method_name"].dropna().unique()
+                if str(method).strip()
+            ]
+        if "prediction_method_name" in df.columns and "predictor_version" in df.columns:
+            for method, rows in (
+                df.dropna(subset=["prediction_method_name"])
+                .groupby("prediction_method_name", sort=False)
+            ):
+                method_str = str(method).strip()
+                if not method_str:
+                    continue
+                for version in rows["predictor_version"]:
+                    version_str = _model_version_str(version)
+                    if version_str:
+                        model_versions[method_str] = version_str
+                        break
+
+        fallback_versions = _model_metadata_versions(self.models)
+        if observed_methods:
+            for method in observed_methods:
+                if not model_versions.get(method) and fallback_versions.get(method):
+                    model_versions[method] = fallback_versions[method]
+        elif not model_versions:
+            model_versions.update(fallback_versions)
+
+        if model_versions:
+            df.attrs["topiary_models"] = model_versions
+        return df
 
     def _expand_named_peptide_predictions(self, model_df, peptide_names_df):
         """Attach the original peptide names to model predictions."""
@@ -914,13 +994,13 @@ class TopiaryPredictor(object):
         ``only_novel_epitopes`` is set, and reset the index.  Shared
         tail for every ProteinFragment-producing entry point."""
         if df.empty:
-            return df
+            return self._attach_result_attrs(df)
         df = self._maybe_predict_wt_peptides(df, fragments=fragments)
         df = self._apply_filter(df)
         if self.only_novel_epitopes:
             df = df[df["contains_mutant_residues"].eq(True)]
         df = self._strip_internal_columns(df)
-        return df.reset_index(drop=True)
+        return self._attach_result_attrs(df.reset_index(drop=True))
 
     def predict_from_fragments(self, fragments):
         """Predict MHC binding for peptides derived from a collection of

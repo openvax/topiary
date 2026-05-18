@@ -111,6 +111,7 @@ def _build_kind_aliases(kind_source=Kind):
 # Group key detection and EvalContext
 # =============================================================================
 
+_SAMPLE_GROUP_KEY = "sample_name"
 _GROUP_KEYS = ["source_sequence_name", "peptide", "peptide_offset", "allele"]
 _GROUP_KEYS_VARIANT = ["variant", "peptide", "peptide_offset", "allele"]
 
@@ -118,15 +119,26 @@ _GROUP_KEYS_VARIANT = ["variant", "peptide", "peptide_offset", "allele"]
 _GROUP_KEYS_FRAGMENT = ["fragment_id", "peptide", "peptide_offset", "allele"]
 
 
+def _with_optional_sample_key(df, group_keys):
+    group_keys = list(group_keys)
+    if (
+        _SAMPLE_GROUP_KEY in df.columns
+        and _SAMPLE_GROUP_KEY not in group_keys
+        and df[_SAMPLE_GROUP_KEY].notna().any()
+    ):
+        group_keys.insert(0, _SAMPLE_GROUP_KEY)
+    return group_keys
+
+
 def _pick_group_keys(df):
     # fragment_id is the most specific identity (from predict_from_fragments);
     # variant is for the legacy varcode pipeline; source_sequence_name is the
     # generic fallback.
     if "fragment_id" in df.columns:
-        return list(_GROUP_KEYS_FRAGMENT)
+        return _with_optional_sample_key(df, _GROUP_KEYS_FRAGMENT)
     if "variant" in df.columns:
-        return list(_GROUP_KEYS_VARIANT)
-    return list(_GROUP_KEYS)
+        return _with_optional_sample_key(df, _GROUP_KEYS_VARIANT)
+    return _with_optional_sample_key(df, _GROUP_KEYS)
 
 
 def _normalize_default_methods(mapping):
@@ -537,7 +549,9 @@ class Column(DSLNode):
             else:
                 msg += f" Available: {available}"
             raise ValueError(msg)
-        vals = ctx.df.groupby(ctx.group_keys, sort=False)[self.col_name].first()
+        vals = ctx.df.groupby(
+            ctx.group_keys, sort=False, dropna=False
+        )[self.col_name].first()
         vals = vals.reindex(ctx.group_index)
         try:
             return vals.astype(float)
@@ -627,7 +641,9 @@ class IsIn(DSLNode):
             else:
                 msg += f" Available: {available}"
             raise ValueError(msg)
-        vals = df.groupby(ctx.group_keys, sort=False)[self.col_name].first()
+        vals = df.groupby(
+            ctx.group_keys, sort=False, dropna=False
+        )[self.col_name].first()
         vals = vals.reindex(ctx.group_index)
         mask = vals.isin(self.values)
         if self.negate:
@@ -711,7 +727,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
     # Ambiguity: unqualified access with multiple methods in any group
     if effective_method is None and "prediction_method_name" in sub.columns:
         methods_per_group = sub.groupby(
-            ctx.group_keys, sort=False
+            ctx.group_keys, sort=False, dropna=False
         )["prediction_method_name"].nunique()
         if (methods_per_group > 1).any():
             default = ctx.default_methods.get(_kind_value(kind))
@@ -786,7 +802,9 @@ class Field(DSLNode):
         if col_name not in sub.columns:
             return ctx.empty_series()
 
-        vals = sub.groupby(ctx.group_keys, sort=False)[col_name].first()
+        vals = sub.groupby(
+            ctx.group_keys, sort=False, dropna=False
+        )[col_name].first()
         vals = vals.reindex(ctx.group_index)
         return pd.to_numeric(vals, errors="coerce")
 
@@ -952,7 +970,9 @@ class BestAlleleField(DSLNode):
             __best_value=numeric[valid_mask],
         )
 
-        groups = valid.groupby(peptide_keys, sort=False)["__best_value"]
+        groups = valid.groupby(
+            peptide_keys, sort=False, dropna=False
+        )["__best_value"]
         best_idx = groups.idxmax() if direction == "max" else groups.idxmin()
 
         target = "allele" if self.return_allele else "__best_value"
@@ -1012,7 +1032,9 @@ class Len(DSLNode):
         col = self.scope + "peptide_length"
         if ctx.df.empty or col not in ctx.df.columns:
             return ctx.empty_series()
-        vals = ctx.df.groupby(ctx.group_keys, sort=False)[col].first()
+        vals = ctx.df.groupby(
+            ctx.group_keys, sort=False, dropna=False
+        )[col].first()
         return vals.reindex(ctx.group_index).astype(float)
 
     def __repr__(self):
@@ -1036,7 +1058,9 @@ class Count(DSLNode):
         peptide_col = self.scope + "peptide" if self.scope else "peptide"
         if ctx.df.empty or peptide_col not in ctx.df.columns:
             return ctx.empty_series()
-        peptides = ctx.df.groupby(ctx.group_keys, sort=False)[peptide_col].first()
+        peptides = ctx.df.groupby(
+            ctx.group_keys, sort=False, dropna=False
+        )[peptide_col].first()
         peptides = peptides.reindex(ctx.group_index)
         chars = self.chars
 
@@ -1079,7 +1103,9 @@ class PeptideProperty(DSLNode):
         peptide_col = self.scope + "peptide" if self.scope else "peptide"
         if ctx.df.empty or peptide_col not in ctx.df.columns:
             return ctx.empty_series()
-        peptides = ctx.df.groupby(ctx.group_keys, sort=False)[peptide_col].first()
+        peptides = ctx.df.groupby(
+            ctx.group_keys, sort=False, dropna=False
+        )[peptide_col].first()
         peptides = peptides.reindex(ctx.group_index)
         valid = peptides.notna() & peptides.astype(str).str.len().gt(0)
         result = pd.Series(np.nan, index=ctx.group_index, dtype=float)
@@ -2081,5 +2107,3 @@ def _resolve_field(name):
     else:
         msg += f" Available: {available}"
     raise ValueError(msg)
-
-
