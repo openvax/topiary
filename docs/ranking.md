@@ -390,6 +390,13 @@ mhcflurry_rows = TopiaryPredictor(
 combined = combine_predictor_results([netmhcpan_rows, mhcflurry_rows])
 ```
 
+`TopiaryResult` owns the long/wide representation.  Loaders may naturally
+produce wide results (for example LENS) or long results (for example pVACseq
+and fresh predictor outputs), but callers can use `result.long_df`,
+`result.wide_df`, `result.to_long()`, or `result.to_wide()` on demand. Topiary
+merge functions normalize those forms internally instead of making callers
+choose a representation before combining results.
+
 You can also shard the same predictor over allele or peptide-length batches and
 combine the shards.  Use `TopiaryPredictor(name=...)` when you want to keep
 track of which batch produced each row:

@@ -512,6 +512,40 @@ def test_combine_roundtripped_topiary_results(tmp_path):
     assert "kind_support" not in combined.extra
 
 
+def test_combine_accepts_wide_topiary_results():
+    peptides = {"pep1": "SIINFEKLA", "pep2": "ELAGIGILT"}
+    alleles = ["HLA-A*02:01", "HLA-B*07:02"]
+    netmhcpan = ToyAffinityPredictor("netmhcpan", "4.1b", alleles, offset=100)
+    mhcflurry = ToyAffinityPredictor("mhcflurry", "2.1.1", alleles, offset=200)
+
+    direct = TopiaryPredictor(
+        models=[netmhcpan, mhcflurry]
+    ).predict_from_named_peptides(peptides)
+    net_wide = TopiaryResult(
+        TopiaryPredictor(models=netmhcpan).predict_from_named_peptides(peptides)
+    ).to_wide()
+    flurry_wide = TopiaryResult(
+        TopiaryPredictor(models=mhcflurry).predict_from_named_peptides(peptides)
+    ).to_wide()
+
+    combined = combine_predictor_results([net_wide, flurry_wide])
+
+    assert combined.form == "long"
+    pd.testing.assert_frame_equal(
+        _sort_predictions(combined.df),
+        _sort_predictions(direct),
+    )
+
+
+def test_combine_ignores_empty_bare_dataframes():
+    result = _simple_result("netmhcpan")
+
+    combined = combine_predictor_results([pd.DataFrame(), result])
+
+    assert len(combined) == 1
+    assert combined.models == {"netmhcpan": "1.0"}
+
+
 def test_combine_recomputes_models_from_combined_rows():
     peptides = {"pep1": "SIINFEKLA"}
     alleles = ["HLA-A*02:01"]

@@ -108,6 +108,9 @@ def to_wide(df):
         Wide-form DataFrame where prediction columns become
         ``{model}_{kind}_{field}`` columns.
     """
+    if hasattr(df, "wide_df") and hasattr(df, "metadata") and hasattr(df, "df"):
+        return df.wide_df
+
     if "kind" not in df.columns:
         raise ValueError(
             "DataFrame is not in long form: missing 'kind' column"
@@ -228,6 +231,9 @@ def from_wide(df, metadata=None):
         ``percentile_rank``, ``prediction_method_name``, and
         ``predictor_version`` columns.
     """
+    if hasattr(df, "long_df") and hasattr(df, "metadata") and hasattr(df, "df"):
+        return df.long_df
+
     # Classify columns.
     pred_mapping = {}  # (model_key, kind_short) → {field: col_name}
     group_cols = []

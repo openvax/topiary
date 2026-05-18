@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from topiary import TopiaryResult, concat, read_tsv, to_tsv
+from topiary import TopiaryResult, concat, from_wide, read_tsv, to_tsv, to_wide
 from topiary.io import Metadata
 
 
@@ -153,6 +153,71 @@ class TestFormConversion:
         assert wide.models == {"netmhcpan": "4.1b"}
         assert wide.sources == ["patient01.tsv"]
 
+    def test_result_exposes_cached_long_and_wide_views(self):
+        r = TopiaryResult(_sample_long_df())
+        wide_df = r.wide_df
+
+        assert r.form == "long"
+        assert r.long_df is r.df
+        assert "netmhcpan_affinity_value" in wide_df.columns
+        assert r.wide_df is wide_df
+
+        wide = r.to_wide()
+        assert wide.form == "wide"
+        assert wide.df is wide.wide_df
+        assert "kind" in wide.long_df.columns
+
+    def test_wide_view_recomputes_after_active_long_mutation(self):
+        r = TopiaryResult(_sample_long_df())
+        wide_before = r.wide_df
+
+        r.df.loc[0, "value"] = 999.0
+        r.df.loc[0, "affinity"] = 999.0
+        wide_after = r.wide_df
+
+        assert wide_after is not wide_before
+        row = wide_after[wide_after["peptide"] == "SIINFEKL"].iloc[0]
+        assert row["netmhcpan_affinity_value"] == 999.0
+
+    def test_long_view_recomputes_after_active_wide_mutation(self):
+        r = TopiaryResult(_sample_long_df()).to_wide()
+        long_before = r.long_df
+
+        r.df.loc[
+            r.df["peptide"] == "SIINFEKL",
+            "netmhcpan_affinity_value",
+        ] = 999.0
+        long_after = r.long_df
+
+        assert long_after is not long_before
+        row = long_after[long_after["peptide"] == "SIINFEKL"].iloc[0]
+        assert row["value"] == 999.0
+
+    def test_filter_on_wide_result_materializes_long_form(self):
+        wide = TopiaryResult(_multi_row_df()).to_wide()
+
+        filtered = wide.filter_by("affinity <= 500")
+
+        assert filtered.form == "long"
+        assert "kind" in filtered.columns
+        assert len(filtered) < len(wide.long_df)
+
+    def test_top_level_converters_accept_result(self):
+        r = TopiaryResult(_sample_long_df())
+        wide_df = to_wide(r)
+        long_df = from_wide(r.to_wide())
+
+        assert "netmhcpan_affinity_value" in wide_df.columns
+        assert "kind" in long_df.columns
+
+    def test_form_assignment_switches_active_view_for_compatibility(self):
+        r = TopiaryResult(_sample_long_df())
+
+        r.form = "wide"
+        assert "netmhcpan_affinity_value" in r.df.columns
+        r.form = "long"
+        assert "kind" in r.df.columns
+
 
 # ---------------------------------------------------------------------------
 # Serialization
@@ -284,16 +349,26 @@ class TestConcat:
         with pytest.warns(UserWarning, match="conflicting versions"):
             concat([r1, r2])
 
-    def test_concat_mixed_forms_raises(self):
+    def test_concat_mixed_forms_materializes_long_result(self):
         r_long = self._make_r(100.0, "p1")
-        r_wide = TopiaryResult(
-            pd.DataFrame({
-                "peptide": ["A"],
-                "netmhcpan_affinity_value": [100.0],
-            }),
-        )
-        with pytest.raises(ValueError, match="different forms"):
-            concat([r_long, r_wide])
+        r_wide = self._make_r(200.0, "p2").to_wide()
+
+        combined = concat([r_long, r_wide])
+
+        assert combined.form == "long"
+        assert "kind" in combined.columns
+        assert len(combined) == 2
+        assert combined.sources == ["p1", "p2"]
+
+    def test_concat_all_wide_preserves_wide_active_form(self):
+        r1 = self._make_r(100.0, "p1").to_wide()
+        r2 = self._make_r(200.0, "p2").to_wide()
+
+        combined = concat([r1, r2])
+
+        assert combined.form == "wide"
+        assert "netmhcpan_affinity_value" in combined.columns
+        assert "kind" not in combined.columns
 
     def test_concat_empty_list(self):
         combined = concat([])
@@ -304,6 +379,10 @@ class TestConcat:
         r = self._make_r(100.0, "p1")
         combined = concat([r])
         assert len(combined) == 1
+
+    def test_concat_requires_topiary_results(self):
+        with pytest.raises(TypeError, match="TopiaryResult"):
+            concat([self._make_r(100.0, "p1").df])
 
     def test_concat_then_write_roundtrip(self, tmp_path):
         """Concat + write + read preserves sources in comment block."""

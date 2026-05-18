@@ -32,6 +32,25 @@ _SOURCE_CONTEXT_IDENTITY_COLUMNS = (
 )
 
 
+def _dataframe_fingerprint(df):
+    """Return a cheap-ish fingerprint for detecting active-frame mutation."""
+    columns = tuple(str(column) for column in df.columns)
+    dtypes = tuple(str(dtype) for dtype in df.dtypes)
+    try:
+        value_hash = int(pd.util.hash_pandas_object(df, index=True).sum())
+    except (TypeError, ValueError):
+        # Some object columns may carry unhashable values. Fall back to a
+        # stringified hash so converted views are still invalidated for common
+        # in-place edits without making all DataFrame access defensive copies.
+        try:
+            value_hash = int(
+                pd.util.hash_pandas_object(df.astype(str), index=True).sum()
+            )
+        except (TypeError, ValueError):
+            value_hash = None
+    return (id(df), df.shape, columns, dtypes, value_hash)
+
+
 class TopiaryResult:
     """A prediction DataFrame bundled with its provenance and pipeline state.
 
@@ -49,7 +68,10 @@ class TopiaryResult:
     Parameters
     ----------
     df : pandas.DataFrame
-        The underlying prediction data.
+        The active prediction data view.  TopiaryResult keeps lazy long and
+        wide views internally when conversion is possible, so Topiary-level
+        operations can normalize representation without requiring callers to
+        choose a form up front.
     topiary_version : str, optional
     form : str, optional
         "long" or "wide". Auto-detected from columns if not provided.
@@ -84,6 +106,8 @@ class TopiaryResult:
         sort_by_str=None,
         sort_by_ast=None,
         extra=None,
+        _long_df=None,
+        _wide_df=None,
     ):
         # Compat: accept a Metadata positionally and unpack its fields.
         if metadata is not None:
@@ -98,9 +122,24 @@ class TopiaryResult:
         if models is None and hasattr(df, "attrs"):
             models = _models_from_dataframe(df)
 
-        self.df = df
         self.topiary_version = topiary_version
-        self.form = form or detect_form(df)
+        self._active_form = form or detect_form(df)
+        self._unknown_df = None
+        self._long_df = _long_df
+        self._wide_df = _wide_df
+        if self._active_form == "long":
+            self._long_df = df
+        elif self._active_form == "wide":
+            self._wide_df = df
+        else:
+            self._unknown_df = df
+        self._long_source_fingerprint = None
+        self._wide_source_fingerprint = None
+        active_fingerprint = _dataframe_fingerprint(df)
+        if self._active_form == "long" and self._wide_df is not None:
+            self._wide_source_fingerprint = active_fingerprint
+        if self._active_form == "wide" and self._long_df is not None:
+            self._long_source_fingerprint = active_fingerprint
         self.models = OrderedDict(models) if models else OrderedDict()
         self.sources = list(sources) if sources else []
         self.filter_by_str = filter_by_str
@@ -110,6 +149,63 @@ class TopiaryResult:
         self.extra = OrderedDict(extra) if extra else OrderedDict()
 
     # -- DataFrame delegation ---------------------------------------------
+
+    @property
+    def form(self):
+        """Active DataFrame form, kept for backward compatibility."""
+        return self._active_form
+
+    @form.setter
+    def form(self, value):
+        value = value or "unknown"
+        if value == self._active_form:
+            return
+        if value == "long":
+            if self._long_df is None:
+                if self._wide_df is None:
+                    raise ValueError("Cannot set TopiaryResult form to 'long'")
+                from .wide import from_wide
+                self._long_df = from_wide(self._wide_df, metadata=self.metadata)
+                self._long_source_fingerprint = _dataframe_fingerprint(self._wide_df)
+            self._active_form = "long"
+            return
+        if value == "wide":
+            if self._wide_df is None:
+                if self._long_df is None:
+                    raise ValueError("Cannot set TopiaryResult form to 'wide'")
+                from .wide import to_wide as _to_wide
+                self._wide_df = _to_wide(self._long_df)
+                self._wide_source_fingerprint = _dataframe_fingerprint(self._long_df)
+            self._active_form = "wide"
+            return
+        if value == "unknown":
+            if self._unknown_df is None:
+                raise ValueError("Cannot set TopiaryResult form to 'unknown'")
+            self._active_form = "unknown"
+            return
+        raise ValueError(f"Unknown TopiaryResult form: {value!r}")
+
+    @property
+    def df(self):
+        """Active DataFrame view for backward-compatible pandas access."""
+        if self._active_form == "long":
+            return self._long_df
+        if self._active_form == "wide":
+            return self._wide_df
+        return self._unknown_df
+
+    @df.setter
+    def df(self, value):
+        """Replace the active DataFrame and invalidate converted views."""
+        detected = detect_form(value)
+        self._active_form = detected
+        self._unknown_df = None
+        self._long_df = value if detected == "long" else None
+        self._wide_df = value if detected == "wide" else None
+        if detected == "unknown":
+            self._unknown_df = value
+        self._long_source_fingerprint = None
+        self._wide_source_fingerprint = None
 
     def __len__(self):
         return len(self.df)
@@ -158,18 +254,74 @@ class TopiaryResult:
     # -- Form conversion --------------------------------------------------
 
     def to_wide(self):
-        from .wide import to_wide as _to_wide
-        wide_df = _to_wide(self.df)
+        wide_df = self.wide_df
         kwargs = self._field_kwargs()
         kwargs["form"] = "wide"
-        return TopiaryResult(wide_df, **kwargs)
+        return TopiaryResult(
+            wide_df,
+            **kwargs,
+            _long_df=self._long_df,
+            _wide_df=wide_df,
+        )
 
     def to_long(self):
-        from .wide import from_wide
-        long_df = from_wide(self.df, metadata=self.metadata)
+        long_df = self.long_df
         kwargs = self._field_kwargs()
         kwargs["form"] = "long"
-        return TopiaryResult(long_df, **kwargs)
+        return TopiaryResult(
+            long_df,
+            **kwargs,
+            _long_df=long_df,
+            _wide_df=self._wide_df,
+        )
+
+    @property
+    def long_df(self):
+        """Long-form DataFrame view, computed lazily when needed."""
+        if (
+            self._active_form == "wide"
+            and self._long_df is not None
+            and self._long_source_fingerprint != _dataframe_fingerprint(self.df)
+        ):
+            self._long_df = None
+            self._long_source_fingerprint = None
+        if self._long_df is None:
+            if self._active_form == "long":
+                self._long_df = self.df
+            elif self._active_form == "wide":
+                from .wide import from_wide
+                self._long_df = from_wide(self.df, metadata=self.metadata)
+                self._long_source_fingerprint = _dataframe_fingerprint(self.df)
+            else:
+                raise ValueError(
+                    f"Cannot convert TopiaryResult with form {self.form!r} "
+                    "to long form"
+                )
+        return self._long_df
+
+    @property
+    def wide_df(self):
+        """Wide-form DataFrame view, computed lazily when needed."""
+        if (
+            self._active_form == "long"
+            and self._wide_df is not None
+            and self._wide_source_fingerprint != _dataframe_fingerprint(self.df)
+        ):
+            self._wide_df = None
+            self._wide_source_fingerprint = None
+        if self._wide_df is None:
+            if self._active_form == "wide":
+                self._wide_df = self.df
+            elif self._active_form == "long":
+                from .wide import to_wide as _to_wide
+                self._wide_df = _to_wide(self.df)
+                self._wide_source_fingerprint = _dataframe_fingerprint(self.df)
+            else:
+                raise ValueError(
+                    f"Cannot convert TopiaryResult with form {self.form!r} "
+                    "to wide form"
+                )
+        return self._wide_df
 
     # -- DSL operations ---------------------------------------------------
 
@@ -205,10 +357,11 @@ class TopiaryResult:
                 f"got {type(expr).__name__}"
             )
 
-        if self.df.empty:
-            filtered_df = self.df
+        df = self.long_df
+        if df.empty:
+            filtered_df = df
         else:
-            filtered_df = apply_filter(self.df, new_ast)
+            filtered_df = apply_filter(df, new_ast)
 
         if self.filter_by_ast is not None:
             combined_ast = self.filter_by_ast & new_ast
@@ -218,6 +371,7 @@ class TopiaryResult:
             combined_str = new_str
 
         kwargs = self._field_kwargs()
+        kwargs["form"] = "long"
         kwargs["filter_by_str"] = combined_str
         kwargs["filter_by_ast"] = combined_ast
         return TopiaryResult(filtered_df, **kwargs)
@@ -268,12 +422,14 @@ class TopiaryResult:
                 f"got {type(expr).__name__}"
             )
 
-        if self.df.empty:
-            sorted_df = self.df
+        df = self.long_df
+        if df.empty:
+            sorted_df = df
         else:
-            sorted_df = apply_sort(self.df, sort_nodes)
+            sorted_df = apply_sort(df, sort_nodes)
 
         kwargs = self._field_kwargs()
+        kwargs["form"] = "long"
         kwargs["sort_by_str"] = new_str
         kwargs["sort_by_ast"] = new_ast
         return TopiaryResult(sorted_df, **kwargs)
@@ -356,24 +512,33 @@ def concat(results):
     Parameters
     ----------
     results : list of TopiaryResult
-        All must be in the same form (long or wide).
+        Results to concatenate.  Long and wide results may be mixed; mixed
+        inputs are normalized to long form.
 
     Returns
     -------
     TopiaryResult
         DataFrames concatenated; metadata merged (sources concatenated,
         models union with warning on version conflicts; filter_by / sort_by
-        preserved only if all inputs agree).
+        preserved only if all inputs agree).  The active output form is the
+        shared input form when all inputs match, otherwise long.
     """
     if not results:
         return TopiaryResult(pd.DataFrame())
+    for result in results:
+        if not isinstance(result, TopiaryResult):
+            raise TypeError(
+                "topiary.concat expects TopiaryResult inputs; use "
+                "TopiaryResult(df) to attach Topiary semantics before "
+                f"concatenating, got {type(result).__name__}"
+            )
 
     forms = {r.form for r in results}
-    if len(forms) > 1:
+    if "unknown" in forms:
         raise ValueError(
-            f"Cannot concat TopiaryResults in different forms: {forms}"
+            f"Cannot concat TopiaryResults with unknown form: {forms}"
         )
-    form = results[0].form
+    form = results[0].form if len(forms) == 1 else "long"
 
     # Merge models with conflict detection.
     merged_models = OrderedDict()
@@ -440,7 +605,14 @@ def concat(results):
                 stacklevel=2,
             )
 
-    df = pd.concat([r.df for r in results], ignore_index=True)
+    if form == "long":
+        frames = [r.long_df for r in results]
+    elif form == "wide":
+        frames = [r.wide_df for r in results]
+    else:
+        raise ValueError(f"Cannot concat TopiaryResults with form {form!r}")
+
+    df = pd.concat(frames, ignore_index=True)
 
     return TopiaryResult(
         df,
@@ -493,6 +665,7 @@ def combine_predictor_results(results, on=("peptide", "allele"), coverage="compl
     results = [r for r in results if not r.df.empty]
     if not results:
         return TopiaryResult(pd.DataFrame())
+    results = [r.to_long() for r in results]
 
     if isinstance(on, str):
         on = (on,)

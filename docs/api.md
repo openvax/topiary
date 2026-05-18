@@ -26,6 +26,19 @@
 | `predict_from_variants(variants)` | VariantCollection | Variant pipeline (builds `ProteinFragment`s internally and delegates). |
 | `predict_from_mutation_effects(effects)` | EffectCollection | Same as `predict_from_variants` but starting from pre-computed effects. |
 
+## TopiaryResult
+
+`TopiaryResult` is the semantic result object for Topiary prediction tables.
+It can ingest either long or wide prediction tables, keeps the active `df`
+view for pandas compatibility, and materializes cached `long_df` and `wide_df`
+views on demand. Use `result.to_long()` / `result.to_wide()` when you want a
+new `TopiaryResult` whose active `df` is that form.
+
+Topiary merge APIs operate on this semantic object. `topiary.concat()` accepts
+mixed long/wide `TopiaryResult` inputs and normalizes internally; bare
+DataFrames are still accepted by predictor-combine APIs for compatibility, but
+are coerced into `TopiaryResult` before validation.
+
 ## CachedPredictor
 
 Drop-in replacement for a live predictor that serves scores from a

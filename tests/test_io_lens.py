@@ -112,6 +112,14 @@ class TestLoad:
     def test_returns_topiary_result(self):
         assert isinstance(read_lens(V1_4), TopiaryResult)
 
+    def test_exposes_long_and_wide_forms(self):
+        r = read_lens(V1_4)
+
+        assert r.df is r.wide_df
+        assert "netmhcpan_affinity_value" in r.wide_df.columns
+        assert "kind" in r.long_df.columns
+        assert "prediction_method_name" in r.long_df.columns
+
 
 # ---------------------------------------------------------------------------
 # Allele normalization (mhcgnomes)
