@@ -53,6 +53,8 @@ from .nodes import (
     _kind_value,
     _method_not_found_error,
     _pick_group_keys,
+    peptide_view,
+    PeptideView,
     _resolve_field,
     _resolve_kind,
     _resolve_qualified_kind,
@@ -111,6 +113,8 @@ __all__ = [
     "maximum",
     "median",
     # Public entry points
+    "PeptideView",
+    "peptide_view",
     "apply_filter",
     "apply_sort",
     "evaluate_scores",

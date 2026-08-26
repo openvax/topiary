@@ -88,6 +88,44 @@ Each accessor has three fields:
 
 The default field is `.value`, so `Affinity <= 500` means `Affinity.value <= 500`.
 
+## peptide_view — one value per peptide
+
+Expressions evaluate per (peptide, allele) group, but the *correct* per-peptide reduction depends on how the predictor treats alleles:
+
+| `mhc_dependence` | Rows per peptide | Peptide-level value |
+|---|---|---|
+| `single_allele` (NetMHCpan, MHCflurry per-allele) | one per (peptide, allele) | best across the peptide's alleles |
+| `haplotype` (MHCflurry presentation, haplotype mode) | one per peptide | that row, read directly |
+| `none` (antigen processing) | one per peptide, no allele | that row, read directly |
+
+`peptide_view()` picks the right one, so a mixed expression doesn't require you to track which kind needs `best_*` and which is allele-free:
+
+```python
+from topiary import peptide_view, Affinity, Processing
+
+# "this peptide's processing score" and "this peptide's best affinity"
+0.5 * peptide_view(Processing.score) + 0.5 * peptide_view(Affinity.score)
+```
+
+The allele-free case is the one that couldn't be written before. An antigen-processing row carries no allele, so it forms its own group and every per-allele group reads `NaN`:
+
+```python
+evaluate_scores(df, Processing.score)               # [nan, nan, 0.77]
+evaluate_scores(df, peptide_view(Processing.score)) # [0.77, 0.77, 0.77]
+```
+
+That is why producers duplicated the processing row across the patient's alleles before handing topiary a frame. With `peptide_view` the frame keeps one canonical row and the value is broadcast at evaluation time:
+
+```python
+apply_filter(df, parse("affinity <= 500 & peptide_view(processing.score) >= 0.5"))
+```
+
+Note that the allele-free row is still its own group, so a per-allele filter clause drops that row from the *output* frame — the projection is about reading its value, not about relocating it.
+
+The mode comes from `EvalContext(kind_support=...)` — mhctools' per-(model, kind) metadata, available as `TopiaryPredictor.kind_support` — which is the only thing that can tell `haplotype` from `single_allele`, since both put a real allele on every row. Without it, a kind whose rows carry no allele is treated as allele-free and everything else as per-allele. Inconsistent data is an error, not a silent pick: a peptide-level kind with two different values for one peptide, or models that disagree about `mhc_dependence`, both raise.
+
+Available in string form too, so it works in `--filter-by` / `--sort-by` and in config files: `peptide_view(processing.score)`.
+
 ## Filters
 
 Create filters with comparison operators on fields:

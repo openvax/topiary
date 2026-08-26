@@ -41,6 +41,7 @@ from .nodes import (
     Presentation,
     Processing,
     Stability,
+    peptide_view,
     _CONTEXT_KEYWORDS,
     _FIELD_ALIASES,
     KIND_ALIASES,
@@ -420,6 +421,12 @@ class _Parser:
                 self.tokenizer.advance()
                 args = self._call_args()
                 return _AGGREGATION_FUNCS[name](*args)
+            if name == "peptide_view":
+                self.tokenizer.advance()
+                self.tokenizer.expect("LPAREN")
+                inner = self._or()
+                self.tokenizer.expect("RPAREN")
+                return peptide_view(inner)
             if name == "len":
                 self.tokenizer.advance()
                 return Len()

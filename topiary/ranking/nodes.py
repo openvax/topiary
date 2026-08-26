@@ -1222,6 +1222,191 @@ class BestAlleleField(DSLNode):
         return f"BestAlleleField({', '.join(parts)})"
 
 
+def _resolve_mhc_dependence(ctx, kind, method=None):
+    """How *kind* relates to alleles for this frame.
+
+    Prefers ``ctx.kind_support`` — mhctools' per-(model, kind) metadata,
+    the only authority that can tell ``haplotype`` from
+    ``single_allele``, since both put a real allele on every row.
+    Without it, fall back to what the rows show: a kind whose rows carry
+    no allele at all is allele-independent; anything else is assumed
+    per-allele, which is both the common case and what the DSL already
+    did.
+    """
+    kind_val = _kind_value(kind)
+    kind_support = getattr(ctx, "kind_support", None)
+    if kind_support:
+        method_filter = method.lower() if method else None
+        found = set()
+        for model_key, kind_map in kind_support.items():
+            if kind_val not in kind_map:
+                continue
+            if method_filter and method_filter not in str(model_key).lower():
+                continue
+            dep = kind_map[kind_val].get("mhc_dependence")
+            if dep:
+                found.add(dep)
+        if len(found) == 1:
+            return found.pop()
+        if len(found) > 1:
+            raise ValueError(
+                f"peptide_view on {_kind_short_name(kind)}: models disagree "
+                f"about mhc_dependence ({sorted(found)}). Qualify the kind "
+                f"with a method, e.g. "
+                f"{_kind_short_name(kind)}['modelname'], so one projection "
+                f"applies."
+            )
+
+    df = ctx.df
+    if "kind" not in df.columns or "allele" not in df.columns:
+        return "single_allele"
+    rows = df[df["kind"] == kind_val]
+    if rows.empty:
+        return "single_allele"
+    allele = rows["allele"]
+    has_allele = allele.notna() & (allele.astype(str).str.strip() != "")
+    return "single_allele" if has_allele.any() else "none"
+
+
+class PeptideView(DSLNode):
+    """One value per peptide, reduced correctly for the kind's allele mode.
+
+    The right per-peptide reduction depends on how the predictor treats
+    alleles, and until now the caller had to know which:
+
+    ================= ========================= ========================
+    ``mhc_dependence`` rows per peptide          peptide-level value
+    ================= ========================= ========================
+    ``single_allele``  one per (peptide, allele) best across alleles
+    ``haplotype``      one per peptide           that row, read directly
+    ``none``           one per peptide           that row, read directly
+    ================= ========================= ========================
+
+    ``peptide_view(Affinity.score)`` and
+    ``peptide_view(Processing.score)`` therefore both mean "this
+    peptide's value", and compose in one expression without the caller
+    tracking which kind needs ``best_*`` and which is allele-free.
+
+    The allele-free case is the one that could not be written before:
+    a processing row carries no allele, so it lands in its own group and
+    every per-allele group reads ``NaN``.  Producers worked around this
+    by duplicating the row across the patient's alleles.  Here the
+    peptide-level value is broadcast to each of the peptide's groups
+    instead, leaving one canonical row in the frame.
+
+    The mode comes from ``EvalContext.kind_support`` when present; see
+    :func:`_resolve_mhc_dependence` for the fallback.
+    """
+
+    __slots__ = ("inner",)
+
+    def __init__(self, inner: DSLNode):
+        if not isinstance(inner, (Field, BestAlleleField)):
+            raise TypeError(
+                f"peptide_view expects a kind field such as "
+                f"Affinity.score or processing.score, got "
+                f"{type(inner).__name__}. Wrap the field, not the "
+                f"expression around it: "
+                f"peptide_view(Affinity.score) * 2, not "
+                f"peptide_view(Affinity.score * 2)."
+            )
+        self.inner = inner
+
+    def child_nodes(self):
+        return [self.inner]
+
+    def eval(self, ctx: EvalContext) -> pd.Series:
+        inner = self.inner
+        dependence = _resolve_mhc_dependence(ctx, inner.kind, inner.method)
+
+        if dependence == "single_allele":
+            if isinstance(inner, BestAlleleField):
+                return inner.eval(ctx)
+            return BestAlleleField(
+                inner.kind, inner.field, method=inner.method,
+                version=inner.version, scope=inner.scope,
+            ).eval(ctx)
+
+        if isinstance(inner, BestAlleleField):
+            raise ValueError(
+                f"peptide_view(best_{_field_short(inner.field)}) on "
+                f"{_kind_short_name(inner.kind)} where "
+                f"mhc_dependence={dependence!r}: there is one row per "
+                f"peptide, so there is nothing to aggregate across "
+                f"alleles. Use peptide_view("
+                f"{_kind_short_name(inner.kind)}."
+                f"{_field_short(inner.field)}) instead."
+            )
+        return self._eval_peptide_level(ctx, dependence)
+
+    def _eval_peptide_level(self, ctx, dependence):
+        """Read the one row per peptide and broadcast it to its groups."""
+        inner = self.inner
+        sub = _filter_kind_method_version(
+            ctx, inner.kind, inner.method, inner.version,
+        )
+        if sub is None:
+            return ctx.empty_series()
+        col_name = inner.scope + inner.field
+        if col_name not in sub.columns:
+            return ctx.empty_series()
+
+        peptide_keys = [k for k in ctx.group_keys if k != "allele"]
+        if not peptide_keys or "allele" not in ctx.group_keys:
+            # Groups are already peptide-level; nothing to broadcast.
+            return inner.eval(ctx)
+
+        values = pd.to_numeric(sub[col_name], errors="coerce")
+        valid = sub.loc[values.notna(), peptide_keys].assign(
+            __peptide_value=values[values.notna()],
+        )
+        if valid.empty:
+            return ctx.empty_series()
+
+        grouped = valid.groupby(peptide_keys, sort=False, dropna=False)
+        self._check_one_value_per_peptide(grouped, dependence)
+        per_peptide = grouped["__peptide_value"].first()
+
+        peptide_index = ctx.group_index.droplevel("allele")
+        aligned = per_peptide.reindex(peptide_index)
+        result = pd.Series(aligned.to_numpy(), index=ctx.group_index)
+        return pd.to_numeric(result, errors="coerce")
+
+    def _check_one_value_per_peptide(self, grouped, dependence):
+        """A peptide-level kind must not disagree with itself."""
+        distinct = grouped["__peptide_value"].nunique(dropna=True)
+        conflicting = distinct[distinct > 1]
+        if conflicting.empty:
+            return
+        inner = self.inner
+        raise ValueError(
+            f"peptide_view on {_kind_short_name(inner.kind)} where "
+            f"mhc_dependence={dependence!r} expects one "
+            f"{inner.field} per peptide, but {len(conflicting)} "
+            f"peptide(s) carry several different values (first: "
+            f"{conflicting.index[0]!r}). Filter to one row per peptide "
+            f"first, or qualify the kind by method/version."
+        )
+
+    def __repr__(self):
+        return f"peptide_view({repr(self.inner)})"
+
+    def to_ast_string(self):
+        return f"PeptideView({self.inner.to_ast_string()})"
+
+
+def peptide_view(node):
+    """One value per peptide, reduced for the kind's allele mode.
+
+    See :class:`PeptideView`.  Accepts a kind accessor
+    (``peptide_view(Affinity)``) or a field
+    (``peptide_view(Affinity.score)``).
+    """
+    if isinstance(node, KindAccessor):
+        node = node.value
+    return PeptideView(node)
+
+
 class Len(DSLNode):
     """Peptide length, read from a precomputed ``peptide_length`` column."""
 
