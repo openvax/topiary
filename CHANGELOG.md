@@ -46,6 +46,25 @@ The `single_allele` caveat is unchanged and still warns when
 multi-allele aggregate, because the predictor never saw the alleles
 together.
 
+**Fixed: `best_*` fields sorted backwards under `sort_direction="auto"`.**
+`apply_sort` inferred a sort direction only from a bare `Field`, so
+`apply_sort(df, [Affinity.best_value])` ranked the *worst* binders
+first — 5000 nM above 50 nM — while `apply_sort(df, [Affinity.value])`
+ranked them correctly. Direction is now read through the wrappers that
+reduce a field to one value per peptide (`BestAlleleField` and
+`peptide_view`), which change which row is read, never which end is
+better. Sorts that relied on the inverted order will flip; pass
+`sort_direction="desc"` explicitly to keep it.
+
+`peptide_view` also refuses input it cannot honor rather than reading
+something else: a `best_*_allele` field (an allele name is not a value
+per peptide), a scoped `wt.` / `shuffled.` / `self.` field inside a
+filter (the wrapper was a hole in that guard), an `mhc_dependence`
+value this topiary doesn't know, and a grouping with no peptide
+dimension. Peptide-level values are compared with a float tolerance, so
+a row round-tripped through a CSV and one computed in-process no longer
+disagree over the last bit.
+
 ## 5.17.1
 
 **Fixed: tissue expression lookups against current pirlygenes (#177):**

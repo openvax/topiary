@@ -159,19 +159,18 @@ _GROUP_KEYS_VARIANT = ["variant", "peptide", "peptide_offset", "allele"]
 _GROUP_KEYS_FRAGMENT = ["fragment_id", "peptide", "peptide_offset", "allele"]
 
 
-def _has_real_sample_names(values) -> bool:
-    """True when *values* holds at least one non-blank sample name.
+def _has_real_values(values) -> bool:
+    """True when *values* holds at least one non-null, non-blank entry.
 
-    ``mhctools`` stamps ``sample_name=""`` on every row of a
-    single-sample run, so the column's presence alone does not mean the
-    frame is multi-sample.  A null-or-blank column carries no identity;
-    grouping by it would widen every group tuple with a constant level
-    for no benefit.  A frame that mixes real names with blanks keeps the
-    key — there the blank *is* a distinguishing value.
+    ``mhctools`` stamps ``""`` on columns a run carries no value for —
+    ``sample_name`` on a single-sample run, ``allele`` on an
+    allele-independent prediction — so a column's presence says nothing
+    about whether it carries identity.  One definition of "blank" for
+    every caller that has to make that distinction.
     """
-    # Sample names are constant per sample, so the distinct set is tiny.
-    # One hashing pass over the column, then the blank test runs over a
-    # couple of values rather than every row.
+    # The columns this is asked about are near-constant, so the distinct
+    # set is tiny: one hashing pass, then a test over a couple of values
+    # rather than every row.
     return any(
         not pd.isna(v) and str(v).strip() != ""
         for v in pd.unique(values.to_numpy())
@@ -183,7 +182,7 @@ def _with_optional_sample_key(df, group_keys):
     if (
         _SAMPLE_GROUP_KEY in df.columns
         and _SAMPLE_GROUP_KEY not in group_keys
-        and _has_real_sample_names(df[_SAMPLE_GROUP_KEY])
+        and _has_real_values(df[_SAMPLE_GROUP_KEY])
     ):
         group_keys.insert(0, _SAMPLE_GROUP_KEY)
     return group_keys
@@ -1045,6 +1044,20 @@ class Field(DSLNode):
 from mhctools import best_direction as _best_direction  # noqa: E402
 
 
+def _has_best_direction(kind, field) -> bool:
+    """Whether mhctools defines an ordering for this (kind, field).
+
+    Without one there is no "best" row to pick — e.g. a processing
+    score has no per-allele ranking — so aggregating across alleles is
+    meaningless and the value must already be one per peptide.
+    """
+    try:
+        _best_direction(kind, field)
+    except (ValueError, KeyError):
+        return False
+    return True
+
+
 def _field_short(field: str) -> str:
     return "rank" if field == "percentile_rank" else field
 
@@ -1105,17 +1118,8 @@ class BestAlleleField(DSLNode):
         """Warn if any matching (model, kind) reports
         ``mhc_dependence='single_allele'``: the result is the best
         per-allele score, not a true joint multi-allele aggregate."""
-        kind_support = getattr(ctx, "kind_support", None)
-        if not kind_support:
-            return
-        kind_val = _kind_value(self.kind)
-        method_filter = self.method.lower() if self.method else None
-        for model_key, kind_map in kind_support.items():
-            if kind_val not in kind_map:
-                continue
-            if method_filter and method_filter not in str(model_key).lower():
-                continue
-            dep = kind_map[kind_val].get("mhc_dependence")
+        reported = _reported_dependences(ctx, self.kind, self.method)
+        for model_key, dep in reported.items():
             if dep == "single_allele":
                 import warnings
                 warnings.warn(
@@ -1222,6 +1226,51 @@ class BestAlleleField(DSLNode):
         return f"BestAlleleField({', '.join(parts)})"
 
 
+#: The allele modes mhctools reports.  Anything else is a version skew
+#: we must not guess at.
+_MHC_DEPENDENCE_VALUES = frozenset({"none", "single_allele", "haplotype"})
+
+
+def _reported_dependences(ctx, kind, method=None):
+    """``{model_key: mhc_dependence}`` from ``ctx.kind_support`` for *kind*.
+
+    The one place that walks mhctools' per-(model, kind) metadata.
+    *method* is a case-insensitive substring filter on the model key,
+    matching how the DSL selects a model everywhere else.
+    """
+    kind_support = getattr(ctx, "kind_support", None)
+    if not kind_support:
+        return {}
+    kind_val = _kind_value(kind)
+    method_filter = method.lower() if method else None
+    reported = {}
+    for model_key, kind_map in kind_support.items():
+        if kind_val not in kind_map:
+            continue
+        if method_filter and method_filter not in str(model_key).lower():
+            continue
+        dep = kind_map[kind_val].get("mhc_dependence")
+        if dep:
+            reported[model_key] = dep
+    return reported
+
+
+def _effective_method(ctx, kind, method=None):
+    """The method the DSL will actually read for *kind*.
+
+    Mirrors :func:`_filter_kind_method_version`: an explicit method
+    wins, then the per-iteration binding a ``Comparison`` sets while
+    auto-aggregating, then ``default_methods``.
+    """
+    if method is not None:
+        return method
+    kind_val = _kind_value(kind)
+    override = getattr(ctx, "_method_override", None)
+    if override is not None and override[0] == kind_val:
+        return override[1]
+    return ctx.default_methods.get(kind_val)
+
+
 def _resolve_mhc_dependence(ctx, kind, method=None):
     """How *kind* relates to alleles for this frame.
 
@@ -1233,39 +1282,56 @@ def _resolve_mhc_dependence(ctx, kind, method=None):
     per-allele, which is both the common case and what the DSL already
     did.
     """
-    kind_val = _kind_value(kind)
-    kind_support = getattr(ctx, "kind_support", None)
-    if kind_support:
-        method_filter = method.lower() if method else None
-        found = set()
-        for model_key, kind_map in kind_support.items():
-            if kind_val not in kind_map:
-                continue
-            if method_filter and method_filter not in str(model_key).lower():
-                continue
-            dep = kind_map[kind_val].get("mhc_dependence")
-            if dep:
-                found.add(dep)
-        if len(found) == 1:
-            return found.pop()
-        if len(found) > 1:
+    reported = _reported_dependences(
+        ctx, kind, _effective_method(ctx, kind, method),
+    )
+    found = set(reported.values())
+    if len(found) > 1:
+        raise _dependence_conflict_error(kind, reported)
+    if found:
+        dependence = found.pop()
+        if dependence not in _MHC_DEPENDENCE_VALUES:
             raise ValueError(
-                f"peptide_view on {_kind_short_name(kind)}: models disagree "
-                f"about mhc_dependence ({sorted(found)}). Qualify the kind "
-                f"with a method, e.g. "
-                f"{_kind_short_name(kind)}['modelname'], so one projection "
-                f"applies."
+                f"peptide_view on {_kind_short_name(kind)}: unknown "
+                f"mhc_dependence {dependence!r} (known: "
+                f"{sorted(_MHC_DEPENDENCE_VALUES)}). This topiary is older "
+                f"than the mhctools that produced the metadata; upgrade "
+                f"topiary rather than guessing the projection."
             )
+        return dependence
 
     df = ctx.df
     if "kind" not in df.columns or "allele" not in df.columns:
-        return "single_allele"
-    rows = df[df["kind"] == kind_val]
+        # No allele column at all: nothing in this frame is per-allele.
+        return "none"
+    rows = df[df["kind"] == _kind_value(kind)]
     if rows.empty:
         return "single_allele"
-    allele = rows["allele"]
-    has_allele = allele.notna() & (allele.astype(str).str.strip() != "")
-    return "single_allele" if has_allele.any() else "none"
+    return "single_allele" if _has_real_values(rows["allele"]) else "none"
+
+
+def _dependence_conflict_error(kind, reported):
+    """Explain disagreeing models — and whether method can separate them."""
+    kind_name = _kind_short_name(kind)
+    modes = sorted(set(reported.values()))
+    base_names = {str(k).split("__")[0] for k in reported}
+    if len(base_names) == 1:
+        # TopiaryPredictor disambiguates same-named models as name__1 /
+        # name__2, but rows only carry the shared prediction_method_name,
+        # so no DSL expression can tell them apart.
+        return ValueError(
+            f"peptide_view on {kind_name}: models {sorted(reported)} report "
+            f"different mhc_dependence ({modes}) but share the "
+            f"prediction_method_name {base_names.pop()!r}, so qualifying the "
+            f"kind by method cannot separate them. Score the runs "
+            f"separately, or pass kind_support for only the model this "
+            f"frame came from."
+        )
+    return ValueError(
+        f"peptide_view on {kind_name}: models disagree about mhc_dependence "
+        f"({modes}). Qualify the kind with a method, e.g. "
+        f"{kind_name}[{sorted(base_names)[0]!r}], so one projection applies."
+    )
 
 
 class PeptideView(DSLNode):
@@ -1301,6 +1367,12 @@ class PeptideView(DSLNode):
     __slots__ = ("inner",)
 
     def __init__(self, inner: DSLNode):
+        if getattr(inner, "return_allele", False):
+            raise TypeError(
+                "peptide_view returns one value per peptide, but "
+                f"{inner!r} returns an allele name. Read it directly — "
+                "best_*_allele already reports one allele per peptide."
+            )
         if not isinstance(inner, (Field, BestAlleleField)):
             raise TypeError(
                 f"peptide_view expects a kind field such as "
@@ -1320,6 +1392,12 @@ class PeptideView(DSLNode):
         dependence = _resolve_mhc_dependence(ctx, inner.kind, inner.method)
 
         if dependence == "single_allele":
+            if not _has_best_direction(inner.kind, inner.field):
+                # No ordering is defined for this (kind, field), so there
+                # is no "best" to pick — the value has to be one per
+                # peptide already, and _eval_peptide_level says so loudly
+                # if it isn't.
+                return self._eval_peptide_level(ctx, dependence)
             if isinstance(inner, BestAlleleField):
                 return inner.eval(ctx)
             return BestAlleleField(
@@ -1342,15 +1420,6 @@ class PeptideView(DSLNode):
     def _eval_peptide_level(self, ctx, dependence):
         """Read the one row per peptide and broadcast it to its groups."""
         inner = self.inner
-        sub = _filter_kind_method_version(
-            ctx, inner.kind, inner.method, inner.version,
-        )
-        if sub is None:
-            return ctx.empty_series()
-        col_name = inner.scope + inner.field
-        if col_name not in sub.columns:
-            return ctx.empty_series()
-
         peptide_keys = [k for k in ctx.group_keys if k != "allele"]
         if "allele" not in ctx.group_keys:
             # Groups are already peptide-level; nothing to broadcast.
@@ -1366,26 +1435,44 @@ class PeptideView(DSLNode):
                 f"identity columns, e.g. group_keys=['peptide', 'allele']."
             )
 
+        sub = _filter_kind_method_version(
+            ctx, inner.kind, inner.method, inner.version,
+        )
+        if sub is None:
+            return ctx.empty_series()
+        col_name = inner.scope + inner.field
+        if col_name not in sub.columns:
+            return ctx.empty_series()
+
         values = pd.to_numeric(sub[col_name], errors="coerce")
-        valid = sub.loc[values.notna(), peptide_keys].assign(
-            __peptide_value=values[values.notna()],
+        keep = values.notna()
+        valid = sub.loc[keep, peptide_keys].assign(
+            __peptide_value=values[keep],
         )
         if valid.empty:
             return ctx.empty_series()
 
-        grouped = valid.groupby(peptide_keys, sort=False, dropna=False)
-        self._check_one_value_per_peptide(grouped, dependence)
-        per_peptide = grouped["__peptide_value"].first()
+        stats = valid.groupby(peptide_keys, sort=False, dropna=False)[
+            "__peptide_value"
+        ].agg(["first", "min", "max"])
+        self._check_one_value_per_peptide(stats, dependence)
+        per_peptide = stats["first"]
 
         peptide_index = ctx.group_index.droplevel("allele")
         aligned = per_peptide.reindex(peptide_index)
         result = pd.Series(aligned.to_numpy(), index=ctx.group_index)
         return pd.to_numeric(result, errors="coerce")
 
-    def _check_one_value_per_peptide(self, grouped, dependence):
-        """A peptide-level kind must not disagree with itself."""
-        distinct = grouped["__peptide_value"].nunique(dropna=True)
-        conflicting = distinct[distinct > 1]
+    def _check_one_value_per_peptide(self, stats, dependence):
+        """A peptide-level kind must not disagree with itself.
+
+        Compared with a tolerance: one row round-tripped through a CSV
+        and one computed in-process can differ in the last bit and still
+        be the same number.
+        """
+        spread = (stats["max"] - stats["min"]).abs()
+        scale = stats[["min", "max"]].abs().max(axis=1).clip(lower=1.0)
+        conflicting = stats[spread > 1e-9 * scale]
         if conflicting.empty:
             return
         inner = self.inner
@@ -1987,7 +2074,12 @@ class Comparison(DSLNode):
 
     def __init__(self, left: DSLNode, op, right: DSLNode):
         for side in (left, right):
-            if isinstance(side, Field) and side.scope:
+            # Look through peptide_view(): it changes which row is read,
+            # not which columns, so a scoped field stays off-limits in a
+            # filter however it is wrapped.
+            while isinstance(side, PeptideView):
+                side = side.inner
+            if isinstance(side, (Field, BestAlleleField)) and side.scope:
                 scope_name = side.scope.rstrip("_")
                 raise TypeError(
                     f"Scoped fields ({scope_name}.*) can't be used in filters. "

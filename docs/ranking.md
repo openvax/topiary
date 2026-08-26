@@ -124,7 +124,7 @@ Note that the allele-free row is still its own group, so a per-allele filter cla
 
 The mode comes from `EvalContext(kind_support=...)` — mhctools' per-(model, kind) metadata, available as `TopiaryPredictor.kind_support` — which is the only thing that can tell `haplotype` from `single_allele`, since both put a real allele on every row. Without it, a kind whose rows carry no allele is treated as allele-free and everything else as per-allele. Inconsistent data is an error, not a silent pick: a peptide-level kind with two different values for one peptide, or models that disagree about `mhc_dependence`, both raise.
 
-Available in string form too, so it works in `--filter-by` / `--sort-by` and in config files: `peptide_view(processing.score)`.
+Available in string form too, so it works in `--filter-by` / `--sort-by` and in config files: `peptide_view(processing.score)`. Sorting reads the direction through the wrapper, so `peptide_view(affinity.value)` ranks strong binders first under the default `--sort-direction auto`, exactly like the bare field.
 
 ## Filters
 

@@ -408,3 +408,223 @@ def test_null_allele_counts_as_allele_free():
     assert evaluate_scores(df, peptide_view(Processing.score)).tolist() == [
         0.77, 0.77, 0.77,
     ]
+
+
+# ---------------------------------------------------------------------------
+# Sort direction: the wrappers change which row is read, not which end is best
+# ---------------------------------------------------------------------------
+
+
+def _two_peptide_affinity_df():
+    return pd.DataFrame(
+        _affinity_rows(peptide="AAA", values=(50.0, 60.0))
+        + _affinity_rows(peptide="BBB", values=(5000.0, 6000.0))
+    )
+
+
+def test_peptide_view_sorts_affinity_ascending():
+    """auto direction must survive the wrapper: strong binders first."""
+    df = _two_peptide_affinity_df()
+
+    ordered = apply_sort(df, [peptide_view(Affinity.value)])
+
+    assert ordered["peptide"].tolist()[0] == "AAA"
+
+
+def test_best_allele_field_sorts_affinity_ascending():
+    """Regression: BestAlleleField isn't a Field either, and sorted desc."""
+    df = _two_peptide_affinity_df()
+
+    ordered = apply_sort(df, [Affinity.best_value])
+
+    assert ordered["peptide"].tolist()[0] == "AAA"
+
+
+def test_peptide_view_sorts_percentile_rank_ascending():
+    df = pd.DataFrame([
+        _row(peptide="AAA", allele=ALLELES[0], kind="pMHC_affinity",
+             value=10.0, score=0.9, percentile_rank=0.1),
+        _row(peptide="BBB", allele=ALLELES[0], kind="pMHC_affinity",
+             value=20.0, score=0.1, percentile_rank=30.0),
+    ])
+
+    ordered = apply_sort(df, [peptide_view(Affinity.rank)])
+
+    assert ordered["peptide"].tolist()[0] == "AAA"
+
+
+def test_peptide_view_sorts_scores_descending():
+    df = _two_peptide_affinity_df()
+    df.loc[df["peptide"] == "AAA", "score"] = 0.1
+    df.loc[df["peptide"] == "BBB", "score"] = 0.9
+
+    ordered = apply_sort(df, [peptide_view(Affinity.score)])
+
+    assert ordered["peptide"].tolist()[0] == "BBB"
+
+
+# ---------------------------------------------------------------------------
+# Method binding: the resolver must see what the DSL already resolved
+# ---------------------------------------------------------------------------
+
+
+def _two_model_presentation_df():
+    return pd.DataFrame([
+        _row(allele=ALLELES[0], kind="pMHC_presentation", score=0.9,
+             prediction_method_name="netmhcpan"),
+        _row(allele=ALLELES[1], kind="pMHC_presentation", score=0.4,
+             prediction_method_name="netmhcpan"),
+        _row(allele=ALLELES[0], kind="pMHC_presentation", score=0.8,
+             prediction_method_name="mhcflurry"),
+    ])
+
+
+_SPLIT_SUPPORT = {
+    "netmhcpan": {"pMHC_presentation": {"mhc_dependence": "single_allele"}},
+    "mhcflurry": {"pMHC_presentation": {"mhc_dependence": "haplotype"}},
+}
+
+
+def test_default_methods_settles_the_dependence():
+    """An explicit default names one model; that model's mode applies."""
+    df = _two_model_presentation_df()
+
+    scores = evaluate_scores(
+        df, peptide_view(Presentation.score), kind_support=_SPLIT_SUPPORT,
+        default_methods={"pMHC_presentation": "netmhcpan"},
+    )
+
+    # netmhcpan is single_allele: best of 0.9 / 0.4 across the peptide.
+    assert scores.tolist()[:2] == [0.9, 0.9]
+
+
+def test_filter_auto_aggregation_binds_the_method_for_dependence():
+    """apply_filter binds one method per iteration; the resolver must see it."""
+    df = _two_model_presentation_df()
+
+    kept = apply_filter(
+        df, parse("peptide_view(el.score) >= 0.5"),
+        kind_support=_SPLIT_SUPPORT,
+    )
+
+    assert len(kept) > 0
+
+
+# ---------------------------------------------------------------------------
+# Frames and kinds without an allele dimension
+# ---------------------------------------------------------------------------
+
+
+def test_frame_without_an_allele_column_is_allele_free():
+    df = pd.DataFrame([
+        _row(peptide="AAA", kind="antigen_processing", score=0.77,
+             prediction_method_name="mhcflurry"),
+        _row(peptide="BBB", kind="antigen_processing", score=0.2,
+             prediction_method_name="mhcflurry"),
+    ]).drop(columns=["allele"])
+    group_keys = ["source_sequence_name", "peptide", "peptide_offset"]
+
+    scores = evaluate_scores(
+        df, peptide_view(Processing.score), group_keys=group_keys,
+    )
+
+    assert scores.tolist() == [0.77, 0.2]
+
+
+def test_field_without_a_best_direction_reads_per_peptide():
+    """Legacy layout: processing rows duplicated across alleles.
+
+    `value` has no per-kind ordering for processing, so there is no
+    "best" to pick — reading the peptide's single value is the only
+    sensible answer, and it must not crash.
+    """
+    df = pd.DataFrame([
+        _row(allele=allele, kind="antigen_processing", value=0.77,
+             prediction_method_name="mhcflurry")
+        for allele in ALLELES
+    ])
+
+    assert evaluate_scores(df, peptide_view(Processing.value)).tolist() == [
+        0.77, 0.77,
+    ]
+
+
+def test_missing_kind_without_a_direction_gives_nan():
+    df = pd.DataFrame(_affinity_rows())
+
+    scores = evaluate_scores(df, peptide_view(Processing.value))
+
+    assert scores.isna().all()
+
+
+# ---------------------------------------------------------------------------
+# Rejected inputs
+# ---------------------------------------------------------------------------
+
+
+def test_allele_returning_field_is_rejected():
+    with pytest.raises(TypeError, match="returns an allele name"):
+        peptide_view(Affinity.best_score_allele)
+
+
+def test_unknown_mhc_dependence_is_rejected():
+    df = pd.DataFrame(_affinity_rows())
+    support = _kind_support("netmhcpan", "pMHC_affinity", "supertype")
+
+    with pytest.raises(ValueError, match="unknown mhc_dependence 'supertype'"):
+        evaluate_scores(
+            df, peptide_view(Affinity.value), kind_support=support,
+        )
+
+
+def test_models_sharing_a_method_name_get_an_honest_error():
+    """TopiaryPredictor keys same-named models __1/__2; rows can't say which."""
+    df = pd.DataFrame([
+        _row(allele=ALLELES[0], kind="pMHC_presentation", score=0.8,
+             prediction_method_name="mhcflurry"),
+    ])
+    support = {
+        "mhcflurry__1": {"pMHC_presentation": {"mhc_dependence": "single_allele"}},
+        "mhcflurry__2": {"pMHC_presentation": {"mhc_dependence": "haplotype"}},
+    }
+
+    with pytest.raises(ValueError, match="cannot separate them"):
+        evaluate_scores(
+            df, peptide_view(Presentation.score), kind_support=support,
+        )
+
+
+def test_scoped_field_cannot_reach_a_filter_through_peptide_view():
+    """peptide_view must not become a hole in the wt.* filter guard."""
+    df = pd.DataFrame([
+        _row(allele=allele, kind="pMHC_affinity", value=100.0, score=0.5,
+             wt_value=wt_value)
+        for allele, wt_value in zip(ALLELES, (9000.0, 20.0))
+    ])
+
+    with pytest.raises(TypeError, match="Scoped fields"):
+        parse("peptide_view(wt.affinity.value) <= 500")
+
+    from topiary.ranking import wt
+    with pytest.raises(TypeError, match="Scoped fields"):
+        apply_filter(df, peptide_view(wt.Affinity.value) <= 500)
+
+
+def test_values_agreeing_within_float_noise_are_accepted():
+    """One row round-tripped through a CSV, one computed in-process."""
+    df = pd.DataFrame(_affinity_rows() + [
+        _processing_row(score=0.1 + 0.2), _processing_row(score=0.3),
+    ])
+
+    scores = evaluate_scores(df, peptide_view(Processing.score))
+
+    assert scores.tolist() == [pytest.approx(0.3)] * 4
+
+
+def test_values_that_really_differ_are_still_rejected():
+    df = pd.DataFrame(_affinity_rows() + [
+        _processing_row(score=0.30), _processing_row(score=0.31),
+    ])
+
+    with pytest.raises(ValueError, match="carry several different values"):
+        evaluate_scores(df, peptide_view(Processing.score))
