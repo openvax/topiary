@@ -1,5 +1,70 @@
 # Changelog
 
+## 5.18.0
+
+**`peptide_view()` — per-`mhc_dependence` peptide-level projection (#169):**
+
+The DSL reads one value per (peptide, allele) group, but which reduction
+is *correct* depends on the predictor's allele mode: best-across-alleles
+for `single_allele` kinds, a direct read for `haplotype` and allele-free
+(`none`) ones. Callers had to know which kind needed `best_*` and which
+did not, and getting it wrong read an arbitrary row.
+
+```python
+from topiary import peptide_view, Affinity, Processing
+
+0.5 * peptide_view(Processing.score) + 0.5 * peptide_view(Affinity.score)
+```
+
+The allele-free case could not be expressed at all before. An antigen
+processing row carries no allele, so it forms its own group and every
+per-allele group reads `NaN`:
+
+```python
+evaluate_scores(df, Processing.score)                # [nan, nan, 0.77]
+evaluate_scores(df, peptide_view(Processing.score))  # [0.77, 0.77, 0.77]
+```
+
+Producers worked around this by duplicating each processing row across
+the patient's alleles before handing topiary a frame. With `peptide_view`
+the frame keeps one canonical row and the value is broadcast at
+evaluation time, so `affinity <= 500 & peptide_view(processing.score) >=
+0.5` works on an unduplicated frame.
+
+The mode comes from `EvalContext(kind_support=...)`; without it, a kind
+whose rows carry no allele is treated as allele-free and everything else
+as per-allele. Inconsistent input raises rather than picking silently:
+a peptide-level kind carrying two different values for one peptide, and
+models that disagree about `mhc_dependence`, are both errors.
+
+Available in string form (`peptide_view(processing.score)`), so it works
+in `--filter-by` / `--sort-by` and in consumer config files, and it
+round-trips through `to_expr_string()`.
+
+The `single_allele` caveat is unchanged and still warns when
+`kind_support` is present: best-of-per-allele is not a joint
+multi-allele aggregate, because the predictor never saw the alleles
+together.
+
+**Fixed: `best_*` fields sorted backwards under `sort_direction="auto"`.**
+`apply_sort` inferred a sort direction only from a bare `Field`, so
+`apply_sort(df, [Affinity.best_value])` ranked the *worst* binders
+first — 5000 nM above 50 nM — while `apply_sort(df, [Affinity.value])`
+ranked them correctly. Direction is now read through the wrappers that
+reduce a field to one value per peptide (`BestAlleleField` and
+`peptide_view`), which change which row is read, never which end is
+better. Sorts that relied on the inverted order will flip; pass
+`sort_direction="desc"` explicitly to keep it.
+
+`peptide_view` also refuses input it cannot honor rather than reading
+something else: a `best_*_allele` field (an allele name is not a value
+per peptide), a scoped `wt.` / `shuffled.` / `self.` field inside a
+filter (the wrapper was a hole in that guard), an `mhc_dependence`
+value this topiary doesn't know, and a grouping with no peptide
+dimension. Peptide-level values are compared with a float tolerance, so
+a row round-tripped through a CSV and one computed in-process no longer
+disagree over the last bit.
+
 ## 5.17.1
 
 **Fixed: tissue expression lookups against current pirlygenes (#177):**

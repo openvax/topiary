@@ -9,8 +9,10 @@ import pandas as pd
 from mhctools import Kind
 
 from .nodes import (
+    BestAlleleField,
     EvalContext,
     Field,
+    PeptideView,
     _kind_matches,
     _missing_column_error,
     _normalize_group_keys,
@@ -94,8 +96,16 @@ def _validate_columns(df, node):
 
 
 def _infer_sort_direction(node):
-    """Natural sort direction for a node (asc = smaller is better)."""
-    if isinstance(node, Field):
+    """Natural sort direction for a node (asc = smaller is better).
+
+    Reads through the wrappers that reduce a field to one value per
+    peptide — they change *which* row is read, never whether small or
+    large is better, so ``peptide_view(Affinity.value)`` and
+    ``Affinity.best_value`` sort ascending like the bare field.
+    """
+    while isinstance(node, PeptideView):
+        node = node.inner
+    if isinstance(node, (Field, BestAlleleField)):
         if node.field == "percentile_rank":
             return "asc"
         if _kind_matches(node.kind, Kind.pMHC_affinity) and node.field == "value":

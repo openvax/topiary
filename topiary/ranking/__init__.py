@@ -21,6 +21,7 @@ from .nodes import (
     BestAlleleField,
     Field,
     PeptideProperty,
+    PeptideView,
     KindAccessor,
     Len,
     LogisticExpr,
@@ -61,6 +62,7 @@ from .nodes import (
     mean,
     median,
     minimum,
+    peptide_view,
     self_nearest,
     self_scope,
     shuffled,
@@ -78,6 +80,7 @@ __all__ = [
     "IsIn",
     "Field",
     "BestAlleleField",
+    "PeptideView",
     "PeptideProperty",
     "Len",
     "Count",
@@ -115,6 +118,7 @@ __all__ = [
     "apply_sort",
     "evaluate_scores",
     "parse",
+    "peptide_view",
     # Kind / field name resolution (public)
     "KIND_ALIASES",
 ]

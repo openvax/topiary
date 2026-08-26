@@ -21,6 +21,7 @@ from .ranking import (
     LogisticNormalizedExpr,
     NormExpr,
     PeptideProperty,
+    PeptideView,
     Presentation,
     Processing,
     Scope,
@@ -38,6 +39,7 @@ from .ranking import (
     median,
     minimum,
     parse,
+    peptide_view,
     self_scope,
     shuffled,
     wt,
@@ -75,7 +77,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.17.1"
+__version__ = "5.18.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -102,6 +104,7 @@ __all__ = [
     "LogisticNormalizedExpr",
     "NormExpr",
     "PeptideProperty",
+    "PeptideView",
     "Aromaticity",
     "Charge",
     "Hydrophobicity",
@@ -125,6 +128,7 @@ __all__ = [
     "median",
     "minimum",
     "parse",
+    "peptide_view",
     "self_nearest",
     "self_scope",
     "shuffled",
