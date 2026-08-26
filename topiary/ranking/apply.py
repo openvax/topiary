@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from difflib import get_close_matches
 from functools import cmp_to_key
 
 import numpy as np
@@ -13,7 +12,24 @@ from .nodes import (
     EvalContext,
     Field,
     _kind_matches,
+    _missing_column_error,
+    _normalize_group_keys,
 )
+
+
+def _check_group_keys(df, group_keys):
+    """Validate explicit *group_keys* on a path that returns early.
+
+    The normal path validates inside :class:`EvalContext`, but an empty
+    frame or a no-op node returns before a context is ever built — a
+    typo must not pass silently just because a pipeline has degenerated
+    to zero rows or dropped its expression.
+    """
+    if group_keys is None:
+        return
+    # With no frame there are no columns to check against, but the shape
+    # of the argument is still wrong or right on its own terms.
+    _normalize_group_keys(pd.DataFrame() if df is None else df, group_keys)
 
 
 def _check_boolean_like(values: pd.Series):
@@ -71,18 +87,10 @@ def _validate_columns(df, node):
     needed = _collect_column_names(node)
     if not needed:
         return
-    available = set(df.columns)
-    missing = needed - available
+    missing = sorted(needed - set(df.columns))
     if not missing:
         return
-    for col_name in sorted(missing):
-        close = get_close_matches(col_name, sorted(available), n=3, cutoff=0.6)
-        msg = f"Column {col_name!r} not found in DataFrame."
-        if close:
-            msg += f" Did you mean: {close}?"
-        else:
-            msg += f" Available columns: {sorted(available)}"
-        raise ValueError(msg)
+    raise _missing_column_error(missing, df.columns)
 
 
 def _infer_sort_direction(node):
@@ -101,7 +109,8 @@ def _resolve_sort_direction(node, sort_direction):
     return sort_direction
 
 
-def evaluate_scores(df, node, group_keys=None, fill=np.nan, kind_support=None):
+def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
+                    kind_support=None, fill=np.nan):
     """Evaluate a DSL *node* against *df* and align the result to ``df.index``.
 
     ``DSLNode.eval`` returns a Series indexed by the peptide-allele
@@ -109,8 +118,7 @@ def evaluate_scores(df, node, group_keys=None, fill=np.nan, kind_support=None):
     This helper wraps the group→row mapping every consumer ends up
     writing by hand:
 
-    1. Build an :class:`EvalContext` (with optional *group_keys* and
-       *kind_support*).
+    1. Build an :class:`EvalContext`.
     2. Call ``node.eval(ctx)``.
     3. Map each of ``df``'s rows to its group's value via
        :meth:`EvalContext.row_group_tuples`.
@@ -120,25 +128,28 @@ def evaluate_scores(df, node, group_keys=None, fill=np.nan, kind_support=None):
     callers pick semantics — ``.fillna(0.0)`` for additive scoring,
     ``.fillna(-inf)`` for ranking.
 
-    *kind_support* is the per-(model, kind) metadata dict produced by
-    :attr:`TopiaryPredictor.kind_support`. Forwarded to
-    :class:`EvalContext` so allele-aware nodes (e.g.
-    :class:`BestAlleleField`) can warn or branch on
-    ``mhc_dependence``.
+    *group_keys*, *default_methods* and *kind_support* are the shared
+    context options, forwarded to :class:`EvalContext` — see its
+    docstring.
 
     Returns a ``pd.Series`` with ``df.index`` and a numeric dtype.
     """
     if node is None:
         raise ValueError("evaluate_scores requires a DSL node")
     if df is None or df.empty:
+        _check_group_keys(df, group_keys)
         return pd.Series([], index=df.index if df is not None else None,
                          dtype=float)
 
-    ctx = EvalContext(df, group_keys=group_keys, kind_support=kind_support)
-    scored = node.eval(ctx)
-    row_tuples = ctx.row_group_tuples()
-    aligned = row_tuples.map(scored.to_dict())
-    aligned.index = df.index
+
+    ctx = EvalContext(
+        df, group_keys=group_keys, default_methods=default_methods,
+        kind_support=kind_support,
+    )
+    scored = node.eval(ctx).reindex(ctx.group_index)
+    aligned = pd.Series(
+        scored.to_numpy()[ctx.row_group_codes()], index=df.index,
+    )
     aligned = pd.to_numeric(aligned, errors="coerce")
     if not (isinstance(fill, float) and np.isnan(fill)):
         aligned = aligned.fillna(fill)
@@ -146,46 +157,39 @@ def evaluate_scores(df, node, group_keys=None, fill=np.nan, kind_support=None):
     return aligned
 
 
-def apply_filter(df, node, default_methods=None, kind_support=None):
+def apply_filter(df, node, *, group_keys=None, default_methods=None,
+                 kind_support=None):
     """Apply a boolean-valued DSL node to *df*.
 
     Keeps all rows for peptide-allele groups whose evaluated value is
     truthy.  ``None`` for *node* is a no-op.
 
-    *default_methods* is forwarded to :class:`EvalContext` — see its
-    docstring for the per-kind default ``prediction_method_name`` kwarg
-    used to resolve unqualified Field references on multi-method inputs.
-
-    *kind_support* (optional) is the per-(model, kind) metadata dict
-    from :attr:`TopiaryPredictor.kind_support`. Forwarded to
-    :class:`EvalContext` so :class:`BestAlleleField` can warn when
-    invoked against ``mhc_dependence='single_allele'`` rows.
+    *group_keys*, *default_methods* and *kind_support* are the shared
+    context options, forwarded to :class:`EvalContext` — see its
+    docstring.
     """
-    if node is None:
-        return df
-    if df.empty:
-        return df.reset_index(drop=True)
+    if node is None or df.empty:
+        _check_group_keys(df, group_keys)
+        return df if node is None else df.reset_index(drop=True)
 
     _validate_columns(df, node)
     ctx = EvalContext(
-        df, filter_context=True, default_methods=default_methods,
-        kind_support=kind_support,
+        df, group_keys=group_keys, filter_context=True,
+        default_methods=default_methods, kind_support=kind_support,
     )
     # Reindex defensively so a misbehaving node (index mismatch) surfaces
     # as NaN → False rather than silently picking up rows from a
     # different MultiIndex alignment.
     values = node.eval(ctx).reindex(ctx.group_index)
     _check_boolean_like(values)
-    mask = values.fillna(False).astype(bool)
+    mask = values.fillna(False).astype(bool).to_numpy()
 
-    passing = set(mask[mask].index)
-    row_keys = ctx.row_group_tuples()
-    keep = row_keys.isin(passing)
+    keep = mask[ctx.row_group_codes()]
     return df[keep].reset_index(drop=True)
 
 
-def apply_sort(df, sort_nodes, sort_direction="auto", default_methods=None,
-               kind_support=None):
+def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
+               default_methods=None, kind_support=None):
     """Sort groups by one or more DSL nodes (lexicographic fallthrough).
 
     *sort_nodes* is a list of DSLNode.  Each node's direction is inferred
@@ -194,18 +198,19 @@ def apply_sort(df, sort_nodes, sort_direction="auto", default_methods=None,
     value is used for all nodes.  NaN values do not force an ordering —
     they fall through to the next tiebreaker.
 
-    *default_methods* and *kind_support* are forwarded to
-    :class:`EvalContext` — see its docstring.
+    *group_keys*, *default_methods* and *kind_support* are the shared
+    context options, forwarded to :class:`EvalContext` — see its
+    docstring.
     """
-    if not sort_nodes:
-        return df
-    if df.empty:
-        return df.reset_index(drop=True)
+    if not sort_nodes or df.empty:
+        _check_group_keys(df, group_keys)
+        return df if not sort_nodes else df.reset_index(drop=True)
 
     for node in sort_nodes:
         _validate_columns(df, node)
 
-    ctx = EvalContext(df, default_methods=default_methods,
+    ctx = EvalContext(df, group_keys=group_keys,
+                      default_methods=default_methods,
                       kind_support=kind_support)
     n_groups = len(ctx.group_index)
     n_keys = len(sort_nodes)
@@ -233,13 +238,11 @@ def apply_sort(df, sort_nodes, sort_direction="auto", default_methods=None,
         return 0
 
     sorted_idx = sorted(range(n_groups), key=cmp_to_key(_cmp))
-    sorted_keys = [ctx.group_index[i] for i in sorted_idx]
+    rank_of_group = np.empty(n_groups, dtype=int)
+    rank_of_group[sorted_idx] = np.arange(n_groups)
 
-    key_pos = {k: i for i, k in enumerate(sorted_keys)}
-    row_keys = ctx.row_group_tuples()
-    positions = row_keys.map(key_pos)
-    assert positions.notna().all(), "internal: row group tuple not found in sort keys"
-    ordered = df.assign(_sort_pos=positions.values).sort_values(
+    positions = rank_of_group[ctx.row_group_codes()]
+    ordered = df.assign(_sort_pos=positions).sort_values(
         "_sort_pos", kind="mergesort",
     )
     return ordered.drop(columns=["_sort_pos"]).reset_index(drop=True)

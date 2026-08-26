@@ -1,5 +1,97 @@
 # Changelog
 
+## 5.17.0
+
+**Explicit group keys everywhere (#175):**
+
+`apply_filter`, `apply_sort`, and `evaluate_scores` now accept the same
+three keyword-only context options — `group_keys`, `default_methods`,
+and `kind_support` — and forward all of them to `EvalContext`. Filtering,
+sorting, and scoring can therefore share one grouping and one method
+resolution instead of each entry point supporting a different subset.
+
+```python
+group_keys = ["prediction_id", "source_sequence_name", "peptide",
+              "peptide_offset", "allele"]
+
+kept = apply_filter(df, Affinity <= 500, group_keys=group_keys)
+scores = evaluate_scores(kept, Affinity.score, group_keys=group_keys)
+```
+
+This matters when a frame carries a stable provenance identity: the
+inferred group keys are sequence-oriented, so two rows sharing peptide,
+source sequence, and offset are one group even when they came from
+different variants, transcripts, or genes — and one row's filter decision
+then applies to the other. Callers that previously reimplemented
+`apply_filter` on top of `EvalContext` just to supply `group_keys` (e.g.
+vaxrank's LENS/pVACseq path) can now call `apply_filter` directly.
+
+Explicit `group_keys` are validated before anything is evaluated: a bare
+string instead of a sequence, an empty sequence, duplicate entries, and
+names that aren't columns all raise immediately, with a near-match
+suggestion, instead of failing deep inside a node. Validation also runs
+on the paths that return early (empty frame, `node=None`, no sort
+nodes), so a typo can't pass silently just because a pipeline has
+degenerated to zero rows.
+
+Frames that group key *inference* can't handle — missing one of the
+identity columns it expects — now raise a `ValueError` naming the
+missing columns and pointing at `group_keys=`, rather than a bare
+`KeyError` from inside pandas.
+
+**Fixed: null group keys silently dropped rows and scores.** `None`,
+`NaN` and `pd.NA` in an identity column are one group under
+`groupby(dropna=False)` — which every node evaluates through — but the
+group index was built from raw values, which keeps them apart, and rows
+were matched to groups by key lookup, which never matches a null key
+(`NaN != NaN`, and since Python 3.10 it hashes by identity). A frame
+mixing `None` and `NaN` in `source_sequence_name` — which
+`TopiaryPredictor` produces, since it writes `source_sequence_name =
+None` — could lose rows from `apply_filter` that its own scores said
+should pass, while `apply_sort` kept them. Null spellings are now
+collapsed once, and rows map to groups by position via the new
+`EvalContext.row_group_codes()`.
+
+**Fixed: a single group key produced empty or all-NaN results.**
+`EvalContext.group_index` built a 1-level `MultiIndex` for a single
+group key, while `DataFrame.groupby` on one key produces a flat `Index`.
+Every node result therefore reindexed to all-NaN: `apply_filter` dropped
+every row, `evaluate_scores` returned all-NaN, and `apply_sort` silently
+no-opped. `group_index` is now a flat `Index` (and `row_group_tuples`
+yields bare values) when there is one group key, matching pandas.
+Multi-key grouping is unchanged. This was reachable before via
+`EvalContext(df, group_keys=["peptide"])`; the new kwarg makes it
+reachable from all three entry points.
+
+**Blank `sample_name` is no longer an inferred group key:**
+
+`mhctools` stamps `sample_name=""` on every row of a single-sample run,
+which made group key inference prepend a constant `sample_name` level to
+every group tuple of ordinary predictor output. A `sample_name` column
+that is entirely null or blank is now ignored by inference (null-only
+columns already were). Frames that mix real names with blanks keep the
+key — there the blank is a distinguishing value — and `group_keys=` can
+still name `sample_name` explicitly.
+
+**Breaking:**
+
+- The context options are now keyword-only. Calls that passed them
+  positionally — `apply_filter(df, node, default_methods)`,
+  `evaluate_scores(df, node, group_keys, fill)` — must use keywords.
+  Positional `df`, `node` / `sort_nodes`, and `sort_direction` are
+  unchanged.
+- An empty `group_keys` sequence now raises instead of falling back to
+  inferred keys. Pass `group_keys=None` to infer.
+- `EvalContext.group_index` is a flat `Index` rather than a 1-level
+  `MultiIndex` when there is a single group key (see the fix above).
+  Code that indexed single-key results with 1-tuples must use bare
+  values.
+- Inferred group keys drop a blank-only `sample_name`, so group tuples
+  for single-sample `mhctools` output are 4-wide rather than 5-wide.
+  Consumers that materialize a group tuple and index a per-group Series
+  with it must drop the leading `sample_name` element (or pass
+  `group_keys=` explicitly to keep it).
+
 ## 5.16.2
 
 **Combine separate predictor runs (#170):**
