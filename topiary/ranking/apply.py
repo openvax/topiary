@@ -13,7 +13,19 @@ from .nodes import (
     Field,
     _kind_matches,
     _missing_column_error,
+    normalize_group_keys,
 )
+
+
+def _check_group_keys(df, group_keys):
+    """Validate explicit *group_keys* ahead of the early-return paths.
+
+    ``EvalContext`` validates them too, but an empty frame or a no-op
+    node returns before a context is ever built — a typo must not pass
+    silently just because a pipeline has degenerated to zero rows.
+    """
+    if group_keys is not None and df is not None:
+        normalize_group_keys(df, group_keys)
 
 
 def _check_boolean_like(values: pd.Series):
@@ -123,6 +135,7 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
     """
     if node is None:
         raise ValueError("evaluate_scores requires a DSL node")
+    _check_group_keys(df, group_keys)
     if df is None or df.empty:
         return pd.Series([], index=df.index if df is not None else None,
                          dtype=float)
@@ -156,6 +169,7 @@ def apply_filter(df, node, *, group_keys=None, default_methods=None,
     be shared across filtering, sorting and scoring.  See
     :class:`EvalContext` for what each one means.
     """
+    _check_group_keys(df, group_keys)
     if node is None:
         return df
     if df.empty:
@@ -196,6 +210,7 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
     be shared across filtering, sorting and scoring.  See
     :class:`EvalContext` for what each one means.
     """
+    _check_group_keys(df, group_keys)
     if not sort_nodes:
         return df
     if df.empty:

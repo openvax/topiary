@@ -315,3 +315,150 @@ def test_blank_sample_name_still_usable_as_an_explicit_group_key():
     ctx = EvalContext(df, group_keys=["sample_name", "peptide", "allele"])
 
     assert ctx.group_keys[0] == "sample_name"
+
+
+# ---------------------------------------------------------------------------
+# Single group key: group_index must match what groupby produces
+# ---------------------------------------------------------------------------
+
+
+def test_single_group_key_index_is_flat():
+    """A 1-level MultiIndex would reindex to all-NaN against a groupby."""
+    df = _provenance_df()
+
+    index = EvalContext(df, group_keys=["prediction_id"]).group_index
+
+    assert not isinstance(index, pd.MultiIndex)
+    assert index.name == "prediction_id"
+    assert index.tolist() == ["variant-1", "variant-2"]
+
+
+def test_single_group_key_empty_frame_index_is_flat():
+    df = _provenance_df().iloc[0:0]
+
+    index = EvalContext(df, group_keys=["prediction_id"]).group_index
+
+    assert not isinstance(index, pd.MultiIndex)
+    assert index.name == "prediction_id"
+    assert len(index) == 0
+
+
+def test_single_group_key_row_group_tuples_are_bare_values():
+    df = _provenance_df()
+
+    ctx = EvalContext(df, group_keys=["prediction_id"])
+
+    assert ctx.row_group_tuples().tolist() == ["variant-1", "variant-2"]
+
+
+def test_single_group_key_filters_scores_and_sorts():
+    df = _provenance_df()
+
+    kept = apply_filter(df, Affinity.value <= 500, group_keys=["prediction_id"])
+    scores = evaluate_scores(df, Affinity.value, group_keys=["prediction_id"])
+    ordered = apply_sort(df, [Affinity.value], group_keys=["prediction_id"])
+
+    assert kept["prediction_id"].tolist() == ["variant-1"]
+    assert scores.tolist() == [50.0, 5000.0]
+    assert ordered["prediction_id"].tolist() == ["variant-1", "variant-2"]
+
+
+def test_single_group_key_column_and_isin_nodes():
+    """Column-backed nodes group the same way as Field nodes."""
+    from topiary.ranking import Column
+
+    df = _provenance_df()
+    df["peptide_length"] = df["peptide"].str.len()
+
+    lengths = evaluate_scores(
+        df, Column("peptide_length"), group_keys=["prediction_id"],
+    )
+    kept = apply_filter(
+        df, Column("prediction_id").isin(["variant-2"]),
+        group_keys=["prediction_id"],
+    )
+
+    assert lengths.tolist() == [8.0, 8.0]
+    assert kept["prediction_id"].tolist() == ["variant-2"]
+
+
+# ---------------------------------------------------------------------------
+# Validation reaches the early-return paths
+# ---------------------------------------------------------------------------
+
+
+def test_group_keys_validated_on_empty_frame():
+    """A typo must not pass just because the frame has no rows."""
+    empty = _provenance_df().iloc[0:0]
+
+    with pytest.raises(ValueError, match="group_keys column 'nope'"):
+        apply_filter(empty, Affinity.value <= 500, group_keys=["nope"])
+    with pytest.raises(ValueError, match="group_keys column 'nope'"):
+        evaluate_scores(empty, Affinity.value, group_keys=["nope"])
+    with pytest.raises(ValueError, match="group_keys column 'nope'"):
+        apply_sort(empty, [Affinity.value], group_keys=["nope"])
+
+
+def test_group_keys_validated_when_node_is_a_no_op():
+    df = _provenance_df()
+
+    with pytest.raises(ValueError, match="group_keys column 'nope'"):
+        apply_filter(df, None, group_keys=["nope"])
+    with pytest.raises(ValueError, match="group_keys column 'nope'"):
+        apply_sort(df, [], group_keys=["nope"])
+
+
+def test_group_keys_bare_string_names_the_mistake():
+    df = _provenance_df()
+
+    with pytest.raises(ValueError, match="not the string 'peptide'"):
+        apply_filter(df, Affinity.value <= 500, group_keys="peptide")
+
+
+def test_group_keys_non_string_entry_raises_value_error():
+    """difflib must not be handed a non-string key."""
+    df = _provenance_df()
+
+    with pytest.raises(ValueError, match="group_keys column 123"):
+        EvalContext(df, group_keys=["peptide", 123])
+    with pytest.raises(ValueError, match="group_keys column None"):
+        EvalContext(df, group_keys=["peptide", None])
+
+
+def test_missing_column_error_survives_mixed_type_column_labels():
+    df = _provenance_df()
+    df[7] = 1
+
+    with pytest.raises(ValueError, match="group_keys column 'nope'"):
+        EvalContext(df, group_keys=["nope"])
+
+
+# ---------------------------------------------------------------------------
+# Inferred keys that aren't in the frame
+# ---------------------------------------------------------------------------
+
+
+def test_uninferable_frame_explains_itself():
+    """Missing identity columns get an explanation, not a KeyError."""
+    df = _provenance_df().drop(columns=["peptide_offset"])
+
+    with pytest.raises(ValueError, match="Cannot infer group keys"):
+        EvalContext(df)
+    with pytest.raises(ValueError, match="group_keys="):
+        apply_filter(df, Affinity.value <= 500)
+
+
+def test_uninferable_frame_still_works_with_explicit_keys():
+    df = _provenance_df().drop(columns=["peptide_offset"])
+
+    kept = apply_filter(
+        df, Affinity.value <= 500,
+        group_keys=["prediction_id", "peptide", "allele"],
+    )
+
+    assert kept["prediction_id"].tolist() == ["variant-1"]
+
+
+def test_empty_frame_without_identity_columns_is_not_rejected():
+    """Nothing to group; inference stays quiet rather than erroring."""
+    assert EvalContext(pd.DataFrame()).group_keys

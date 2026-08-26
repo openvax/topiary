@@ -57,7 +57,9 @@ ctx = EvalContext(df, group_keys=group_keys)
 per_group = (Affinity <= 500).eval(ctx)   # indexed by ctx.group_index
 ```
 
-Group key names are validated against the DataFrame when the context is built, so a typo fails immediately with a suggestion rather than deep inside a node.
+Group key names are validated before anything is evaluated, so a typo fails immediately with a suggestion rather than deep inside a node — including on empty frames, where there is otherwise nothing to fail on.
+
+With a single group key, `ctx.group_index` is a flat `Index` of bare values (matching `DataFrame.groupby` on one column); with several it is a `MultiIndex` of key tuples.
 
 ## Prediction kinds
 

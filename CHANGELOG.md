@@ -26,10 +26,29 @@ then applies to the other. Callers that previously reimplemented
 `apply_filter` on top of `EvalContext` just to supply `group_keys` (e.g.
 vaxrank's LENS/pVACseq path) can now call `apply_filter` directly.
 
-Explicit `group_keys` are validated when the context is built: an empty
-sequence, duplicate entries, and names that aren't columns all raise
-immediately, with a near-match suggestion, instead of failing deep
-inside a node.
+Explicit `group_keys` are validated before anything is evaluated: a bare
+string instead of a sequence, an empty sequence, duplicate entries, and
+names that aren't columns all raise immediately, with a near-match
+suggestion, instead of failing deep inside a node. Validation also runs
+on the paths that return early (empty frame, `node=None`, no sort
+nodes), so a typo can't pass silently just because a pipeline has
+degenerated to zero rows.
+
+Frames that group key *inference* can't handle — missing one of the
+identity columns it expects — now raise a `ValueError` naming the
+missing columns and pointing at `group_keys=`, rather than a bare
+`KeyError` from inside pandas.
+
+**Fixed: a single group key produced empty or all-NaN results.**
+`EvalContext.group_index` built a 1-level `MultiIndex` for a single
+group key, while `DataFrame.groupby` on one key produces a flat `Index`.
+Every node result therefore reindexed to all-NaN: `apply_filter` dropped
+every row, `evaluate_scores` returned all-NaN, and `apply_sort` silently
+no-opped. `group_index` is now a flat `Index` (and `row_group_tuples`
+yields bare values) when there is one group key, matching pandas.
+Multi-key grouping is unchanged. This was reachable before via
+`EvalContext(df, group_keys=["peptide"])`; the new kwarg makes it
+reachable from all three entry points.
 
 **Blank `sample_name` is no longer an inferred group key:**
 
@@ -41,11 +60,19 @@ columns already were). Frames that mix real names with blanks keep the
 key — there the blank is a distinguishing value — and `group_keys=` can
 still name `sample_name` explicitly.
 
-**Breaking:** the context options are now keyword-only. Calls that passed
-them positionally — `apply_filter(df, node, default_methods)`,
-`evaluate_scores(df, node, group_keys, fill)` — must use keywords.
-Positional `df`, `node` / `sort_nodes`, and `sort_direction` are
-unchanged.
+**Breaking:**
+
+- The context options are now keyword-only. Calls that passed them
+  positionally — `apply_filter(df, node, default_methods)`,
+  `evaluate_scores(df, node, group_keys, fill)` — must use keywords.
+  Positional `df`, `node` / `sort_nodes`, and `sort_direction` are
+  unchanged.
+- An empty `group_keys` sequence now raises instead of falling back to
+  inferred keys. Pass `group_keys=None` to infer.
+- `EvalContext.group_index` is a flat `Index` rather than a 1-level
+  `MultiIndex` when there is a single group key (see the fix above).
+  Code that indexed single-key results with 1-tuples must use bare
+  values.
 
 ## 5.16.2
 

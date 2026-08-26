@@ -114,8 +114,13 @@ def _build_kind_aliases(kind_source=Kind):
 
 def _missing_column_error(col_name, available, label="Column"):
     """ValueError for a referenced column that isn't in the DataFrame."""
-    available = sorted(available)
-    close = get_close_matches(col_name, available, n=3, cutoff=0.6)
+    # str() the labels: difflib needs strings, and a frame is allowed
+    # non-string column labels that would otherwise fail to sort.
+    available = sorted(str(c) for c in available)
+    close = (
+        get_close_matches(col_name, available, n=3, cutoff=0.6)
+        if isinstance(col_name, str) else []
+    )
     msg = f"{label} {col_name!r} not found in DataFrame."
     if close:
         msg += f" Did you mean: {close}?"
@@ -145,7 +150,9 @@ def _has_real_sample_names(values) -> bool:
     non_null = values.dropna()
     if non_null.empty:
         return False
-    return bool(non_null.astype(str).str.strip().ne("").any())
+    # Sample names are constant per sample, so the distinct set is tiny —
+    # much cheaper than stringifying and stripping every row.
+    return any(str(v).strip() != "" for v in pd.unique(non_null.to_numpy()))
 
 
 def _with_optional_sample_key(df, group_keys):
@@ -164,32 +171,63 @@ def _pick_group_keys(df):
     # variant is for the legacy varcode pipeline; source_sequence_name is the
     # generic fallback.
     if "fragment_id" in df.columns:
-        return _with_optional_sample_key(df, _GROUP_KEYS_FRAGMENT)
-    if "variant" in df.columns:
-        return _with_optional_sample_key(df, _GROUP_KEYS_VARIANT)
-    return _with_optional_sample_key(df, _GROUP_KEYS)
+        keys = _GROUP_KEYS_FRAGMENT
+    elif "variant" in df.columns:
+        keys = _GROUP_KEYS_VARIANT
+    else:
+        keys = _GROUP_KEYS
+    _check_inferred_group_keys(df, keys)
+    return _with_optional_sample_key(df, keys)
 
 
-def _validate_group_keys(df, group_keys):
-    """Check explicit *group_keys* against *df* before any evaluation.
+def _check_inferred_group_keys(df, keys):
+    """Explain a frame that inference can't key, instead of a KeyError.
 
-    Fails loudly on an empty sequence, duplicate entries, or names that
-    aren't columns, so a caller with a stable provenance identity finds
-    out here rather than through a KeyError deep inside a node.
+    Inference works from a fixed set of identity columns.  A frame
+    missing one of them used to reach ``df[self.group_keys]`` and raise
+    a bare ``KeyError``; say what's missing and point at the way out.
     """
-    if not group_keys:
+    if df.empty:
+        return
+    missing = [k for k in keys if k not in df.columns]
+    if not missing:
+        return
+    raise ValueError(
+        f"Cannot infer group keys: this DataFrame is missing "
+        f"{missing!r}, expected alongside "
+        f"{[k for k in keys if k in df.columns]!r}. "
+        f"Pass group_keys=[...] to name the group identity explicitly."
+    )
+
+
+def normalize_group_keys(df, group_keys):
+    """Validate explicit *group_keys* against *df* and return them as a list.
+
+    Fails loudly on a bare string, an empty sequence, duplicate entries,
+    or names that aren't columns, so a caller with a stable provenance
+    identity finds out here rather than through a KeyError deep inside a
+    node.
+    """
+    if isinstance(group_keys, str):
+        raise ValueError(
+            f"group_keys must be a sequence of column names, not the string "
+            f"{group_keys!r}; pass [{group_keys!r}] for a single key."
+        )
+    keys = list(group_keys)
+    if not keys:
         raise ValueError(
             "group_keys must be a non-empty sequence of column names; "
             "pass group_keys=None to infer them from the DataFrame."
         )
-    duplicates = sorted({k for k in group_keys if group_keys.count(k) > 1})
+    duplicates = sorted({str(k) for k in keys if keys.count(k) > 1})
     if duplicates:
         raise ValueError(f"group_keys has duplicate entries: {duplicates}")
-    for key in group_keys:
+    for key in keys:
         if key not in df.columns:
             raise _missing_column_error(
                 key, df.columns, label="group_keys column",
             )
+    return keys
 
 
 def _normalize_default_methods(mapping):
@@ -231,9 +269,9 @@ class EvalContext:
     """Context for vectorized DSL evaluation.
 
     Wraps a prediction DataFrame and exposes the unique group-key
-    MultiIndex.  Every :class:`DSLNode` ``.eval(ctx)`` returns a
-    ``pd.Series`` indexed by this MultiIndex (one value per peptide
-    -allele group).
+    index.  Every :class:`DSLNode` ``.eval(ctx)`` returns a
+    ``pd.Series`` indexed by :attr:`group_index` (one value per
+    peptide-allele group).
 
     Parameters
     ----------
@@ -291,8 +329,7 @@ class EvalContext:
         if group_keys is None:
             self.group_keys = _pick_group_keys(df)
         else:
-            self.group_keys = list(group_keys)
-            _validate_group_keys(df, self.group_keys)
+            self.group_keys = normalize_group_keys(df, group_keys)
         self.default_methods = (
             _normalize_default_methods(default_methods) if default_methods else {}
         )
@@ -311,26 +348,51 @@ class EvalContext:
         self._method_override = None
 
     @property
-    def group_index(self) -> pd.MultiIndex:
-        """MultiIndex of unique group-key tuples (preserving row order)."""
+    def group_index(self) -> pd.Index:
+        """Index of unique group keys, preserving row order.
+
+        A MultiIndex of key tuples, or a flat Index of bare values when
+        there is a single group key.  That mirrors what
+        ``DataFrame.groupby`` produces, so node results — which are all
+        groupby output reindexed onto this — align in both cases.  A
+        1-level MultiIndex here would silently reindex to all-NaN
+        against a groupby's flat Index.
+        """
         if self._group_index is None:
+            single_key = len(self.group_keys) == 1
             if self.df.empty:
-                self._group_index = pd.MultiIndex(
-                    levels=[[] for _ in self.group_keys],
-                    codes=[[] for _ in self.group_keys],
-                    names=self.group_keys,
-                )
+                if single_key:
+                    self._group_index = pd.Index([], name=self.group_keys[0])
+                else:
+                    self._group_index = pd.MultiIndex(
+                        levels=[[] for _ in self.group_keys],
+                        codes=[[] for _ in self.group_keys],
+                        names=self.group_keys,
+                    )
             else:
                 key_df = self.df[self.group_keys].drop_duplicates()
-                self._group_index = pd.MultiIndex.from_frame(key_df)
+                if single_key:
+                    key = self.group_keys[0]
+                    self._group_index = pd.Index(key_df[key], name=key)
+                else:
+                    self._group_index = pd.MultiIndex.from_frame(key_df)
         return self._group_index
 
     def row_group_tuples(self) -> pd.Series:
-        """Per-row tuple of group-key values, aligned to ``self.df.index``."""
+        """Per-row group key, aligned to ``self.df.index``.
+
+        A tuple of group-key values per row — or the bare value when
+        there is a single group key, matching :attr:`group_index`.
+        """
         if self._group_tuples_cache is None:
             if self.df.empty:
                 self._group_tuples_cache = pd.Series(
                     [], index=self.df.index, dtype=object
+                )
+            elif len(self.group_keys) == 1:
+                self._group_tuples_cache = pd.Series(
+                    self.df[self.group_keys[0]].to_numpy(),
+                    index=self.df.index,
                 )
             else:
                 self._group_tuples_cache = pd.Series(
