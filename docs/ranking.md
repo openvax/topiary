@@ -19,6 +19,46 @@ df = apply_sort(df, [Presentation.score, Affinity.score])
 
 `TopiaryPredictor(filter_by=..., sort_by=[...])` applies them automatically during prediction.
 
+## Group identity
+
+Expressions evaluate per *group*, not per row: one peptide-allele group can span several rows (one per predictor and kind). `apply_filter` keeps or drops whole groups, `apply_sort` orders groups, and `evaluate_scores` gives every row its group's score.
+
+By default the group keys are inferred from the columns present:
+
+| Columns present | Inferred group keys |
+|---|---|
+| `fragment_id` | `fragment_id, peptide, peptide_offset, allele` |
+| `variant` | `variant, peptide, peptide_offset, allele` |
+| neither | `source_sequence_name, peptide, peptide_offset, allele` |
+
+A `sample_name` column is prepended when it holds real values. Blank or null-only `sample_name` columns are ignored — `mhctools` stamps `sample_name=""` on every row of a single-sample run, and a constant level carries no identity.
+
+### Explicit group keys
+
+Inferred keys are sequence-oriented, so two rows that share peptide, source sequence and offset land in the same group even when they came from different variants, transcripts or genes — one row's filter decision then applies to the other. When your frame carries a stable provenance identity, pass it explicitly:
+
+```python
+from topiary import apply_filter, apply_sort, evaluate_scores, Affinity
+
+group_keys = ["prediction_id", "source_sequence_name", "peptide",
+              "peptide_offset", "allele"]
+
+kept = apply_filter(df, Affinity <= 500, group_keys=group_keys)
+kept = apply_sort(kept, [Affinity.score], group_keys=group_keys)
+scores = evaluate_scores(kept, Affinity.score, group_keys=group_keys)
+```
+
+`apply_filter`, `apply_sort` and `evaluate_scores` accept the same three keyword-only context options — `group_keys`, `default_methods` and `kind_support` — so filtering, sorting and scoring can share one grouping and one method resolution. All three are forwarded to `EvalContext`, which you can also build directly when you need the raw per-group Series:
+
+```python
+from topiary.ranking import EvalContext
+
+ctx = EvalContext(df, group_keys=group_keys)
+per_group = (Affinity <= 500).eval(ctx)   # indexed by ctx.group_index
+```
+
+Group key names are validated against the DataFrame when the context is built, so a typo fails immediately with a suggestion rather than deep inside a node.
+
 ## Prediction kinds
 
 Each MHC prediction model produces one or more *kinds* of output. The built-in accessors are:

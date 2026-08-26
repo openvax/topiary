@@ -1,5 +1,52 @@
 # Changelog
 
+## 5.17.0
+
+**Explicit group keys everywhere (#175):**
+
+`apply_filter`, `apply_sort`, and `evaluate_scores` now accept the same
+three keyword-only context options — `group_keys`, `default_methods`,
+and `kind_support` — and forward all of them to `EvalContext`. Filtering,
+sorting, and scoring can therefore share one grouping and one method
+resolution instead of each entry point supporting a different subset.
+
+```python
+group_keys = ["prediction_id", "source_sequence_name", "peptide",
+              "peptide_offset", "allele"]
+
+kept = apply_filter(df, Affinity <= 500, group_keys=group_keys)
+scores = evaluate_scores(kept, Affinity.score, group_keys=group_keys)
+```
+
+This matters when a frame carries a stable provenance identity: the
+inferred group keys are sequence-oriented, so two rows sharing peptide,
+source sequence, and offset are one group even when they came from
+different variants, transcripts, or genes — and one row's filter decision
+then applies to the other. Callers that previously reimplemented
+`apply_filter` on top of `EvalContext` just to supply `group_keys` (e.g.
+vaxrank's LENS/pVACseq path) can now call `apply_filter` directly.
+
+Explicit `group_keys` are validated when the context is built: an empty
+sequence, duplicate entries, and names that aren't columns all raise
+immediately, with a near-match suggestion, instead of failing deep
+inside a node.
+
+**Blank `sample_name` is no longer an inferred group key:**
+
+`mhctools` stamps `sample_name=""` on every row of a single-sample run,
+which made group key inference prepend a constant `sample_name` level to
+every group tuple of ordinary predictor output. A `sample_name` column
+that is entirely null or blank is now ignored by inference (null-only
+columns already were). Frames that mix real names with blanks keep the
+key — there the blank is a distinguishing value — and `group_keys=` can
+still name `sample_name` explicitly.
+
+**Breaking:** the context options are now keyword-only. Calls that passed
+them positionally — `apply_filter(df, node, default_methods)`,
+`evaluate_scores(df, node, group_keys, fill)` — must use keywords.
+Positional `df`, `node` / `sort_nodes`, and `sort_direction` are
+unchanged.
+
 ## 5.16.2
 
 **Combine separate predictor runs (#170):**

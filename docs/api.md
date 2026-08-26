@@ -268,6 +268,19 @@ minimum(Affinity["netmhcpan"].value, Affinity["mhcflurry"].value)
 
 Apply with `apply_filter(df, node)` and `apply_sort(df, [nodes])`.
 
+### Context options
+
+`apply_filter`, `apply_sort` and `evaluate_scores` share three keyword-only
+options, all forwarded to `EvalContext`:
+
+| Option | Meaning |
+|--------|---------|
+| `group_keys` | Explicit group identity columns; default infers them from the DataFrame |
+| `default_methods` | Per-kind default `prediction_method_name` for unqualified references |
+| `kind_support` | Per-(model, kind) metadata from `TopiaryPredictor.kind_support` |
+
+See [Group identity](ranking.md#group-identity) for when to pass `group_keys`.
+
 ## String parsing
 
 ### Kind aliases

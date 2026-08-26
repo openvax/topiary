@@ -75,7 +75,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.16.2"
+__version__ = "5.17.0"
 
 __all__ = [
     "TopiaryPredictor",

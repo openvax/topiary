@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from difflib import get_close_matches
 from functools import cmp_to_key
 
 import numpy as np
@@ -13,6 +12,7 @@ from .nodes import (
     EvalContext,
     Field,
     _kind_matches,
+    _missing_column_error,
 )
 
 
@@ -71,18 +71,10 @@ def _validate_columns(df, node):
     needed = _collect_column_names(node)
     if not needed:
         return
-    available = set(df.columns)
-    missing = needed - available
+    missing = needed - set(df.columns)
     if not missing:
         return
-    for col_name in sorted(missing):
-        close = get_close_matches(col_name, sorted(available), n=3, cutoff=0.6)
-        msg = f"Column {col_name!r} not found in DataFrame."
-        if close:
-            msg += f" Did you mean: {close}?"
-        else:
-            msg += f" Available columns: {sorted(available)}"
-        raise ValueError(msg)
+    raise _missing_column_error(min(missing), df.columns)
 
 
 def _infer_sort_direction(node):
@@ -101,7 +93,8 @@ def _resolve_sort_direction(node, sort_direction):
     return sort_direction
 
 
-def evaluate_scores(df, node, group_keys=None, fill=np.nan, kind_support=None):
+def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
+                    kind_support=None, fill=np.nan):
     """Evaluate a DSL *node* against *df* and align the result to ``df.index``.
 
     ``DSLNode.eval`` returns a Series indexed by the peptide-allele
@@ -109,8 +102,7 @@ def evaluate_scores(df, node, group_keys=None, fill=np.nan, kind_support=None):
     This helper wraps the group→row mapping every consumer ends up
     writing by hand:
 
-    1. Build an :class:`EvalContext` (with optional *group_keys* and
-       *kind_support*).
+    1. Build an :class:`EvalContext`.
     2. Call ``node.eval(ctx)``.
     3. Map each of ``df``'s rows to its group's value via
        :meth:`EvalContext.row_group_tuples`.
@@ -120,11 +112,12 @@ def evaluate_scores(df, node, group_keys=None, fill=np.nan, kind_support=None):
     callers pick semantics — ``.fillna(0.0)`` for additive scoring,
     ``.fillna(-inf)`` for ranking.
 
-    *kind_support* is the per-(model, kind) metadata dict produced by
-    :attr:`TopiaryPredictor.kind_support`. Forwarded to
-    :class:`EvalContext` so allele-aware nodes (e.g.
-    :class:`BestAlleleField`) can warn or branch on
-    ``mhc_dependence``.
+    *group_keys*, *default_methods* and *kind_support* are the shared
+    context options: :func:`apply_filter`, :func:`apply_sort` and
+    :func:`evaluate_scores` all accept them and forward them to
+    :class:`EvalContext`, so one grouping and one method resolution can
+    be shared across filtering, sorting and scoring.  See
+    :class:`EvalContext` for what each one means.
 
     Returns a ``pd.Series`` with ``df.index`` and a numeric dtype.
     """
@@ -134,7 +127,10 @@ def evaluate_scores(df, node, group_keys=None, fill=np.nan, kind_support=None):
         return pd.Series([], index=df.index if df is not None else None,
                          dtype=float)
 
-    ctx = EvalContext(df, group_keys=group_keys, kind_support=kind_support)
+    ctx = EvalContext(
+        df, group_keys=group_keys, default_methods=default_methods,
+        kind_support=kind_support,
+    )
     scored = node.eval(ctx)
     row_tuples = ctx.row_group_tuples()
     aligned = row_tuples.map(scored.to_dict())
@@ -146,20 +142,19 @@ def evaluate_scores(df, node, group_keys=None, fill=np.nan, kind_support=None):
     return aligned
 
 
-def apply_filter(df, node, default_methods=None, kind_support=None):
+def apply_filter(df, node, *, group_keys=None, default_methods=None,
+                 kind_support=None):
     """Apply a boolean-valued DSL node to *df*.
 
     Keeps all rows for peptide-allele groups whose evaluated value is
     truthy.  ``None`` for *node* is a no-op.
 
-    *default_methods* is forwarded to :class:`EvalContext` — see its
-    docstring for the per-kind default ``prediction_method_name`` kwarg
-    used to resolve unqualified Field references on multi-method inputs.
-
-    *kind_support* (optional) is the per-(model, kind) metadata dict
-    from :attr:`TopiaryPredictor.kind_support`. Forwarded to
-    :class:`EvalContext` so :class:`BestAlleleField` can warn when
-    invoked against ``mhc_dependence='single_allele'`` rows.
+    *group_keys*, *default_methods* and *kind_support* are the shared
+    context options: :func:`apply_filter`, :func:`apply_sort` and
+    :func:`evaluate_scores` all accept them and forward them to
+    :class:`EvalContext`, so one grouping and one method resolution can
+    be shared across filtering, sorting and scoring.  See
+    :class:`EvalContext` for what each one means.
     """
     if node is None:
         return df
@@ -168,8 +163,8 @@ def apply_filter(df, node, default_methods=None, kind_support=None):
 
     _validate_columns(df, node)
     ctx = EvalContext(
-        df, filter_context=True, default_methods=default_methods,
-        kind_support=kind_support,
+        df, group_keys=group_keys, filter_context=True,
+        default_methods=default_methods, kind_support=kind_support,
     )
     # Reindex defensively so a misbehaving node (index mismatch) surfaces
     # as NaN → False rather than silently picking up rows from a
@@ -184,8 +179,8 @@ def apply_filter(df, node, default_methods=None, kind_support=None):
     return df[keep].reset_index(drop=True)
 
 
-def apply_sort(df, sort_nodes, sort_direction="auto", default_methods=None,
-               kind_support=None):
+def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
+               default_methods=None, kind_support=None):
     """Sort groups by one or more DSL nodes (lexicographic fallthrough).
 
     *sort_nodes* is a list of DSLNode.  Each node's direction is inferred
@@ -194,8 +189,12 @@ def apply_sort(df, sort_nodes, sort_direction="auto", default_methods=None,
     value is used for all nodes.  NaN values do not force an ordering —
     they fall through to the next tiebreaker.
 
-    *default_methods* and *kind_support* are forwarded to
-    :class:`EvalContext` — see its docstring.
+    *group_keys*, *default_methods* and *kind_support* are the shared
+    context options: :func:`apply_filter`, :func:`apply_sort` and
+    :func:`evaluate_scores` all accept them and forward them to
+    :class:`EvalContext`, so one grouping and one method resolution can
+    be shared across filtering, sorting and scoring.  See
+    :class:`EvalContext` for what each one means.
     """
     if not sort_nodes:
         return df
@@ -205,7 +204,8 @@ def apply_sort(df, sort_nodes, sort_direction="auto", default_methods=None,
     for node in sort_nodes:
         _validate_columns(df, node)
 
-    ctx = EvalContext(df, default_methods=default_methods,
+    ctx = EvalContext(df, group_keys=group_keys,
+                      default_methods=default_methods,
                       kind_support=kind_support)
     n_groups = len(ctx.group_index)
     n_keys = len(sort_nodes)

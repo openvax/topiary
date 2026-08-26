@@ -111,6 +111,19 @@ def _build_kind_aliases(kind_source=Kind):
 # Group key detection and EvalContext
 # =============================================================================
 
+
+def _missing_column_error(col_name, available, label="Column"):
+    """ValueError for a referenced column that isn't in the DataFrame."""
+    available = sorted(available)
+    close = get_close_matches(col_name, available, n=3, cutoff=0.6)
+    msg = f"{label} {col_name!r} not found in DataFrame."
+    if close:
+        msg += f" Did you mean: {close}?"
+    else:
+        msg += f" Available columns: {available}"
+    return ValueError(msg)
+
+
 _SAMPLE_GROUP_KEY = "sample_name"
 _GROUP_KEYS = ["source_sequence_name", "peptide", "peptide_offset", "allele"]
 _GROUP_KEYS_VARIANT = ["variant", "peptide", "peptide_offset", "allele"]
@@ -119,12 +132,28 @@ _GROUP_KEYS_VARIANT = ["variant", "peptide", "peptide_offset", "allele"]
 _GROUP_KEYS_FRAGMENT = ["fragment_id", "peptide", "peptide_offset", "allele"]
 
 
+def _has_real_sample_names(values) -> bool:
+    """True when *values* holds at least one non-blank sample name.
+
+    ``mhctools`` stamps ``sample_name=""`` on every row of a
+    single-sample run, so the column's presence alone does not mean the
+    frame is multi-sample.  A null-or-blank column carries no identity;
+    grouping by it would widen every group tuple with a constant level
+    for no benefit.  A frame that mixes real names with blanks keeps the
+    key — there the blank *is* a distinguishing value.
+    """
+    non_null = values.dropna()
+    if non_null.empty:
+        return False
+    return bool(non_null.astype(str).str.strip().ne("").any())
+
+
 def _with_optional_sample_key(df, group_keys):
     group_keys = list(group_keys)
     if (
         _SAMPLE_GROUP_KEY in df.columns
         and _SAMPLE_GROUP_KEY not in group_keys
-        and df[_SAMPLE_GROUP_KEY].notna().any()
+        and _has_real_sample_names(df[_SAMPLE_GROUP_KEY])
     ):
         group_keys.insert(0, _SAMPLE_GROUP_KEY)
     return group_keys
@@ -139,6 +168,28 @@ def _pick_group_keys(df):
     if "variant" in df.columns:
         return _with_optional_sample_key(df, _GROUP_KEYS_VARIANT)
     return _with_optional_sample_key(df, _GROUP_KEYS)
+
+
+def _validate_group_keys(df, group_keys):
+    """Check explicit *group_keys* against *df* before any evaluation.
+
+    Fails loudly on an empty sequence, duplicate entries, or names that
+    aren't columns, so a caller with a stable provenance identity finds
+    out here rather than through a KeyError deep inside a node.
+    """
+    if not group_keys:
+        raise ValueError(
+            "group_keys must be a non-empty sequence of column names; "
+            "pass group_keys=None to infer them from the DataFrame."
+        )
+    duplicates = sorted({k for k in group_keys if group_keys.count(k) > 1})
+    if duplicates:
+        raise ValueError(f"group_keys has duplicate entries: {duplicates}")
+    for key in group_keys:
+        if key not in df.columns:
+            raise _missing_column_error(
+                key, df.columns, label="group_keys column",
+            )
 
 
 def _normalize_default_methods(mapping):
@@ -189,7 +240,16 @@ class EvalContext:
     df : pandas.DataFrame
         Prediction rows, long-form.
     group_keys : list of str, optional
-        Override the auto-detected peptide-allele group keys.
+        Override the auto-detected peptide-allele group keys.  Use this
+        when the frame carries a stable provenance identity (e.g. a
+        variant or prediction ID) that inferred sequence-oriented keys
+        would collapse: two rows with the same peptide, context and
+        offset but different origins stay in separate groups.  The names
+        are validated against ``df`` up front.
+        :func:`~topiary.ranking.apply_filter`,
+        :func:`~topiary.ranking.apply_sort` and
+        :func:`~topiary.ranking.evaluate_scores` forward the same kwarg,
+        so filtering, sorting and scoring can share one grouping.
     default_methods : dict, optional
         Per-kind default ``prediction_method_name`` for resolving
         unqualified Field references when multiple methods produce
@@ -228,7 +288,11 @@ class EvalContext:
         kind_support=None,
     ):
         self.df = df
-        self.group_keys = list(group_keys) if group_keys else _pick_group_keys(df)
+        if group_keys is None:
+            self.group_keys = _pick_group_keys(df)
+        else:
+            self.group_keys = list(group_keys)
+            _validate_group_keys(df, self.group_keys)
         self.default_methods = (
             _normalize_default_methods(default_methods) if default_methods else {}
         )
@@ -541,14 +605,7 @@ class Column(DSLNode):
         if ctx.df.empty:
             return ctx.empty_series()
         if self.col_name not in ctx.df.columns:
-            available = sorted(ctx.df.columns)
-            close = get_close_matches(self.col_name, available, n=3, cutoff=0.6)
-            msg = f"Column {self.col_name!r} not found in DataFrame."
-            if close:
-                msg += f" Did you mean: {close}?"
-            else:
-                msg += f" Available: {available}"
-            raise ValueError(msg)
+            raise _missing_column_error(self.col_name, ctx.df.columns)
         vals = ctx.df.groupby(
             ctx.group_keys, sort=False, dropna=False
         )[self.col_name].first()
@@ -633,14 +690,7 @@ class IsIn(DSLNode):
             # to carry a stale non-empty index.
             return ctx.empty_series().astype("boolean")
         if self.col_name not in df.columns:
-            available = sorted(df.columns)
-            close = get_close_matches(self.col_name, available, n=3, cutoff=0.6)
-            msg = f"Column {self.col_name!r} not found in DataFrame."
-            if close:
-                msg += f" Did you mean: {close}?"
-            else:
-                msg += f" Available: {available}"
-            raise ValueError(msg)
+            raise _missing_column_error(self.col_name, df.columns)
         vals = df.groupby(
             ctx.group_keys, sort=False, dropna=False
         )[self.col_name].first()
