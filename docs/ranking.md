@@ -48,7 +48,11 @@ kept = apply_sort(kept, [Affinity.score], group_keys=group_keys)
 scores = evaluate_scores(kept, Affinity.score, group_keys=group_keys)
 ```
 
-`apply_filter`, `apply_sort` and `evaluate_scores` accept the same three keyword-only context options — `group_keys`, `default_methods` and `kind_support` — so filtering, sorting and scoring can share one grouping and one method resolution. All three are forwarded to `EvalContext`, which you can also build directly when you need the raw per-group Series:
+`apply_filter`, `apply_sort` and `evaluate_scores` accept the same three keyword-only context options — `group_keys`, `default_methods` and `kind_support` — so filtering, sorting and scoring can share one grouping and one method resolution.
+
+One thing is deliberately *not* shared: on a frame where several methods produce the same kind, `apply_filter` auto-aggregates an unqualified reference across them (`nanmin` for `<`/`<=`, `nanmax` for `>`/`>=`), while `apply_sort` and `evaluate_scores` stay strict and raise on the ambiguity. Pass `default_methods={"affinity": "mhcflurry"}` (or qualify the reference, `Affinity["mhcflurry"]`) to get one answer from all three.
+
+All three options are forwarded to `EvalContext`, which you can also build directly when you need the raw per-group Series:
 
 ```python
 from topiary.ranking import EvalContext
@@ -59,7 +63,9 @@ per_group = (Affinity <= 500).eval(ctx)   # indexed by ctx.group_index
 
 Group key names are validated before anything is evaluated, so a typo fails immediately with a suggestion rather than deep inside a node — including on empty frames, where there is otherwise nothing to fail on.
 
-With a single group key, `ctx.group_index` is a flat `Index` of bare values (matching `DataFrame.groupby` on one column); with several it is a `MultiIndex` of key tuples.
+With a single group key, `ctx.group_index` is a flat `Index` of bare values (matching `DataFrame.groupby` on one column); with several it is a `MultiIndex` of key tuples. Null keys are collapsed to one group per spelling — `None`, `NaN` and `pd.NA` in an identity column name the same group, as they do under `groupby(dropna=False)`.
+
+To map a per-group result back onto rows, use `ctx.row_group_codes()`, which gives each row the position of its group in `group_index`. Looking group keys up by value is unreliable when a key is null: `NaN` never equals itself.
 
 ## Prediction kinds
 

@@ -39,6 +39,19 @@ identity columns it expects — now raise a `ValueError` naming the
 missing columns and pointing at `group_keys=`, rather than a bare
 `KeyError` from inside pandas.
 
+**Fixed: null group keys silently dropped rows and scores.** `None`,
+`NaN` and `pd.NA` in an identity column are one group under
+`groupby(dropna=False)` — which every node evaluates through — but the
+group index was built from raw values, which keeps them apart, and rows
+were matched to groups by key lookup, which never matches a null key
+(`NaN != NaN`, and since Python 3.10 it hashes by identity). A frame
+mixing `None` and `NaN` in `source_sequence_name` — which
+`TopiaryPredictor` produces, since it writes `source_sequence_name =
+None` — could lose rows from `apply_filter` that its own scores said
+should pass, while `apply_sort` kept them. Null spellings are now
+collapsed once, and rows map to groups by position via the new
+`EvalContext.row_group_codes()`.
+
 **Fixed: a single group key produced empty or all-NaN results.**
 `EvalContext.group_index` built a 1-level `MultiIndex` for a single
 group key, while `DataFrame.groupby` on one key produces a flat `Index`.
@@ -73,6 +86,11 @@ still name `sample_name` explicitly.
   `MultiIndex` when there is a single group key (see the fix above).
   Code that indexed single-key results with 1-tuples must use bare
   values.
+- Inferred group keys drop a blank-only `sample_name`, so group tuples
+  for single-sample `mhctools` output are 4-wide rather than 5-wide.
+  Consumers that materialize a group tuple and index a per-group Series
+  with it must drop the leading `sample_name` element (or pass
+  `group_keys=` explicitly to keep it).
 
 ## 5.16.2
 

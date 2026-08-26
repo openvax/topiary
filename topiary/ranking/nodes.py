@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import math
 import operator
+from collections import Counter
 from difflib import get_close_matches
 from typing import Optional
 
@@ -112,21 +113,42 @@ def _build_kind_aliases(kind_source=Kind):
 # =============================================================================
 
 
-def _missing_column_error(col_name, available, label="Column"):
-    """ValueError for a referenced column that isn't in the DataFrame."""
-    # str() the labels: difflib needs strings, and a frame is allowed
-    # non-string column labels that would otherwise fail to sort.
-    available = sorted(str(c) for c in available)
-    close = (
-        get_close_matches(col_name, available, n=3, cutoff=0.6)
-        if isinstance(col_name, str) else []
+def _missing_column_error(col_names, available, label="Column"):
+    """ValueError for referenced column(s) that aren't in the DataFrame.
+
+    Takes one name or several; naming all of them at once saves the
+    caller a round-trip per typo.
+    """
+    names = (
+        list(col_names) if isinstance(col_names, (list, tuple, set))
+        else [col_names]
     )
-    msg = f"{label} {col_name!r} not found in DataFrame."
-    if close:
-        msg += f" Did you mean: {close}?"
-    else:
-        msg += f" Available columns: {available}"
-    return ValueError(msg)
+    # Suggest only real string labels — a frame is allowed non-string
+    # column labels, and str()ing them would suggest a '7' that isn't a
+    # usable key.  The displayed list is stringified so it can be sorted.
+    string_labels = sorted(c for c in available if isinstance(c, str))
+
+    def suggest(name):
+        if not isinstance(name, str):
+            return []
+        return get_close_matches(name, string_labels, n=3, cutoff=0.6)
+
+    if len(names) == 1:
+        msg = f"{label} {names[0]!r} not found in DataFrame."
+        close = suggest(names[0])
+        if close:
+            return ValueError(msg + f" Did you mean: {close}?")
+        return ValueError(
+            msg + f" Available columns: {sorted(str(c) for c in available)}"
+        )
+
+    msg = f"{label}s {names!r} not found in DataFrame."
+    hints = [f"{n!r} -> {close}" for n in names if (close := suggest(n))]
+    if hints:
+        return ValueError(msg + f" Did you mean: {'; '.join(hints)}?")
+    return ValueError(
+        msg + f" Available columns: {sorted(str(c) for c in available)}"
+    )
 
 
 _SAMPLE_GROUP_KEY = "sample_name"
@@ -147,12 +169,13 @@ def _has_real_sample_names(values) -> bool:
     for no benefit.  A frame that mixes real names with blanks keeps the
     key — there the blank *is* a distinguishing value.
     """
-    non_null = values.dropna()
-    if non_null.empty:
-        return False
-    # Sample names are constant per sample, so the distinct set is tiny —
-    # much cheaper than stringifying and stripping every row.
-    return any(str(v).strip() != "" for v in pd.unique(non_null.to_numpy()))
+    # Sample names are constant per sample, so the distinct set is tiny.
+    # One hashing pass over the column, then the blank test runs over a
+    # couple of values rather than every row.
+    return any(
+        not pd.isna(v) and str(v).strip() != ""
+        for v in pd.unique(values.to_numpy())
+    )
 
 
 def _with_optional_sample_key(df, group_keys):
@@ -187,7 +210,9 @@ def _check_inferred_group_keys(df, keys):
     missing one of them used to reach ``df[self.group_keys]`` and raise
     a bare ``KeyError``; say what's missing and point at the way out.
     """
-    if df.empty:
+    if len(df.columns) == 0:
+        # Nothing to infer from at all (e.g. ``pd.DataFrame()``); there is
+        # no identity to get wrong, so stay quiet.
         return
     missing = [k for k in keys if k not in df.columns]
     if not missing:
@@ -200,7 +225,7 @@ def _check_inferred_group_keys(df, keys):
     )
 
 
-def normalize_group_keys(df, group_keys):
+def _normalize_group_keys(df, group_keys):
     """Validate explicit *group_keys* against *df* and return them as a list.
 
     Fails loudly on a bare string, an empty sequence, duplicate entries,
@@ -219,10 +244,20 @@ def normalize_group_keys(df, group_keys):
             "group_keys must be a non-empty sequence of column names; "
             "pass group_keys=None to infer them from the DataFrame."
         )
-    duplicates = sorted({str(k) for k in keys if keys.count(k) > 1})
+    # Compare by repr, not ==: a key may be array-like, whose __eq__
+    # returns an array and would raise before the real error is reached.
+    counts = Counter(repr(k) for k in keys)
+    duplicates = sorted(k for k, n in counts.items() if n > 1)
     if duplicates:
         raise ValueError(f"group_keys has duplicate entries: {duplicates}")
     for key in keys:
+        try:
+            hash(key)
+        except TypeError:
+            raise ValueError(
+                f"group_keys entries must be column names, got a "
+                f"{type(key).__name__}: {key!r}"
+            ) from None
         if key not in df.columns:
             raise _missing_column_error(
                 key, df.columns, label="group_keys column",
@@ -318,7 +353,8 @@ class EvalContext:
     __slots__ = (
         "df", "group_keys", "default_methods", "filter_context",
         "kind_support",
-        "_group_index", "_group_tuples_cache", "_method_override",
+        "_group_index", "_key_frame", "_group_tuples_cache",
+        "_group_codes_cache", "_method_override",
     )
 
     def __init__(
@@ -329,7 +365,7 @@ class EvalContext:
         if group_keys is None:
             self.group_keys = _pick_group_keys(df)
         else:
-            self.group_keys = normalize_group_keys(df, group_keys)
+            self.group_keys = _normalize_group_keys(df, group_keys)
         self.default_methods = (
             _normalize_default_methods(default_methods) if default_methods else {}
         )
@@ -341,11 +377,37 @@ class EvalContext:
         # ``{model_key: {kind_value: {"mhc_dependence", "mhc_class"}}}``.
         self.kind_support = kind_support
         self._group_index = None
+        self._key_frame = None
         self._group_tuples_cache = None
+        self._group_codes_cache = None
         # Internal: when Comparison auto-aggregates across methods, it
         # binds Field(method=None, kind=K) references to a specific
         # method per iteration by setting (kind_value, method_name) here.
         self._method_override = None
+
+    @property
+    def key_frame(self) -> pd.DataFrame:
+        """The group-key columns, with null spellings collapsed.
+
+        ``groupby(dropna=False)`` — which every node evaluates through —
+        treats ``None``, ``NaN`` and ``pd.NA`` in an object column as one
+        group, but a plain ``drop_duplicates`` keeps them apart.  Building
+        the group index from raw values therefore produces groups no node
+        result can ever key, and rows would silently score NaN.  Collapse
+        them once here so the index, the row mapping and every node agree.
+        """
+        if self._key_frame is None:
+            frame = self.df[self.group_keys]
+            mixed = [
+                k for k in self.group_keys
+                if frame[k].dtype == object and frame[k].isna().any()
+            ]
+            if mixed:
+                frame = frame.assign(**{
+                    k: frame[k].where(frame[k].notna(), np.nan) for k in mixed
+                })
+            self._key_frame = frame
+        return self._key_frame
 
     @property
     def group_index(self) -> pd.Index:
@@ -370,7 +432,7 @@ class EvalContext:
                         names=self.group_keys,
                     )
             else:
-                key_df = self.df[self.group_keys].drop_duplicates()
+                key_df = self.key_frame.drop_duplicates()
                 if single_key:
                     key = self.group_keys[0]
                     self._group_index = pd.Index(key_df[key], name=key)
@@ -378,11 +440,39 @@ class EvalContext:
                     self._group_index = pd.MultiIndex.from_frame(key_df)
         return self._group_index
 
+    def row_group_codes(self) -> np.ndarray:
+        """Position within :attr:`group_index` of each row's group.
+
+        The way to map a per-group Series back onto rows.  Prefer this
+        over matching :meth:`row_group_tuples` against a set of keys:
+        ``NaN`` never equals itself, and since Python 3.10 hashes by
+        identity, so key lookups drop rows whose group key is null.
+        Positions sidestep both.
+        """
+        if self._group_codes_cache is None:
+            if self.df.empty:
+                self._group_codes_cache = np.empty(0, dtype=int)
+            else:
+                if len(self.group_keys) == 1:
+                    key = self.group_keys[0]
+                    row_index = pd.Index(self.key_frame[key], name=key)
+                else:
+                    row_index = pd.MultiIndex.from_frame(self.key_frame)
+                codes = self.group_index.get_indexer(row_index)
+                assert (codes >= 0).all(), (
+                    "internal: row group key missing from group_index"
+                )
+                self._group_codes_cache = codes
+        return self._group_codes_cache
+
     def row_group_tuples(self) -> pd.Series:
         """Per-row group key, aligned to ``self.df.index``.
 
         A tuple of group-key values per row — or the bare value when
         there is a single group key, matching :attr:`group_index`.
+        For mapping group results back onto rows, use
+        :meth:`row_group_codes`: null keys make key-based lookups
+        unreliable.
         """
         if self._group_tuples_cache is None:
             if self.df.empty:
@@ -391,12 +481,12 @@ class EvalContext:
                 )
             elif len(self.group_keys) == 1:
                 self._group_tuples_cache = pd.Series(
-                    self.df[self.group_keys[0]].to_numpy(),
+                    self.key_frame[self.group_keys[0]].to_numpy(),
                     index=self.df.index,
                 )
             else:
                 self._group_tuples_cache = pd.Series(
-                    list(zip(*[self.df[k] for k in self.group_keys])),
+                    list(zip(*[self.key_frame[k] for k in self.group_keys])),
                     index=self.df.index,
                 )
         return self._group_tuples_cache

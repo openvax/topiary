@@ -462,3 +462,147 @@ def test_uninferable_frame_still_works_with_explicit_keys():
 def test_empty_frame_without_identity_columns_is_not_rejected():
     """Nothing to group; inference stays quiet rather than erroring."""
     assert EvalContext(pd.DataFrame()).group_keys
+
+
+# ---------------------------------------------------------------------------
+# Null keys: None / NaN / pd.NA must name the same group
+# ---------------------------------------------------------------------------
+
+
+def _null_key_df(column, keys):
+    """Three rows whose *column* holds the given (possibly null) keys."""
+    rows = []
+    for key, value, peptide in zip(keys, (50.0, 100.0, 150.0), "abc"):
+        rows.append({
+            column: key, "peptide": peptide, "peptide_offset": 0,
+            "allele": "HLA-A*02:01", "kind": "pMHC_affinity", "score": 0.5,
+            "value": value, "percentile_rank": 1.0,
+            "prediction_method_name": "netmhcpan",
+        })
+    return pd.DataFrame(rows)
+
+
+@pytest.mark.parametrize("nulls", [
+    (None, np.nan),
+    (np.nan, None),
+    (pd.NA, np.nan),
+    (None, pd.NA),
+])
+def test_null_spellings_collapse_into_one_group(nulls):
+    """groupby(dropna=False) merges them, so group_index must too.
+
+    Otherwise the group index holds keys no node result can carry and
+    every row in the extra group scores NaN.
+    """
+    df = _null_key_df("gid", [*nulls, "x"])
+
+    ctx = EvalContext(df, group_keys=["gid"])
+
+    assert len(ctx.group_index) == 2
+    assert ctx.row_group_codes().tolist() == [0, 0, 1]
+
+
+def test_null_keys_score_their_group_not_nan():
+    df = _null_key_df("gid", [None, np.nan, "x"])
+
+    scores = evaluate_scores(df, Affinity.value, group_keys=["gid"])
+
+    # Both null rows are one group; nanmin over it is 50.
+    assert scores.tolist() == [50.0, 50.0, 150.0]
+
+
+def test_null_keys_are_not_dropped_by_filter():
+    df = _null_key_df("gid", [None, np.nan, "x"])
+
+    kept = apply_filter(df, Affinity.value <= 60, group_keys=["gid"])
+
+    assert kept["peptide"].tolist() == ["a", "b"]
+
+
+def test_inferred_keys_do_not_drop_rows_with_none_identity():
+    """Regression: None in an identity column silently lost the row.
+
+    `TopiaryPredictor` writes `source_sequence_name = None`, so this is
+    reachable without passing group_keys at all.
+    """
+    df = _null_key_df("source_sequence_name", [None, np.nan, "x"])
+
+    kept = apply_filter(df, Affinity.value <= 60)
+    ordered = apply_sort(df, [Affinity.value])
+    scores = evaluate_scores(df, Affinity.value)
+
+    # Distinct peptides, so one group per row: only the 50 nM row passes.
+    assert kept["peptide"].tolist() == ["a"]
+    assert ordered["peptide"].tolist() == ["a", "b", "c"]
+    assert scores.tolist() == [50.0, 100.0, 150.0]
+
+
+def test_row_group_codes_index_group_index():
+    df = _provenance_df()
+
+    ctx = EvalContext(df, group_keys=PROVENANCE_GROUP_KEYS)
+    codes = ctx.row_group_codes()
+
+    assert codes.tolist() == [0, 1]
+    assert [ctx.group_index[c] for c in codes] == list(ctx.group_index)
+
+
+def test_row_group_codes_empty_frame():
+    ctx = EvalContext(_provenance_df().iloc[0:0])
+
+    assert ctx.row_group_codes().tolist() == []
+
+
+# ---------------------------------------------------------------------------
+# Remaining validation edges
+# ---------------------------------------------------------------------------
+
+
+def test_group_keys_shape_checked_even_without_a_frame():
+    with pytest.raises(ValueError, match="not the string 'peptide'"):
+        evaluate_scores(None, Affinity.value, group_keys="peptide")
+    with pytest.raises(ValueError, match="non-empty sequence"):
+        evaluate_scores(None, Affinity.value, group_keys=[])
+
+
+def test_uninferable_empty_frame_with_columns_is_rejected():
+    """An empty frame still has columns to be wrong about."""
+    df = pd.DataFrame(columns=["peptide", "allele"])
+
+    with pytest.raises(ValueError, match="Cannot infer group keys"):
+        EvalContext(df)
+
+
+def test_array_like_group_key_gets_a_readable_error():
+    """Otherwise: 'truth value of an array is ambiguous', or unhashable."""
+    df = _provenance_df()
+
+    with pytest.raises(ValueError, match="must be column names, got a ndarray"):
+        EvalContext(df, group_keys=[np.array(["peptide", "allele"])])
+
+
+def test_close_matches_never_suggest_a_stringified_label():
+    """An int label 7 must not be offered as the string '7'."""
+    df = _provenance_df()
+    df[7] = 1
+
+    with pytest.raises(ValueError) as excinfo:
+        EvalContext(df, group_keys=["7"])
+
+    assert "Did you mean" not in str(excinfo.value)
+
+
+def test_all_missing_columns_are_named_at_once():
+    from topiary.ranking import Column
+
+    df = _provenance_df()
+    node = Column("zscore") >= 1
+
+    with pytest.raises(ValueError, match="zscore"):
+        apply_filter(df, node)
+
+    node = (Column("zscore") >= 1) & (Column("vaff") >= 0.1)
+    with pytest.raises(ValueError) as excinfo:
+        apply_filter(df, node)
+    message = str(excinfo.value)
+    assert "zscore" in message and "vaff" in message
