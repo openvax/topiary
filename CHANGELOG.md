@@ -1,5 +1,21 @@
 # Changelog
 
+## 5.17.1
+
+**Fixed: tissue expression lookups against current pirlygenes (#177):**
+
+`topiary.sources` built its per-tissue column names as `nTPM_<tissue>`,
+but pirlygenes now emits the suffix form (`<tissue>_nTPM`), matching the
+convention its own FPKM/TPM helpers accept. `available_tissues()`
+returned `[]` and `tissue_expressed_gene_ids(["heart_muscle"])` raised
+`ValueError: Unknown tissue column(s)`, taking
+`tissue_expressed_sequences` and the `--tissue` CLI paths with them.
+
+Tissue names are now read under either spelling, so topiary works
+across pirlygenes releases rather than pinning to one of them. Unknown
+tissue names are also reported as tissue names rather than as column
+names.
+
 ## 5.17.0
 
 **Explicit group keys everywhere (#175):**
@@ -91,6 +107,7 @@ still name `sample_name` explicitly.
   Consumers that materialize a group tuple and index a per-group Series
   with it must drop the leading `sample_name` element (or pass
   `group_keys=` explicitly to keep it).
+
 
 ## 5.16.2
 

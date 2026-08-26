@@ -216,8 +216,7 @@ def tissue_expressed_gene_ids(tissues, min_ntpm=1.0):
     from pirlygenes import pan_cancer_expression
     pce = pan_cancer_expression()
 
-    cols = [f"nTPM_{t}" for t in tissues]
-    _validate_tissue_cols(pce, cols)
+    cols = _tissue_columns(pce, tissues)
 
     mask = pce[cols].max(axis=1) >= min_ntpm
     return set(pce.loc[mask, "Ensembl_Gene_ID"])
@@ -245,8 +244,7 @@ def available_tissues():
     """List all available tissue names from PirlyGenes expression data."""
     _check_pirlygenes()
     from pirlygenes import pan_cancer_expression
-    pce = pan_cancer_expression()
-    return sorted(c.replace("nTPM_", "") for c in pce.columns if c.startswith("nTPM_"))
+    return sorted(_tissue_column_map(pan_cancer_expression()))
 
 
 # ---------------------------------------------------------------------------
@@ -288,15 +286,38 @@ def _sequences_for_genes(genome, identifiers, by="name"):
     return sequences
 
 
-def _validate_tissue_cols(pce, cols):
-    available = {c for c in pce.columns if c.startswith("nTPM_")}
-    bad = [c for c in cols if c not in available]
+# PirlyGenes has named its per-tissue normalized-TPM columns both ways:
+# the prefix form (nTPM_lung) through 5.1, and the suffix form
+# (lung_nTPM) in current releases, matching the suffix convention its
+# own FPKM/TPM helpers accept.  Read tissue names under either spelling
+# rather than pinning topiary to one of them.
+_NTPM_PREFIX = "nTPM_"
+_NTPM_SUFFIX = "_nTPM"
+
+
+def _tissue_column_map(pce):
+    """Map tissue name -> expression column, under either naming form."""
+    columns = {}
+    for col in pce.columns:
+        if not isinstance(col, str):
+            continue
+        if col.endswith(_NTPM_SUFFIX):
+            columns.setdefault(col[:-len(_NTPM_SUFFIX)], col)
+        elif col.startswith(_NTPM_PREFIX):
+            columns.setdefault(col[len(_NTPM_PREFIX):], col)
+    return columns
+
+
+def _tissue_columns(pce, tissues):
+    """Resolve tissue names to expression columns, or explain what's there."""
+    columns = _tissue_column_map(pce)
+    bad = [t for t in tissues if t not in columns]
     if bad:
-        tissues = sorted(c.replace("nTPM_", "") for c in available)
         raise ValueError(
-            "Unknown tissue column(s): %s. Available: %s"
-            % ([c.replace("nTPM_", "") for c in bad], tissues)
+            "Unknown tissue(s): %s. Available: %s"
+            % (bad, sorted(columns))
         )
+    return [columns[t] for t in tissues]
 
 
 _PIRLYGENES_MIN = (5, 1, 0)
