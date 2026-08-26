@@ -362,3 +362,49 @@ def test_string_form_evaluates_like_the_python_api():
         evaluate_scores(df, parse("peptide_view(processing.score)")).tolist()
         == evaluate_scores(df, peptide_view(Processing.score)).tolist()
     )
+
+
+def test_group_keys_of_allele_alone_is_rejected():
+    """No peptide dimension: a plain read would be NaN nearly everywhere."""
+    df = _mixed_df()
+
+    with pytest.raises(ValueError, match="needs a peptide dimension"):
+        evaluate_scores(
+            df, peptide_view(Processing.score), group_keys=["allele"],
+        )
+
+
+def test_two_key_grouping_projects_the_same_way():
+    """Peptide + allele only — the flat-index shape for the peptide level."""
+    df = _mixed_df()
+
+    allele_free = evaluate_scores(
+        df, peptide_view(Processing.score), group_keys=["peptide", "allele"],
+    )
+    per_allele = evaluate_scores(
+        df, peptide_view(Affinity.value), group_keys=["peptide", "allele"],
+    )
+
+    assert allele_free.tolist() == [0.77, 0.77, 0.77]
+    assert per_allele.tolist() == [50.0, 50.0, 50.0]
+
+
+def test_null_spellings_in_peptide_keys_still_project():
+    df = _mixed_df()
+    df.loc[0, "source_sequence_name"] = None
+    df.loc[1, "source_sequence_name"] = float("nan")
+    df.loc[2, "source_sequence_name"] = float("nan")
+
+    scores = evaluate_scores(df, peptide_view(Processing.score))
+
+    assert scores.tolist() == [0.77, 0.77, 0.77]
+
+
+def test_null_allele_counts_as_allele_free():
+    """Loaders write NaN where others write the empty string."""
+    df = _mixed_df()
+    df.loc[2, "allele"] = float("nan")
+
+    assert evaluate_scores(df, peptide_view(Processing.score)).tolist() == [
+        0.77, 0.77, 0.77,
+    ]

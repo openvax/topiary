@@ -1352,9 +1352,19 @@ class PeptideView(DSLNode):
             return ctx.empty_series()
 
         peptide_keys = [k for k in ctx.group_keys if k != "allele"]
-        if not peptide_keys or "allele" not in ctx.group_keys:
+        if "allele" not in ctx.group_keys:
             # Groups are already peptide-level; nothing to broadcast.
             return inner.eval(ctx)
+        if not peptide_keys:
+            # Grouping by allele alone has no peptide to project onto, so
+            # the contract ("one value per peptide") can't be honored —
+            # and a plain read would leave every allele group but the
+            # peptide-level row's own NaN.
+            raise ValueError(
+                f"peptide_view needs a peptide dimension, but group_keys is "
+                f"{ctx.group_keys!r} — allele alone. Add the peptide "
+                f"identity columns, e.g. group_keys=['peptide', 'allele']."
+            )
 
         values = pd.to_numeric(sub[col_name], errors="coerce")
         valid = sub.loc[values.notna(), peptide_keys].assign(
