@@ -1,5 +1,35 @@
 # Changelog
 
+## 5.20.1
+
+**Fixed: a labeled haplotype kind read more quietly than an unlabeled one.**
+
+The auto-projection added in 5.20.0 covered `mhc_dependence='none'` only,
+so supplying correct metadata made the bare read fail *more* silently:
+
+```
+no kind_support          bare read = [0.9, 0.9, 0.9]   warns
+kind_support=haplotype   bare read = [nan, nan, 0.9]   silent
+```
+
+A haplotype prediction scores a whole genotype, and mhctools stamps the
+row with the allele it deconvolved as the best presenter. Reading it
+plainly therefore hands that joint score to one allele and leaves the
+rest of the genotype NaN — the same failure 5.20.0 fixed for
+allele-free kinds, wearing an allele name. Both peptide-level modes
+(`none` and `haplotype`) are now projected, with a warning naming
+`peptide_view(...)`.
+
+This matters on the default path: MHCflurry's
+`presentation_allele_mode="auto"` resolves to haplotype for six alleles
+or fewer, i.e. every ordinary patient genotype, and 5.18.1 made
+`TopiaryPredictor` forward `kind_support` automatically — so a
+`filter_by="presentation.score >= 0.5"` was reading NaN for every allele
+but one.
+
+`single_allele` kinds are unchanged: a plain read there returns a real
+row, and choosing which row stays with the caller.
+
 ## 5.20.0
 
 **A bare allele-free kind is projected instead of reading NaN (#186):**
