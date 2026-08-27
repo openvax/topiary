@@ -196,7 +196,7 @@ def test_kind_support_overrides_what_the_rows_look_like():
     support = _kind_support("mhcflurry", "pMHC_presentation", "haplotype")
 
     # Two haplotype rows for one peptide is a data error, not a max().
-    with pytest.raises(ValueError, match="expects one score per peptide"):
+    with pytest.raises(ValueError, match="means one row per peptide"):
         evaluate_scores(
             df, peptide_view(Presentation.score), kind_support=support,
         )
@@ -206,7 +206,17 @@ def test_kind_support_overrides_what_the_rows_look_like():
 
 
 def test_models_disagreeing_about_dependence_is_an_error():
-    df = pd.DataFrame(_affinity_rows())
+    """Both models are read here, so neither mode can be assumed.
+
+    One method per allele group, so nothing narrows the read to a single
+    model the way an ambiguity default would.
+    """
+    df = pd.DataFrame([
+        _row(allele=ALLELES[0], kind="pMHC_affinity", value=50.0,
+             prediction_method_name="netmhcpan"),
+        _row(allele=ALLELES[1], kind="pMHC_affinity", value=90.0,
+             prediction_method_name="mhcflurry"),
+    ])
     support = {
         "netmhcpan": {"pMHC_affinity": {"mhc_dependence": "single_allele"}},
         "mhcflurry": {"pMHC_affinity": {"mhc_dependence": "haplotype"}},
@@ -243,7 +253,7 @@ def test_conflicting_peptide_level_values_are_rejected():
         _processing_row(score=0.77), _processing_row(score=0.11),
     ])
 
-    with pytest.raises(ValueError, match="carry several different values"):
+    with pytest.raises(ValueError, match="carry several different score"):
         evaluate_scores(df, peptide_view(Processing.score))
 
 
@@ -324,11 +334,17 @@ def test_dependence_inference_ignores_other_kinds():
     df = _mixed_df()
 
     ctx = EvalContext(df)
-    from topiary.ranking.nodes import _resolve_mhc_dependence
+    from topiary.ranking.nodes import (
+        _filter_kind_method_version, _resolve_mhc_dependence,
+    )
     from mhctools import Kind
 
-    assert _resolve_mhc_dependence(ctx, Kind.pMHC_affinity) == "single_allele"
-    assert _resolve_mhc_dependence(ctx, Kind.antigen_processing) == "none"
+    for kind, expected in (
+        (Kind.pMHC_affinity, "single_allele"),
+        (Kind.antigen_processing, "none"),
+    ):
+        sub = _filter_kind_method_version(ctx, kind, None, None)
+        assert _resolve_mhc_dependence(ctx, kind, sub) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -626,5 +642,153 @@ def test_values_that_really_differ_are_still_rejected():
         _processing_row(score=0.30), _processing_row(score=0.31),
     ])
 
-    with pytest.raises(ValueError, match="carry several different values"):
+    with pytest.raises(ValueError, match="carry several different score"):
         evaluate_scores(df, peptide_view(Processing.score))
+
+
+# ---------------------------------------------------------------------------
+# The mode is resolved from the rows the expression actually reads
+# ---------------------------------------------------------------------------
+
+
+def test_default_methods_naming_an_absent_model_keeps_kind_support():
+    """A pipeline-wide default for another kind must not void the metadata."""
+    df = pd.DataFrame([
+        _row(allele=ALLELES[0], kind="pMHC_presentation", score=0.8,
+             prediction_method_name="mhcflurry"),
+        _row(allele=ALLELES[1], kind="pMHC_presentation", score=0.2,
+             prediction_method_name="mhcflurry"),
+    ])
+    support = _kind_support("mhcflurry", "pMHC_presentation", "haplotype")
+
+    # Two haplotype rows for one peptide is a data error either way — the
+    # default naming a model absent from this frame must not turn it into
+    # a silent max() across alleles.
+    with pytest.raises(ValueError, match="means one row per peptide"):
+        evaluate_scores(
+            df, peptide_view(Presentation.score), kind_support=support,
+            default_methods={"pMHC_presentation": "netmhcpan"},
+        )
+
+
+def test_another_models_alleles_do_not_reclassify_this_one():
+    """Row-based inference must look at the selected rows, not the kind."""
+    conflicting = [
+        _row(kind="antigen_processing", score=score,
+             prediction_method_name="netchop")
+        for score in (0.30, 0.31)
+    ]
+    unrelated = _row(kind="antigen_processing", score=0.5,
+                     allele=ALLELES[0], prediction_method_name="otherpred")
+
+    for rows in (conflicting, conflicting + [unrelated]):
+        with pytest.raises(ValueError, match="carry several different score"):
+            evaluate_scores(
+                pd.DataFrame(rows), peptide_view(Processing["netchop"].score),
+            )
+
+
+def test_a_model_with_no_rows_here_does_not_conflict():
+    """Metadata for a model that produced nothing must not veto the frame."""
+    df = pd.DataFrame([
+        _row(allele=ALLELES[0], kind="pMHC_presentation", score=0.9,
+             prediction_method_name="netmhcpan"),
+        _row(allele=ALLELES[1], kind="pMHC_presentation", score=0.4,
+             prediction_method_name="netmhcpan"),
+    ])
+    support = {
+        "netmhcpan": {"pMHC_presentation": {"mhc_dependence": "single_allele"}},
+        "mhcflurry": {"pMHC_presentation": {"mhc_dependence": "haplotype"}},
+    }
+
+    with pytest.warns(UserWarning, match="not a joint multi-allele aggregate"):
+        scores = evaluate_scores(
+            df, peptide_view(Presentation.score), kind_support=support,
+        )
+
+    assert scores.tolist() == [0.9, 0.9]
+
+
+def test_unknown_dependence_is_named_even_alongside_a_known_one():
+    """Version skew can't be resolved by picking the other model's mode."""
+    df = pd.DataFrame([
+        _row(kind="antigen_processing", score=0.5,
+             prediction_method_name="netchop"),
+        _row(allele=ALLELES[0], kind="antigen_processing", score=0.6,
+             prediction_method_name="otherpred"),
+    ])
+    support = {
+        "netchop": {"antigen_processing": {"mhc_dependence": "none"}},
+        "otherpred": {"antigen_processing": {"mhc_dependence": "supertype"}},
+    }
+
+    with pytest.raises(ValueError, match="unknown mhc_dependence 'supertype'"):
+        evaluate_scores(
+            df, peptide_view(Processing.score), kind_support=support,
+        )
+
+
+# ---------------------------------------------------------------------------
+# The one-value-per-peptide check runs on every peptide-level path
+# ---------------------------------------------------------------------------
+
+
+def test_disagreeing_values_are_rejected_without_an_allele_group_key():
+    """Same data, same node: the grouping must not decide whether it raises."""
+    df = pd.DataFrame([
+        _row(kind="antigen_processing", value=value,
+             prediction_method_name="mhcflurry")
+        for value in (0.9, 0.1)
+    ])
+
+    with pytest.raises(ValueError, match="carry several different value"):
+        evaluate_scores(df, peptide_view(Processing.value))
+
+    with pytest.raises(ValueError, match="carry several different value"):
+        evaluate_scores(
+            df, peptide_view(Processing.value),
+            group_keys=["source_sequence_name", "peptide", "peptide_offset"],
+        )
+
+
+def test_best_field_without_a_direction_is_rejected_not_downgraded():
+    """peptide_view(processing.best_value) must not quietly read `value`."""
+    df = pd.DataFrame([
+        _row(allele=allele, kind="antigen_processing", value=0.77,
+             prediction_method_name="mhcflurry")
+        for allele in ALLELES
+    ])
+
+    with pytest.raises(ValueError, match="no defined best direction"):
+        evaluate_scores(df, peptide_view(Processing.best_value))
+
+
+def test_no_direction_error_explains_the_real_cause():
+    """Not 'mhc_dependence=single_allele means one row per peptide'."""
+    df = pd.DataFrame([
+        _row(allele=allele, kind="antigen_processing", value=value,
+             prediction_method_name="mhcflurry")
+        for allele, value in zip(ALLELES, (0.9, 0.1))
+    ])
+
+    with pytest.raises(ValueError, match="no defined best direction"):
+        evaluate_scores(df, peptide_view(Processing.value))
+
+
+# ---------------------------------------------------------------------------
+# The warning names what the user wrote
+# ---------------------------------------------------------------------------
+
+
+def test_single_allele_warning_names_the_wrapping_expression():
+    df = pd.DataFrame(_affinity_rows())
+    support = _kind_support("netmhcpan", "pMHC_affinity", "single_allele")
+
+    with pytest.warns(UserWarning, match=r"peptide_view\(affinity\.value\)"):
+        evaluate_scores(
+            df, peptide_view(Affinity.value), kind_support=support,
+        )
+
+    # A bare best_* still names itself.
+    with pytest.warns(UserWarning, match="best_value on"):
+        evaluate_scores(df, Affinity.best_value, kind_support=support)

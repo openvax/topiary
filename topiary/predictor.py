@@ -574,11 +574,19 @@ class TopiaryPredictor(object):
         per-(model, kind), not per-kind alone — e.g. MHCflurry reports
         ``pMHC_presentation`` as ``single_allele`` or ``haplotype`` depending
         on its configured ``presentation_allele_mode``.
+
+        Models that don't report it — mhctools predictors older than
+        3.13.7, and hand-rolled ones — are omitted rather than raising,
+        so a mixed set still reports what is known. Consumers treat a
+        missing model as "no metadata" and fall back to reading the rows.
         """
-        return {
-            key: dict(model.kind_support())
-            for key, model in zip(self._model_keys, self.models)
-        }
+        support = {}
+        for key, model in zip(self._model_keys, self.models):
+            reported = getattr(model, "kind_support", None)
+            if not callable(reported):
+                continue
+            support[key] = dict(reported())
+        return support
 
     @property
     def supported_kinds(self):
@@ -788,10 +796,18 @@ class TopiaryPredictor(object):
         if df.empty:
             return df
         df = self._maybe_attach_self_nearest(df)
+        # Forward the allele-mode metadata this predictor already owns:
+        # without it, DSL nodes that dispatch on ``mhc_dependence``
+        # (``peptide_view``, ``best_*``) fall back to guessing from the
+        # rows on exactly the path ``filter_by`` / ``sort_by`` drive.
+        kind_support = self.kind_support
         if self.filter_by is not None:
-            df = apply_filter(df, self.filter_by)
+            df = apply_filter(df, self.filter_by, kind_support=kind_support)
         if self.sort_by:
-            df = apply_sort(df, self.sort_by, sort_direction=self.sort_direction)
+            df = apply_sort(
+                df, self.sort_by, sort_direction=self.sort_direction,
+                kind_support=kind_support,
+            )
         return df
 
     def _maybe_attach_self_nearest(self, df):

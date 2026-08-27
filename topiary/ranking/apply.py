@@ -12,10 +12,10 @@ from .nodes import (
     BestAlleleField,
     EvalContext,
     Field,
-    PeptideView,
     _kind_matches,
     _missing_column_error,
     _normalize_group_keys,
+    _unwrap_peptide_view,
 )
 
 
@@ -103,8 +103,7 @@ def _infer_sort_direction(node):
     large is better, so ``peptide_view(Affinity.value)`` and
     ``Affinity.best_value`` sort ascending like the bare field.
     """
-    while isinstance(node, PeptideView):
-        node = node.inner
+    node = _unwrap_peptide_view(node)
     if isinstance(node, (Field, BestAlleleField)):
         if node.field == "percentile_rank":
             return "asc"

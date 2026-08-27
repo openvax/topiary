@@ -1,5 +1,67 @@
 # Changelog
 
+## 5.18.1
+
+**`peptide_view()` resolves the allele mode from the rows it reads (#181
+follow-up):**
+
+5.18.0 decided a kind's `mhc_dependence` from `kind_support` plus a scan
+of the whole frame, which let three things go wrong silently:
+
+- A `default_methods` entry naming a model absent from the frame — the
+  normal case for a pipeline-wide default that covers another kind —
+  filtered every model out of the metadata lookup, so the projection
+  fell back to guessing from the rows. A haplotype frame with two rows
+  for one peptide became a silent `max()` instead of an error.
+- One model's allele-stamped rows reclassified another model's
+  allele-free rows: adding an unrelated per-allele processing row made
+  an explicitly method-qualified `peptide_view(processing['netchop'].score)`
+  silently `max()` away a conflict it had correctly rejected before.
+- Models that contributed no rows still triggered "models disagree", and
+  the remedy the message suggested then failed with "no predictions from
+  method matching ...".
+
+The mode is now resolved from the already-selected rows — the ones the
+expression will actually read, after kind, method and version filtering
+— and `kind_support` is consulted only for models those rows came from.
+That also removes the duplicate per-kind scan each evaluation did.
+
+**The one-value-per-peptide check no longer depends on the grouping.**
+With `allele` absent from `group_keys`, `peptide_view` returned a plain
+field read, so the same node on the same data raised for one grouping
+and silently returned `.first()` for another.
+
+**`peptide_view(kind.best_X)` on a field with no defined best direction**
+(e.g. `processing.best_value`) silently read the plain `value` column
+instead. It now says what is wrong, as the equivalent mistake on a
+peptide-level kind already did. The related error message no longer
+claims `mhc_dependence='single_allele'` "means one row per peptide" when
+the real cause is the missing direction.
+
+**Unknown `mhc_dependence` values** are reported as version skew even
+when another model reports a known value; previously the conflict check
+ran first and offered a remedy that cannot resolve an uninterpretable
+value.
+
+**`kind_support` now reaches the DSL from the object API.**
+`TopiaryPredictor(filter_by=..., sort_by=...)` and
+`TopiaryResult.filter_by` / `.sort_by` forwarded no metadata, so every
+guard that depends on `mhc_dependence` — telling `haplotype` from
+`single_allele`, the inconsistent-value error, the version-skew error,
+the `single_allele` warning — was inert on exactly the path the docs
+advertise for `--filter-by` / `--sort-by`. `TopiaryPredictor.kind_support`
+now also skips models that don't report it (older mhctools predictors,
+test doubles) instead of raising `AttributeError`.
+
+The `single_allele` warning names the expression that was written —
+`peptide_view(affinity.value)` rather than a `best_score` the user never
+typed — and points at the caller's frame.
+
+**Breaking (unannounced in 5.18.0):** the scoped-field filter guard now
+covers `BestAlleleField`, so `wt.Affinity.best_value <= 500` raises
+`TypeError` in a filter like the bare `wt.Affinity.value` always did.
+Use scoped fields in sort or score expressions instead.
+
 ## 5.18.0
 
 **`peptide_view()` — per-`mhc_dependence` peptide-level projection (#169):**
