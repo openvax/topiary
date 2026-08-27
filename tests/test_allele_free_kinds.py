@@ -11,6 +11,8 @@ consequences the DSL has to handle explicitly:
   at all, so a consumer keyed by patient allele can't read it (#182).
 """
 
+import warnings
+
 import pandas as pd
 import pytest
 
@@ -277,3 +279,119 @@ def test_alleles_are_ignored_without_an_allele_group_key():
     )
 
     assert len(ctx.group_index) == 1
+
+
+# ---------------------------------------------------------------------------
+# #186 — an unwrapped allele-free kind means the same thing, and says so
+# ---------------------------------------------------------------------------
+
+
+def test_unwrapped_allele_free_kind_is_projected():
+    """The config strings users have already written keep working."""
+    df = _affinity_and_processing()
+    ctx = EvalContext(df, group_keys=GROUP_KEYS)
+
+    with pytest.warns(UserWarning, match="carries no allele"):
+        scores = parse("processing[mhcflurry].score").eval(ctx)
+
+    assert scores.reindex(ctx.group_index).tolist() == [0.77, 0.77, 0.77]
+
+
+def test_unwrapped_and_wrapped_agree():
+    df = _affinity_and_processing()
+
+    with pytest.warns(UserWarning):
+        bare = _scores(df, parse("processing[mhcflurry].score"))
+
+    assert bare == _scores(df, PROCESSING)
+
+
+def test_the_warning_names_the_explicit_form():
+    df = _affinity_and_processing()
+    ctx = EvalContext(df, group_keys=GROUP_KEYS)
+
+    with pytest.warns(UserWarning) as caught:
+        parse("processing[mhcflurry].score").eval(ctx)
+
+    message = str(caught[0].message)
+    assert "peptide_view(" in message
+
+
+def test_explicit_peptide_view_does_not_warn():
+    df = _affinity_and_processing()
+    ctx = EvalContext(df, group_keys=GROUP_KEYS)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert PROCESSING.eval(ctx).reindex(ctx.group_index).tolist() == [
+            0.77, 0.77, 0.77,
+        ]
+
+
+def test_per_allele_kinds_are_left_alone():
+    """Choosing which allele's row to read stays the caller's decision."""
+    df = _affinity_and_processing()
+    ctx = EvalContext(df, group_keys=GROUP_KEYS)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        affinity = parse("affinity.value").eval(ctx).reindex(ctx.group_index)
+
+    assert affinity.tolist()[:2] == [50.0, 60.0]
+    assert pd.isna(affinity.tolist()[2])
+
+
+def test_no_projection_without_an_allele_group_key():
+    """Nothing to project onto; the plain read is already right."""
+    df = _affinity_and_processing()
+    keys = ["prediction_id", "peptide", "peptide_offset"]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ctx = EvalContext(df, group_keys=keys)
+        scores = parse("processing[mhcflurry].score").eval(ctx)
+
+    assert scores.reindex(ctx.group_index).tolist() == [0.77]
+
+
+def test_unwrapped_reference_works_in_a_filter():
+    df = _affinity_and_processing()
+
+    with pytest.warns(UserWarning, match="carries no allele"):
+        kept = apply_filter(
+            df, parse("processing[mhcflurry].score >= 0.5"),
+            group_keys=GROUP_KEYS,
+        )
+
+    assert len(kept) == 3
+
+
+def test_unwrapped_reference_reaches_declared_alleles():
+    """Auto-projection composes with a declared genotype."""
+    df = pd.DataFrame([_row("", "antigen_processing", None, 0.77)])
+    ctx = EvalContext(df, group_keys=GROUP_KEYS, alleles=PATIENT_ALLELES)
+
+    with pytest.warns(UserWarning, match="carries no allele"):
+        scores = parse("processing[mhcflurry].score").eval(ctx)
+
+    per_allele = {
+        key[-1]: value
+        for key, value in scores.reindex(ctx.group_index).items()
+        if key[-1]
+    }
+    assert per_allele == {"HLA-A*02:01": 0.77, "HLA-B*07:02": 0.77}
+
+
+def test_inconsistent_values_still_raise_when_unwrapped():
+    """Auto-projection doesn't soften the one-value-per-peptide rule."""
+    df = pd.DataFrame([
+        _row("HLA-A*02:01", "pMHC_affinity", 50.0),
+        _row("", "antigen_processing", None, 0.30),
+        _row("", "antigen_processing", None, 0.90),
+    ])
+    ctx = EvalContext(df, group_keys=GROUP_KEYS)
+
+    with pytest.warns(UserWarning), pytest.raises(
+        ValueError, match="carry several different score",
+    ):
+        parse("processing[mhcflurry].score").eval(ctx)
