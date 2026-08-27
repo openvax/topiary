@@ -12,6 +12,7 @@ from .nodes import (
     BestAlleleField,
     EvalContext,
     Field,
+    _kind_value,
     _kind_matches,
     _missing_column_error,
     _normalize_group_keys,
@@ -95,6 +96,75 @@ def _validate_columns(df, node):
     raise _missing_column_error(missing, df.columns)
 
 
+def _allele_free_groups(ctx):
+    """Boolean array: which groups carry no allele at all.
+
+    An allele-free prediction — antigen processing, say — has nothing in
+    its ``allele`` column, so it lands in a group of its own rather than
+    in any of the peptide's per-allele groups.
+    """
+    alleles = pd.Series(ctx.group_index.get_level_values("allele"))
+    return (alleles.isna() | (alleles.astype(str).str.strip() == "")).to_numpy()
+
+
+def _collect_kinds(node):
+    """Every prediction kind a DSL tree reads."""
+    kinds = set()
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if n is None:
+            continue
+        kind = getattr(n, "kind", None)
+        if kind is not None:
+            kinds.add(_kind_value(kind))
+        stack.extend(n.child_nodes())
+    return kinds
+
+
+def _keep_allele_free_evidence(ctx, node, mask):
+    """Let allele-free evidence ride along with its peptide.
+
+    An allele-free prediction lands in a group of its own, and a filter
+    on an allele-scoped kind has nothing to say about it — that group
+    holds no rows of the kind being filtered on, so it evaluates to NaN,
+    which pandas turns into False, which drops the row.  The evidence a
+    later ``peptide_view()`` would have read is then simply gone, and
+    the peptide scores as if the prediction had never been made.
+
+    So an allele-free group holding none of the kinds the filter reads
+    is kept whenever the filter kept at least one of that peptide's
+    allele groups: it is peptide-level evidence and the peptide
+    survived.  A group the filter *does* read — ``processing.score >=
+    0.9`` against the processing row itself — keeps its own answer, and
+    a peptide excluded entirely takes its evidence with it.
+    """
+    peptide_keys = [k for k in ctx.group_keys if k != "allele"]
+    if "allele" not in ctx.group_keys or not peptide_keys:
+        return mask
+    if "kind" not in ctx.df.columns:
+        return mask
+    node_kinds = _collect_kinds(node)
+    if not node_kinds:
+        return mask
+
+    # Groups holding at least one row of a kind this filter reads.
+    read = np.zeros(len(ctx.group_index), dtype=bool)
+    codes = ctx.row_group_codes()
+    read[codes[ctx.df["kind"].isin(node_kinds).to_numpy()]] = True
+
+    candidates = _allele_free_groups(ctx) & ~read & ~mask
+    if not candidates.any():
+        return mask
+
+    groups = ctx.group_index.to_frame(index=False)
+    groups["_kept"] = mask
+    peptide_kept = groups.groupby(
+        peptide_keys, sort=False, dropna=False,
+    )["_kept"].transform("any").to_numpy()
+    return mask | (candidates & peptide_kept)
+
+
 def _infer_sort_direction(node):
     """Natural sort direction for a node (asc = smaller is better).
 
@@ -119,7 +189,7 @@ def _resolve_sort_direction(node, sort_direction):
 
 
 def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
-                    kind_support=None, fill=np.nan):
+                    kind_support=None, alleles=None, fill=np.nan):
     """Evaluate a DSL *node* against *df* and align the result to ``df.index``.
 
     ``DSLNode.eval`` returns a Series indexed by the peptide-allele
@@ -137,9 +207,9 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
     callers pick semantics — ``.fillna(0.0)`` for additive scoring,
     ``.fillna(-inf)`` for ranking.
 
-    *group_keys*, *default_methods* and *kind_support* are the shared
-    context options, forwarded to :class:`EvalContext` — see its
-    docstring.
+    *group_keys*, *default_methods*, *kind_support* and *alleles* are
+    the shared context options, forwarded to :class:`EvalContext` — see
+    its docstring.
 
     Returns a ``pd.Series`` with ``df.index`` and a numeric dtype.
     """
@@ -153,7 +223,7 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
 
     ctx = EvalContext(
         df, group_keys=group_keys, default_methods=default_methods,
-        kind_support=kind_support,
+        kind_support=kind_support, alleles=alleles,
     )
     scored = node.eval(ctx).reindex(ctx.group_index)
     aligned = pd.Series(
@@ -167,15 +237,15 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
 
 
 def apply_filter(df, node, *, group_keys=None, default_methods=None,
-                 kind_support=None):
+                 kind_support=None, alleles=None):
     """Apply a boolean-valued DSL node to *df*.
 
     Keeps all rows for peptide-allele groups whose evaluated value is
     truthy.  ``None`` for *node* is a no-op.
 
-    *group_keys*, *default_methods* and *kind_support* are the shared
-    context options, forwarded to :class:`EvalContext` — see its
-    docstring.
+    *group_keys*, *default_methods*, *kind_support* and *alleles* are
+    the shared context options, forwarded to :class:`EvalContext` — see
+    its docstring.
     """
     if node is None or df.empty:
         _check_group_keys(df, group_keys)
@@ -185,6 +255,7 @@ def apply_filter(df, node, *, group_keys=None, default_methods=None,
     ctx = EvalContext(
         df, group_keys=group_keys, filter_context=True,
         default_methods=default_methods, kind_support=kind_support,
+        alleles=alleles,
     )
     # Reindex defensively so a misbehaving node (index mismatch) surfaces
     # as NaN → False rather than silently picking up rows from a
@@ -192,13 +263,14 @@ def apply_filter(df, node, *, group_keys=None, default_methods=None,
     values = node.eval(ctx).reindex(ctx.group_index)
     _check_boolean_like(values)
     mask = values.fillna(False).astype(bool).to_numpy()
+    mask = _keep_allele_free_evidence(ctx, node, mask)
 
     keep = mask[ctx.row_group_codes()]
     return df[keep].reset_index(drop=True)
 
 
 def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
-               default_methods=None, kind_support=None):
+               default_methods=None, kind_support=None, alleles=None):
     """Sort groups by one or more DSL nodes (lexicographic fallthrough).
 
     *sort_nodes* is a list of DSLNode.  Each node's direction is inferred
@@ -207,9 +279,9 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
     value is used for all nodes.  NaN values do not force an ordering —
     they fall through to the next tiebreaker.
 
-    *group_keys*, *default_methods* and *kind_support* are the shared
-    context options, forwarded to :class:`EvalContext` — see its
-    docstring.
+    *group_keys*, *default_methods*, *kind_support* and *alleles* are
+    the shared context options, forwarded to :class:`EvalContext` — see
+    its docstring.
     """
     if not sort_nodes or df.empty:
         _check_group_keys(df, group_keys)
@@ -220,7 +292,7 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
 
     ctx = EvalContext(df, group_keys=group_keys,
                       default_methods=default_methods,
-                      kind_support=kind_support)
+                      kind_support=kind_support, alleles=alleles)
     n_groups = len(ctx.group_index)
     n_keys = len(sort_nodes)
     values_matrix = np.empty((n_groups, n_keys), dtype=float)

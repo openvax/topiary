@@ -48,7 +48,7 @@ kept = apply_sort(kept, [Affinity.score], group_keys=group_keys)
 scores = evaluate_scores(kept, Affinity.score, group_keys=group_keys)
 ```
 
-`apply_filter`, `apply_sort` and `evaluate_scores` accept the same three keyword-only context options — `group_keys`, `default_methods` and `kind_support` — so filtering, sorting and scoring can share one grouping and one method resolution.
+`apply_filter`, `apply_sort` and `evaluate_scores` accept the same keyword-only context options — `group_keys`, `default_methods`, `kind_support` and `alleles` — so filtering, sorting and scoring can share one grouping and one method resolution.
 
 One thing is deliberately *not* shared: on a frame where several methods produce the same kind, `apply_filter` auto-aggregates an unqualified reference across them (`nanmin` for `<`/`<=`, `nanmax` for `>`/`>=`), while `apply_sort` and `evaluate_scores` stay strict and raise on the ambiguity. Pass `default_methods={"affinity": "mhcflurry"}` (or qualify the reference, `Affinity["mhcflurry"]`) to get one answer from all three.
 
@@ -120,7 +120,21 @@ That is why producers duplicated the processing row across the patient's alleles
 apply_filter(df, parse("affinity <= 500 & peptide_view(processing.score) >= 0.5"))
 ```
 
-Note that the allele-free row is still its own group, so a per-allele filter clause drops that row from the *output* frame — the projection is about reading its value, not about relocating it.
+The allele-free row is still its own group. A filter on an allele-scoped kind has nothing to say about that group, so rather than dropping it — which would take the evidence out of the frame before the score expression reads it — topiary keeps it whenever the filter kept at least one of that peptide's allele groups. A filter that *does* read the allele-free kind (`peptide_view(processing.score) >= 0.9`) still decides it, and a peptide excluded entirely takes its evidence with it.
+
+### Declaring the alleles to evaluate against
+
+Groups come from the rows, so a peptide whose *only* evidence is allele-free has no per-allele group at all — and a consumer keyed by patient allele has nothing to read. The genotype isn't in the frame, so pass it:
+
+```python
+scores = evaluate_scores(
+    df, peptide_view(Processing.score),
+    group_keys=group_keys,
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+)
+```
+
+`alleles` adds one group per peptide per declared allele, giving `peptide_view` somewhere to broadcast into. The added groups hold no rows, so allele-scoped fields read `NaN` there — which is the truth: that allele has no prediction of its own. The frame itself is untouched; only the group index grows.
 
 The mode comes from `EvalContext(kind_support=...)` — mhctools' per-(model, kind) metadata, available as `TopiaryPredictor.kind_support` — which is the only thing that can tell `haplotype` from `single_allele`, since both put a real allele on every row. Without it, a kind whose rows carry no allele is treated as allele-free and everything else as per-allele. Inconsistent data is an error, not a silent pick: a peptide-level kind with two different values for one peptide, or models that disagree about `mhc_dependence`, both raise.
 

@@ -1,5 +1,51 @@
 # Changelog
 
+## 5.19.0
+
+**Allele-free predictions reach a genotype (#182), and survive a filter
+(#183):**
+
+An antigen-processing prediction carries no allele, so it lands in a
+group of its own rather than in any of the peptide's per-allele groups.
+`peptide_view()` (5.18.0) broadcasts its value, but two things still
+stopped it from replacing the row duplication producers do by hand.
+
+**A filter on an allele-scoped kind no longer drops it.** That group
+holds no rows of the kind being filtered on, so the predicate evaluated
+to NaN — which pandas turns into False, which dropped the row and took
+the evidence out of the frame before the score expression could read it:
+
+```python
+apply_filter(df, parse("affinity.value <= 500"), group_keys=keys)
+# 5.18.0: the processing row is gone, and a later
+#         peptide_view(processing.score) reads NaN
+```
+
+An allele-free group holding none of the kinds a filter reads is now
+kept whenever the filter kept at least one of that peptide's allele
+groups. A filter that *does* read that kind still decides it, and a
+peptide excluded entirely takes its evidence with it.
+
+**`alleles=` declares the alleles to evaluate against.** Groups come
+from the rows, so a peptide whose only evidence is allele-free has no
+per-allele group for a consumer keyed by patient allele to read — and
+the genotype is not something the frame contains:
+
+```python
+evaluate_scores(df, peptide_view(Processing.score),
+                group_keys=keys, alleles=["HLA-A*02:01", "HLA-B*07:02"])
+```
+
+`alleles` is the fourth shared context option, accepted by
+`apply_filter`, `apply_sort`, `evaluate_scores` and `EvalContext`. It
+adds one group per peptide per declared allele; those groups hold no
+rows, so allele-scoped fields read NaN there — that allele has no
+prediction of its own. The frame is untouched: only the group index
+grows, so row counts out of every entry point are unchanged.
+
+Together these let a producer keep one canonical allele-free row instead
+of duplicating it across a patient's alleles.
+
 ## 5.18.1
 
 **`peptide_view()` resolves the allele mode from the rows it reads (#181
