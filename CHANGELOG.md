@@ -1,5 +1,39 @@
 # Changelog
 
+## 5.20.0
+
+**A bare allele-free kind is projected instead of reading NaN (#186):**
+
+Referencing an allele-free kind without `peptide_view()` in a grouping
+keyed by allele returned NaN for every allele group, silently — the row
+carries no allele, so it is in none of those groups and the plain read
+can never find it:
+
+```python
+evaluate_scores(df, Processing.score)   # 5.19.0: [nan, nan, 0.77]
+                                        # 5.20.0: [0.77, 0.77, 0.77] + UserWarning
+```
+
+That reading has no useful meaning, so the reference now means the one
+thing it can: the peptide's value, projected across its groups, exactly
+as `peptide_view()` does. A `UserWarning` names the explicit form, so
+the implicit behavior is greppable and migration is optional rather than
+urgent.
+
+This matters most for user-facing config: `score_expr` / `filter_expr`
+strings that read a processing kind used to work only because producers
+duplicated the allele-free row across a patient's alleles before
+evaluation. Removing that duplication — the point of #182 and #183 —
+would otherwise have left the same string parsing, validating, and
+scoring zero.
+
+**Only `mhc_dependence='none'` is treated this way.** A per-allele kind
+read plainly returns a real row, and choosing *which* row is a genuine
+decision that stays with the caller and `best_*` / `peptide_view()`.
+Explicit `peptide_view(...)` never warns, and the one-value-per-peptide
+rule is unchanged: an allele-free kind carrying two different values for
+one peptide still raises.
+
 ## 5.19.0
 
 **Allele-free predictions reach a genotype (#182), and survive a filter

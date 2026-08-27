@@ -107,12 +107,14 @@ from topiary import peptide_view, Affinity, Processing
 0.5 * peptide_view(Processing.score) + 0.5 * peptide_view(Affinity.score)
 ```
 
-The allele-free case is the one that couldn't be written before. An antigen-processing row carries no allele, so it forms its own group and every per-allele group reads `NaN`:
+The allele-free case is the one that couldn't be written before. An antigen-processing row carries no allele, so it forms its own group, and a plain read leaves every per-allele group `NaN` — the row is in none of them. Since that reading has no useful meaning, a bare reference to an allele-free kind in an allele-keyed grouping is projected anyway, with a warning naming the explicit form:
 
 ```python
-evaluate_scores(df, Processing.score)               # [nan, nan, 0.77]
-evaluate_scores(df, peptide_view(Processing.score)) # [0.77, 0.77, 0.77]
+evaluate_scores(df, Processing.score)                # [0.77, 0.77, 0.77] + UserWarning
+evaluate_scores(df, peptide_view(Processing.score))  # [0.77, 0.77, 0.77], silent
 ```
+
+Per-allele kinds are left alone: a plain read there returns a real row, and choosing *which* row is a genuine decision that stays with `best_*` / `peptide_view`. Writing the wrapper explicitly is still the right thing — it silences the warning and says what the expression means:
 
 That is why producers duplicated the processing row across the patient's alleles before handing topiary a frame. With `peptide_view` the frame keeps one canonical row and the value is broadcast at evaluation time:
 

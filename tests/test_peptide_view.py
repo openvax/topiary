@@ -57,16 +57,19 @@ def _mixed_df():
 # ---------------------------------------------------------------------------
 
 
-def test_allele_free_kind_is_nan_without_peptide_view():
-    """The motivating gap: a processing row is in nobody's allele group."""
+def test_allele_free_kind_projects_even_unwrapped():
+    """A bare reference means the same thing — and says so once.
+
+    A plain read can only ever leave the allele groups NaN, since the
+    row is in none of them, so the reference is projected and warns
+    rather than quietly returning nothing (topiary #186).
+    """
     df = _mixed_df()
 
-    scores = evaluate_scores(df, Processing.score)
+    with pytest.warns(UserWarning, match="carries no allele"):
+        scores = evaluate_scores(df, Processing.score)
 
-    # Two per-allele groups read NaN; only the processing row's own group
-    # sees the value.
-    assert scores.tolist()[:2] == [pytest.approx(float("nan"), nan_ok=True)] * 2
-    assert scores.isna().tolist() == [True, True, False]
+    assert scores.tolist() == [0.77, 0.77, 0.77]
 
 
 def test_peptide_view_broadcasts_allele_free_value_to_every_group():
@@ -87,9 +90,12 @@ def test_peptide_view_composes_with_per_allele_clauses():
     # Only the A*02:01 affinity row clears both clauses.
     assert kept["allele"].tolist() == ["HLA-A*02:01"]
 
-    # Without the projection, the processing clause is NaN everywhere the
-    # affinity clause is true, so nothing survives.
-    assert len(apply_filter(df, parse("affinity <= 500 & processing.score >= 0.5"))) == 0
+    # The unwrapped form means the same thing, with a warning.
+    with pytest.warns(UserWarning, match="carries no allele"):
+        unwrapped = apply_filter(
+            df, parse("affinity <= 500 & processing.score >= 0.5"),
+        )
+    assert unwrapped["allele"].tolist() == kept["allele"].tolist()
 
 
 def test_peptide_view_processing_gate_can_reject_every_allele():

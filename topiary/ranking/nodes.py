@@ -1065,11 +1065,53 @@ class Field(DSLNode):
         if col_name not in sub.columns:
             return ctx.empty_series()
 
+        projected = self._maybe_project_allele_free(ctx, sub)
+        if projected is not None:
+            return projected
+
         vals = sub.groupby(
             ctx.group_keys, sort=False, dropna=False
         )[col_name].first()
         vals = vals.reindex(ctx.group_index)
         return pd.to_numeric(vals, errors="coerce")
+
+    def _maybe_project_allele_free(self, ctx, sub):
+        """Read an allele-free kind as the peptide-level fact it is.
+
+        Grouping by allele puts a prediction that has no allele in a
+        group of its own, so a plain read leaves every allele group NaN
+        — not a different answer to the question, but no answer at all,
+        since the row can never be in those groups.  There is exactly
+        one thing the reference can sensibly mean here, so mean it:
+        project the peptide's value across its groups, the same as
+        :func:`peptide_view`.
+
+        Only ``mhc_dependence='none'`` is treated this way.  A
+        per-allele kind read plainly returns a real row, and choosing
+        *which* row is a genuine decision — that stays with the caller
+        and ``best_*`` / ``peptide_view``.
+
+        Returns ``None`` when no projection applies, so the caller falls
+        through to the plain read.
+        """
+        if "allele" not in ctx.group_keys:
+            return None
+        if not [k for k in ctx.group_keys if k != "allele"]:
+            return None
+        if _resolve_mhc_dependence(ctx, self.kind, sub) != "none":
+            return None
+
+        import warnings
+        warnings.warn(
+            f"{self!r} reads {_kind_short_name(self.kind)}, which carries "
+            f"no allele, in a grouping keyed by allele. Reading it "
+            f"directly would leave every allele group NaN, so its "
+            f"peptide-level value is projected across them — write "
+            f"peptide_view({self!r}) to say so explicitly and silence "
+            f"this warning.",
+            UserWarning, stacklevel=4,
+        )
+        return PeptideView(self).eval(ctx)
 
     def __repr__(self):
         kind_name = _kind_short_name(self.kind)
