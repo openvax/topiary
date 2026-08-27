@@ -270,7 +270,7 @@ Apply with `apply_filter(df, node)` and `apply_sort(df, [nodes])`.
 
 ### Context options
 
-`apply_filter`, `apply_sort` and `evaluate_scores` share three keyword-only
+`apply_filter`, `apply_sort` and `evaluate_scores` share four keyword-only
 options, all forwarded to `EvalContext`:
 
 | Option | Meaning |
@@ -278,6 +278,7 @@ options, all forwarded to `EvalContext`:
 | `group_keys` | Explicit group identity columns; default infers them from the DataFrame |
 | `default_methods` | Per-kind default `prediction_method_name` for unqualified references |
 | `kind_support` | Per-(model, kind) metadata from `TopiaryPredictor.kind_support` |
+| `alleles` | Alleles every peptide is evaluated against, so allele-free evidence reaches a genotype |
 
 See [Group identity](ranking.md#group-identity) for when to pass `group_keys`.
 

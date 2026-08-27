@@ -264,6 +264,31 @@ def _normalize_group_keys(df, group_keys):
     return keys
 
 
+def _normalize_alleles(alleles):
+    """Validate a declared allele set and return it as a list (or None)."""
+    if alleles is None:
+        return None
+    if isinstance(alleles, str):
+        raise ValueError(
+            f"alleles must be a sequence of allele names, not the string "
+            f"{alleles!r}; pass [{alleles!r}] for a single allele."
+        )
+    declared = list(alleles)
+    if not declared:
+        raise ValueError(
+            "alleles must be a non-empty sequence of allele names; pass "
+            "alleles=None to use only the alleles present in the DataFrame."
+        )
+    blank = [a for a in declared if pd.isna(a) or str(a).strip() == ""]
+    if blank:
+        raise ValueError(
+            "alleles must all name an allele; got a blank entry. An "
+            "allele-free prediction is expressed by leaving the row's "
+            "allele empty, not by declaring a blank allele."
+        )
+    return declared
+
+
 def _normalize_default_methods(mapping):
     """Canonicalize ``default_methods`` keys to DataFrame ``kind`` values.
 
@@ -311,6 +336,14 @@ class EvalContext:
     ----------
     df : pandas.DataFrame
         Prediction rows, long-form.
+    alleles : list of str, optional
+        Alleles to evaluate every peptide against — a patient's
+        genotype, typically.  Group keys otherwise come only from the
+        rows, so a peptide whose evidence is allele-free has no
+        per-allele group to read; declaring the set adds one group per
+        peptide per allele for :func:`peptide_view` to broadcast into.
+        Added groups carry no rows, so allele-scoped fields read NaN
+        there.
     group_keys : list of str, optional
         Override the auto-detected peptide-allele group keys.  Use this
         when the frame carries a stable provenance identity (e.g. a
@@ -351,14 +384,14 @@ class EvalContext:
 
     __slots__ = (
         "df", "group_keys", "default_methods", "filter_context",
-        "kind_support",
+        "kind_support", "alleles",
         "_group_index", "_key_frame", "_group_tuples_cache",
         "_group_codes_cache", "_method_override",
     )
 
     def __init__(
         self, df, group_keys=None, default_methods=None, filter_context=False,
-        kind_support=None,
+        kind_support=None, alleles=None,
     ):
         self.df = df
         if group_keys is None:
@@ -375,6 +408,7 @@ class EvalContext:
         # :class:`BestAlleleField`) can warn or branch on it. Shape:
         # ``{model_key: {kind_value: {"mhc_dependence", "mhc_class"}}}``.
         self.kind_support = kind_support
+        self.alleles = _normalize_alleles(alleles)
         self._group_index = None
         self._key_frame = None
         self._group_tuples_cache = None
@@ -431,13 +465,41 @@ class EvalContext:
                         names=self.group_keys,
                     )
             else:
-                key_df = self.key_frame.drop_duplicates()
+                key_df = self._declared_key_frame()
                 if single_key:
                     key = self.group_keys[0]
                     self._group_index = pd.Index(key_df[key], name=key)
                 else:
                     self._group_index = pd.MultiIndex.from_frame(key_df)
         return self._group_index
+
+    def _declared_key_frame(self):
+        """Unique group keys, extended by any declared allele set.
+
+        Rows only ever produce the groups they name, so a peptide whose
+        evidence is allele-free — an antigen-processing prediction, with
+        nothing in its ``allele`` column — has no per-allele group for a
+        consumer to read.  Declaring ``alleles`` (a patient's genotype,
+        say) adds a group per peptide per allele, so
+        :class:`PeptideView` has somewhere to broadcast the peptide's
+        value to.  The added groups hold no rows: allele-scoped fields
+        read NaN for them, which is the truth — that allele has no
+        prediction of its own.
+        """
+        key_df = self.key_frame.drop_duplicates()
+        peptide_keys = [k for k in self.group_keys if k != "allele"]
+        if not self.alleles or "allele" not in self.group_keys:
+            return key_df
+        if not peptide_keys:
+            return pd.DataFrame({"allele": self.alleles}).drop_duplicates()
+        declared = key_df[peptide_keys].drop_duplicates().merge(
+            pd.DataFrame({"allele": list(self.alleles)}), how="cross",
+        )
+        # Observed groups first so row order is preserved; the declared
+        # extras follow, and duplicates of observed ones fall away.
+        return pd.concat(
+            [key_df, declared[self.group_keys]], ignore_index=True,
+        ).drop_duplicates()
 
     def row_group_codes(self) -> np.ndarray:
         """Position within :attr:`group_index` of each row's group.
