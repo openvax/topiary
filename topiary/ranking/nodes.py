@@ -1065,7 +1065,7 @@ class Field(DSLNode):
         if col_name not in sub.columns:
             return ctx.empty_series()
 
-        projected = self._maybe_project_allele_free(ctx, sub)
+        projected = self._maybe_project_peptide_level(ctx, sub)
         if projected is not None:
             return projected
 
@@ -1075,21 +1075,28 @@ class Field(DSLNode):
         vals = vals.reindex(ctx.group_index)
         return pd.to_numeric(vals, errors="coerce")
 
-    def _maybe_project_allele_free(self, ctx, sub):
-        """Read an allele-free kind as the peptide-level fact it is.
+    def _maybe_project_peptide_level(self, ctx, sub):
+        """Read a peptide-level kind as the peptide-level fact it is.
 
-        Grouping by allele puts a prediction that has no allele in a
-        group of its own, so a plain read leaves every allele group NaN
-        — not a different answer to the question, but no answer at all,
-        since the row can never be in those groups.  There is exactly
-        one thing the reference can sensibly mean here, so mean it:
-        project the peptide's value across its groups, the same as
-        :func:`peptide_view`.
+        Grouping by allele puts a prediction that isn't about one allele
+        in a group of its own, so a plain read leaves the peptide's
+        other allele groups NaN — not a different answer to the
+        question, but no answer at all, since the row can never be in
+        those groups.  There is exactly one thing the reference can
+        sensibly mean, so mean it: project the peptide's value across
+        its groups, the same as :func:`peptide_view`.
 
-        Only ``mhc_dependence='none'`` is treated this way.  A
-        per-allele kind read plainly returns a real row, and choosing
-        *which* row is a genuine decision — that stays with the caller
-        and ``best_*`` / ``peptide_view``.
+        Both peptide-level modes qualify.  ``mhc_dependence='none'`` is
+        the processing case — no allele anywhere.  ``'haplotype'`` is a
+        score for a whole genotype, which mhctools stamps with the
+        deconvolved best allele; reading it plainly hands the joint
+        score to that one allele and leaves the rest of the genotype
+        NaN, which is the same failure wearing an allele name.
+
+        ``single_allele`` is untouched: a per-allele kind read plainly
+        returns a real row, and choosing *which* row is a genuine
+        decision that stays with the caller and ``best_*`` /
+        ``peptide_view``.
 
         Returns ``None`` when no projection applies, so the caller falls
         through to the plain read.
@@ -1098,17 +1105,30 @@ class Field(DSLNode):
             return None
         if not [k for k in ctx.group_keys if k != "allele"]:
             return None
-        if _resolve_mhc_dependence(ctx, self.kind, sub) != "none":
+        dependence = _resolve_mhc_dependence(ctx, self.kind, sub)
+        if dependence not in ("none", "haplotype"):
             return None
 
+        kind_name = _kind_short_name(self.kind)
+        if dependence == "none":
+            subject = f"{kind_name}, which carries no allele,"
+            reading = "would leave every allele group NaN"
+        else:
+            subject = (
+                f"{kind_name}, which is predicted for a whole genotype "
+                f"rather than one allele,"
+            )
+            reading = (
+                "would hand that joint score to the single allele "
+                "mhctools deconvolved as the best one, leaving the rest "
+                "of the genotype NaN"
+            )
         import warnings
         warnings.warn(
-            f"{self!r} reads {_kind_short_name(self.kind)}, which carries "
-            f"no allele, in a grouping keyed by allele. Reading it "
-            f"directly would leave every allele group NaN, so its "
-            f"peptide-level value is projected across them — write "
-            f"peptide_view({self!r}) to say so explicitly and silence "
-            f"this warning.",
+            f"{self!r} reads {subject} in a grouping keyed by allele. "
+            f"Reading it directly {reading}, so its peptide-level value "
+            f"is projected across them — write peptide_view({self!r}) to "
+            f"say so explicitly and silence this warning.",
             UserWarning, stacklevel=4,
         )
         return PeptideView(self).eval(ctx)

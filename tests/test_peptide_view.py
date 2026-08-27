@@ -6,6 +6,8 @@ for per-allele kinds, a direct read for peptide-level ones — and callers
 had to know which by hand (topiary #169).
 """
 
+import warnings
+
 import pandas as pd
 import pytest
 
@@ -798,3 +800,111 @@ def test_single_allele_warning_names_the_wrapping_expression():
     # A bare best_* still names itself.
     with pytest.warns(UserWarning, match="best_value on"):
         evaluate_scores(df, Affinity.best_value, kind_support=support)
+
+
+# ---------------------------------------------------------------------------
+# A genotype-level score is peptide-level too (auto-projection, haplotype)
+# ---------------------------------------------------------------------------
+
+
+HAPLOTYPE_SUPPORT = {
+    "mhcflurry": {
+        "pMHC_presentation": {"mhc_dependence": "haplotype"},
+        "pMHC_affinity": {"mhc_dependence": "single_allele"},
+    },
+}
+
+
+def _haplotype_df(presentation_allele):
+    """One genotype-level presentation row plus per-allele affinity.
+
+    ``presentation_allele`` is how the row names itself: mhctools stamps
+    the deconvolved best allele today, and a faithful writer might leave
+    it blank.  Neither should decide whether the genotype's score
+    reaches the genotype's alleles.
+    """
+    return pd.DataFrame([
+        _row(allele=ALLELES[0], kind="pMHC_affinity", value=50.0, score=0.5,
+             prediction_method_name="mhcflurry"),
+        _row(allele=ALLELES[1], kind="pMHC_affinity", value=4000.0, score=0.4,
+             prediction_method_name="mhcflurry"),
+        _row(allele=presentation_allele, kind="pMHC_presentation", score=0.9,
+             prediction_method_name="mhcflurry"),
+    ])
+
+
+@pytest.mark.parametrize("presentation_allele", ["", ALLELES[0]])
+def test_haplotype_score_reaches_the_whole_genotype(presentation_allele):
+    df = _haplotype_df(presentation_allele)
+
+    with pytest.warns(UserWarning, match="whole genotype"):
+        scores = evaluate_scores(
+            df, Presentation.score, kind_support=HAPLOTYPE_SUPPORT,
+        )
+
+    # Every row's group carries the genotype's score, not just the one
+    # allele the predictor deconvolved as best.
+    assert scores.tolist() == [0.9] * len(df)
+
+
+def test_labeled_haplotype_is_no_worse_than_an_unlabeled_one():
+    """More metadata must not make the bare read fail more quietly."""
+    df = _haplotype_df("")
+
+    with pytest.warns(UserWarning):
+        labeled = evaluate_scores(
+            df, Presentation.score, kind_support=HAPLOTYPE_SUPPORT,
+        )
+    with pytest.warns(UserWarning):
+        unlabeled = evaluate_scores(df, Presentation.score)
+
+    assert labeled.tolist() == unlabeled.tolist()
+
+
+def test_haplotype_warning_names_the_deconvolution():
+    df = _haplotype_df(ALLELES[0])
+
+    with pytest.warns(UserWarning) as caught:
+        evaluate_scores(df, Presentation.score, kind_support=HAPLOTYPE_SUPPORT)
+
+    message = str(caught[0].message)
+    assert "deconvolved" in message and "peptide_view(" in message
+
+
+def test_explicit_peptide_view_on_a_haplotype_kind_is_silent():
+    df = _haplotype_df(ALLELES[0])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        scores = evaluate_scores(
+            df, peptide_view(Presentation.score),
+            kind_support=HAPLOTYPE_SUPPORT,
+        )
+
+    assert scores.tolist() == [0.9] * len(df)
+
+
+def test_single_allele_kinds_are_still_left_alone():
+    """Choosing which allele's row to read remains the caller's decision."""
+    df = _haplotype_df(ALLELES[0])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        affinity = evaluate_scores(
+            df, Affinity.value, kind_support=HAPLOTYPE_SUPPORT,
+        )
+
+    assert affinity.tolist()[:2] == [50.0, 4000.0]
+
+
+def test_no_haplotype_projection_without_an_allele_group_key():
+    df = _haplotype_df(ALLELES[0])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        scores = evaluate_scores(
+            df, Presentation.score, kind_support=HAPLOTYPE_SUPPORT,
+            group_keys=["source_sequence_name", "peptide", "peptide_offset"],
+        )
+
+    assert scores.tolist() == [0.9] * len(df)
