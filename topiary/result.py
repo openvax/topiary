@@ -7,6 +7,7 @@ AST form (for programmatic use without re-parsing).
 
 import warnings
 from collections import OrderedDict
+from collections.abc import Mapping
 
 import pandas as pd
 
@@ -319,6 +320,17 @@ class TopiaryResult:
 
     # -- DSL operations ---------------------------------------------------
 
+    def _kind_support(self):
+        """Per-(model, kind) metadata for the DSL, when this result has it.
+
+        Readers (``read_pvacseq``, ``read_lens``) and predictor runs
+        stash it in ``extra``; nodes that dispatch on ``mhc_dependence``
+        need it to tell ``haplotype`` from ``single_allele``.  Anything
+        that isn't a mapping is ignored rather than passed on.
+        """
+        kind_support = self.extra.get("kind_support")
+        return kind_support if isinstance(kind_support, Mapping) else None
+
     def filter_by(self, expr):
         """Apply a filter expression. ANDs with any existing filter.
 
@@ -355,7 +367,9 @@ class TopiaryResult:
         if df.empty:
             filtered_df = df
         else:
-            filtered_df = apply_filter(df, new_ast)
+            filtered_df = apply_filter(
+                df, new_ast, kind_support=self._kind_support(),
+            )
 
         if self.filter_by_ast is not None:
             combined_ast = self.filter_by_ast & new_ast
@@ -420,7 +434,9 @@ class TopiaryResult:
         if df.empty:
             sorted_df = df
         else:
-            sorted_df = apply_sort(df, sort_nodes)
+            sorted_df = apply_sort(
+                df, sort_nodes, kind_support=self._kind_support(),
+            )
 
         kwargs = self._field_kwargs()
         kwargs["form"] = "long"

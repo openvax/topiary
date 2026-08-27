@@ -2,6 +2,7 @@
 and CachedPredictor (mhctools >=3.13.7 metadata API)."""
 
 import pandas as pd
+import pytest
 from mhctools import (
     Kind,
     MHC_CLASS_VALUES,
@@ -262,3 +263,105 @@ class TestCachedPredictorKindSupport:
             "mhc_dependence": "none",
             "mhc_class": "none",
         }
+
+
+class TestKindSupportReachesTheDSL:
+    """The metadata is only useful if it gets to the nodes that need it.
+
+    ``peptide_view`` and ``best_*`` dispatch on ``mhc_dependence``; the
+    object API (``TopiaryPredictor(filter_by=...)``, ``result.filter_by``)
+    is the path most callers take, so it has to forward what it holds.
+    """
+
+    def test_predictor_forwards_kind_support_to_filter_and_sort(self):
+        import topiary.predictor as predictor_module
+
+        captured = {}
+
+        def spy_filter(df, node, **kwargs):
+            captured["filter"] = kwargs.get("kind_support")
+            return df
+
+        def spy_sort(df, nodes, **kwargs):
+            captured["sort"] = kwargs.get("kind_support")
+            return df
+
+        predictor = TopiaryPredictor(
+            models=[RandomBindingPredictor(["HLA-A*02:01"])],
+            filter_by=_affinity_under_500(),
+            sort_by=[_affinity_under_500()],
+        )
+        df = pd.DataFrame([{
+            "source_sequence_name": "s", "peptide": "SIINFEKLA",
+            "peptide_offset": 0, "allele": "HLA-A*02:01",
+            "kind": "pMHC_affinity", "value": 100.0, "score": 0.5,
+            "percentile_rank": 1.0, "prediction_method_name": "random",
+        }])
+
+        original = (predictor_module.apply_filter, predictor_module.apply_sort)
+        predictor_module.apply_filter = spy_filter
+        predictor_module.apply_sort = spy_sort
+        try:
+            predictor._apply_filter(df)
+        finally:
+            (predictor_module.apply_filter,
+             predictor_module.apply_sort) = original
+
+        assert captured["filter"] == predictor.kind_support
+        assert captured["sort"] == predictor.kind_support
+        assert captured["filter"], "expected non-empty metadata"
+
+    def test_kind_support_skips_models_that_do_not_report_it(self):
+        class BareModel:
+            prediction_method_name = "bare"
+            predictor_version = "0"
+            default_peptide_lengths = [9]
+            alleles = []
+            supported_kinds = (Kind.pMHC_affinity,)
+
+        predictor = TopiaryPredictor(
+            models=[RandomBindingPredictor(["HLA-A*02:01"]), BareModel()],
+        )
+
+        support = predictor.kind_support
+
+        # The reporting model is present; the bare one is simply absent
+        # rather than raising AttributeError.
+        assert len(support) == 1
+
+    def test_result_forwards_kind_support_from_extra(self):
+        from topiary import TopiaryResult
+
+        support = {"netmhcpan": {"pMHC_presentation": {
+            "mhc_dependence": "single_allele", "mhc_class": "I",
+        }}}
+        df = pd.DataFrame([{
+            "source_sequence_name": "s", "peptide": "SIINFEKLA",
+            "peptide_offset": 0, "allele": allele,
+            "kind": "pMHC_presentation", "value": None, "score": score,
+            "percentile_rank": 1.0, "prediction_method_name": "netmhcpan",
+        } for allele, score in (("HLA-A*02:01", 0.9), ("HLA-B*07:02", 0.1))])
+        result = TopiaryResult(df, extra={"kind_support": support})
+
+        # best_* warns only when the metadata reaches the node.
+        with pytest.warns(UserWarning, match="not a joint multi-allele"):
+            result.filter_by("presentation.best_score >= 0.5")
+
+    def test_result_ignores_non_mapping_kind_support(self):
+        from topiary import TopiaryResult
+
+        df = pd.DataFrame([{
+            "source_sequence_name": "s", "peptide": "SIINFEKLA",
+            "peptide_offset": 0, "allele": "HLA-A*02:01",
+            "kind": "pMHC_affinity", "value": 100.0, "score": 0.5,
+            "percentile_rank": 1.0, "prediction_method_name": "netmhcpan",
+        }])
+        result = TopiaryResult(df, extra={"kind_support": "not a mapping"})
+
+        assert len(result.filter_by("affinity <= 500").df) == 1
+
+
+def _affinity_under_500():
+    from topiary import Affinity
+
+    return Affinity.value <= 500

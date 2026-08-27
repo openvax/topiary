@@ -1114,33 +1114,45 @@ class BestAlleleField(DSLNode):
             return pd.Series(np.nan, index=ctx.group_index, dtype=object)
         return ctx.empty_series(fill=np.nan)
 
-    def _maybe_warn_dependence(self, ctx):
+    def _maybe_warn_dependence(self, ctx, label=None, stacklevel=3):
         """Warn if any matching (model, kind) reports
         ``mhc_dependence='single_allele'``: the result is the best
-        per-allele score, not a true joint multi-allele aggregate."""
-        reported = _reported_dependences(ctx, self.kind, self.method)
+        per-allele score, not a true joint multi-allele aggregate.
+
+        *label* names the expression the user actually wrote — when this
+        aggregation was reached through ``peptide_view``, saying
+        ``best_score`` would name a node they never typed.
+        """
+        method = self.method.lower() if self.method else None
+        reported = _reported_dependences(
+            ctx, self.kind, {method} if method else None,
+        )
         for model_key, dep in reported.items():
             if dep == "single_allele":
                 import warnings
-                warnings.warn(
+                default_label = (
                     f"best_{_field_short(self.field)}"
-                    f"{'_allele' if self.return_allele else ''} on "
+                    f"{'_allele' if self.return_allele else ''}"
+                )
+                warnings.warn(
+                    f"{label or default_label} on "
                     f"({_kind_short_name(self.kind)}, model={model_key!r}) "
                     f"where mhc_dependence='single_allele': returns the "
                     f"best per-allele score, not a joint multi-allele "
                     f"aggregate. Use a haplotype-mode predictor (e.g. "
                     f"MHCflurry presentation in haplotype mode) for a "
                     f"true joint aggregate.",
-                    UserWarning, stacklevel=3,
+                    UserWarning, stacklevel=stacklevel,
                 )
                 return  # one warning per eval is enough
 
-    def eval(self, ctx: EvalContext) -> pd.Series:
+    def eval(self, ctx: EvalContext, warn_label=None,
+             stacklevel: int = 3) -> pd.Series:
         # Validate (kind, field) direction up front: an undefined
         # combination is a structural error and should fail loudly even
         # when the frame happens to lack matching rows.
         direction = _best_direction(self.kind, self.field)
-        self._maybe_warn_dependence(ctx)
+        self._maybe_warn_dependence(ctx, warn_label, stacklevel)
 
         sub = _filter_kind_method_version(
             ctx, self.kind, self.method, self.version,
@@ -1184,13 +1196,7 @@ class BestAlleleField(DSLNode):
         target = "allele" if self.return_allele else "__best_value"
         per_peptide = valid.loc[best_idx].set_index(peptide_keys)[target]
 
-        # Broadcast: ctx.group_index has [peptide_keys..., allele].
-        # Dropping the ``allele`` level yields an index aligned with
-        # ``per_peptide``; reindex maps each entry to its per-peptide
-        # value/allele, and we re-attach the full multi-index.
-        peptide_index = ctx.group_index.droplevel("allele")
-        aligned = per_peptide.reindex(peptide_index)
-        result = pd.Series(aligned.to_numpy(), index=ctx.group_index)
+        result = _broadcast_per_peptide(ctx, per_peptide, peptide_keys)
         if self.return_allele:
             return result.astype(object)
         return pd.to_numeric(result, errors="coerce")
@@ -1231,23 +1237,50 @@ class BestAlleleField(DSLNode):
 _MHC_DEPENDENCE_VALUES = frozenset({"none", "single_allele", "haplotype"})
 
 
-def _reported_dependences(ctx, kind, method=None):
+def _model_base_name(model_key):
+    """``mhcflurry__2`` -> ``mhcflurry``.
+
+    ``TopiaryPredictor`` disambiguates same-named models with a ``__N``
+    suffix, but rows only ever carry the shared
+    ``prediction_method_name``.
+    """
+    return str(model_key).split("__")[0]
+
+
+def _methods_present(sub):
+    """Lower-cased ``prediction_method_name`` values in *sub*.
+
+    ``None`` when the frame can't say — no rows, or no such column — in
+    which case every reported model stays in play.
+    """
+    if sub is None or sub.empty or "prediction_method_name" not in sub.columns:
+        return None
+    return {
+        str(m).lower() for m in sub["prediction_method_name"].dropna().unique()
+    }
+
+
+def _reported_dependences(ctx, kind, methods=None):
     """``{model_key: mhc_dependence}`` from ``ctx.kind_support`` for *kind*.
 
     The one place that walks mhctools' per-(model, kind) metadata.
-    *method* is a case-insensitive substring filter on the model key,
-    matching how the DSL selects a model everywhere else.
+    *methods* is the set of lower-cased method names to keep, normally
+    the ones the frame actually contains: metadata for a model that
+    produced no rows here must not decide — or veto — this frame's
+    projection.
     """
     kind_support = getattr(ctx, "kind_support", None)
     if not kind_support:
         return {}
     kind_val = _kind_value(kind)
-    method_filter = method.lower() if method else None
     reported = {}
     for model_key, kind_map in kind_support.items():
         if kind_val not in kind_map:
             continue
-        if method_filter and method_filter not in str(model_key).lower():
+        if (
+            methods is not None
+            and _model_base_name(model_key).lower() not in methods
+        ):
             continue
         dep = kind_map[kind_val].get("mhc_dependence")
         if dep:
@@ -1255,41 +1288,27 @@ def _reported_dependences(ctx, kind, method=None):
     return reported
 
 
-def _effective_method(ctx, kind, method=None):
-    """The method the DSL will actually read for *kind*.
+def _resolve_mhc_dependence(ctx, kind, sub):
+    """How *kind* relates to alleles for the rows in *sub*.
 
-    Mirrors :func:`_filter_kind_method_version`: an explicit method
-    wins, then the per-iteration binding a ``Comparison`` sets while
-    auto-aggregating, then ``default_methods``.
-    """
-    if method is not None:
-        return method
-    kind_val = _kind_value(kind)
-    override = getattr(ctx, "_method_override", None)
-    if override is not None and override[0] == kind_val:
-        return override[1]
-    return ctx.default_methods.get(kind_val)
+    *sub* is the already-selected slice — the rows this expression will
+    read, after kind, method and version filtering.  Resolving from it
+    rather than from the whole frame keeps one model's per-allele rows
+    from reclassifying another model's allele-free ones, and keeps
+    metadata for a model that contributed nothing here out of the
+    decision.
 
-
-def _resolve_mhc_dependence(ctx, kind, method=None):
-    """How *kind* relates to alleles for this frame.
-
-    Prefers ``ctx.kind_support`` — mhctools' per-(model, kind) metadata,
+    Prefers ``ctx.kind_support``, mhctools' per-(model, kind) metadata —
     the only authority that can tell ``haplotype`` from
     ``single_allele``, since both put a real allele on every row.
-    Without it, fall back to what the rows show: a kind whose rows carry
-    no allele at all is allele-independent; anything else is assumed
-    per-allele, which is both the common case and what the DSL already
-    did.
+    Without it, read what the rows show: no allele at all means
+    allele-independent, anything else is per-allele, which is what the
+    DSL already assumed.
     """
-    reported = _reported_dependences(
-        ctx, kind, _effective_method(ctx, kind, method),
-    )
-    found = set(reported.values())
-    if len(found) > 1:
-        raise _dependence_conflict_error(kind, reported)
-    if found:
-        dependence = found.pop()
+    reported = _reported_dependences(ctx, kind, _methods_present(sub))
+    # Validate before comparing: an unknown value can't be resolved by
+    # picking one of the others, so say what it actually is.
+    for dependence in set(reported.values()):
         if dependence not in _MHC_DEPENDENCE_VALUES:
             raise ValueError(
                 f"peptide_view on {_kind_short_name(kind)}: unknown "
@@ -1298,23 +1317,24 @@ def _resolve_mhc_dependence(ctx, kind, method=None):
                 f"than the mhctools that produced the metadata; upgrade "
                 f"topiary rather than guessing the projection."
             )
-        return dependence
+    found = set(reported.values())
+    if len(found) > 1:
+        raise _dependence_conflict_error(kind, reported)
+    if found:
+        return found.pop()
 
-    df = ctx.df
-    if "kind" not in df.columns or "allele" not in df.columns:
-        # No allele column at all: nothing in this frame is per-allele.
+    if sub is None or sub.empty or "allele" not in sub.columns:
+        # Nothing to read, or no allele column at all: nothing here is
+        # per-allele.
         return "none"
-    rows = df[df["kind"] == _kind_value(kind)]
-    if rows.empty:
-        return "single_allele"
-    return "single_allele" if _has_real_values(rows["allele"]) else "none"
+    return "single_allele" if _has_real_values(sub["allele"]) else "none"
 
 
 def _dependence_conflict_error(kind, reported):
     """Explain disagreeing models — and whether method can separate them."""
     kind_name = _kind_short_name(kind)
     modes = sorted(set(reported.values()))
-    base_names = {str(k).split("__")[0] for k in reported}
+    base_names = {_model_base_name(k) for k in reported}
     if len(base_names) == 1:
         # TopiaryPredictor disambiguates same-named models as name__1 /
         # name__2, but rows only carry the shared prediction_method_name,
@@ -1332,6 +1352,35 @@ def _dependence_conflict_error(kind, reported):
         f"({modes}). Qualify the kind with a method, e.g. "
         f"{kind_name}[{sorted(base_names)[0]!r}], so one projection applies."
     )
+
+
+def _broadcast_per_peptide(ctx, per_peptide, peptide_keys):
+    """Spread one value per peptide across that peptide's groups.
+
+    ``per_peptide`` is indexed by *peptide_keys*; the result is indexed
+    by ``ctx.group_index``.  Shared by every node that reduces to the
+    peptide level, so index shape and null-key handling have one
+    definition.
+    """
+    if "allele" in ctx.group_keys:
+        peptide_index = ctx.group_index.droplevel("allele")
+    else:
+        # Groups are already peptide-level: the "broadcast" is identity.
+        peptide_index = ctx.group_index
+    aligned = per_peptide.reindex(peptide_index)
+    result = pd.Series(aligned.to_numpy(), index=ctx.group_index)
+    return result
+
+
+def _unwrap_peptide_view(node):
+    """The field a projection wrapper reads.
+
+    ``peptide_view`` changes which row is read, not which column, so
+    guards and direction inference look through it.
+    """
+    if isinstance(node, PeptideView):
+        return node.inner
+    return node
 
 
 class PeptideView(DSLNode):
@@ -1389,42 +1438,8 @@ class PeptideView(DSLNode):
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         inner = self.inner
-        dependence = _resolve_mhc_dependence(ctx, inner.kind, inner.method)
-
-        if dependence == "single_allele":
-            if not _has_best_direction(inner.kind, inner.field):
-                # No ordering is defined for this (kind, field), so there
-                # is no "best" to pick — the value has to be one per
-                # peptide already, and _eval_peptide_level says so loudly
-                # if it isn't.
-                return self._eval_peptide_level(ctx, dependence)
-            if isinstance(inner, BestAlleleField):
-                return inner.eval(ctx)
-            return BestAlleleField(
-                inner.kind, inner.field, method=inner.method,
-                version=inner.version, scope=inner.scope,
-            ).eval(ctx)
-
-        if isinstance(inner, BestAlleleField):
-            raise ValueError(
-                f"peptide_view(best_{_field_short(inner.field)}) on "
-                f"{_kind_short_name(inner.kind)} where "
-                f"mhc_dependence={dependence!r}: there is one row per "
-                f"peptide, so there is nothing to aggregate across "
-                f"alleles. Use peptide_view("
-                f"{_kind_short_name(inner.kind)}."
-                f"{_field_short(inner.field)}) instead."
-            )
-        return self._eval_peptide_level(ctx, dependence)
-
-    def _eval_peptide_level(self, ctx, dependence):
-        """Read the one row per peptide and broadcast it to its groups."""
-        inner = self.inner
         peptide_keys = [k for k in ctx.group_keys if k != "allele"]
-        if "allele" not in ctx.group_keys:
-            # Groups are already peptide-level; nothing to broadcast.
-            return inner.eval(ctx)
-        if not peptide_keys:
+        if "allele" in ctx.group_keys and not peptide_keys:
             # Grouping by allele alone has no peptide to project onto, so
             # the contract ("one value per peptide") can't be honored —
             # and a plain read would leave every allele group but the
@@ -1435,9 +1450,52 @@ class PeptideView(DSLNode):
                 f"identity columns, e.g. group_keys=['peptide', 'allele']."
             )
 
+        # Select once: the rows read here are also the rows the mode is
+        # resolved from, so metadata and data can't disagree about which
+        # model this expression is about.
         sub = _filter_kind_method_version(
             ctx, inner.kind, inner.method, inner.version,
         )
+        dependence = _resolve_mhc_dependence(ctx, inner.kind, sub)
+        aggregable = _has_best_direction(inner.kind, inner.field)
+
+        if dependence == "single_allele" and aggregable:
+            if isinstance(inner, BestAlleleField):
+                return inner.eval(ctx, warn_label=repr(self), stacklevel=5)
+            return BestAlleleField(
+                inner.kind, inner.field, method=inner.method,
+                version=inner.version, scope=inner.scope,
+            ).eval(ctx, warn_label=repr(self), stacklevel=5)
+
+        if isinstance(inner, BestAlleleField):
+            raise self._nothing_to_aggregate_error(dependence, aggregable)
+        return self._eval_peptide_level(ctx, sub, peptide_keys, dependence,
+                                        aggregable)
+
+    def _nothing_to_aggregate_error(self, dependence, aggregable):
+        """Explain a best_* field that cannot be aggregated here."""
+        inner = self.inner
+        kind_name = _kind_short_name(inner.kind)
+        best_label = f"best_{_field_short(inner.field)}"
+        plain = f"peptide_view({kind_name}.{_field_short(inner.field)})"
+        if not aggregable:
+            return ValueError(
+                f"peptide_view({best_label}) on {kind_name}: "
+                f"{_kind_short_name(inner.kind)}.{inner.field} has no "
+                f"defined best direction, so there is no best row to pick "
+                f"across alleles. Use {plain} to read the peptide's value."
+            )
+        return ValueError(
+            f"peptide_view({best_label}) on {kind_name} where "
+            f"mhc_dependence={dependence!r}: there is one row per "
+            f"peptide, so there is nothing to aggregate across alleles. "
+            f"Use {plain} instead."
+        )
+
+    def _eval_peptide_level(self, ctx, sub, peptide_keys, dependence,
+                            aggregable):
+        """Read the one row per peptide and broadcast it to its groups."""
+        inner = self.inner
         if sub is None:
             return ctx.empty_series()
         col_name = inner.scope + inner.field
@@ -1455,16 +1513,11 @@ class PeptideView(DSLNode):
         stats = valid.groupby(peptide_keys, sort=False, dropna=False)[
             "__peptide_value"
         ].agg(["first", "min", "max"])
-        self._check_one_value_per_peptide(stats, dependence)
-        per_peptide = stats["first"]
+        self._check_one_value_per_peptide(stats, dependence, aggregable)
+        return _broadcast_per_peptide(ctx, stats["first"], peptide_keys)
 
-        peptide_index = ctx.group_index.droplevel("allele")
-        aligned = per_peptide.reindex(peptide_index)
-        result = pd.Series(aligned.to_numpy(), index=ctx.group_index)
-        return pd.to_numeric(result, errors="coerce")
-
-    def _check_one_value_per_peptide(self, stats, dependence):
-        """A peptide-level kind must not disagree with itself.
+    def _check_one_value_per_peptide(self, stats, dependence, aggregable):
+        """A peptide-level read must not find the peptide disagreeing.
 
         Compared with a tolerance: one row round-tripped through a CSV
         and one computed in-process can differ in the last bit and still
@@ -1476,13 +1529,25 @@ class PeptideView(DSLNode):
         if conflicting.empty:
             return
         inner = self.inner
+        kind_name = _kind_short_name(inner.kind)
+        if not aggregable:
+            # We are reading per peptide because the field has no
+            # ordering, not because the kind is peptide-level — say that,
+            # rather than blaming a mode the rows may not be in.
+            reason = (
+                f"{kind_name}.{inner.field} has no defined best direction, "
+                f"so its value must already be one per peptide"
+            )
+        else:
+            reason = (
+                f"mhc_dependence={dependence!r} means one row per peptide"
+            )
         raise ValueError(
-            f"peptide_view on {_kind_short_name(inner.kind)} where "
-            f"mhc_dependence={dependence!r} expects one "
-            f"{inner.field} per peptide, but {len(conflicting)} "
-            f"peptide(s) carry several different values (first: "
-            f"{conflicting.index[0]!r}). Filter to one row per peptide "
-            f"first, or qualify the kind by method/version."
+            f"peptide_view on {kind_name}: {reason}, but "
+            f"{len(conflicting)} peptide(s) carry several different "
+            f"{inner.field} values (first: {conflicting.index[0]!r}). "
+            f"Filter to one row per peptide first, or qualify the kind by "
+            f"method/version."
         )
 
     def __repr__(self):
@@ -2077,8 +2142,7 @@ class Comparison(DSLNode):
             # Look through peptide_view(): it changes which row is read,
             # not which columns, so a scoped field stays off-limits in a
             # filter however it is wrapped.
-            while isinstance(side, PeptideView):
-                side = side.inner
+            side = _unwrap_peptide_view(side)
             if isinstance(side, (Field, BestAlleleField)) and side.scope:
                 scope_name = side.scope.rstrip("_")
                 raise TypeError(
