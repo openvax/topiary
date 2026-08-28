@@ -1,5 +1,43 @@
 # Changelog
 
+## 5.21.1
+
+**Fixed: `apply_sort`'s ranking depended on the order rows arrived in
+(#191).**
+
+The comparator skipped a key when *either* side was missing. Skipping is
+pairwise, so "equal" stopped being transitive — and `sorted` needs a
+consistent comparator. Three groups, sorting on two keys, the same data
+in three input orders:
+
+```
+input ['A', 'B', 'C'] -> ['A', 'B', 'C']   <- A (k0=1) above C (k0=2)
+input ['C', 'B', 'A'] -> ['C', 'B', 'A']
+input ['B', 'A', 'C'] -> ['B', 'C', 'A']
+```
+
+A missing sort key is the ordinary case — a peptide with no presentation
+row has no presentation score — so this was reachable without anything
+unusual, and it silently produced a different ranking depending on how
+the frame had been concatenated.
+
+**Keys are now ranked rather than compared pairwise**, which gives every
+group a definite position while keeping the property the skip was
+reaching for: a group with no value for a key takes the average rank of
+the groups that do have one, so the key neither promotes nor penalizes
+it and the remaining keys decide. Frames with no missing values sort
+exactly as before.
+
+**Also much faster.** The old comparator ran per pair in Python and was
+the dominant cost of sorting:
+
+| rows | groups | before | comparator's share |
+|---|---|---|---|
+| 100,000 | 85,000 | 2.05 s | ~100% |
+| 400,000 | 340,000 | 11.42 s | 74% |
+
+Ordering is now a single `np.lexsort` over the ranked keys.
+
 ## 5.21.0
 
 **`allele_set` — storing what a genotype-level prediction was scored

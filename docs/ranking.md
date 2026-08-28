@@ -15,7 +15,7 @@ df = apply_sort(df, [Presentation.score, Affinity.score])
 
 `apply_filter` expects a boolean-valued expression (a `Comparison` or `BoolOp`). It errors if the evaluated Series contains values outside `{True, False, 0, 1, NaN}` — e.g. passing `Affinity.score` directly — pointing you at `<=` / `>=`.
 
-`apply_sort` accepts a list of expressions as lexicographic tiebreakers. NaN values fall through to the next key instead of forcing an order.
+`apply_sort` accepts a list of expressions as lexicographic tiebreakers. A group with no value for a key is neutral on it — it takes the average rank of the groups that do have one, so the key neither promotes nor penalizes it and the remaining keys decide.
 
 `TopiaryPredictor(filter_by=..., sort_by=[...])` applies them automatically during prediction.
 
