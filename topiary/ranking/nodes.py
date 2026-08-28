@@ -38,6 +38,7 @@ from __future__ import annotations
 import math
 import operator
 from collections import Counter
+from types import MappingProxyType
 from difflib import get_close_matches
 from typing import Optional
 
@@ -1498,6 +1499,35 @@ class BestAlleleField(DSLNode):
 #: we must not guess at.
 _MHC_DEPENDENCE_VALUES = frozenset({"none", "single_allele", "haplotype"})
 
+#: Default MHC relationship of each prediction kind, independent of any
+#: model or any rows: does the kind describe a peptide-MHC pair, or the
+#: peptide on its own?
+#:
+#: The ``pMHC_`` kinds name a peptide-MHC pair, so they are per-allele.
+#: The rest are steps of antigen processing that happen before, or
+#: apart from, MHC loading — cleavage, transport, trimming — so they
+#: describe the peptide alone.  ``immunogenicity`` sits with the
+#: per-allele kinds because every mhctools predictor that emits it
+#: (DeepImmuno, PRIME, TLimmuno2) scores a peptide against an allele.
+#:
+#: This is the default a kind carries when nothing more specific is
+#: known.  A predictor's own ``kind_support()`` overrides it — MHCflurry
+#: presentation reports ``haplotype`` in haplotype mode, and a TCR model
+#: that ignores the MHC reports ``none`` — and so does an ``allele_set``
+#: in the rows.
+KIND_MHC_DEPENDENCE = MappingProxyType({
+    "pMHC_affinity": "single_allele",
+    "pMHC_presentation": "single_allele",
+    "pMHC_stability": "single_allele",
+    "pMHC_TCR_binding": "single_allele",
+    "immunogenicity": "single_allele",
+    "antigen_processing": "none",
+    "proteasome_cleavage": "none",
+    "endolysosomal_cleavage": "none",
+    "erap_trimming": "none",
+    "tap_transport": "none",
+})
+
 
 def _model_base_name(model_key):
     """``mhcflurry__2`` -> ``mhcflurry``.
@@ -1550,6 +1580,34 @@ def _reported_dependences(ctx, kind, methods=None):
     return reported
 
 
+def _warn_missing_allele(kind, sub):
+    """Flag rows of an allele-scoped kind that arrived without an allele.
+
+    Such a row is malformed, not peptide-level — the two are
+    indistinguishable by inspection, and reading it as peptide-level
+    spreads one value across alleles the model never scored, inventing
+    evidence.  The kind is what tells them apart, so say so rather than
+    silently keeping the row in a group of its own.
+    """
+    if sub is None or sub.empty or "allele" not in sub.columns:
+        return
+    blank = ~sub["allele"].map(
+        lambda value: not pd.isna(value) and str(value).strip() != ""
+    ).astype(bool)
+    if not blank.any():
+        return
+    import warnings
+    warnings.warn(
+        f"{int(blank.sum())} {_kind_short_name(kind)} row(s) carry no "
+        f"allele, but {_kind_value(kind)} describes a peptide-MHC pair. "
+        f"They are kept as per-allele rows with a missing allele rather "
+        f"than read as peptide-level predictions, which would spread one "
+        f"value across alleles no model scored — check the producer of "
+        f"this frame.",
+        UserWarning, stacklevel=6,
+    )
+
+
 def _resolve_mhc_dependence(ctx, kind, sub):
     """How *kind* relates to alleles for the rows in *sub*.
 
@@ -1585,15 +1643,19 @@ def _resolve_mhc_dependence(ctx, kind, sub):
     if found:
         return found.pop()
 
-    if sub is None or sub.empty:
-        return "none"
-    if ALLELE_SET_COLUMN in sub.columns and _has_real_values(
-        sub[ALLELE_SET_COLUMN]
-    ):
-        # The rows say so themselves — no kind_support needed.
-        return "haplotype"
-    if "allele" not in sub.columns:
-        # No allele column at all: nothing here is per-allele.
+    if sub is not None and not sub.empty and ALLELE_SET_COLUMN in sub.columns:
+        if _has_real_values(sub[ALLELE_SET_COLUMN]):
+            # The rows say so themselves — no kind_support needed.
+            return "haplotype"
+
+    declared = KIND_MHC_DEPENDENCE.get(_kind_value(kind))
+    if declared is not None:
+        if declared != "none":
+            _warn_missing_allele(kind, sub)
+        return declared
+
+    # A kind this topiary doesn't know: read what the rows show.
+    if sub is None or sub.empty or "allele" not in sub.columns:
         return "none"
     return "single_allele" if _has_real_values(sub["allele"]) else "none"
 

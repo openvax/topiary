@@ -847,18 +847,30 @@ def test_haplotype_score_reaches_the_whole_genotype(presentation_allele):
     assert scores.tolist() == [0.9] * len(df)
 
 
-def test_labeled_haplotype_is_no_worse_than_an_unlabeled_one():
-    """More metadata must not make the bare read fail more quietly."""
+def test_metadata_decides_what_a_blank_allele_row_means():
+    """Rows alone can't tell genotype-level from malformed.
+
+    With ``kind_support`` saying haplotype, a blank-allele presentation
+    row is peptide-level and projects across the genotype. Without it,
+    the kind's own default applies — ``pMHC_presentation`` describes a
+    peptide-MHC pair — so a blank allele reads as a per-allele row
+    missing its allele, and projecting it would invent evidence for
+    alleles no model scored (topiary #195).
+
+    Neither case is silent, which is the invariant that matters: more
+    metadata must never make the bare read fail more quietly.
+    """
     df = _haplotype_df("")
 
-    with pytest.warns(UserWarning):
+    with pytest.warns(UserWarning, match="whole genotype"):
         labeled = evaluate_scores(
             df, Presentation.score, kind_support=HAPLOTYPE_SUPPORT,
         )
-    with pytest.warns(UserWarning):
+    with pytest.warns(UserWarning, match="carry no allele"):
         unlabeled = evaluate_scores(df, Presentation.score)
 
-    assert labeled.tolist() == unlabeled.tolist()
+    assert labeled.tolist() == [0.9] * len(df)
+    assert unlabeled.isna().tolist() == [True, True, False]
 
 
 def test_haplotype_warning_names_the_deconvolution():
