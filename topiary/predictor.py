@@ -22,7 +22,10 @@ from .filters import (
     filter_silent_and_noncoding_effects,
 )
 from .ranking import (
+    ALLELE_SET_COLUMN,
     DSLNode,
+    _kind_value,
+    format_allele_set,
     KindAccessor,
     apply_filter,
     apply_sort,
@@ -663,7 +666,10 @@ class TopiaryPredictor(object):
         """Run one model on proteins, preserving source-sequence context."""
         model_df = model.predict_proteins_dataframe(name_to_sequence_dict)
         return self._attach_model_key(
-            self._format_prediction_df(model_df), model_key
+            self._attach_allele_set(
+                self._format_prediction_df(model_df), model
+            ),
+            model_key,
         )
 
     def _predict_raw_peptides(self, name_to_peptide_dict):
@@ -700,7 +706,10 @@ class TopiaryPredictor(object):
             model_df, peptide_names_df
         )
         return self._attach_model_key(
-            self._format_prediction_df(expanded_df), model_key
+            self._attach_allele_set(
+                self._format_prediction_df(expanded_df), model
+            ),
+            model_key,
         )
 
     def _attach_model_key(self, df, model_key):
@@ -709,6 +718,40 @@ class TopiaryPredictor(object):
             return df
         df = df.copy()
         df[_MODEL_KEY_COLUMN] = model_key
+        return df
+
+    def _attach_allele_set(self, df, model):
+        """Record the genotype a haplotype-mode prediction was scored against.
+
+        MHCflurry's presentation predictor in haplotype mode scores a
+        peptide against the sample's whole allele list and reports the
+        allele it deconvolved as the likeliest presenter.  mhctools puts
+        that one allele in the row, which reads exactly like a
+        per-allele prediction — so the frame loses the fact that the
+        score is about the set.  Writing ``allele_set`` keeps ``allele``
+        readable while making the row say what it is, and keeps saying
+        it through a TSV round-trip, where ``kind_support`` cannot
+        follow.
+        """
+        if df.empty or "kind" not in df.columns:
+            return df
+        support = getattr(model, "kind_support", None)
+        if not callable(support):
+            return df
+        genotype_kinds = {
+            _kind_value(kind)
+            for kind, meta in support().items()
+            if meta.get("mhc_dependence") == "haplotype"
+        }
+        if not genotype_kinds:
+            return df
+        allele_set = format_allele_set(getattr(model, "alleles", ()) or ())
+        if not allele_set:
+            return df
+        df = df.copy()
+        if ALLELE_SET_COLUMN not in df.columns:
+            df[ALLELE_SET_COLUMN] = ""
+        df.loc[df["kind"].isin(genotype_kinds), ALLELE_SET_COLUMN] = allele_set
         return df
 
     def _strip_internal_columns(self, df):

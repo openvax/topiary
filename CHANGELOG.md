@@ -1,5 +1,62 @@
 # Changelog
 
+## 5.21.0
+
+**`allele_set` — storing what a genotype-level prediction was scored
+against (#168):**
+
+MHCflurry's presentation predictor in haplotype mode scores a peptide
+against a sample's whole allele list and reports the allele it
+deconvolved as the likeliest presenter. mhctools puts that one allele in
+the row, so the prediction reads exactly like a per-allele one and the
+frame loses the fact that the score is about the set. This is the
+default path: `presentation_allele_mode="auto"` resolves to haplotype
+for six alleles or fewer.
+
+```
+  peptide      allele              allele_set               kind    score
+SIINFEKLA HLA-A*02:01                              pMHC_affinity 0.240074
+SIINFEKLA HLA-B*07:02                              pMHC_affinity 0.044721
+SIINFEKLA HLA-A*02:01 HLA-A*02:01,HLA-B*07:02  pMHC_presentation 0.027879
+```
+
+`allele` keeps the best allele — nothing that reads it breaks, and the
+attribution isn't discarded. `TopiaryPredictor` writes `allele_set` for
+kinds a model reports as `mhc_dependence='haplotype'`, and the cache,
+CSV/TSV round-trip, `to_wide`/`from_wide`, and `combine_predictions`
+identity all carry it.
+
+**It joins the group keys when populated**, which is what keeps a
+genotype-level row out of one allele's group — otherwise its score is
+read as that allele's. Frames without genotype-level rows keep the
+narrower key, the same way a blank `sample_name` is left out.
+
+**It makes a frame self-describing.** `mhc_dependence` is now read from
+the set, so a genotype-level row keeps its meaning through a file, where
+`kind_support` cannot follow — the gap that motivated the column. An
+allele-scoped filter also keeps such a row alive under the same
+peptide-level rule as allele-free evidence (5.19.0).
+
+**`Column.includes()` asks the set question; `eq()` stays equality:**
+
+```python
+Column("allele").eq("HLA-B*07:02")            # the row's allele is B*07:02
+Column("allele_set").includes("HLA-B*07:02")  # the set scored includes B*07:02
+```
+
+`includes()` compares whole tokens, never substrings — allele names
+prefix one another (`HLA-A*02:01` is a prefix of `HLA-A*02:010`, both
+real alleles), so a substring test reports membership that isn't there.
+Tokens compare as stored, so writers are responsible for canonical
+names. Parses in string form as
+`column(allele_set).includes('HLA-B*07:02')` and round-trips.
+
+Deferred, as recorded on #168: per-allele attribution of genotype-level
+scores. `includes()` is literal set membership — it does not match a
+per-allele row whose own allele is the argument — and reaching the
+peptide's allele groups stays a projection (`peptide_view`) rather than
+a membership change.
+
 ## 5.20.1
 
 **Fixed: a labeled haplotype kind read more quietly than an unlabeled one.**

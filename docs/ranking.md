@@ -124,6 +124,31 @@ apply_filter(df, parse("affinity <= 500 & peptide_view(processing.score) >= 0.5"
 
 The allele-free row is still its own group. A filter on an allele-scoped kind has nothing to say about that group, so rather than dropping it — which would take the evidence out of the frame before the score expression reads it — topiary keeps it whenever the filter kept at least one of that peptide's allele groups. A filter that *does* read the allele-free kind (`peptide_view(processing.score) >= 0.9`) still decides it, and a peptide excluded entirely takes its evidence with it.
 
+### Genotype-level predictions and `allele_set`
+
+MHCflurry's presentation predictor in haplotype mode — its default for six alleles or fewer, i.e. any ordinary patient genotype — scores a peptide against the sample's whole allele list and reports the allele it deconvolved as the likeliest presenter. That one allele is what lands in the `allele` column, so the row reads exactly like a per-allele prediction.
+
+`allele_set` records what the prediction was actually about, comma-joined and sorted:
+
+| peptide | allele | allele_set | kind | score |
+|---|---|---|---|---|
+| SIINFEKLA | HLA-A\*02:01 | | pMHC_affinity | 0.24 |
+| SIINFEKLA | HLA-B\*07:02 | | pMHC_affinity | 0.04 |
+| SIINFEKLA | HLA-A\*02:01 | HLA-A\*02:01,HLA-B\*07:02 | pMHC_presentation | 0.03 |
+
+`allele` keeps the best allele, so nothing that reads it breaks and the attribution isn't thrown away. When the column is populated it joins the group keys, which is what keeps the genotype-level row out of A\*02:01's own group — otherwise its score would be read as that allele's. Frames with no genotype-level rows keep the narrower key, exactly as a blank `sample_name` is left out.
+
+The set also makes a frame self-describing: `mhc_dependence` is read from it, so a genotype-level row keeps its meaning through a TSV round-trip or a file-based loader, where `kind_support` cannot follow.
+
+Asking whether a prediction covers an allele is a membership question, and gets its own spelling — `eq()` continues to mean equality:
+
+```python
+Column("allele").eq("HLA-B*07:02")            # the row's allele is B*07:02
+Column("allele_set").includes("HLA-B*07:02")  # the set scored includes B*07:02
+```
+
+`includes()` compares whole tokens, never substrings: allele names prefix one another (`HLA-A*02:01` is a prefix of `HLA-A*02:010`, both real alleles), so a substring test would report membership that isn't there. Tokens are compared as stored, so writers are responsible for canonical names. It parses in string form too: `column(allele_set).includes('HLA-B*07:02')`.
+
 ### Declaring the alleles to evaluate against
 
 Groups come from the rows, so a peptide whose *only* evidence is allele-free has no per-allele group at all — and a consumer keyed by patient allele has nothing to read. The genotype isn't in the frame, so pass it:

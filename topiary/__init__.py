@@ -13,6 +13,7 @@ from .ranking import (
     EvalContext,
     BestAlleleField,
     Field,
+    Includes,
     IsIn,
     KIND_ALIASES,
     KindAccessor,
@@ -38,8 +39,10 @@ from .ranking import (
     mean,
     median,
     minimum,
+    format_allele_set,
     parse,
     peptide_view,
+    split_allele_set,
     self_scope,
     shuffled,
     wt,
@@ -77,7 +80,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.20.1"
+__version__ = "5.21.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -96,6 +99,7 @@ __all__ = [
     "EvalContext",
     "BestAlleleField",
     "Field",
+    "Includes",
     "IsIn",
     "KIND_ALIASES",
     "KindAccessor",
@@ -127,8 +131,10 @@ __all__ = [
     "mean",
     "median",
     "minimum",
+    "format_allele_set",
     "parse",
     "peptide_view",
+    "split_allele_set",
     "self_nearest",
     "self_scope",
     "shuffled",
