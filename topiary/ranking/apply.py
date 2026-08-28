@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from functools import cmp_to_key
-
 import numpy as np
 import pandas as pd
 from mhctools import Kind
@@ -195,6 +193,32 @@ def _infer_sort_direction(node):
     return "desc"
 
 
+def _neutral_ranked_key(values, ascending):
+    """Rank one sort key, placing missing values in the middle.
+
+    Comparing raw values pairwise and skipping a key when either side is
+    missing is not an ordering: "equal" stops being transitive, so the
+    result depends on the order the rows arrived in, and a worse group
+    can outrank a better one.  Ranking fixes that — every group gets a
+    definite position — while keeping the property that made the skip
+    attractive: a group with no value for this key neither gains nor
+    loses by it, sitting at the average rank of the groups that do have
+    one, so the remaining keys decide.
+
+    Returned smallest-sorts-first, whichever direction the key runs in.
+    """
+    present = ~np.isnan(values)
+    ranked = np.zeros(len(values), dtype=float)
+    if not present.any():
+        # Nothing to rank: the key can't distinguish anyone.
+        return ranked
+    oriented = values if ascending else -values
+    ranks = pd.Series(oriented[present]).rank(method="average").to_numpy()
+    ranked[present] = ranks
+    ranked[~present] = ranks.mean()
+    return ranked
+
+
 def _resolve_sort_direction(node, sort_direction):
     if sort_direction == "auto":
         return _infer_sort_direction(node)
@@ -289,8 +313,12 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
     *sort_nodes* is a list of DSLNode.  Each node's direction is inferred
     from its shape (percentile_rank → asc; affinity.value → asc; other →
     desc) when *sort_direction* is ``"auto"``; otherwise the string
-    value is used for all nodes.  NaN values do not force an ordering —
-    they fall through to the next tiebreaker.
+    value is used for all nodes.
+
+    A group with no value for a key is neutral on it: it takes the
+    average rank of the groups that do have one, so the key neither
+    promotes nor penalizes it and the remaining keys decide.  Ties keep
+    the order the groups appear in the frame.
 
     *group_keys*, *default_methods*, *kind_support* and *alleles* are
     the shared context options, forwarded to :class:`EvalContext` — see
@@ -319,19 +347,12 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
         dtype=bool,
     )
 
-    def _cmp(i, j):
-        for col in range(n_keys):
-            a = values_matrix[i, col]
-            b = values_matrix[j, col]
-            if np.isnan(a) or np.isnan(b):
-                continue
-            if a < b:
-                return -1 if directions[col] else 1
-            if a > b:
-                return 1 if directions[col] else -1
-        return 0
-
-    sorted_idx = sorted(range(n_groups), key=cmp_to_key(_cmp))
+    lex_keys = [
+        _neutral_ranked_key(values_matrix[:, col], ascending=directions[col])
+        for col in range(n_keys)
+    ]
+    # np.lexsort reads its last argument as the primary key.
+    sorted_idx = np.lexsort(tuple(reversed(lex_keys)))
     rank_of_group = np.empty(n_groups, dtype=int)
     rank_of_group[sorted_idx] = np.arange(n_groups)
 
