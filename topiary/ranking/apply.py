@@ -9,10 +9,12 @@ import pandas as pd
 from mhctools import Kind
 
 from .nodes import (
+    ALLELE_SET_COLUMN,
     BestAlleleField,
     EvalContext,
     Field,
     _kind_value,
+    _peptide_keys,
     _kind_matches,
     _missing_column_error,
     _normalize_group_keys,
@@ -96,15 +98,26 @@ def _validate_columns(df, node):
     raise _missing_column_error(missing, df.columns)
 
 
-def _allele_free_groups(ctx):
-    """Boolean array: which groups carry no allele at all.
+def _blank(values):
+    series = pd.Series(values)
+    return (series.isna() | (series.astype(str).str.strip() == "")).to_numpy()
 
-    An allele-free prediction — antigen processing, say — has nothing in
-    its ``allele`` column, so it lands in a group of its own rather than
-    in any of the peptide's per-allele groups.
+
+def _peptide_level_groups(ctx):
+    """Boolean array: which groups are about the peptide, not one allele.
+
+    Two shapes qualify.  An allele-free prediction — antigen processing,
+    say — has nothing in its ``allele`` column.  A genotype-level one
+    names an allele (the predictor's deconvolved best presenter) but
+    carries an ``allele_set``, which is what it is actually about.
+    Either way the group holds no evidence about a single allele.
     """
-    alleles = pd.Series(ctx.group_index.get_level_values("allele"))
-    return (alleles.isna() | (alleles.astype(str).str.strip() == "")).to_numpy()
+    peptide_level = _blank(ctx.group_index.get_level_values("allele"))
+    if ALLELE_SET_COLUMN in ctx.group_keys:
+        peptide_level |= ~_blank(
+            ctx.group_index.get_level_values(ALLELE_SET_COLUMN)
+        )
+    return peptide_level
 
 
 def _collect_kinds(node):
@@ -139,7 +152,7 @@ def _keep_allele_free_evidence(ctx, node, mask):
     0.9`` against the processing row itself — keeps its own answer, and
     a peptide excluded entirely takes its evidence with it.
     """
-    peptide_keys = [k for k in ctx.group_keys if k != "allele"]
+    peptide_keys = _peptide_keys(ctx.group_keys)
     if "allele" not in ctx.group_keys or not peptide_keys:
         return mask
     if "kind" not in ctx.df.columns:
@@ -153,7 +166,7 @@ def _keep_allele_free_evidence(ctx, node, mask):
     codes = ctx.row_group_codes()
     read[codes[ctx.df["kind"].isin(node_kinds).to_numpy()]] = True
 
-    candidates = _allele_free_groups(ctx) & ~read & ~mask
+    candidates = _peptide_level_groups(ctx) & ~read & ~mask
     if not candidates.any():
         return mask
 

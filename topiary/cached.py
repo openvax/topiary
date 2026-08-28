@@ -58,6 +58,10 @@ _CACHE_COLUMNS = (
     # sample inputs.  All optional; absent → None.
     "source_sequence_name", "peptide_offset",
     "n_flank", "c_flank", "sample_name",
+    # The genotype a haplotype-mode prediction was scored against; blank
+    # for per-allele rows. Without it a cached presentation row reads as
+    # a prediction for its deconvolved best allele.
+    "allele_set",
 )
 
 # Composite key for the cache index.

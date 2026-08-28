@@ -25,6 +25,7 @@ _MISSING_IDENTITY_VALUE = _MissingIdentityValue()
 
 _SOURCE_CONTEXT_IDENTITY_COLUMNS = (
     "sample_name",
+    "allele_set",
     "source_sequence_name",
     "peptide_offset",
     "peptide_length",

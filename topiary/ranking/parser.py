@@ -13,7 +13,7 @@ Grammar (lowest precedence first)::
     postfix  := atom ('.' IDENT call? | '[' BRACKET_ARG (',' BRACKET_ARG)? ']')*
     BRACKET_ARG := STRING | IDENT | raw version token run
     atom     := NUMBER | '(' top ')' | abs(expr) | agg(expr,...)
-              | count(STR) | column(IDENT) | len
+              | count(STR) | column(IDENT) | column(IDENT).includes(STR) | len
               | IDENT ('[' BRACKET_ARG ']')? (':' | '.') kind_ref
               | IDENT '-' numeric_version ':' kind_ref
               | CONTEXT '.' scoped_atom | kind_ref | IDENT
@@ -377,7 +377,9 @@ class _Parser:
                 self.tokenizer.advance()
                 name_tok = self.tokenizer.expect("IDENT")
                 name = name_tok[1]
-                if self.tokenizer.peek()[0] == "LPAREN":
+                if name.lower() == "includes":
+                    node = self._apply_includes(node)
+                elif self.tokenizer.peek()[0] == "LPAREN":
                     args = self._call_args()
                     node = self._apply_transform(node, name, args)
                 else:
@@ -662,6 +664,29 @@ class _Parser:
                 args.append(self._or())
         self.tokenizer.expect("RPAREN")
         return args
+
+    def _apply_includes(self, node):
+        """``column(x).includes('member')`` — set membership, one quoted name.
+
+        Taken literally rather than through ``_call_args`` because the
+        member is a quoted string (allele names carry ``*`` and ``:``),
+        and the argument grammar otherwise only accepts expressions.
+        """
+        if not isinstance(node, Column):
+            raise ValueError(
+                f".includes() reads a delimited-set column, so it applies "
+                f"to column(...), not {type(node).__name__}. Write "
+                f"column(allele_set).includes('HLA-A*02:01')."
+            )
+        self.tokenizer.expect("LPAREN")
+        value_tok = self.tokenizer.peek()
+        if value_tok[0] == "STRING":
+            self.tokenizer.advance()
+            value = value_tok[1]
+        else:
+            value = self.tokenizer.expect("IDENT")[1]
+        self.tokenizer.expect("RPAREN")
+        return node.includes(value)
 
     def _apply_transform(self, node, name, args):
         name_lower = name.lower()

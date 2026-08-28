@@ -152,6 +152,14 @@ def _missing_column_error(col_names, available, label="Column"):
 
 
 _SAMPLE_GROUP_KEY = "sample_name"
+#: Column holding the allele set a genotype-level prediction was scored
+#: against, comma-joined and sorted. Populated only for kinds whose
+#: ``mhc_dependence`` is ``haplotype``; blank elsewhere.
+ALLELE_SET_COLUMN = "allele_set"
+#: Group-key columns that describe *which alleles* a row is about.
+#: Everything else in the group key identifies the peptide.
+_ALLELE_DIMENSION_KEYS = ("allele", ALLELE_SET_COLUMN)
+_ALLELE_SET_SEPARATOR = ","
 _GROUP_KEYS = ["source_sequence_name", "peptide", "peptide_offset", "allele"]
 _GROUP_KEYS_VARIANT = ["variant", "peptide", "peptide_offset", "allele"]
 
@@ -177,6 +185,61 @@ def _has_real_values(values) -> bool:
     )
 
 
+def split_allele_set(value):
+    """Parse an ``allele_set`` cell into a list of allele names.
+
+    Splitting on the separator is not optional: allele names prefix one
+    another (``HLA-A*02:01`` is a prefix of ``HLA-A*02:010``, and
+    mhcgnomes parses both as real, distinct alleles), so a substring
+    test against the joined string reports false membership.
+    """
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return []
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return []
+    return [
+        part.strip() for part in text.split(_ALLELE_SET_SEPARATOR)
+        if part.strip()
+    ]
+
+
+def format_allele_set(alleles):
+    """Render alleles as a canonical ``allele_set`` cell.
+
+    Sorted so two predictions over the same set compare and hash equal
+    regardless of the order the caller listed them in.
+    """
+    names = sorted({str(a).strip() for a in alleles if str(a).strip()})
+    return _ALLELE_SET_SEPARATOR.join(names)
+
+
+def _peptide_keys(group_keys):
+    """The group keys that identify the peptide rather than the alleles."""
+    return [k for k in group_keys if k not in _ALLELE_DIMENSION_KEYS]
+
+
+def _with_optional_allele_set_key(df, group_keys):
+    """Add ``allele_set`` to the group key when the frame populates it.
+
+    A genotype-level row names one allele (the predictor's deconvolved
+    best presenter) but is not *about* that allele, so it must not share
+    a group with that allele's own predictions.  Keying on the set
+    separates them while leaving ``allele`` readable.  Frames with no
+    genotype-level rows keep their narrower key, the same way a blank
+    ``sample_name`` is left out.
+    """
+    group_keys = list(group_keys)
+    if (
+        ALLELE_SET_COLUMN in df.columns
+        and ALLELE_SET_COLUMN not in group_keys
+        and "allele" in group_keys
+        and _has_real_values(df[ALLELE_SET_COLUMN])
+    ):
+        group_keys.insert(group_keys.index("allele") + 1, ALLELE_SET_COLUMN)
+    return group_keys
+
+
 def _with_optional_sample_key(df, group_keys):
     group_keys = list(group_keys)
     if (
@@ -199,7 +262,7 @@ def _pick_group_keys(df):
     else:
         keys = _GROUP_KEYS
     _check_inferred_group_keys(df, keys)
-    return _with_optional_sample_key(df, keys)
+    return _with_optional_sample_key(df, _with_optional_allele_set_key(df, keys))
 
 
 def _check_inferred_group_keys(df, keys):
@@ -487,7 +550,7 @@ class EvalContext:
         prediction of its own.
         """
         key_df = self.key_frame.drop_duplicates()
-        peptide_keys = [k for k in self.group_keys if k != "allele"]
+        peptide_keys = _peptide_keys(self.group_keys)
         if not self.alleles or "allele" not in self.group_keys:
             return key_df
         if not peptide_keys:
@@ -495,6 +558,10 @@ class EvalContext:
         declared = key_df[peptide_keys].drop_duplicates().merge(
             pd.DataFrame({"allele": list(self.alleles)}), how="cross",
         )
+        if ALLELE_SET_COLUMN in self.group_keys:
+            # A declared group is an ordinary per-allele group; it makes
+            # no claim about a genotype the predictor scored.
+            declared[ALLELE_SET_COLUMN] = ""
         # Observed groups first so row order is preserved; the declared
         # extras follow, and duplicates of observed ones fall away.
         return pd.concat(
@@ -854,9 +921,80 @@ class Column(DSLNode):
         """Categorical inequality: ``Column("mhc_class").ne("II")``."""
         return IsIn(self.col_name, [value], negate=True)
 
+    def includes(self, value) -> "Includes":
+        """Membership in this column's delimited set — see :class:`Includes`."""
+        return Includes(self.col_name, value)
+
     def isin(self, values) -> "IsIn":
         """Membership: ``Column("mhc_class").isin(["I", "II"])``."""
         return IsIn(self.col_name, values)
+
+
+class Includes(DSLNode):
+    """Membership test against a delimited set stored in one column.
+
+    ``allele_set`` holds a comma-joined set, so asking whether a
+    genotype-level prediction covers an allele is a membership question,
+    not an equality one.  ``Column("allele").eq(x)`` keeps meaning
+    exactly what it says — the row's ``allele`` is ``x`` — while
+    ``Column("allele_set").includes(x)`` asks whether ``x`` is in the
+    set the prediction was scored against.
+
+    Comparison is by whole token, never substring: allele names prefix
+    one another (``HLA-A*02:01`` is a prefix of ``HLA-A*02:010``, both
+    real alleles), so a substring test reports membership that isn't
+    there.  Tokens are compared as stored, so writers are responsible
+    for canonical names — ``HLA-A*02:1`` will not match a stored
+    ``HLA-A*02:01`` even though mhcgnomes considers them the same
+    allele.
+    """
+
+    __slots__ = ("col_name", "value", "negate")
+
+    def __init__(self, col_name: str, value, negate: bool = False):
+        if not isinstance(value, str):
+            raise TypeError(
+                f"includes() takes one member name as a string, got "
+                f"{type(value).__name__}. For several, combine with | ."
+            )
+        self.col_name = col_name
+        self.value = value.strip()
+        self.negate = negate
+
+    def child_nodes(self):
+        return []
+
+    def __invert__(self):
+        return Includes(self.col_name, self.value, negate=not self.negate)
+
+    def eval(self, ctx: EvalContext) -> pd.Series:
+        df = ctx.df
+        if df.empty:
+            return ctx.empty_series().astype("boolean")
+        if self.col_name not in df.columns:
+            raise _missing_column_error(self.col_name, df.columns)
+        member = df[self.col_name].map(
+            lambda cell: self.value in split_allele_set(cell)
+        )
+        if self.negate:
+            member = ~member
+        vals = member.groupby(
+            [df[k] for k in ctx.group_keys], sort=False, dropna=False
+        ).any()
+        return vals.reindex(ctx.group_index).fillna(False).astype("boolean")
+
+    def __repr__(self):
+        prefix = "~" if self.negate else ""
+        return f"{prefix}column({self.col_name}).includes({self.value!r})"
+
+    def to_expr_string(self):
+        return repr(self)
+
+    def to_ast_string(self):
+        return (
+            f"Includes(col={self.col_name!r}, value={self.value!r}, "
+            f"negate={self.negate})"
+        )
 
 
 class IsIn(DSLNode):
@@ -1103,7 +1241,7 @@ class Field(DSLNode):
         """
         if "allele" not in ctx.group_keys:
             return None
-        if not [k for k in ctx.group_keys if k != "allele"]:
+        if not _peptide_keys(ctx.group_keys):
             return None
         dependence = _resolve_mhc_dependence(ctx, self.kind, sub)
         if dependence not in ("none", "haplotype"):
@@ -1288,7 +1426,7 @@ class BestAlleleField(DSLNode):
         if col_name not in sub.columns or "allele" not in sub.columns:
             return self._empty_result(ctx)
 
-        peptide_keys = [k for k in ctx.group_keys if k != "allele"]
+        peptide_keys = _peptide_keys(ctx.group_keys)
         if "allele" not in ctx.group_keys or not peptide_keys:
             # No allele dimension to aggregate over. For the value form,
             # degenerate to Field. For the allele form, no meaningful
@@ -1447,9 +1585,15 @@ def _resolve_mhc_dependence(ctx, kind, sub):
     if found:
         return found.pop()
 
-    if sub is None or sub.empty or "allele" not in sub.columns:
-        # Nothing to read, or no allele column at all: nothing here is
-        # per-allele.
+    if sub is None or sub.empty:
+        return "none"
+    if ALLELE_SET_COLUMN in sub.columns and _has_real_values(
+        sub[ALLELE_SET_COLUMN]
+    ):
+        # The rows say so themselves — no kind_support needed.
+        return "haplotype"
+    if "allele" not in sub.columns:
+        # No allele column at all: nothing here is per-allele.
         return "none"
     return "single_allele" if _has_real_values(sub["allele"]) else "none"
 
@@ -1486,8 +1630,9 @@ def _broadcast_per_peptide(ctx, per_peptide, peptide_keys):
     peptide level, so index shape and null-key handling have one
     definition.
     """
-    if "allele" in ctx.group_keys:
-        peptide_index = ctx.group_index.droplevel("allele")
+    allele_levels = [k for k in _ALLELE_DIMENSION_KEYS if k in ctx.group_keys]
+    if allele_levels:
+        peptide_index = ctx.group_index.droplevel(allele_levels)
     else:
         # Groups are already peptide-level: the "broadcast" is identity.
         peptide_index = ctx.group_index
@@ -1562,7 +1707,7 @@ class PeptideView(DSLNode):
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         inner = self.inner
-        peptide_keys = [k for k in ctx.group_keys if k != "allele"]
+        peptide_keys = _peptide_keys(ctx.group_keys)
         if "allele" in ctx.group_keys and not peptide_keys:
             # Grouping by allele alone has no peptide to project onto, so
             # the contract ("one value per peptide") can't be honored —
