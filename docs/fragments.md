@@ -111,7 +111,11 @@ Germline takes precedence when populated; reference is the fallback. Both `None`
 
 For cross-reactivity filtering — "what's the closest peptide in essential healthy tissues, and does it also bind this MHC?"
 
-Topiary **does not compute** these — producers populate externally (via BLAST / edit distance against a healthy-tissue proteome with their own definition of "self"). The DSL scope just reads `self_nearest_*` columns. When columns are absent, `self_nearest.*` returns NaN.
+Topiary computes these when you give it a reference proteome: `TopiaryPredictor(self_proteome=..., predict_self_nearest=True)` fills the similarity columns from `SelfProteome.nearest()` and then scores each `self_nearest_peptide` at its row's own allele, filling `self_nearest_value` / `_score` / `_percentile_rank`. That second half is the one a cross-reactivity judgement turns on — a near-identical self peptide the patient's MHC never presents is not the same risk as one it does.
+
+The self peptide is scored **without flanking context**: it comes from the reference proteome, and `nearest()` reports its gene, transcript and offset but not the residues either side. Kinds that read flanks — antigen processing, and presentation where its model uses them — are therefore scored on the peptide alone; affinity and stability are unaffected.
+
+Without `predict_self_nearest`, or for producers populating externally (via BLAST / edit distance against a healthy-tissue proteome with their own definition of "self"). The DSL scope just reads `self_nearest_*` columns. When columns are absent, `self_nearest.*` returns NaN.
 
 Reserved column namespace:
 
