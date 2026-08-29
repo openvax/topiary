@@ -1,5 +1,17 @@
 # Changelog
 
+## 5.22.1
+
+**Regression coverage for the 5.22.0 projection fix.**
+
+The test shipped with #197 used a frame where some rows of the kind
+carried a real allele. That case never reproduced the bug: the old row
+scan saw the counter-example and already answered `single_allele`, so
+the test passed before the fix as well as after it. Reproducing requires
+*every* row of the kind to be blank-allele, which is the shape the
+openvax/vaxrank#348 review found. No behavior change — 5.22.0's fix was
+correct, its regression test simply did not pin it.
+
 ## 5.22.0
 
 **`KIND_MHC_DEPENDENCE` — what a kind is about, before any rows (#195):**

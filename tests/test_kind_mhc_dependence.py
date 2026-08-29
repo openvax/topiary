@@ -118,20 +118,45 @@ def test_an_allele_scoped_kind_with_no_allele_stays_allele_scoped():
         assert _dependence(df, "pMHC_affinity") == "single_allele"
 
 
-def test_a_blank_allele_row_is_not_projected_across_the_genotype():
-    """It would invent binding evidence for alleles the model never scored."""
+def test_an_all_blank_allele_kind_is_not_projected():
+    """The shape that actually reproduced the bug.
+
+    Every row of the kind must be blank-allele: with even one real
+    allele present, the old row scan saw a counter-example and already
+    answered ``single_allele``. Only when the whole kind scanned as
+    allele-free did it project, spreading one prediction across alleles
+    the model never scored (found in the openvax/vaxrank#348 review, on
+    a frame this shape).
+    """
+    df = pd.DataFrame([
+        # The malformed prediction: affinity, no allele, and the only
+        # affinity row in the frame.
+        _row("pMHC_affinity", allele="", score=0.5, value=7.0),
+        _row("pMHC_stability", allele="HLA-A*02:01", score=0.9, value=100.0),
+        _row("pMHC_stability", allele="HLA-B*07:02", score=0.8, value=200.0),
+    ])
+
+    with pytest.warns(UserWarning, match="carry no allele"):
+        scores = evaluate_scores(df, parse("affinity.value"))
+
+    # Only the group the row is actually in sees it; the two real
+    # alleles read NaN, which is the truth — no affinity was predicted
+    # for either.
+    assert scores.tolist()[0] == 7.0
+    assert pd.isna(scores.tolist()[1]) and pd.isna(scores.tolist()[2])
+
+
+def test_a_blank_allele_among_real_ones_is_also_kept_per_allele():
+    """The adjacent path: a mixed frame, which the row scan already got right."""
     df = pd.DataFrame([
         _row("pMHC_affinity", allele="HLA-A*02:01", score=0.9),
         _row("pMHC_affinity", allele="HLA-B*07:02", score=0.1),
-        # Malformed: an affinity prediction with no allele on it.
         _row("pMHC_affinity", allele="", score=0.5),
     ])
 
     with pytest.warns(UserWarning, match="carry no allele"):
         scores = evaluate_scores(df, parse("affinity.score"))
 
-    # Each allele keeps its own score; the malformed row is not spread
-    # across them.
     assert scores.tolist()[:2] == [0.9, 0.1]
 
 
