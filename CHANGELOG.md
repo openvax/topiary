@@ -1,5 +1,74 @@
 # Changelog
 
+## 5.22.0
+
+**`KIND_MHC_DEPENDENCE` — what a kind is about, before any rows (#195):**
+
+```python
+from topiary import KIND_MHC_DEPENDENCE
+
+KIND_MHC_DEPENDENCE["pMHC_affinity"]       # "single_allele"
+KIND_MHC_DEPENDENCE["antigen_processing"]  # "none"
+```
+
+A public, model-independent default for every kind topiary knows: does
+it describe a peptide-MHC pair, or the peptide alone? The `pMHC_*` kinds
+name a pair and are per-allele; the processing-pathway kinds (cleavage,
+transport, trimming) describe the peptide. `immunogenicity` sits with
+the per-allele kinds because every mhctools predictor emitting it scores
+a peptide against an allele.
+
+Consumers previously had to maintain their own copy of this table, which
+catches completeness drift but not disagreement. It also could not be
+answered at all on external-input runs, where there is no predictor and
+therefore no `kind_support`.
+
+**One public resolver, `mhc_dependence()`:**
+
+```python
+from topiary import mhc_dependence
+
+mhc_dependence("antigen_processing")                       # "none"
+mhc_dependence(kind, kind_support=predictor.kind_support)  # a model's own statement
+mhc_dependence(kind, rows=df)                              # reads allele_set if present
+```
+
+Usable with nothing but a kind, which is the case on external-input
+runs. Evidence is consulted in order of how specific it is — a model's
+`kind_support`, then an `allele_set` in the rows, then the kind's
+default, then the rows themselves and only for a kind topiary doesn't
+know. The DSL's internal resolution is now a thin caller of this, so
+there is one implementation rather than a public and a private one free
+to diverge.
+
+`MHC_DEPENDENCE_VALUES` is re-exported from mhctools rather than
+restated — topiary had been carrying a hand-copy of the same three
+values, which is the drift this release is about.
+
+**Fixed: a malformed allele-scoped row was read as peptide-level.**
+
+Dependence resolution fell back to scanning rows, and a peptide-level
+record and an allele-scoped record that lost its allele scan the same
+way. So a `pMHC_affinity` row with a blank allele was read as
+allele-free and projected across the peptide's alleles — inventing
+binding evidence for alleles no model scored. Only the kind separates
+those two cases, and now it does:
+
+1. a predictor's `kind_support`, if supplied
+2. an `allele_set` in the rows
+3. the kind's default from `KIND_MHC_DEPENDENCE`
+4. row inspection, only for a kind this topiary doesn't know
+
+A blank allele on an allele-scoped kind now warns and stays per-allele.
+Genuinely peptide-level kinds project exactly as before.
+
+One narrowing follows: a blank-allele `pMHC_presentation` row is no
+longer projected on the strength of the blank alone. With
+`kind_support` reporting `haplotype`, or an `allele_set` in the row, it
+projects as before — but rows cannot distinguish a genotype-level
+prediction from a per-allele one that lost its allele, so without that
+evidence the conservative reading applies.
+
 ## 5.21.1
 
 **Fixed: `apply_sort`'s ranking depended on the order rows arrived in

@@ -16,6 +16,9 @@ from .ranking import (
     Includes,
     IsIn,
     KIND_ALIASES,
+    KIND_MHC_DEPENDENCE,
+    MHC_DEPENDENCE_VALUES,
+    mhc_dependence,
     KindAccessor,
     Len,
     LogisticExpr,
@@ -80,7 +83,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.21.1"
+__version__ = "5.22.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -102,6 +105,9 @@ __all__ = [
     "Includes",
     "IsIn",
     "KIND_ALIASES",
+    "KIND_MHC_DEPENDENCE",
+    "MHC_DEPENDENCE_VALUES",
+    "mhc_dependence",
     "KindAccessor",
     "Len",
     "LogisticExpr",

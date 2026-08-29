@@ -163,6 +163,10 @@ scores = evaluate_scores(
 
 `alleles` adds one group per peptide per declared allele, giving `peptide_view` somewhere to broadcast into. The added groups hold no rows, so allele-scoped fields read `NaN` there — which is the truth: that allele has no prediction of its own. The frame itself is untouched; only the group index grows.
 
+`topiary.mhc_dependence(kind, kind_support=..., rows=...)` answers this directly, and works with nothing but a kind — which is what an external-input run has. Which mode a kind is in comes from several places, in order: a predictor's `kind_support`, an `allele_set` in the rows, then the kind's own default in `KIND_MHC_DEPENDENCE` — `pMHC_*` kinds describe a peptide-MHC pair and are per-allele, while processing-pathway kinds (cleavage, transport, trimming) describe the peptide alone. Rows are consulted only for a kind topiary doesn't know.
+
+That order matters for a row that carries no allele. A peptide-level record and an allele-scoped record that lost its allele look identical row-by-row, so the kind is what separates them: a blank allele on `pMHC_affinity` is a malformed row (warned about, kept per-allele), not a peptide-level fact to spread across a genotype no model scored.
+
 The mode comes from `EvalContext(kind_support=...)` — mhctools' per-(model, kind) metadata, available as `TopiaryPredictor.kind_support` — which is the only thing that can tell `haplotype` from `single_allele`, since both put a real allele on every row. Without it, a kind whose rows carry no allele is treated as allele-free and everything else as per-allele. Inconsistent data is an error, not a silent pick: a peptide-level kind with two different values for one peptide, or models that disagree about `mhc_dependence`, both raise.
 
 Available in string form too, so it works in `--filter-by` / `--sort-by` and in config files: `peptide_view(processing.score)`. Sorting reads the direction through the wrapper, so `peptide_view(affinity.value)` ranks strong binders first under the default `--sort-direction auto`, exactly like the bare field.
