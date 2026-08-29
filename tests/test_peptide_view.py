@@ -618,20 +618,20 @@ def test_models_sharing_a_method_name_get_an_honest_error():
         )
 
 
-def test_scoped_field_cannot_reach_a_filter_through_peptide_view():
-    """peptide_view must not become a hole in the wt.* filter guard."""
+def test_a_scoped_field_filters_through_peptide_view():
+    """Scoped fields are filterable (#192); the wrapper doesn't change that."""
+    from topiary.ranking import wt
+
     df = pd.DataFrame([
         _row(allele=allele, kind="pMHC_affinity", value=100.0, score=0.5,
              wt_value=wt_value)
-        for allele, wt_value in zip(ALLELES, (9000.0, 20.0))
+        for allele, wt_value in zip(ALLELES, (9000.0, 9000.0))
     ])
 
-    with pytest.raises(TypeError, match="Scoped fields"):
-        parse("peptide_view(wt.affinity.value) <= 500")
+    kept = apply_filter(df, peptide_view(wt.Affinity.value) >= 500)
 
-    from topiary.ranking import wt
-    with pytest.raises(TypeError, match="Scoped fields"):
-        apply_filter(df, peptide_view(wt.Affinity.value) <= 500)
+    assert len(kept) == len(df)
+    assert parse("peptide_view(wt.affinity.value) >= 500") is not None
 
 
 def test_values_agreeing_within_float_noise_are_accepted():

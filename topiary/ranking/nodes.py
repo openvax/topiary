@@ -1204,6 +1204,7 @@ class Field(DSLNode):
 
         col_name = self.scope + self.field
         if col_name not in sub.columns:
+            self._warn_missing_scope_column(ctx, col_name)
             return ctx.empty_series()
 
         projected = self._maybe_project_peptide_level(ctx, sub)
@@ -1215,6 +1216,27 @@ class Field(DSLNode):
         )[col_name].first()
         vals = vals.reindex(ctx.group_index)
         return pd.to_numeric(vals, errors="coerce")
+
+    def _warn_missing_scope_column(self, ctx, col_name):
+        """Say so when a filter reads a comparator column that isn't there.
+
+        A scoped reference — ``wt.``, ``self_nearest.``, ``shuffled.`` —
+        reads a column a producer may simply not have written.  Absent,
+        it evaluates to NaN, and NaN in a filter drops every group: the
+        frame comes back empty with nothing said.  Outside a filter NaN
+        is a sensible answer, so this only fires where it silently
+        changes the outcome.
+        """
+        if not self.scope or not ctx.filter_context:
+            return
+        import warnings
+        warnings.warn(
+            f"{self!r} reads {col_name!r}, which this frame does not "
+            f"have, so it is NaN for every group — in a filter that "
+            f"drops everything. Populate the "
+            f"{self.scope.rstrip('_')}_* columns, or drop the clause.",
+            UserWarning, stacklevel=4,
+        )
 
     def _maybe_project_peptide_level(self, ctx, sub):
         """Read a peptide-level kind as the peptide-level fact it is.
@@ -1300,7 +1322,6 @@ class Field(DSLNode):
             parts.append(f"scope={self.scope!r}")
         return f"Field({', '.join(parts)})"
 
-    # (Scoped fields cannot appear in filters — guarded in Comparison.__init__)
 
 
 # Canonical "best direction" per (kind, field) lives upstream in
@@ -2517,18 +2538,6 @@ class Comparison(DSLNode):
     __slots__ = ("left", "op", "right")
 
     def __init__(self, left: DSLNode, op, right: DSLNode):
-        for side in (left, right):
-            # Look through peptide_view(): it changes which row is read,
-            # not which columns, so a scoped field stays off-limits in a
-            # filter however it is wrapped.
-            side = _unwrap_peptide_view(side)
-            if isinstance(side, (Field, BestAlleleField)) and side.scope:
-                scope_name = side.scope.rstrip("_")
-                raise TypeError(
-                    f"Scoped fields ({scope_name}.*) can't be used in filters. "
-                    f"Use them in sorting expressions instead, e.g.: "
-                    f"sort_by=[Affinity.score - {scope_name}.Affinity.score]"
-                )
         self.left = left
         self.op = op
         self.right = right
