@@ -12,6 +12,7 @@
 
 import logging
 from collections import Counter
+from collections.abc import Mapping
 
 import numpy as np
 import pandas as pd
@@ -32,6 +33,8 @@ from .ranking import (
     parse,
 )
 from .io import _model_version_str
+from mhctools.pred import COLUMNS as _PRED_COLUMNS
+
 from .protein_fragment import ProteinFragment
 from .sequence_helpers import (
     check_padding_around_mutation,
@@ -417,6 +420,106 @@ def _add_legacy_mutation_columns(df, fragments):
     intervals = tmp.apply(_interval, axis=1, result_type="expand")
     df["mutation_start_in_peptide"] = intervals[0]
     df["mutation_end_in_peptide"] = intervals[1]
+    return df
+
+
+#: mhctools' own row vocabulary, so an empty result still has the
+#: right shape without topiary restating the columns.
+_MHCTOOLS_COLUMNS = _PRED_COLUMNS
+
+
+def _normalize_prediction_frame(df):
+    """Put an mhctools prediction frame into topiary's long form.
+
+    Renames to topiary's column vocabulary, fills the context columns a
+    producer may not have set, derives ``peptide_length``, and backfills
+    ``affinity`` for affinity rows.  The single definition of what the
+    long form is, shared by the predictor and :func:`from_predictions`.
+    """
+    df = df.rename(columns={
+        "offset": "peptide_offset",
+        "predictor_name": "prediction_method_name",
+    }).copy()
+    if "source_sequence_name" not in df.columns:
+        df["source_sequence_name"] = None
+    if "peptide_offset" not in df.columns:
+        df["peptide_offset"] = 0
+    if df.empty:
+        # No rows to derive from, but the shape still has to be topiary's
+        # — a caller that got mhctools' column names back from an empty
+        # result would break on the frame, not on the emptiness.
+        for column in ("peptide_length", "affinity"):
+            if column not in df.columns:
+                df[column] = pd.Series(dtype=float)
+        return df
+    df["peptide_length"] = df["peptide"].str.len()
+    if "affinity" not in df.columns:
+        df["affinity"] = np.where(
+            df["kind"] == "pMHC_affinity", df["value"], np.nan
+        )
+    return _backfill_value_from_score(df)
+
+
+def from_predictions(predictions, *, sample_name="", allele_set=None):
+    """Build topiary's long-form frame from mhctools predictions.
+
+    For callers holding ``mhctools.Prediction`` objects — a report
+    reader, a cache, anything that didn't run a
+    :class:`TopiaryPredictor` end to end — rather than hand-writing the
+    schema.  A hand-written builder is a copy of topiary's long form
+    that topiary can't see and can't migrate: a column added here (
+    ``allele_set``, say) silently never reaches it.
+
+    Parameters
+    ----------
+    predictions : iterable of mhctools.Prediction, or DataFrame
+        Predictions, or a frame already in mhctools' row shape (what
+        ``predict_dataframe()`` returns).
+    sample_name : str
+        Written to every row.  Blank is normal for a single-sample run
+        and is not treated as identity.
+    allele_set : sequence or dict, optional
+        The genotype a prediction was scored against, for kinds where
+        that is the subject rather than the single ``allele`` on the row
+        (see ``allele_set`` in the docs).  A sequence applies to every
+        row; a ``{kind: alleles}`` mapping applies per kind, which is
+        what a mixed list of per-allele and genotype-level predictions
+        needs.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Long form: one row per prediction, ready for the ranking DSL and
+        for :func:`topiary.to_csv`.
+    """
+    if isinstance(predictions, pd.DataFrame):
+        raw = predictions.copy()
+    else:
+        rows = [p.to_row(sample_name) for p in predictions]
+        if not rows:
+            return _normalize_prediction_frame(
+                pd.DataFrame(columns=list(_MHCTOOLS_COLUMNS))
+            )
+        raw = pd.DataFrame(rows)
+
+    df = _normalize_prediction_frame(raw)
+    if df.empty or allele_set is None:
+        return df
+    return _attach_allele_sets(df, allele_set)
+
+
+def _attach_allele_sets(df, allele_set):
+    """Write ``allele_set`` from a sequence (all rows) or a per-kind map."""
+    df = df.copy()
+    if ALLELE_SET_COLUMN not in df.columns:
+        df[ALLELE_SET_COLUMN] = ""
+    if isinstance(allele_set, Mapping):
+        for kind, alleles in allele_set.items():
+            kind_value = _kind_value(kind)
+            formatted = format_allele_set(alleles)
+            df.loc[df["kind"] == kind_value, ALLELE_SET_COLUMN] = formatted
+    else:
+        df[ALLELE_SET_COLUMN] = format_allele_set(allele_set)
     return df
 
 
@@ -816,23 +919,7 @@ class TopiaryPredictor(object):
 
     def _format_prediction_df(self, df):
         """Normalize mhctools prediction output to Topiary's schema."""
-        if df.empty:
-            return df.copy()
-
-        df = df.rename(columns={
-            "offset": "peptide_offset",
-            "predictor_name": "prediction_method_name",
-        }).copy()
-        if "source_sequence_name" not in df.columns:
-            df["source_sequence_name"] = None
-        if "peptide_offset" not in df.columns:
-            df["peptide_offset"] = 0
-        df["peptide_length"] = df["peptide"].str.len()
-        if "affinity" not in df.columns:
-            df["affinity"] = np.where(
-                df["kind"] == "pMHC_affinity", df["value"], np.nan
-            )
-        return _backfill_value_from_score(df)
+        return _normalize_prediction_frame(df)
 
     def _apply_filter(self, df):
         """Apply filter and sort if configured."""

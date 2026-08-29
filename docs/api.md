@@ -255,6 +255,24 @@ mean(Affinity["netmhcpan"].logistic(350, 150),
 minimum(Affinity["netmhcpan"].value, Affinity["mhcflurry"].value)
 ```
 
+## Building the long form
+
+Callers holding `mhctools.Prediction` objects — a report reader, a cache, anything that didn't run a `TopiaryPredictor` end to end — should build the frame with `from_predictions` rather than by hand:
+
+```python
+from topiary import from_predictions
+
+df = from_predictions(predictions)                       # Prediction objects
+df = from_predictions(model.predict_dataframe(peptides)) # or mhctools' own rows
+
+df = from_predictions(
+    predictions,
+    allele_set={"pMHC_presentation": patient_alleles},   # genotype-level kinds
+)
+```
+
+It renames to topiary's column vocabulary, fills the context columns a producer may not have set, derives `peptide_length`, and backfills `affinity` for affinity rows — the same normalization `TopiaryPredictor` applies to its own output, so both paths produce one long form. A hand-written builder is a copy of that schema topiary can't see and can't migrate: a column added here never reaches it.
+
 ## Filter expressions
 
 | Expression | Creates |
