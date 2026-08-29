@@ -16,9 +16,12 @@ from .ranking import (
     Includes,
     IsIn,
     KIND_ALIASES,
+    CANONICAL_METHOD_PREFERENCE,
     KIND_MHC_DEPENDENCE,
     MHC_DEPENDENCE_VALUES,
     mhc_dependence,
+    resolve_default_methods,
+    validate_default_methods,
     KindAccessor,
     Len,
     LogisticExpr,
@@ -83,7 +86,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.23.0"
+__version__ = "5.24.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -105,9 +108,12 @@ __all__ = [
     "Includes",
     "IsIn",
     "KIND_ALIASES",
+    "CANONICAL_METHOD_PREFERENCE",
     "KIND_MHC_DEPENDENCE",
     "MHC_DEPENDENCE_VALUES",
     "mhc_dependence",
+    "resolve_default_methods",
+    "validate_default_methods",
     "KindAccessor",
     "Len",
     "LogisticExpr",

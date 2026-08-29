@@ -1,5 +1,40 @@
 # Changelog
 
+## 5.24.0
+
+**Opt-in canonical method resolution (#193):**
+
+```python
+from topiary import resolve_default_methods, validate_default_methods
+
+defaults = resolve_default_methods(df)   # {"pMHC_affinity": "mhcflurry"}
+evaluate_scores(df, node, default_methods=defaults)
+```
+
+An unqualified reference to a kind produced by several models raises,
+and that stays — silently choosing a model is not something topiary
+should do behind a caller's back. What was missing is a supported way to
+say *pick the canonical one*, so every consumer wrote its own preference
+table, and two tools could disagree about what canonical means with
+nothing surfacing the difference.
+
+`resolve_default_methods` returns an entry only for kinds that actually
+have a choice. It resolves by `CANONICAL_METHOD_PREFERENCE`, which is a
+**tie-break convention, not a quality ranking**: general-purpose
+predictors ahead of ones whose output for a kind is secondary to their
+main job (NetMHCstabPan predicts stability; its affinity comes along
+with it), mode variants after the model they vary, and anything unlisted
+alphabetically after those so the answer is always deterministic. Pass
+`preference=` to override it. The shipped order matches the convention
+already in use downstream, so adopting this changes no existing scores.
+
+`validate_default_methods(df, default_methods)` reports an entry naming
+a kind or a model the frame doesn't have. `EvalContext` only consults a
+default when a kind is *actually* ambiguous, so such an entry is
+otherwise inert — and stays inert until the day two models produce that
+kind, when it starts deciding. Checking up front turns a typo in a
+config file into an error where it was written.
+
 ## 5.23.0
 
 **Scoped fields work in filters (#192):**
@@ -39,6 +74,7 @@ the test passed before the fix as well as after it. Reproducing requires
 *every* row of the kind to be blank-allele, which is the shape the
 openvax/vaxrank#348 review found. No behavior change — 5.22.0's fix was
 correct, its regression test simply did not pin it.
+
 
 ## 5.22.0
 

@@ -355,6 +355,91 @@ def _normalize_alleles(alleles):
     return declared
 
 
+#: Order used to pick one model when a kind has several and the caller
+#: hasn't said which.  This is a **tie-break convention, not a quality
+#: ranking** — topiary is not asserting that one predictor is better
+#: than another.  It orders general-purpose predictors ahead of ones
+#: whose output for a kind is secondary to their main job (NetMHCstabPan
+#: predicts stability; its affinity comes along with it), and mode
+#: variants after the model they vary.  Anything unlisted sorts
+#: alphabetically after these, so the answer is always deterministic.
+#:
+#: Callers who care which model answers should qualify the reference —
+#: ``Affinity["netmhcpan"]`` — or pass their own *preference*.
+CANONICAL_METHOD_PREFERENCE = (
+    "mhcflurry",
+    "netmhcpan",
+    "netmhcpan_ba",
+    "netmhcpan_el",
+    "netmhcstabpan",
+)
+
+
+def resolve_default_methods(df, preference=None):
+    """Pick one ``prediction_method_name`` per kind that has several.
+
+    Unqualified references raise when a kind was produced by more than
+    one model, which is the right default — silently choosing a model is
+    not something topiary should do behind a caller's back.  This is the
+    explicit way to say "pick the canonical one", so consumers stop
+    writing their own preference table and disagreeing with each other
+    about what canonical means.
+
+    Kinds with a single model are omitted: the result only speaks where
+    there is a real choice.  Returns a mapping suitable for
+    ``default_methods=``.
+
+    *preference* overrides :data:`CANONICAL_METHOD_PREFERENCE`.
+    """
+    if df is None or df.empty:
+        return {}
+    needed = {"kind", "prediction_method_name"}
+    if not needed.issubset(df.columns):
+        return {}
+    order = list(CANONICAL_METHOD_PREFERENCE if preference is None else preference)
+    rank = {name.lower(): i for i, name in enumerate(order)}
+
+    resolved = {}
+    for kind_value, group in df.groupby("kind", sort=False, dropna=True):
+        methods = sorted({
+            str(m) for m in group["prediction_method_name"].dropna().unique()
+        })
+        if len(methods) < 2:
+            continue
+        resolved[str(kind_value)] = min(
+            methods, key=lambda m: (rank.get(m.lower(), len(order)), m.lower()),
+        )
+    return resolved
+
+
+def validate_default_methods(df, default_methods):
+    """Raise if *default_methods* names a kind or model *df* doesn't have.
+
+    ``EvalContext`` only consults a default when a kind is actually
+    ambiguous, so an entry naming a model that never ran is otherwise
+    silently inert — and stays inert until the day two models do produce
+    that kind, when it starts deciding.  Checking up front turns a typo
+    in a config file into an error at the point it was written.
+    """
+    if not default_methods:
+        return
+    normalized = _normalize_default_methods(default_methods)
+    if df is None or df.empty or "kind" not in df.columns:
+        return
+    if "prediction_method_name" not in df.columns:
+        return
+    for kind_value, method in normalized.items():
+        rows = df[df["kind"] == kind_value]
+        if rows.empty:
+            continue
+        available = sorted({
+            str(m) for m in rows["prediction_method_name"].dropna().unique()
+        })
+        lowered = method.lower()
+        if not any(lowered in name.lower() for name in available):
+            raise _method_not_found_error(kind_value, method, available)
+
+
 def _normalize_default_methods(mapping):
     """Canonicalize ``default_methods`` keys to DataFrame ``kind`` values.
 

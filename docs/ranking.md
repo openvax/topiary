@@ -50,6 +50,21 @@ scores = evaluate_scores(kept, Affinity.score, group_keys=group_keys)
 
 `apply_filter`, `apply_sort` and `evaluate_scores` accept the same keyword-only context options — `group_keys`, `default_methods`, `kind_support` and `alleles` — so filtering, sorting and scoring can share one grouping and one method resolution.
 
+When several models produce the same kind, an unqualified reference raises rather than picking one. To say "pick the canonical one" explicitly:
+
+```python
+from topiary import resolve_default_methods, validate_default_methods
+
+defaults = resolve_default_methods(df)          # {"pMHC_affinity": "mhcflurry"}
+evaluate_scores(df, node, default_methods=defaults)
+
+validate_default_methods(df, user_supplied)     # catches a typo at config time
+```
+
+`resolve_default_methods` returns an entry only for kinds that actually have a choice, and resolves by `CANONICAL_METHOD_PREFERENCE` — a **tie-break convention, not a quality ranking**. It orders general-purpose predictors ahead of ones whose output for a kind is secondary to their main job, then anything unlisted alphabetically, so the answer is always deterministic. Pass your own `preference=` to override it, or qualify the reference (`Affinity["netmhcpan"]`) if you care which model answers.
+
+`validate_default_methods` exists because `EvalContext` only consults a default when a kind is *actually* ambiguous — so an entry naming a model that never ran sits inert until the day two models do produce that kind, and then starts deciding.
+
 One thing is deliberately *not* shared: on a frame where several methods produce the same kind, `apply_filter` auto-aggregates an unqualified reference across them (`nanmin` for `<`/`<=`, `nanmax` for `>`/`>=`), while `apply_sort` and `evaluate_scores` stay strict and raise on the ambiguity. Pass `default_methods={"affinity": "mhcflurry"}` (or qualify the reference, `Affinity["mhcflurry"]`) to get one answer from all three.
 
 All three options are forwarded to `EvalContext`, which you can also build directly when you need the raw per-group Series:
