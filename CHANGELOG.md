@@ -1,5 +1,41 @@
 # Changelog
 
+## 5.25.0
+
+**`from_predictions()` — build the long form without copying the schema
+(#194):**
+
+```python
+from topiary import from_predictions
+
+df = from_predictions(predictions)                        # Prediction objects
+df = from_predictions(model.predict_dataframe(peptides))  # or mhctools' rows
+
+df = from_predictions(
+    predictions,
+    allele_set={"pMHC_presentation": patient_alleles},    # genotype-level kinds
+)
+```
+
+A caller holding `mhctools.Prediction` objects — a report reader, a
+cache, anything that didn't run a `TopiaryPredictor` end to end — had to
+write topiary's long form by hand: the column names, the `kind` strings,
+the value / affinity / score / percentile_rank mapping, and the
+provenance columns. That is a copy of the schema topiary cannot see and
+cannot migrate, so a column added here never reaches it. `allele_set`
+(5.21.0) is the live example.
+
+The normalization is now one function, shared by `from_predictions` and
+by `TopiaryPredictor`'s own output, so the two paths cannot diverge.
+`allele_set` takes a sequence (applies to every row) or a
+`{kind: alleles}` mapping, which is what a mixed list of per-allele and
+genotype-level predictions needs.
+
+An empty input returns an empty frame **in topiary's vocabulary** rather
+than mhctools' — a caller that got `offset` and `predictor_name` back
+from an empty result would break on the frame's shape, not on its
+emptiness.
+
 ## 5.24.0
 
 **Opt-in canonical method resolution (#193):**
@@ -35,6 +71,7 @@ otherwise inert — and stays inert until the day two models produce that
 kind, when it starts deciding. Checking up front turns a typo in a
 config file into an error where it was written.
 
+
 ## 5.23.0
 
 **Scoped fields work in filters (#192):**
@@ -62,6 +99,7 @@ column a producer never wrote makes the expression NaN for every group,
 and NaN in a filter drops the frame. A filter reading a scope the frame
 doesn't carry now warns, naming the missing column. Outside a filter
 NaN is a sensible answer, so ranking and scoring are unaffected.
+
 
 ## 5.22.1
 
