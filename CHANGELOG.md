@@ -23,6 +23,28 @@ catches completeness drift but not disagreement. It also could not be
 answered at all on external-input runs, where there is no predictor and
 therefore no `kind_support`.
 
+**One public resolver, `mhc_dependence()`:**
+
+```python
+from topiary import mhc_dependence
+
+mhc_dependence("antigen_processing")                       # "none"
+mhc_dependence(kind, kind_support=predictor.kind_support)  # a model's own statement
+mhc_dependence(kind, rows=df)                              # reads allele_set if present
+```
+
+Usable with nothing but a kind, which is the case on external-input
+runs. Evidence is consulted in order of how specific it is — a model's
+`kind_support`, then an `allele_set` in the rows, then the kind's
+default, then the rows themselves and only for a kind topiary doesn't
+know. The DSL's internal resolution is now a thin caller of this, so
+there is one implementation rather than a public and a private one free
+to diverge.
+
+`MHC_DEPENDENCE_VALUES` is re-exported from mhctools rather than
+restated — topiary had been carrying a hand-copy of the same three
+values, which is the drift this release is about.
+
 **Fixed: a malformed allele-scoped row was read as peptide-level.**
 
 Dependence resolution fell back to scanning rows, and a peptide-level

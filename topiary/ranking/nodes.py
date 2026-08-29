@@ -44,7 +44,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from mhctools import Kind
+from mhctools import MHC_DEPENDENCE_VALUES, Kind
 
 
 # =============================================================================
@@ -168,6 +168,11 @@ _GROUP_KEYS_VARIANT = ["variant", "peptide", "peptide_offset", "allele"]
 _GROUP_KEYS_FRAGMENT = ["fragment_id", "peptide", "peptide_offset", "allele"]
 
 
+def _is_blank(value) -> bool:
+    """True for null or whitespace-only — "this cell carries no value"."""
+    return pd.isna(value) or str(value).strip() == ""
+
+
 def _has_real_values(values) -> bool:
     """True when *values* holds at least one non-null, non-blank entry.
 
@@ -180,10 +185,7 @@ def _has_real_values(values) -> bool:
     # The columns this is asked about are near-constant, so the distinct
     # set is tiny: one hashing pass, then a test over a couple of values
     # rather than every row.
-    return any(
-        not pd.isna(v) and str(v).strip() != ""
-        for v in pd.unique(values.to_numpy())
-    )
+    return any(not _is_blank(v) for v in pd.unique(values.to_numpy()))
 
 
 def split_allele_set(value):
@@ -1388,7 +1390,8 @@ class BestAlleleField(DSLNode):
         """
         method = self.method.lower() if self.method else None
         reported = _reported_dependences(
-            ctx, self.kind, {method} if method else None,
+            getattr(ctx, "kind_support", None), self.kind,
+            {method} if method else None,
         )
         for model_key, dep in reported.items():
             if dep == "single_allele":
@@ -1495,9 +1498,10 @@ class BestAlleleField(DSLNode):
         return f"BestAlleleField({', '.join(parts)})"
 
 
-#: The allele modes mhctools reports.  Anything else is a version skew
-#: we must not guess at.
-_MHC_DEPENDENCE_VALUES = frozenset({"none", "single_allele", "haplotype"})
+#: The allele modes mhctools reports, taken from mhctools rather than
+#: restated here — a copy is exactly what drifts.  Anything outside it is
+#: a version skew we must not guess at.
+_MHC_DEPENDENCE_VALUES = MHC_DEPENDENCE_VALUES
 
 #: Default MHC relationship of each prediction kind, independent of any
 #: model or any rows: does the kind describe a peptide-MHC pair, or the
@@ -1552,8 +1556,8 @@ def _methods_present(sub):
     }
 
 
-def _reported_dependences(ctx, kind, methods=None):
-    """``{model_key: mhc_dependence}`` from ``ctx.kind_support`` for *kind*.
+def _reported_dependences(kind_support, kind, methods=None):
+    """``{model_key: mhc_dependence}`` from *kind_support* for *kind*.
 
     The one place that walks mhctools' per-(model, kind) metadata.
     *methods* is the set of lower-cased method names to keep, normally
@@ -1561,7 +1565,6 @@ def _reported_dependences(ctx, kind, methods=None):
     produced no rows here must not decide — or veto — this frame's
     projection.
     """
-    kind_support = getattr(ctx, "kind_support", None)
     if not kind_support:
         return {}
     kind_val = _kind_value(kind)
@@ -1580,6 +1583,13 @@ def _reported_dependences(ctx, kind, methods=None):
     return reported
 
 
+def _rows_for_kind(rows, kind):
+    """Narrow *rows* to one kind, so callers may pass a whole frame."""
+    if rows is None or rows.empty or "kind" not in rows.columns:
+        return rows
+    return rows[rows["kind"] == _kind_value(kind)]
+
+
 def _warn_missing_allele(kind, sub):
     """Flag rows of an allele-scoped kind that arrived without an allele.
 
@@ -1591,11 +1601,13 @@ def _warn_missing_allele(kind, sub):
     """
     if sub is None or sub.empty or "allele" not in sub.columns:
         return
-    blank = ~sub["allele"].map(
-        lambda value: not pd.isna(value) and str(value).strip() != ""
-    ).astype(bool)
-    if not blank.any():
+    values = sub["allele"]
+    # Alleles repeat heavily, so the distinct set is small: one hashing
+    # pass rules out the common (well-formed) case without touching
+    # every row.  Counting happens only on the malformed path.
+    if not any(_is_blank(v) for v in pd.unique(values.to_numpy())):
         return
+    blank = values.isna() | (values.astype(str).str.strip() == "")
     import warnings
     warnings.warn(
         f"{int(blank.sum())} {_kind_short_name(kind)} row(s) carry no "
@@ -1609,7 +1621,7 @@ def _warn_missing_allele(kind, sub):
 
 
 def _resolve_mhc_dependence(ctx, kind, sub):
-    """How *kind* relates to alleles for the rows in *sub*.
+    """:func:`mhc_dependence` for an :class:`EvalContext` and a row slice.
 
     *sub* is the already-selected slice — the rows this expression will
     read, after kind, method and version filtering.  Resolving from it
@@ -1617,15 +1629,51 @@ def _resolve_mhc_dependence(ctx, kind, sub):
     from reclassifying another model's allele-free ones, and keeps
     metadata for a model that contributed nothing here out of the
     decision.
-
-    Prefers ``ctx.kind_support``, mhctools' per-(model, kind) metadata —
-    the only authority that can tell ``haplotype`` from
-    ``single_allele``, since both put a real allele on every row.
-    Without it, read what the rows show: no allele at all means
-    allele-independent, anything else is per-allele, which is what the
-    DSL already assumed.
     """
-    reported = _reported_dependences(ctx, kind, _methods_present(sub))
+    return _mhc_dependence(kind, getattr(ctx, "kind_support", None), sub)
+
+
+def mhc_dependence(kind, *, kind_support=None, rows=None):
+    """How *kind* relates to alleles: the one resolver.
+
+    Answers "does this prediction describe a peptide-MHC pair, or the
+    peptide alone?" — as ``"single_allele"``, ``"haplotype"`` or
+    ``"none"``.  Usable with nothing but a kind, which is the case on
+    external-input runs where there is no predictor and therefore no
+    ``kind_support`` at all.
+
+    Evidence is consulted in order of how specific it is:
+
+    1. *kind_support* — a model's own statement about what it emitted,
+       filtered to the models the rows actually came from.
+    2. An ``allele_set`` in *rows* — the data saying this prediction
+       covers a genotype.
+    3. :data:`KIND_MHC_DEPENDENCE` — what the kind means, absent
+       anything more specific.
+    4. *rows*, and only for a kind this topiary does not know.
+
+    Row inspection is last because it cannot answer the question it
+    looks like it can: a peptide-level record and an allele-scoped
+    record that arrived without its allele are identical row by row.
+    Only the kind separates them, so a blank allele on an allele-scoped
+    kind is reported as such rather than read as peptide-level.
+
+    Parameters
+    ----------
+    kind : mhctools Kind or str
+    kind_support : dict, optional
+        ``{model_key: {kind: {"mhc_dependence": ...}}}``, as
+        :attr:`TopiaryPredictor.kind_support` produces.
+    rows : pandas.DataFrame, optional
+        Prediction rows.  Filtered to *kind* when they carry a ``kind``
+        column, so a whole frame can be passed.
+    """
+    return _mhc_dependence(kind, kind_support, _rows_for_kind(rows, kind))
+
+
+def _mhc_dependence(kind, kind_support, rows):
+    """:func:`mhc_dependence` for rows already narrowed to *kind*."""
+    reported = _reported_dependences(kind_support, kind, _methods_present(rows))
     # Validate before comparing: an unknown value can't be resolved by
     # picking one of the others, so say what it actually is.
     for dependence in set(reported.values()):
@@ -1643,21 +1691,21 @@ def _resolve_mhc_dependence(ctx, kind, sub):
     if found:
         return found.pop()
 
-    if sub is not None and not sub.empty and ALLELE_SET_COLUMN in sub.columns:
-        if _has_real_values(sub[ALLELE_SET_COLUMN]):
+    if rows is not None and not rows.empty and ALLELE_SET_COLUMN in rows.columns:
+        if _has_real_values(rows[ALLELE_SET_COLUMN]):
             # The rows say so themselves — no kind_support needed.
             return "haplotype"
 
     declared = KIND_MHC_DEPENDENCE.get(_kind_value(kind))
     if declared is not None:
         if declared != "none":
-            _warn_missing_allele(kind, sub)
+            _warn_missing_allele(kind, rows)
         return declared
 
     # A kind this topiary doesn't know: read what the rows show.
-    if sub is None or sub.empty or "allele" not in sub.columns:
+    if rows is None or rows.empty or "allele" not in rows.columns:
         return "none"
-    return "single_allele" if _has_real_values(sub["allele"]) else "none"
+    return "single_allele" if _has_real_values(rows["allele"]) else "none"
 
 
 def _dependence_conflict_error(kind, reported):

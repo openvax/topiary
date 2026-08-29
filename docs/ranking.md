@@ -163,7 +163,7 @@ scores = evaluate_scores(
 
 `alleles` adds one group per peptide per declared allele, giving `peptide_view` somewhere to broadcast into. The added groups hold no rows, so allele-scoped fields read `NaN` there — which is the truth: that allele has no prediction of its own. The frame itself is untouched; only the group index grows.
 
-Which mode a kind is in comes from three places, in order: a predictor's `kind_support`, an `allele_set` in the rows, then the kind's own default in `KIND_MHC_DEPENDENCE` — `pMHC_*` kinds describe a peptide-MHC pair and are per-allele, while processing-pathway kinds (cleavage, transport, trimming) describe the peptide alone. Rows are consulted only for a kind topiary doesn't know.
+`topiary.mhc_dependence(kind, kind_support=..., rows=...)` answers this directly, and works with nothing but a kind — which is what an external-input run has. Which mode a kind is in comes from several places, in order: a predictor's `kind_support`, an `allele_set` in the rows, then the kind's own default in `KIND_MHC_DEPENDENCE` — `pMHC_*` kinds describe a peptide-MHC pair and are per-allele, while processing-pathway kinds (cleavage, transport, trimming) describe the peptide alone. Rows are consulted only for a kind topiary doesn't know.
 
 That order matters for a row that carries no allele. A peptide-level record and an allele-scoped record that lost its allele look identical row-by-row, so the kind is what separates them: a blank allele on `pMHC_affinity` is a malformed row (warned about, kept per-allele), not a peptide-level fact to spread across a genotype no model scored.
 

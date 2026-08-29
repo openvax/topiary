@@ -50,6 +50,8 @@ from .nodes import (
     _iter_known_kinds,
     KIND_ALIASES,
     KIND_MHC_DEPENDENCE,
+    MHC_DEPENDENCE_VALUES,
+    mhc_dependence,
     _kind_matches,
     _kind_name,
     _kind_short_name,
@@ -130,4 +132,6 @@ __all__ = [
     # Kind / field name resolution (public)
     "KIND_ALIASES",
     "KIND_MHC_DEPENDENCE",
+    "MHC_DEPENDENCE_VALUES",
+    "mhc_dependence",
 ]

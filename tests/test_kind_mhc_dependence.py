@@ -163,3 +163,82 @@ def test_an_unknown_kind_still_falls_back_to_the_rows():
     sub = ctx.df[ctx.df["kind"] == "some_future_kind"]
 
     assert _resolve_mhc_dependence(ctx, "some_future_kind", sub) == "none"
+
+
+# ---------------------------------------------------------------------------
+# The public resolver — usable with no predictor and no context
+# ---------------------------------------------------------------------------
+
+
+def test_the_kind_alone_answers():
+    """External-input runs have no predictor, so this must work bare."""
+    from topiary import mhc_dependence
+
+    assert mhc_dependence("antigen_processing") == "none"
+    assert mhc_dependence("pMHC_affinity") == "single_allele"
+
+
+def test_kind_objects_and_strings_both_work():
+    from mhctools import Kind
+
+    from topiary import mhc_dependence
+
+    assert mhc_dependence(Kind.pMHC_affinity) == mhc_dependence("pMHC_affinity")
+
+
+def test_precedence_kind_support_beats_everything():
+    from topiary import mhc_dependence
+
+    rows = pd.DataFrame([_row("pMHC_presentation")])
+    support = {"mhcflurry": {"pMHC_presentation": {"mhc_dependence": "haplotype"}}}
+
+    assert mhc_dependence("pMHC_presentation", kind_support=support, rows=rows) == (
+        "haplotype"
+    )
+
+
+def test_precedence_allele_set_beats_the_table():
+    from topiary import mhc_dependence
+
+    rows = pd.DataFrame([
+        _row("pMHC_presentation", allele_set="HLA-A*02:01,HLA-B*07:02"),
+    ])
+
+    # The table's default for this kind is single_allele; the data says
+    # otherwise and the data is more specific.
+    assert mhc_dependence("pMHC_presentation", rows=rows) == "haplotype"
+
+
+def test_precedence_the_table_beats_the_rows():
+    """The case row inspection gets wrong."""
+    from topiary import mhc_dependence
+
+    rows = pd.DataFrame([_row("pMHC_affinity", allele="")])
+
+    with pytest.warns(UserWarning, match="carry no allele"):
+        assert mhc_dependence("pMHC_affinity", rows=rows) == "single_allele"
+
+
+def test_rows_may_be_a_whole_frame():
+    from topiary import mhc_dependence
+
+    rows = pd.DataFrame([
+        _row("pMHC_affinity"), _row("antigen_processing", allele=""),
+    ])
+
+    assert mhc_dependence("antigen_processing", rows=rows) == "none"
+    assert mhc_dependence("pMHC_affinity", rows=rows) == "single_allele"
+
+
+def test_vocabulary_comes_from_mhctools():
+    """A restated copy is exactly what drifts."""
+    from mhctools import MHC_DEPENDENCE_VALUES as upstream
+
+    from topiary import MHC_DEPENDENCE_VALUES
+
+    assert MHC_DEPENDENCE_VALUES is upstream
+
+
+def test_unknown_key_raises_rather_than_defaulting():
+    with pytest.raises(KeyError):
+        KIND_MHC_DEPENDENCE["not_a_kind"]
