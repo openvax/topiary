@@ -539,6 +539,7 @@ class TopiaryPredictor(object):
         mhc_model=None,
         mhc_models=None,
         self_proteome=None,
+        predict_self_nearest=False,
         predict_wt=False,
         name=None,
     ):
@@ -599,6 +600,13 @@ class TopiaryPredictor(object):
 
         mhc_model, mhc_models : legacy aliases for ``models``.
 
+        predict_self_nearest : bool
+            Score each ``self_nearest_peptide`` at its row's allele,
+            populating ``self_nearest_value`` / ``_score`` /
+            ``_percentile_rank``. Requires ``self_proteome``. The self
+            peptide is scored without flanking context — see
+            :meth:`_maybe_predict_self_nearest`.
+
         predict_wt : bool
             If True, run the configured MHC model(s) on each populated
             ``wt_peptide`` and attach ``wt_*`` prediction columns before
@@ -651,6 +659,7 @@ class TopiaryPredictor(object):
         self.only_novel_epitopes = only_novel_epitopes
         self.raise_on_error = raise_on_error
         self.self_proteome = self_proteome
+        self.predict_self_nearest = predict_self_nearest
         self.predict_wt = predict_wt
         if name is None:
             self.name = None
@@ -925,7 +934,9 @@ class TopiaryPredictor(object):
         """Apply filter and sort if configured."""
         if df.empty:
             return df
-        df = self._maybe_attach_self_nearest(df)
+        df = self._maybe_predict_self_nearest(
+            self._maybe_attach_self_nearest(df)
+        )
         # Forward the allele-mode metadata this predictor already owns:
         # without it, DSL nodes that dispatch on ``mhc_dependence``
         # (``peptide_view``, ``best_*``) fall back to guessing from the
@@ -953,6 +964,85 @@ class TopiaryPredictor(object):
         unique = df["peptide"].drop_duplicates().tolist()
         nearest = self.self_proteome.nearest(unique)
         return df.merge(nearest, on="peptide", how="left")
+
+    def _maybe_predict_self_nearest(self, df):
+        """Score each ``self_nearest_peptide`` at the row's own allele.
+
+        The similarity columns say *which* healthy peptide a candidate
+        resembles; this says whether that peptide is presented by the
+        same allele — which is the question a cross-reactivity judgement
+        actually turns on. A near-identical self peptide the patient's
+        MHC never presents is not the same risk as one it does.
+
+        Runs a second prediction pass, as ``predict_wt`` does, and joins
+        each result back to the mutant row it belongs to by allele,
+        kind, and predictor identity.
+
+        The self peptide is scored **without flanking context**: it
+        comes from the reference proteome, and ``nearest()`` reports its
+        gene, transcript and offset but not the residues either side.
+        Kinds that read flanks — antigen processing, and presentation
+        when its model uses them — are therefore scored on the peptide
+        alone. Affinity and stability are unaffected.
+        """
+        self_columns = (
+            "self_nearest_value", "self_nearest_score",
+            "self_nearest_percentile_rank",
+        )
+
+        def _ensure(out):
+            out = out.copy()
+            for column in self_columns:
+                if column not in out.columns:
+                    out[column] = np.nan
+            return out
+
+        if not self.predict_self_nearest or df.empty:
+            return df
+        if "self_nearest_peptide" not in df.columns:
+            return _ensure(df)
+
+        predicted = []
+        for model, model_key in zip(self.models, self._model_keys):
+            candidates = df
+            if _MODEL_KEY_COLUMN in df.columns:
+                candidates = df[df[_MODEL_KEY_COLUMN].eq(model_key)]
+            lengths = set(model.default_peptide_lengths)
+            peptides = sorted({
+                str(peptide)
+                for peptide in candidates["self_nearest_peptide"].dropna()
+                if len(str(peptide)) in lengths
+            })
+            if not peptides:
+                continue
+            if hasattr(model, "predict_dataframe"):
+                raw = model.predict_dataframe(peptides)
+            else:
+                raw = model.predict_peptides_dataframe(peptides)
+            if raw.empty:
+                continue
+            predicted.append(self._format_prediction_df(raw))
+
+        if not predicted:
+            return _ensure(df)
+
+        self_predictions = pd.concat(predicted, ignore_index=True)
+        join_keys = ["allele", "kind", "prediction_method_name",
+                     "predictor_version"]
+        available = [k for k in join_keys if k in self_predictions.columns
+                     and k in df.columns]
+        joined = self_predictions[
+            ["peptide", *available, "value", "score", "percentile_rank"]
+        ].rename(columns={
+            "peptide": "self_nearest_peptide",
+            "value": "self_nearest_value",
+            "score": "self_nearest_score",
+            "percentile_rank": "self_nearest_percentile_rank",
+        }).drop_duplicates(subset=["self_nearest_peptide", *available])
+
+        return _ensure(df.merge(
+            joined, on=["self_nearest_peptide", *available], how="left",
+        ))
 
     def _maybe_predict_wt_peptides(self, df, fragments=None):
         """Score populated ``wt_peptide`` values and attach ``wt_*``

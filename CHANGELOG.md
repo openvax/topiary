@@ -1,5 +1,47 @@
 # Changelog
 
+## 5.26.0
+
+**`predict_self_nearest` — paired MHC binding for the nearest self
+peptide (#190):**
+
+```python
+TopiaryPredictor(
+    models=[...], alleles=[...],
+    self_proteome=SelfProteome.from_fasta(path),   # your reference
+    predict_self_nearest=True,
+)
+```
+
+`SelfProteome.nearest()` already said *which* healthy peptide a
+candidate resembles. Whether that peptide is presented by the same
+allele is a separate question, and it is the one a cross-reactivity
+judgement turns on: a near-identical self peptide the patient's MHC
+never presents is not the same risk as one it does.
+
+The flag runs a second prediction pass, as `predict_wt` does, scoring
+each `self_nearest_peptide` at its row's own allele and filling
+`self_nearest_value` / `_score` / `_percentile_rank`. The columns reach
+the DSL through the `self_nearest` scope, so an exclusion is expressible
+directly — and since 5.23.0 scoped fields work in filters, which is what
+an exclusion needs:
+
+```python
+apply_filter(df, (Affinity.value <= 500) & (self_nearest.Affinity.value >= 1000))
+```
+
+The reference proteome stays the caller's: `SelfProteome` takes a FASTA,
+a peptide mapping, or Ensembl with your own `cta_source` and
+`tissue_gene_ids`. Topiary computes the comparison, not the definition
+of self.
+
+**Known limitation.** The self peptide is scored without flanking
+context — it comes from the reference proteome, and `nearest()` reports
+its gene, transcript and offset but not the residues either side. Kinds
+that read flanks (antigen processing, and presentation where its model
+uses them) are scored on the peptide alone; affinity and stability are
+unaffected.
+
 ## 5.25.0
 
 **`from_predictions()` — build the long form without copying the schema
