@@ -1,5 +1,33 @@
 # Changelog
 
+## 5.23.0
+
+**Scoped fields work in filters (#192):**
+
+`wt.`, `self_nearest.`, `shuffled.` and `self.` raised `TypeError` inside
+a comparison, directing callers to sorting expressions instead. That
+blocked the standard analysis:
+
+```python
+# the mutant binds and the wildtype doesn't — differential agretopicity
+apply_filter(df, (Affinity.value <= 500) & (wt.Affinity.value >= 1000))
+```
+
+Selecting neoepitopes that way is an exclusion, and a sort cannot
+exclude. The same applies to a cross-reactivity rule on
+`self_nearest.`, which is a filter by nature.
+
+The ban never prevented the operation either — `column(wt_value) >= 1000`
+reads the same values and was always allowed — so it only made the
+scoped vocabulary unavailable for it, while leaving the identical
+failure mode reachable by the other spelling.
+
+**The hazard it was standing in for is now reported.** A comparator
+column a producer never wrote makes the expression NaN for every group,
+and NaN in a filter drops the frame. A filter reading a scope the frame
+doesn't carry now warns, naming the missing column. Outside a filter
+NaN is a sensible answer, so ranking and scoring are unaffected.
+
 ## 5.22.1
 
 **Regression coverage for the 5.22.0 projection fix.**
@@ -80,6 +108,7 @@ longer projected on the strength of the blank alone. With
 projects as before — but rows cannot distinguish a genotype-level
 prediction from a per-allele one that lost its allele, so without that
 evidence the conservative reading applies.
+
 
 ## 5.21.1
 

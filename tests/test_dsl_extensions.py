@@ -463,10 +463,12 @@ class TestWTScope:
         val = wt.Affinity.value.evaluate(df)
         assert math.isnan(val)
 
-    def test_wt_comparison_raises(self):
-        """Scoped fields can't be used in filters — only in ranking expressions."""
-        with pytest.raises(TypeError, match="Scoped fields"):
-            wt.Affinity <= 1000
+    def test_wt_comparison_selects_on_the_wildtype(self):
+        """Filtering on wt is the differential neoepitope criterion (#192)."""
+        df = _group_with_wt()
+
+        assert (wt.Affinity <= 1000).evaluate(df)
+        assert not (wt.Affinity <= 100).evaluate(df)
 
     def test_wt_logistic(self):
         df = _group_with_wt()
@@ -694,10 +696,12 @@ class TestEdgeCasesFromDocs:
         val = wt.Affinity["netmhcpan"].value.evaluate(df)
         assert val == 800.0
 
-    def test_wt_ge_also_raises(self):
-        """Scoped >= should also raise, not just <=."""
-        with pytest.raises(TypeError, match="Scoped fields"):
-            wt.Affinity >= 100
+    def test_wt_ge_also_compares(self):
+        """>= works like <=; neither is refused any more."""
+        df = _group_with_wt()
+
+        assert (wt.Affinity >= 100).evaluate(df)
+        assert not (wt.Affinity >= 10000).evaluate(df)
 
     def test_column_filter_both_bounds(self):
         """Column filter with both min and max (built via AND of comparisons)."""

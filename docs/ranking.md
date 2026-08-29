@@ -391,7 +391,13 @@ topiary ... --predict-wt --sort-by "affinity.score - wt.affinity.score"
 ```
 
 !!! note
-    `wt.` is for **sorting expressions only**, not filters. Use it in `sort_by`, not in `filter`. When WT columns don't exist, expressions evaluate to NaN. Rows without a length-compatible WT peptide also keep NaN WT prediction values.
+    `wt.` works in filters as well as in sorting and scoring — "the mutant binds and the wildtype doesn't" is a filter, and it is the differential criterion for a neoepitope:
+
+    ```python
+    apply_filter(df, (Affinity.value <= 500) & (wt.Affinity.value >= 1000))
+    ```
+
+    When the `wt_*` columns don't exist the expression is NaN for every group, and NaN in a filter drops everything — so a filter that reads a scope this frame doesn't carry says so rather than quietly returning nothing. Rows without a length-compatible WT peptide also keep NaN WT prediction values.
 
 ## len and count() — peptide-level expressions
 
