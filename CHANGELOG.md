@@ -1,5 +1,39 @@
 # Changelog
 
+## 5.34.0
+
+Two more absent-vs-empty conflations (#223), found by auditing after #214,
+#216 and #219 all turned out to be the same defect: two code paths
+disagreeing about what "nothing" means. Both turned a missing value into
+the literal text `"nan"` and then treated it as data.
+
+**Fixed: a row with no `predictor_version` could be selected as version
+`"nan"`.** 5.31.0 taught the ambiguity check and
+`resolve_default_versions` that a missing version names no version, but
+the *selection* path still compared stringified values — so the two
+disagreed, and `Affinity["netmhcpan", "nan"]` returned the NaN-version
+row. It was self-inconsistent too: the "no such version" error lists
+available versions from `dropna()`, so `"nan"` was never offered, yet
+passing it worked. Selection now goes through the same
+"was a version named at all" test as everything else, and tolerates
+surrounding whitespace the way the resolver does.
+
+**Fixed: `read_pvacseq` fabricated variant ids containing `"nan"`.** The
+coordinate fallback (used when a file has no `Index` column) concatenated
+stringified `Chromosome`/`Start`/`Reference`/`Variant`, so a blank field
+became text inside the identifier:
+
+```
+chr1-154590262-nan-A
+```
+
+Well-formed-looking, wrong, and *stable* — every row sharing that gap
+grouped together under one fabricated id, silently. Such rows now get a
+null `variant` and a warning naming how many and which columns were
+incomplete. An absent identifier is honest; a fabricated one is not, and
+nothing downstream can tell it from a real one. Files with complete
+coordinates, and files with an `Index` column, are unchanged and silent.
+
 ## 5.33.0
 
 **Added: per-peptide allele sets for `EvalContext(alleles=...)` (#219).**
