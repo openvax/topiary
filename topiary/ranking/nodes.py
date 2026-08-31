@@ -1624,10 +1624,20 @@ def _filter_kind_method_version(ctx, kind, method, version):
     if version is not None:
         col = "predictor_version"
         if col in sub.columns:
-            version_mask = sub[col].astype(str) == str(version)
+            # Only a row that names a version can be selected by one.
+            # Comparing stringified values would let a missing version
+            # be addressed as "nan" — the same conflation the ambiguity
+            # check and resolve_default_versions were fixed for, and the
+            # two must not disagree about it.
+            named = _known_versions(sub[col])
+            version_mask = named & (
+                sub[col].astype(str).str.strip() == str(version).strip()
+            )
             matched = sub[version_mask]
             if matched.empty:
-                available = sorted(sub[col].dropna().astype(str).unique())
+                available = sorted(
+                    sub[col][named].astype(str).str.strip().unique()
+                )
                 raise ValueError(
                     f"No {_kind_name(kind)} predictions from "
                     f"predictor_version {version!r}. "
@@ -1691,7 +1701,11 @@ def _filter_kind_method_version(ctx, kind, method, version):
         }
         if len(wanted) == 1:
             candidate = next(iter(wanted))
-            matched = sub[sub["predictor_version"].astype(str) == candidate]
+            versions = sub["predictor_version"]
+            matched = sub[
+                _known_versions(versions)
+                & (versions.astype(str).str.strip() == candidate)
+            ]
             if not matched.empty:
                 sub = matched
                 effective_version = candidate

@@ -48,6 +48,7 @@ should melt them out themselves or re-predict via :class:`TopiaryPredictor`.
 from __future__ import annotations
 
 import re
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -254,6 +255,52 @@ def _first_present_column(df, *candidates):
     return None
 
 
+def _coords_variant_id(df: pd.DataFrame) -> pd.Series:
+    """A ``chr-start-ref-alt`` id, or null where a part is missing.
+
+    Concatenating the stringified columns turns a blank field into the
+    literal text ``nan`` inside the identifier — ``chr1-154590262-nan-A``
+    — which looks well-formed, is wrong, and is *stable*, so every row
+    sharing that gap silently groups together under one fabricated id.
+
+    An absent identifier is honest; a fabricated one is not, and nothing
+    downstream can tell it from a real one. Rows missing any part get
+    ``pd.NA`` and are counted in a warning.
+    """
+    parts = ["Chromosome", "Start", "Reference", "Variant"]
+    text = {}
+    complete = pd.Series(True, index=df.index)
+    for part in parts:
+        column = df[part]
+        known = column.notna() & (
+            column.astype(str).str.strip().str.lower().ne("nan")
+        ) & column.astype(str).str.strip().ne("")
+        complete &= known
+        text[part] = column.astype(str).str.strip()
+
+    ids = (
+        text["Chromosome"] + "-" + text["Start"] + "-"
+        + text["Reference"] + "-" + text["Variant"]
+    ).where(complete, pd.NA)
+
+    missing = int((~complete).sum())
+    if missing:
+        incomplete = sorted(
+            part for part in parts
+            if (df[part].isna() | df[part].astype(str).str.strip().eq("")).any()
+        )
+        warnings.warn(
+            f"{missing} pVACseq row(s) are missing one of "
+            f"{parts} ({incomplete} incomplete), so no coordinate variant "
+            f"id could be built for them and 'variant' is null there. "
+            f"Building one anyway would embed the missing field as the "
+            f"text 'nan', producing an id that looks real and silently "
+            f"groups every row sharing that gap.",
+            UserWarning, stacklevel=3,
+        )
+    return ids
+
+
 def _class_of_allele(allele):
     """Return ``"I"`` / ``"II"`` for an allele string, else ``pd.NA``.
 
@@ -447,12 +494,7 @@ def _parse_all_epitopes(df):
     if "Index" in df.columns:
         out["variant"] = df["Index"]
     elif {"Chromosome", "Start", "Reference", "Variant"} <= set(df.columns):
-        out["variant"] = (
-            df["Chromosome"].astype(str) + "-"
-            + df["Start"].astype(str) + "-"
-            + df["Reference"].astype(str) + "-"
-            + df["Variant"].astype(str)
-        )
+        out["variant"] = _coords_variant_id(df)
 
     for src, dst in _ALL_ANNOTATIONS.items():
         if src in df.columns:
