@@ -37,6 +37,16 @@ turned into a hard error". Keeping both versions of a multi-version LENS
 table (#208) is what made it reachable: a consumer's default scoring
 expression could not run on that input at all.
 
+**An unknown version is not a version.** A missing `predictor_version` —
+NaN, `None`, blank, or no column at all — is the absence of a version
+claim, and both the ambiguity check and the resolver now treat it that
+way. Previously a frame with one real version alongside rows recording
+none raised `Ambiguous: ... (netmhcpan 4.2, netmhcpan nan)`, naming a
+version no caller could pass, while `resolve_default_versions` dropped
+the NaN and reported no choice to make — so feeding the resolver's own
+answer back in still crashed. A genuine disagreement between two real
+versions still raises, and the message no longer invents a third.
+
 `packaging` is now a declared dependency. It was already present
 transitively, but the version ordering depends on it, and a fallback that
 quietly demotes every version to string order is not a fallback worth

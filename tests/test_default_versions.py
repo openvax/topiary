@@ -10,6 +10,7 @@ That is the same gap as the sort ambiguity fixed in 5.29.0, one level down:
 raising is right, having no way to answer is not.
 """
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -260,3 +261,99 @@ def test_a_shared_context_applies_its_default_versions():
     scores = evaluate_scores(df, Affinity.value, context=ctx)
 
     assert scores.dropna().unique().tolist() == [120.0]
+
+
+# ---------------------------------------------------------------------------
+# Unknown versions: an absent version is not a version
+# ---------------------------------------------------------------------------
+#
+# Plenty of frames simply do not record predictor_version -- a reader that
+# has no version column, a source that reports one for some rows and not
+# others. Treating a missing value as a version called "nan" invents a
+# second version, then raises an ambiguity error naming a version the
+# caller cannot possibly pass. It also made resolve_default_versions and
+# the DSL disagree: the resolver dropped the NaN and reported no choice
+# to make, while the DSL raised, so feeding the resolver's own answer
+# back in still crashed.
+
+
+@pytest.mark.parametrize("versions", [
+    (np.nan, np.nan),
+    ("4.2", np.nan),
+    ("4.2", None),
+    ("4.2", ""),
+    ("4.2", "   "),
+    ("4.2", "nan"),
+    ("", ""),
+], ids=["all-nan", "partial-nan", "none", "empty", "whitespace",
+        "literal-nan-string", "all-empty"])
+def test_an_unknown_version_is_not_an_ambiguity(versions):
+    scores = evaluate_scores(_frame(versions=versions), Affinity.value)
+
+    assert scores.notna().any()
+
+
+@pytest.mark.parametrize("versions", [
+    (np.nan, np.nan), ("4.2", np.nan), ("4.2", ""), ("4.2", "nan"),
+], ids=["all-nan", "partial-nan", "empty", "literal-nan-string"])
+def test_the_resolver_reports_no_choice_for_unknown_versions(versions):
+    assert resolve_default_versions(_frame(versions=versions)) == {}
+
+
+def test_a_frame_with_no_version_column_evaluates():
+    df = _frame().drop(columns=["predictor_version"])
+
+    assert evaluate_scores(df, Affinity.value).notna().any()
+
+
+@pytest.mark.parametrize("versions", [
+    (np.nan, np.nan), ("4.2", np.nan), ("4.2", ""),
+], ids=["all-nan", "partial-nan", "empty"])
+def test_the_resolver_and_the_dsl_agree(versions):
+    """The documented loop must not crash on a frame the resolver passed on."""
+    df = _frame(versions=versions)
+
+    scores = evaluate_scores(
+        df, Affinity.value, default_versions=resolve_default_versions(df),
+    )
+
+    assert scores.notna().any()
+
+
+def test_two_real_versions_still_raise_when_some_rows_have_none():
+    """An unknown version does not mask a genuine disagreement."""
+    df = _frame(versions=("4.1b", "4.2", np.nan), values=(75.0, 120.0, 99.0))
+
+    with pytest.raises(ValueError, match="more than one predictor version"):
+        evaluate_scores(df, Affinity.value)
+
+
+def test_the_error_never_names_a_missing_version():
+    """It told the caller to pass 'nan', which is not a version."""
+    df = _frame(versions=("4.1b", "4.2", np.nan), values=(75.0, 120.0, 99.0))
+
+    with pytest.raises(ValueError) as excinfo:
+        evaluate_scores(df, Affinity.value)
+
+    message = str(excinfo.value)
+    assert "netmhcpan 4.1b" in message and "netmhcpan 4.2" in message
+    assert "nan" not in message.lower().split("default_versions")[0]
+
+
+def test_a_resolved_default_still_works_alongside_unknown_versions():
+    df = _frame(versions=("4.1b", "4.2", np.nan), values=(75.0, 120.0, 99.0))
+
+    scores = evaluate_scores(
+        df, Affinity.value, default_versions=resolve_default_versions(df),
+    )
+
+    assert scores.dropna().unique().tolist() == [120.0]
+
+
+def test_validate_does_not_offer_a_blank_as_available():
+    df = _frame(versions=("4.2", ""))
+
+    with pytest.raises(ValueError) as excinfo:
+        validate_default_versions(df, {("pMHC_affinity", "netmhcpan"): "9.9"})
+
+    assert "Available: ['4.2']" in str(excinfo.value)

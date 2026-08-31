@@ -447,9 +447,10 @@ def resolve_default_versions(df, prefer="newest"):
         ["kind", "prediction_method_name"], sort=False, dropna=True,
     )
     for (kind_value, method), group in grouped:
-        versions = sorted({
-            str(v) for v in group["predictor_version"].dropna().unique()
-        })
+        known = group["predictor_version"][
+            _known_versions(group["predictor_version"])
+        ]
+        versions = sorted({str(v).strip() for v in known.unique()})
         if len(versions) < 2:
             continue
         ordered = sorted(versions, key=_version_sort_key)
@@ -457,6 +458,18 @@ def resolve_default_versions(df, prefer="newest"):
             ordered[-1] if prefer == "newest" else ordered[0]
         )
     return resolved
+
+
+def _known_versions(values) -> pd.Series:
+    """The entries of *values* that actually name a version.
+
+    A missing ``predictor_version`` — NaN, None, or blank — is the
+    absence of a version claim, not a version called "nan". Treating it
+    as one produces a phantom second version, and then an ambiguity
+    error naming a version the caller cannot possibly pass.
+    """
+    text = values.astype(str).str.strip()
+    return values.notna() & (text != "") & (text.str.lower() != "nan")
 
 
 def _version_sort_key(version):
@@ -549,7 +562,9 @@ def validate_default_versions(df, default_versions):
         if rows.empty:
             continue
         available = sorted({
-            str(v) for v in rows["predictor_version"].dropna().unique()
+            str(v).strip() for v in rows["predictor_version"][
+                _known_versions(rows["predictor_version"])
+            ].unique()
         })
         if version not in available:
             raise ValueError(
@@ -1502,22 +1517,30 @@ def _filter_kind_method_version(ctx, kind, method, version):
         and "predictor_version" in sub.columns
         and "prediction_method_name" in sub.columns
     ):
-        pairs = sub[["prediction_method_name", "predictor_version"]].astype(str)
-        counted = sub[list(ctx.group_keys)].copy()
+        # Only rows that name a version can disagree about one. A frame
+        # that simply does not record versions is not ambiguous, and
+        # neither is one version plus rows that record none — otherwise
+        # every reader that leaves predictor_version empty would start
+        # raising, with nothing the caller could pass to resolve it.
+        named = sub[_known_versions(sub["predictor_version"])]
+        pairs = named[
+            ["prediction_method_name", "predictor_version"]
+        ].astype(str)
+        counted = named[list(ctx.group_keys)].copy()
         counted["_pair"] = (
             pairs["prediction_method_name"] + "\x00"
             + pairs["predictor_version"]
         )
         pairs_per_group = counted.groupby(
             ctx.group_keys, sort=False, dropna=False,
-        )["_pair"].nunique()
-        if (pairs_per_group > 1).any():
+        )["_pair"].nunique() if not counted.empty else pd.Series(dtype=int)
+        if len(pairs_per_group) and (pairs_per_group > 1).any():
             listed = ", ".join(
                 f"{m} {v}" for m, v in sorted(
                     {
                         (m, v) for m, v in zip(
-                            sub["prediction_method_name"],
-                            sub["predictor_version"].astype(str),
+                            named["prediction_method_name"],
+                            named["predictor_version"].astype(str),
                         ) if pd.notna(m)
                     }
                 )
