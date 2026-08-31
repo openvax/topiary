@@ -49,6 +49,52 @@ protecting the field it was written for.
 **Fixed: `ProteinFragment.from_dict` hardcoded its field list**, so it
 rejected every field added after that list was written. It now derives the
 set from the dataclass and cannot drift again.
+## 5.31.1
+
+**Fixed: `SelfProteome.nearest` crashed when a peptide-length bucket was
+empty (#216).** A proteome whose sources are all shorter than the peptide
+window raised `ValueError: attempt to get argmin of an empty sequence`
+instead of reporting no match:
+
+```python
+SelfProteome.from_fasta("short.fasta").nearest(["SIINFEKLA"])
+```
+
+`_build_index` created an entry for every requested peptide length whether
+or not any source was long enough to fill it, and `nearest` guarded on
+*key presence* rather than emptiness — so an empty-but-present bucket
+skipped the graceful path and reached `argmin` over a zero-width axis.
+
+The same fact already had a correct answer by another route: a query whose
+length the proteome has no bucket for returns a clean empty row. Absent and
+empty mean the same thing here — "no self peptide of this length to compare
+against" — and now give the same answer. Unfillable lengths are also no
+longer recorded, so `peptide_lengths` stops claiming coverage the proteome
+does not have.
+
+This is reachable through `from_fasta` and `from_peptides`, the
+caller-supplied paths.
+
+**Fixed: `to_wide` silently emitted `_x` / `_y` columns (#217).** The
+annotation columns carried through from the long frame were merged against
+the generated `{model_key}_{kind}_{field}` columns with pandas' default
+suffixes. A name present on both sides renamed *both* to `_x` / `_y`: the
+canonical name then did not exist at all, `from_wide` found no value for
+it, and the prediction was lost with nothing said.
+
+```python
+to_wide(long_df)          # long_df carries an annotation "netmhcpan_affinity_value"
+# ['netmhcpan_affinity_value_x', ..., 'netmhcpan_affinity_value_y']
+from_wide(wide)["value"]  # [nan] — the 75.0 that went in is gone
+```
+
+Now refused, naming the offending column. This is the same silent
+round-trip loss as #208 and #211, one layer up at the point where the
+column names are finally assembled — and `_x` / `_y` were pandas merge
+artifacts leaking into a schema that never documented them. The realistic
+`read_lens` → `to_long` → `to_wide` path was never affected, since
+`to_long` consumes the prediction columns rather than leaving them behind
+as annotations.
 
 ## 5.31.0
 
