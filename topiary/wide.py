@@ -252,6 +252,23 @@ def to_wide(df):
         aggfunc="first",
     ).reset_index()
     wide_values.columns.name = None
+    # An annotation column carried through from the long frame can be
+    # named exactly like a column about to be generated. pandas would
+    # rename *both* sides to _x / _y, silently: the canonical name would
+    # then not exist at all, from_wide would find no value for it, and
+    # the prediction would be lost with nothing said — the same silent
+    # round-trip loss as #208 and #211, one layer up, at the point where
+    # the names are finally assembled. Refuse it, naming the columns.
+    generated = set(wide_values.columns) - {"_topiary_group_id"}
+    clash = sorted(set(group_index.columns) & generated)
+    if clash:
+        raise ValueError(
+            f"Column name(s) {clash} already exist on the frame and would "
+            f"collide with the wide-form prediction column(s) to_wide "
+            f"generates for the same name. Rename or drop them before "
+            f"converting; keeping both is not possible, since a wide "
+            f"frame addresses a prediction by exactly that name."
+        )
     wide = (
         group_index
         .merge(wide_values, on="_topiary_group_id", how="left")

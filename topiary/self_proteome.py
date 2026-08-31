@@ -301,7 +301,12 @@ class SelfProteome:
 
         results: List[Optional[dict]] = [None] * len(peptides)
         for L, items in by_length.items():
-            if L not in self._reference_arrays:
+            # Emptiness, not key presence: a bucket with no peptides
+            # answers the query exactly as an absent one does — there is
+            # no self peptide of this length to compare against — and
+            # sending it on reaches ``argmin`` over a zero-width axis.
+            reference = self._reference_arrays.get(L)
+            if reference is None or len(reference) == 0:
                 for idx, pep in items:
                     results[idx] = self._empty_row(pep, metric)
                 continue
@@ -810,6 +815,13 @@ def _build_index(records, peptide_lengths):
     reference_arrays: Dict[int, np.ndarray] = {}
     for L, pep_dict in peptides_by_length.items():
         peps = list(pep_dict.keys())
+        if not peps:
+            # A requested length no source sequence was long enough to
+            # yield. Recording an empty bucket would make
+            # ``peptide_lengths`` claim a coverage the proteome does not
+            # have, and makes "no bucket" and "empty bucket" two
+            # different answers to one question.
+            continue
         reference_peptides[L] = peps
         reference_arrays[L] = _encode_peptides(peps, L) if peps else (
             np.empty((0, L), dtype=np.int8)
