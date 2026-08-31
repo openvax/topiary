@@ -266,8 +266,11 @@ def _class_of_allele(allele):
     the ``class_i`` *and* ``class_ii`` filters alike, so the peptide
     simply isn't there.
 
-    mhcgnomes distinguishes ``Ia`` / ``Ib`` / ``IIa`` / ``IIb``; topiary
-    reports the class, since that is what the DSL filters on.
+    The class comes from mhcgnomes' own ``is_class1`` / ``is_class2``
+    predicates rather than from reading its ``mhc_class`` label, which
+    distinguishes ``Ia`` / ``Ib`` / ``IIa`` / ``IIb``.  Collapsing those
+    to ``I`` / ``II`` by string prefix would be the same kind of guess
+    this function exists to stop making — one layer up.
     """
     if not isinstance(allele, str) or not allele.strip():
         return pd.NA
@@ -277,16 +280,14 @@ def _class_of_allele(allele):
         parsed = mhcgnomes.parse(allele)
     except Exception:  # noqa: BLE001 — mhcgnomes raises many types
         return pd.NA
-    mhc_class = getattr(parsed, "mhc_class", None) or getattr(
-        getattr(parsed, "gene", None), "mhc_class", None
-    )
-    if not mhc_class:
+    if not getattr(parsed, "has_mhc_class", False):
+        # Parsed as something without a class of its own — a bare
+        # species, say.
         return pd.NA
-    text = str(mhc_class)
-    if text.startswith("II"):
-        return "II"
-    if text.startswith("I"):
+    if parsed.is_class1:
         return "I"
+    if parsed.is_class2:
+        return "II"
     return pd.NA
 
 

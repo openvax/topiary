@@ -90,3 +90,25 @@ def test_the_class_filters_now_see_these_alleles():
 
     assert sorted(class_i["allele"]) == ["HLA-A*02:01", "HLA-E*01:01"]
     assert class_ii["allele"].tolist() == ["HLA-DRB1*01:01"]
+
+
+def test_a_species_without_a_gene_has_no_class():
+    """`HLA` parses, but names no gene — so it has no class of its own."""
+    assert pd.isna(_class_of("HLA"))
+
+
+def test_the_class_comes_from_mhcgnomes_predicates():
+    """Not from string-matching its Ia / Ib / IIa / IIb labels.
+
+    Collapsing those by prefix would be the same guess this function
+    exists to stop making, one layer up — so the predicates are what's
+    consulted, and this pins that they agree for every case above.
+    """
+    import mhcgnomes
+
+    for allele in ("HLA-A*02:01", "HLA-E*01:01", "H2-Kb", "BoLA-N*01301",
+                   "HLA-DRB1*01:01", "H2-IAb"):
+        parsed = mhcgnomes.parse(allele)
+        expected = "I" if parsed.is_class1 else "II" if parsed.is_class2 else pd.NA
+
+        assert _class_of(allele) == expected, allele
