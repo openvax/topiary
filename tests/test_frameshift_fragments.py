@@ -1,4 +1,4 @@
-"""Regression tests pinning _fragment_from_effect behavior on varcode
+"""Regression tests pinning fragment_from_effect behavior on varcode
 FrameShift / FrameShiftTruncation effects.
 
 Codex review of PR B flagged a suspected bug: the adapter passes
@@ -17,7 +17,7 @@ correctly flagged ``contains_mutant_residues=True`` and survives
 
 We cover:
   * the varcode invariant itself (via a real ``varcode.effects.FrameShift``);
-  * ``_fragment_from_effect`` target_intervals across a grid of shift
+  * ``fragment_from_effect`` target_intervals across a grid of shift
     positions, tail lengths, and paddings;
   * per-peptide overlaps_target for every sliding window inside the
     subsequence;
@@ -33,7 +33,7 @@ import pytest
 from mhctools import RandomBindingPredictor
 
 from topiary import TopiaryPredictor
-from topiary.predictor import _fragment_from_effect
+from topiary.predictor import fragment_from_effect
 from topiary.protein_fragment import ProteinFragment
 
 
@@ -162,7 +162,7 @@ class TestVarcodeFrameShiftInvariant:
 
 
 # ---------------------------------------------------------------------------
-# _fragment_from_effect: target_intervals across a grid of FrameShift shapes
+# fragment_from_effect: target_intervals across a grid of FrameShift shapes
 # ---------------------------------------------------------------------------
 
 
@@ -181,7 +181,7 @@ _FRAMESHIFT_GRID = [
 
 
 class TestFrameShiftTargetInterval:
-    """_fragment_from_effect on varcode-style FrameShift: verify
+    """fragment_from_effect on varcode-style FrameShift: verify
     target_intervals covers the full downstream novel tail in the
     resulting subsequence, under a grid of shift positions / tail
     lengths / paddings.
@@ -194,7 +194,7 @@ class TestFrameShiftTargetInterval:
         effect = _make_mock_frameshift(
             shift_at=shift_at, shifted_tail=shifted_tail,
         )
-        frag = _fragment_from_effect(effect, padding_around_mutation=padding)
+        frag = fragment_from_effect(effect, padding_around_mutation=padding)
         assert frag is not None
         assert frag.source_type == "variant:frameshift"
         assert len(frag.target_intervals) == 1
@@ -227,7 +227,7 @@ class TestFrameShiftTargetInterval:
         effect = _make_mock_frameshift(
             shift_at=shift_at, shifted_tail=shifted_tail,
         )
-        frag = _fragment_from_effect(effect, padding_around_mutation=padding)
+        frag = fragment_from_effect(effect, padding_around_mutation=padding)
         assert frag.reference_sequence is None
 
 
@@ -246,7 +246,7 @@ class TestFrameShiftPerPeptideOverlap:
         effect = _make_mock_frameshift(
             shift_at=shift_at, shifted_tail=shifted_tail,
         )
-        frag = _fragment_from_effect(effect, padding_around_mutation=padding)
+        frag = fragment_from_effect(effect, padding_around_mutation=padding)
         seq_start = max(0, shift_at - padding)
         rel_shift = shift_at - seq_start
 
@@ -303,7 +303,7 @@ class TestInframeFlagEquivalenceOnFrameShift:
         effect = _make_mock_frameshift(
             shift_at=shift_at, shifted_tail=shifted_tail,
         )
-        frag = _fragment_from_effect(effect, padding_around_mutation=padding)
+        frag = fragment_from_effect(effect, padding_around_mutation=padding)
 
         # Re-build the same subsequence manually and invoke from_variant
         # both ways to compare.
@@ -351,7 +351,7 @@ class TestFrameShiftTruncation:
         """FrameShiftTruncation adds no novel residues; mut_start==mut_end.
         The target interval is empty (a point)."""
         effect = _make_mock_frameshift_truncation(truncate_at=truncate_at)
-        frag = _fragment_from_effect(effect, padding_around_mutation=padding)
+        frag = fragment_from_effect(effect, padding_around_mutation=padding)
         assert frag is not None
         assert frag.source_type == "variant:frameshift"
         assert len(frag.target_intervals) == 1
@@ -365,7 +365,7 @@ class TestFrameShiftTruncation:
     ])
     def test_no_peptides_are_novel(self, truncate_at, padding, peptide_length):
         effect = _make_mock_frameshift_truncation(truncate_at=truncate_at)
-        frag = _fragment_from_effect(effect, padding_around_mutation=padding)
+        frag = fragment_from_effect(effect, padding_around_mutation=padding)
         for offset in range(0, len(frag.sequence) - peptide_length + 1):
             assert not frag.peptide_overlaps_target(offset, peptide_length), (
                 f"peptide at offset={offset} erroneously marked novel for "
@@ -432,7 +432,7 @@ class TestFrameShiftEndToEnd:
         effect = self._make_real_frameshift_effect(
             shift_at=shift_at, shifted_tail=shifted_tail,
         )
-        frag = _fragment_from_effect(
+        frag = fragment_from_effect(
             effect, padding_around_mutation=padding,
         )
         assert frag is not None

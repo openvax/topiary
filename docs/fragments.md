@@ -42,6 +42,23 @@ Output DataFrame columns, beyond the standard prediction fields:
 | `wt_value`, `wt_score`, `wt_affinity`, `wt_percentile_rank`, `wt_prediction_method_name`, `wt_predictor_version` | Populated when `TopiaryPredictor(predict_wt=True)` scores non-null `wt_peptide` values with the configured MHC model(s). Rows without a length-compatible WT peptide keep NaN values. |
 | *(each annotation key)* | Flattened from every fragment's `annotations` dict. Underscore-prefixed keys (e.g. `_subsequence_offset`) are reserved for internal plumbing and never surface as columns. |
 
+## Building a fragment from a variant effect
+
+`fragment_from_effect(effect, padding_around_mutation)` is the varcode arm of the multi-source story — the same `ProteinFragment` a LENS or pVACseq reader produces, built from a translated variant effect instead:
+
+```python
+from topiary import fragment_from_effect
+
+fragment = fragment_from_effect(effect, padding_around_mutation=8)
+```
+
+Two rules worth knowing before you rely on it:
+
+- The window is clipped at the protein's **first stop codon**, so a mutation near the end yields a shorter fragment rather than a padded one. If the stop falls before the reported mutation, there is nothing to present and the function returns `None`.
+- `reference_sequence` is populated **only** when the pre- and post-mutation proteins are the same length. An indel or frameshift shifts every downstream residue, so the window sliced at the same offsets would be a different piece of protein presented as a comparator — the same restriction `wt_peptide` applies.
+
+It returns `None` when the effect has no mutant protein sequence at all (silent, non-coding, untranslatable). That is an absence, not an error.
+
 ## RNA evidence, and knowing which fields are real
 
 Beyond `gene_expression` / `transcript_expression`, a fragment can carry

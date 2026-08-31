@@ -78,6 +78,8 @@ evaluate_scores(df, node, default_versions=versions)
 
 Like `default_methods`, it only speaks where there is a real choice: a model present at one version is omitted.
 
+`is_named_version(value)` is the rule both of those use for "was a version stated at all" — `None`, `NaN`, blank, and the literal strings `"nan"` / `"None"` / `"<NA>"` all mean not stated. It is public because the obvious version, `if str(v).strip()`, excludes only the blank spellings: `str(None)` is `"None"` and `str(float("nan"))` is `"nan"`, both truthy. `known_versions(series)` is the same rule over a column. Call them rather than writing the test again.
+
 `validate_default_methods` exists because `EvalContext` only consults a default when a kind is *actually* ambiguous — so an entry naming a model that never ran sits inert until the day two models do produce that kind, and then starts deciding.
 
 One thing is deliberately *not* shared: on a frame where several methods produce the same kind, `apply_filter` auto-aggregates an unqualified reference across them (`nanmin` for `<`/`<=`, `nanmax` for `>`/`>=`), while `apply_sort` and `evaluate_scores` stay strict and raise on the ambiguity. Pass `default_methods={"affinity": "mhcflurry"}` (or qualify the reference, `Affinity["mhcflurry"]`) to get one answer from all three.

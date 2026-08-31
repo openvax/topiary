@@ -31,6 +31,40 @@ Before telling the user a change is "complete":
 - `./test.sh` — pytest (with coverage where configured)
 - `./deploy.sh [version]` — lint → test → optional version bump → build → twine upload → tag → push
 
+## Public API over private helpers
+
+**Logic that does real work belongs in one documented public function, not in a
+private helper.** If a `_leading_underscore` function encodes a decision a user
+or a sibling repo would want to make — building a fragment from a variant
+effect, deciding what counts as a version, classifying an allele — it is in the
+wrong place.
+
+The failure mode this prevents: a consumer needs the behavior, cannot import
+it, and reimplements it. That copy then drifts. This has happened repeatedly
+across openvax/pirl-unc — vaxrank reimplemented topiary's LENS sniffer, its
+MHC-dependence table, its method-preference order, and its "was a version named
+at all" rule, and every copy was wrong in a way the original was not.
+
+So:
+
+- **Centralize.** One implementation, one place. If two functions answer the
+  same question, one calls the other — `resolve_default_versions` is
+  implemented in terms of `describe_default_versions` for exactly this reason.
+- **Make it public.** Export it from `topiary/__init__.py` and list it in
+  `__all__`. A private function a consumer needs is a bug report waiting to be
+  filed.
+- **Keep it simple enough to read.** Prefer a function that can be understood
+  in one sitting over a clever one. If it needs a diagram, it needs splitting.
+- **Document it for humans**, numpy style: what it returns, what the arguments
+  mean, what it does when the input is absent or empty, and *why* it makes the
+  choice it makes. State the non-obvious decision, not just the signature.
+- **Give it a parseable name.** The name should say what it returns, in the
+  domain's vocabulary — `fragment_from_effect`, not `_ffe` or `_build`.
+
+Genuinely private helpers are fine: single-call-site plumbing, a formatting
+detail, a cache key. The test is whether someone outside this repo would ever
+want to call it. If yes, it is public.
+
 ## Code Style
 
 - Python 3.9+

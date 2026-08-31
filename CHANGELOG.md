@@ -1,5 +1,89 @@
 # Changelog
 
+## 5.35.0
+
+**Changed: `_fragment_from_effect` is now public as `fragment_from_effect`.**
+It builds a :class:`ProteinFragment` from a varcode variant effect — the
+varcode arm of the multi-source fragment story, and something a caller
+doing its own variant annotation would otherwise reimplement. Now
+exported, with the two non-obvious rules written down: the window is
+clipped at the protein's first stop codon, and `reference_sequence` is
+populated only when the pre- and post-mutation proteins align 1:1,
+because slicing the same offsets out of a frameshifted protein would
+present a different piece of protein as the comparator.
+
+**Added: `is_named_version`, `known_versions`, `NOT_STATED_VERSIONS`.**
+Whether a value names a predictor version. `None`, `NaN`, whitespace,
+and the literal strings `"nan"`, `"none"`, `"<na>"`, `"nat"`, `"null"`
+all mean "not stated" — those being what a missing value becomes once
+anything calls `str()` on it, which this repo does on reload, on CSV
+round trip, and on cache export.
+
+It is public because the obvious version of the rule is wrong in a way
+that is easy to miss: `if str(v).strip()` excludes only the *blank*
+spellings, since `str(None)` is `"None"` and `str(float("nan"))` is
+`"nan"` — both truthy. So the naive rule admits three of the five ways a
+version goes missing, not one. That mistake shipped in topiary and,
+independently, twice in a downstream consumer that had reimplemented it.
+
+`known_versions(series)` is the same rule over a column, built from the
+same `NOT_STATED_VERSIONS` set rather than restating the test.
+`is_named_version` now **raises** on a Series or list instead of
+answering — returning True for a column of missing versions would have
+delivered the exact phantom-version outcome the function exists to
+prevent.
+
+**Centralized: one definition of "did the source say anything here?"**
+The question was being asked eight different ways — for versions,
+alleles, kinds, method names, filter values and TSV cells — and **none
+of the copies rejected `"nan"`**, so a frame that had been through
+`astype(str)` anywhere carried stringified nulls that every check
+accepted as real values. A stringified missing allele became a real
+per-allele group.
+
+There are now two public predicates and one set:
+
+```python
+is_stated(value)        # scalar:  did the source say anything here?
+stated_values(series)   # the same rule over a column
+NOT_STATED              # the spellings that mean "no": "", "nan", "none", "<na>", "nat", "null"
+```
+
+`is_named_version` / `known_versions` remain as the version-facing names
+and delegate — versions were never special. Both scalar forms **raise**
+on a container instead of answering; returning True for a column of
+missing values is the outcome they exist to prevent.
+
+`NULL_TEXT` is `NOT_STATED` minus the empty string, and the group key
+collapses it into a real null. The distinction is load-bearing rather
+than cosmetic: `str(None)` is `"None"` and `str(nan)` is `"nan"`, but
+**never `""`** — so a blank cell is a stated-but-empty value, which
+frames use as a group of its own for allele-free rows. Collapsing it
+would merge groups a caller meant to keep apart.
+
+**Fixed: three unmigrated copies of that rule.** `wide.py`'s
+`_version_str`, `io.py`'s `_model_version_str` and `cached.py`'s
+identity check each had their own version with different coverage —
+`_version_str` had no `"nan"` test at all, so a stringified missing
+version became the model key `netmhcpan_nan`. All three now delegate.
+
+**Fixed: `fragment_from_effect` could emit a fragment that contradicted
+itself.** A stop codon upstream of the reported mutation gave a
+zero-length sequence carrying a target interval pointing outside it, so
+`peptide_overlaps_target` answered True for a fragment with no residues.
+The window is now clamped so every interval lies inside the sequence.
+Also: the reference window is clipped at its own stop, so a comparator
+cannot carry a `*` the fragment does not; a negative
+`padding_around_mutation` is refused rather than producing negative
+intervals; and an effect exposing a mutant protein with no
+`aa_mutation_start_offset` (varcode's `HaplotypeEffect`,
+`ExonicSpliceSite`) raises a message naming the effect and the attribute
+instead of `TypeError: unsupported operand type(s) for -`.
+
+AGENTS.md gains a section on this: **logic that does real work belongs in
+one documented public function**, because a consumer that needs behavior
+it cannot import will reimplement it, and the copy will drift.
+
 ## 5.34.0
 
 Two more absent-vs-empty conflations (#223), found by auditing after #214,

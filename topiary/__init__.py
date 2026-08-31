@@ -1,4 +1,8 @@
-from .predictor import TopiaryPredictor, from_predictions
+from .predictor import (
+    TopiaryPredictor,
+    fragment_from_effect,
+    from_predictions,
+)
 from .ranking import (
     self_nearest,
     Affinity,
@@ -22,6 +26,13 @@ from .ranking import (
     mhc_dependence,
     resolve_default_methods,
     describe_default_versions,
+    is_named_version,
+    is_stated,
+    known_versions,
+    stated_values,
+    NOT_STATED,
+    NULL_TEXT,
+    NOT_STATED_VERSIONS,
     resolve_default_versions,
     validate_default_methods,
     validate_default_versions,
@@ -96,11 +107,12 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.34.0"
+__version__ = "5.35.0"
 
 __all__ = [
     "TopiaryPredictor",
     "from_predictions",
+    "fragment_from_effect",
     "CachedPredictor",
     "mhcflurry_composite_version",
     "SelfProteome",
@@ -125,6 +137,13 @@ __all__ = [
     "mhc_dependence",
     "resolve_default_methods",
     "describe_default_versions",
+    "is_named_version",
+    "is_stated",
+    "known_versions",
+    "stated_values",
+    "NOT_STATED",
+    "NULL_TEXT",
+    "NOT_STATED_VERSIONS",
     "resolve_default_versions",
     "validate_default_methods",
     "validate_default_versions",

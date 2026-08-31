@@ -37,6 +37,7 @@ from typing import Callable, Iterable, List, Mapping, Optional, Union
 import pandas as pd
 
 from .predictor import _backfill_value_from_score
+from .ranking import stated_values
 
 
 # Columns a cache row must carry so the core invariant and lookup work.
@@ -164,12 +165,12 @@ class CachedPredictor:
                 f"{sorted(missing)}.  Provide them in the DataFrame or "
                 f"pass predictor_name / predictor_version to the loader."
             )
-        # Reject null / empty identity columns before coercing to str
-        # ("".astype(str) → "", "None" etc. pass a naive check).
+        # Reject null / empty identity columns before coercing to str.
+        # known_versions is the one definition of "was this stated at
+        # all"; a local isin([...]) list here drifted from it before
+        # (it missed "NAN" and "<NA>").
         for col in ("prediction_method_name", "predictor_version"):
-            na_mask = df[col].isna() | (
-                df[col].astype(str).str.strip().isin(["", "None", "nan", "NaN"])
-            )
+            na_mask = ~stated_values(df[col])
             if na_mask.any():
                 raise ValueError(
                     f"CachedPredictor: column {col!r} must be a non-empty "
@@ -181,9 +182,7 @@ class CachedPredictor:
         # Reject null / empty kind the same way — multi-kind cache
         # keys on (peptide, allele, length, kind); NaN/missing kind
         # would silently collide across kinds.
-        na_mask = df["kind"].isna() | (
-            df["kind"].astype(str).str.strip().isin(["", "None", "nan", "NaN"])
-        )
+        na_mask = ~stated_values(df["kind"])
         if na_mask.any():
             raise ValueError(
                 f"CachedPredictor: column 'kind' must be a non-empty "

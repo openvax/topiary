@@ -54,6 +54,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .ranking import stated_values
 from .io import Metadata
 from .result import TopiaryResult
 
@@ -272,9 +273,7 @@ def _coords_variant_id(df: pd.DataFrame) -> pd.Series:
     complete = pd.Series(True, index=df.index)
     for part in parts:
         column = df[part]
-        known = column.notna() & (
-            column.astype(str).str.strip().str.lower().ne("nan")
-        ) & column.astype(str).str.strip().ne("")
+        known = stated_values(column)
         complete &= known
         text[part] = column.astype(str).str.strip()
 
@@ -287,7 +286,7 @@ def _coords_variant_id(df: pd.DataFrame) -> pd.Series:
     if missing:
         incomplete = sorted(
             part for part in parts
-            if (df[part].isna() | df[part].astype(str).str.strip().eq("")).any()
+            if (~stated_values(df[part])).any()
         )
         warnings.warn(
             f"{missing} pVACseq row(s) are missing one of "

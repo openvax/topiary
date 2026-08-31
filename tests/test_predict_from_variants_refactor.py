@@ -7,7 +7,7 @@ These tests assert:
      mutation_end_in_peptide, absolute peptide_offset, transcript_name).
   2. New fragment-derived columns (fragment_id, source_type,
      overlaps_target, wt_peptide) are now populated on the variant path.
-  3. _fragment_from_effect: given a varcode Effect with known offsets,
+  3. fragment_from_effect: given a varcode Effect with known offsets,
      produces a fragment with the correct target_intervals,
      reference_sequence, and source_type classification.
 """
@@ -25,7 +25,7 @@ from topiary.predictor import (
     _MUTATION_END_KEY,
     _MUTATION_START_KEY,
     _SUBSEQ_OFFSET_KEY,
-    _fragment_from_effect,
+    fragment_from_effect,
 )
 
 from .data import cancer_test_variants
@@ -158,7 +158,7 @@ class TestFragmentColumnsOnVariantPath:
 
 
 # ---------------------------------------------------------------------------
-# _fragment_from_effect unit tests (varcode-free via mock)
+# fragment_from_effect unit tests (varcode-free via mock)
 # ---------------------------------------------------------------------------
 
 
@@ -176,7 +176,7 @@ def _make_mock_effect(
     transcript_name="FAKE-001",
 ):
     # Build a real class so type(effect).__name__ returns cls_name —
-    # which is what _fragment_from_effect uses to pick source_type.
+    # which is what fragment_from_effect uses to pick source_type.
     effect_cls = type(cls_name, (), {})
     e = effect_cls()
     e.mutant_protein_sequence = mutant_protein
@@ -202,7 +202,7 @@ class TestFragmentFromEffect:
             mutation_start=11, mutation_end=12,
             cls_name="Substitution",
         )
-        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        frag = fragment_from_effect(effect, padding_around_mutation=8)
         assert frag is not None
         assert frag.source_type == "variant:snv"
         assert frag.reference_sequence is not None
@@ -226,14 +226,14 @@ class TestFragmentFromEffect:
             mutation_start=11, mutation_end=12,
             cls_name="FrameShift",
         )
-        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        frag = fragment_from_effect(effect, padding_around_mutation=8)
         assert frag is not None
         assert frag.source_type == "variant:frameshift"
         assert frag.reference_sequence is None
 
     def test_subsequence_offset_stashed_in_annotations(self):
         effect = _make_mock_effect(mutation_start=50, mutation_end=51)
-        frag = _fragment_from_effect(
+        frag = fragment_from_effect(
             effect,
             padding_around_mutation=8,
             gene_expression=12.3,
@@ -250,7 +250,7 @@ class TestFragmentFromEffect:
 
     def test_returns_none_for_effect_without_protein(self):
         effect = _make_mock_effect(mutant_protein=None)
-        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        frag = fragment_from_effect(effect, padding_around_mutation=8)
         assert frag is None
 
     def test_stop_codon_trims_subsequence(self):
@@ -263,7 +263,7 @@ class TestFragmentFromEffect:
             mutation_start=8, mutation_end=9,
             cls_name="Substitution",
         )
-        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        frag = fragment_from_effect(effect, padding_around_mutation=8)
         assert frag is not None
         # Subsequence should not contain the '*' character
         assert "*" not in frag.sequence
@@ -271,7 +271,7 @@ class TestFragmentFromEffect:
     def test_premature_stop_source_type(self):
         """PrematureStop effects map to the documented ``variant:stop_gain``."""
         effect = _make_mock_effect(cls_name="PrematureStop")
-        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        frag = fragment_from_effect(effect, padding_around_mutation=8)
         assert frag.source_type == "variant:stop_gain"
 
     def test_multi_residue_substitution_becomes_indel(self):
@@ -281,7 +281,7 @@ class TestFragmentFromEffect:
             mutation_start=10, mutation_end=13,   # 3-residue block
             cls_name="Substitution",
         )
-        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        frag = fragment_from_effect(effect, padding_around_mutation=8)
         assert frag.source_type == "variant:indel"
 
     def test_unknown_effect_class_falls_back_to_lowercase(self):
@@ -289,7 +289,7 @@ class TestFragmentFromEffect:
         so new varcode effect types remain representable without a
         Topiary change."""
         effect = _make_mock_effect(cls_name="SomeNovelEffect")
-        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        frag = fragment_from_effect(effect, padding_around_mutation=8)
         assert frag.source_type == "variant:somenoveleffect"
 
     @pytest.mark.parametrize(
@@ -322,7 +322,7 @@ class TestFragmentFromEffect:
             mutation_end=10 + mutation_span,
             cls_name=cls_name,
         )
-        frag = _fragment_from_effect(effect, padding_around_mutation=8)
+        frag = fragment_from_effect(effect, padding_around_mutation=8)
         assert frag.source_type == expected_source_type
 
 

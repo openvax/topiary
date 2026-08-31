@@ -172,7 +172,7 @@ _GROUP_KEYS_FRAGMENT = ["fragment_id", "peptide", "peptide_offset", "allele"]
 
 def _is_blank(value) -> bool:
     """True for null or whitespace-only — "this cell carries no value"."""
-    return pd.isna(value) or str(value).strip() == ""
+    return not is_stated(value)
 
 
 def _has_real_values(values) -> bool:
@@ -429,7 +429,7 @@ def _normalize_alleles(alleles):
             "alleles must be a non-empty sequence of allele names; pass "
             "alleles=None to use only the alleles present in the DataFrame."
         )
-    blank = [a for a in declared if pd.isna(a) or str(a).strip() == ""]
+    blank = [a for a in declared if not is_stated(a)]
     if blank:
         raise ValueError(
             "alleles must all name an allele; got a blank entry. An "
@@ -575,16 +575,142 @@ def describe_default_versions(df):
     return described
 
 
-def _known_versions(values) -> pd.Series:
-    """The entries of *values* that actually name a version.
+#: Text that means "no value was stated here".
+#:
+#: These are the spellings a missing value takes once anything calls
+#: ``str()`` on it — which happens on ``astype(str)``, on a CSV round
+#: trip, and on a cache export — plus the blank forms. A column that has
+#: been through any of those carries ``"nan"`` where it once carried
+#: ``NaN``, and a check that only tests for blankness lets it through as
+#: a real value.
+#: The text a missing value becomes under ``str()``.
+#:
+#: The empty string is deliberately **not** here: ``str(None)`` is
+#: ``"None"``, never ``""``. A blank cell is a stated-but-empty value,
+#: which some frames use as a group of its own (an allele-free
+#: prediction row), so collapsing it into null would merge groups a
+#: caller meant to keep apart.
+NULL_TEXT = frozenset({"nan", "none", "<na>", "nat", "null"})
 
-    A missing ``predictor_version`` — NaN, None, or blank — is the
-    absence of a version claim, not a version called "nan". Treating it
-    as one produces a phantom second version, and then an ambiguity
-    error naming a version the caller cannot possibly pass.
+NOT_STATED = NULL_TEXT | {""}
+
+#: Deprecated alias for :data:`NOT_STATED`. Versions were never special.
+NOT_STATED_VERSIONS = NOT_STATED
+
+_CONTAINER_TYPES = (pd.Series, pd.Index, np.ndarray, list, tuple, set)
+
+
+def is_stated(value) -> bool:
+    """Whether *value* is a value at all, rather than a missing one.
+
+    **The one definition of "did the source say anything here?"** —
+    used for allele names, predictor versions, kinds, method names and
+    fragment fields alike. Nothing in topiary should write this test
+    again; a second copy is how the two answers drift apart.
+
+    Not stated: ``None``, ``NaN``, ``pd.NA``, ``pd.NaT``, the empty and
+    whitespace-only strings, and every spelling in :data:`NOT_STATED` —
+    which includes ``"nan"`` and ``"None"``, because those are what a
+    missing value *becomes* the moment it is stringified.
+
+    The obvious version of this test, ``if str(v).strip()``, excludes
+    only the blank spellings: ``str(None)`` is ``"None"`` and
+    ``str(float("nan"))`` is ``"nan"``, both truthy. So the naive rule
+    admits most of the ways a value goes missing, and the mistake is
+    invisible until a frame round-trips through text.
+
+    Parameters
+    ----------
+    value : scalar
+        One cell. Pass a Series to :func:`stated_values` instead; a
+        container here raises rather than being silently truthy.
+
+    Returns
+    -------
+    bool
+        True when the value says something.
+
+    Raises
+    ------
+    TypeError
+        If *value* is a container. Answering "yes" for a column of
+        missing values is the outcome this function exists to prevent.
+
+    See Also
+    --------
+    stated_values : the same rule over a Series.
+    is_named_version : this rule, named for the ``predictor_version`` case.
+
+    Examples
+    --------
+    >>> is_stated("HLA-A*02:01")
+    True
+    >>> [is_stated(v) for v in (None, float("nan"), "", " ", "nan", "None")]
+    [False, False, False, False, False, False]
     """
-    text = values.astype(str).str.strip()
-    return values.notna() & (text != "") & (text.str.lower() != "nan")
+    if isinstance(value, _CONTAINER_TYPES):
+        raise TypeError(
+            f"is_stated takes one value, got {type(value).__name__}. "
+            f"Use stated_values() for a Series."
+        )
+    if value is None:
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip().lower() not in NOT_STATED
+
+
+def stated_values(values) -> pd.Series:
+    """:func:`is_stated` over a Series, as a boolean mask.
+
+    The vectorized form of the same rule, built from the same
+    :data:`NOT_STATED` set rather than restating the test, so the two
+    cannot drift. ``tests/test_public_helpers.py`` asserts they agree
+    across every spelling in the set.
+
+    Parameters
+    ----------
+    values : pandas.Series
+
+    Returns
+    -------
+    pandas.Series
+        Boolean mask, True where the row states a value.
+    """
+    text = values.astype(str).str.strip().str.lower()
+    return values.notna() & ~text.isin(NOT_STATED)
+
+
+def is_named_version(value) -> bool:
+    """Whether *value* names a predictor version.
+
+    :func:`is_stated` under the name the ``predictor_version`` case
+    reaches for. A missing version is the absence of a version claim,
+    not a version called ``"nan"`` — treating it as one produces a
+    phantom second version, and then an ambiguity error naming a version
+    the caller cannot possibly pass.
+
+    Examples
+    --------
+    >>> is_named_version("4.1b")
+    True
+    >>> [is_named_version(v) for v in (None, float("nan"), "", "nan")]
+    [False, False, False, False]
+    """
+    return is_stated(value)
+
+
+def known_versions(values) -> pd.Series:
+    """:func:`stated_values` over a ``predictor_version`` column."""
+    return stated_values(values)
+
+
+def _known_versions(values) -> pd.Series:
+    """Deprecated internal alias for :func:`known_versions`."""
+    return stated_values(values)
 
 
 def _version_sort_key(version):
@@ -944,7 +1070,7 @@ class EvalContext:
 
     @property
     def key_frame(self) -> pd.DataFrame:
-        """The group-key columns, with null spellings collapsed.
+        """The group-key columns, with every not-stated spelling collapsed.
 
         ``groupby(dropna=False)`` — which every node evaluates through —
         treats ``None``, ``NaN`` and ``pd.NA`` in an object column as one
@@ -952,17 +1078,30 @@ class EvalContext:
         the group index from raw values therefore produces groups no node
         result can ever key, and rows would silently score NaN.  Collapse
         them once here so the index, the row mapping and every node agree.
+
+        The collapse covers :data:`NULL_TEXT` as well as real nulls, so
+        a key that went through ``astype(str)`` somewhere — carrying
+        ``"nan"`` where it carried ``NaN`` — lands in the null group
+        rather than becoming an allele literally named ``"nan"``.  A
+        blank string is left alone: it is a stated-but-empty value, and
+        frames use it as a group of its own.
         """
         if self._key_frame is None:
             frame = self.df[self.group_keys]
-            mixed = [
-                k for k in self.group_keys
-                if frame[k].dtype == object and frame[k].isna().any()
+            object_keys = [
+                k for k in self.group_keys if frame[k].dtype == object
             ]
-            if mixed:
-                frame = frame.assign(**{
-                    k: frame[k].where(frame[k].notna(), np.nan) for k in mixed
-                })
+            replacements = {}
+            for key in object_keys:
+                column = frame[key]
+                # Null, or the *text* of a null. Not blank: a blank cell
+                # is a stated-but-empty value and stays its own group.
+                missing = column.isna() | column.astype(str).str.strip(
+                ).str.lower().isin(NULL_TEXT)
+                if missing.any():
+                    replacements[key] = column.where(~missing, np.nan)
+            if replacements:
+                frame = frame.assign(**replacements)
             self._key_frame = frame
         return self._key_frame
 
@@ -2219,7 +2358,7 @@ def _warn_missing_allele(kind, sub):
     # every row.  Counting happens only on the malformed path.
     if not any(_is_blank(v) for v in pd.unique(values.to_numpy())):
         return
-    blank = values.isna() | (values.astype(str).str.strip() == "")
+    blank = ~stated_values(values)
     import warnings
     warnings.warn(
         f"{int(blank.sum())} {_kind_short_name(kind)} row(s) carry no "
