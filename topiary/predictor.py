@@ -308,21 +308,56 @@ def _source_type_from_effect(effect, mutation_span):
     return f"variant:{cls.lower()}"
 
 
-def _fragment_from_effect(
+def fragment_from_effect(
     effect,
     padding_around_mutation,
     gene_expression=None,
     transcript_expression=None,
 ):
-    """Build an :class:`ProteinFragment` from a single varcode Effect.
+    """Build a :class:`ProteinFragment` from one varcode variant effect.
 
-    Returns ``None`` when the effect lacks a mutant protein sequence
-    (silent / non-coding / untranslatable).
+    This is the varcode arm of the multi-source fragment story: the same
+    :class:`ProteinFragment` a LENS or pVACseq reader produces, built
+    instead from a translated variant effect. A caller doing its own
+    variant annotation can use it directly rather than reimplementing
+    the windowing and the reference-alignment rule below.
 
-    The fragment's ``target_intervals`` uses the effect-reported
-    mutation interval (``aa_mutation_start_offset`` /
-    ``aa_mutation_end_offset``), matching legacy
-    ``contains_mutant_residues`` semantics exactly.
+    Parameters
+    ----------
+    effect : varcode effect
+        Any effect exposing ``mutant_protein_sequence``,
+        ``aa_mutation_start_offset`` / ``aa_mutation_end_offset``, and
+        the usual gene/transcript attributes.
+    padding_around_mutation : int
+        Residues to keep on each side of the mutated span. The window is
+        clipped at the protein's start and at its first stop codon, so a
+        mutation near either end yields a shorter fragment rather than a
+        padded one.
+    gene_expression, transcript_expression : float, optional
+        Expression evidence to carry onto the fragment. Left ``None``
+        when the caller has none — which is not the same as zero; see
+        :class:`~topiary.ProteinFragment`.
+
+    Returns
+    -------
+    ProteinFragment or None
+        ``None`` when the effect has no mutant protein sequence at all
+        (silent, non-coding, or untranslatable). That is an absence, not
+        an error: a variant with nothing to present is a normal input.
+
+    Notes
+    -----
+    ``target_intervals`` comes from the effect's own reported mutation
+    interval, which is what makes ``contains_mutant_residues`` agree
+    with varcode exactly rather than approximately.
+
+    ``reference_sequence`` is populated **only** when the pre- and
+    post-mutation proteins are the same length, i.e. when they align
+    1:1. An indel or frameshift shifts every downstream residue, so the
+    window sliced at the same offsets would not be the matching
+    reference — it would be a different piece of protein presented as a
+    comparator. Leaving it ``None`` there is the same restriction
+    ``wt_peptide`` applies, for the same reason.
     """
     protein_seq = effect.mutant_protein_sequence
     if not protein_seq:
@@ -377,7 +412,7 @@ def _add_legacy_mutation_columns(df, fragments):
     legacy ``predict_from_mutation_effects`` column contract.
 
     Expects prediction rows whose fragments were built by
-    :func:`_fragment_from_effect` (carries the needed offsets in
+    :func:`fragment_from_effect` (carries the needed offsets in
     ``annotations``).
     """
     df = df.copy()
@@ -1543,7 +1578,7 @@ class TopiaryPredictor(object):
                 transcript_expr = transcript_expression_dict.get(
                     effect.transcript_id, 0.0
                 )
-            frag = _fragment_from_effect(
+            frag = fragment_from_effect(
                 effect,
                 self.padding_around_mutation,
                 gene_expression=gene_expr,

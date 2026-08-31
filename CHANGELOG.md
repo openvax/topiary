@@ -1,5 +1,33 @@
 # Changelog
 
+## 5.35.0
+
+**Changed: `_fragment_from_effect` is now public as `fragment_from_effect`.**
+It builds a :class:`ProteinFragment` from a varcode variant effect — the
+varcode arm of the multi-source fragment story, and something a caller
+doing its own variant annotation would otherwise reimplement. Now
+exported, with the two non-obvious rules written down: the window is
+clipped at the protein's first stop codon, and `reference_sequence` is
+populated only when the pre- and post-mutation proteins align 1:1,
+because slicing the same offsets out of a frameshifted protein would
+present a different piece of protein as the comparator.
+
+**Added: `is_named_version`.** Whether a value actually names a predictor
+version. `None`, `NaN`, blank, whitespace, and the literal string
+`"nan"` all mean "not stated".
+
+It is public because it is a one-line rule that is easy to write and easy
+to write *wrong*: `if str(v).strip()` excludes the first four spellings
+and admits the fifth, so a row with no version becomes a version named
+`"nan"`. That exact mistake shipped in topiary and, independently, in a
+downstream consumer that had reimplemented it. The vectorized internal
+form now documents itself as the same rule, and a test asserts the two
+agree — one rule with two shapes rather than two rules.
+
+AGENTS.md gains a section on this: **logic that does real work belongs in
+one documented public function**, because a consumer that needs behavior
+it cannot import will reimplement it, and the copy will drift.
+
 ## 5.34.0
 
 Two more absent-vs-empty conflations (#223), found by auditing after #214,

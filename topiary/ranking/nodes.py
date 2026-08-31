@@ -575,13 +575,58 @@ def describe_default_versions(df):
     return described
 
 
-def _known_versions(values) -> pd.Series:
-    """The entries of *values* that actually name a version.
+def is_named_version(value) -> bool:
+    """Whether *value* actually names a predictor version.
 
-    A missing ``predictor_version`` — NaN, None, or blank — is the
-    absence of a version claim, not a version called "nan". Treating it
-    as one produces a phantom second version, and then an ambiguity
-    error naming a version the caller cannot possibly pass.
+    A missing ``predictor_version`` is the **absence of a version
+    claim**, not a version called ``"nan"``. Four spellings all mean
+    "not stated": ``None``, ``NaN``, a blank or whitespace-only string,
+    and the literal text ``"nan"`` (which is what a missing value
+    becomes the moment anything calls ``str()`` on it).
+
+    This is deliberately public. It is a one-line rule that is easy to
+    write and easy to write *wrong*: writing ``if str(v).strip()``
+    excludes the first three spellings and admits the fourth, so a row
+    with no version is silently treated as a version named ``"nan"``.
+    That exact mistake shipped in topiary and, independently, in a
+    downstream consumer that had reimplemented the rule. Call this
+    instead of rewriting it.
+
+    Parameters
+    ----------
+    value : any
+        A ``predictor_version`` cell — string, ``None``, or ``NaN``.
+
+    Returns
+    -------
+    bool
+        True when the value names a version.
+
+    Examples
+    --------
+    >>> is_named_version("4.1b")
+    True
+    >>> [is_named_version(v) for v in (None, float("nan"), "", "  ", "nan")]
+    [False, False, False, False, False]
+    """
+    if value is None:
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        # Not a scalar pandas understands; fall through to the text test.
+        pass
+    text = str(value).strip()
+    return text != "" and text.lower() != "nan"
+
+
+def _known_versions(values) -> pd.Series:
+    """Vectorized :func:`is_named_version` over a Series.
+
+    Same rule, kept vectorized because it runs per row on the DSL's hot
+    path. ``test_named_version_rule`` asserts the two agree, so there is
+    one rule with two shapes rather than two rules.
     """
     text = values.astype(str).str.strip()
     return values.notna() & (text != "") & (text.str.lower() != "nan")
