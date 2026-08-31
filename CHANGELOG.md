@@ -18,12 +18,25 @@ array` — so a consumer could not route around it either.
 Multi-version LENS tables are a real input shape, not a constructed
 edge case.
 
-When one tool appears with several versions its columns are now
-qualified — `netmhcpan_4.1b_affinity_value`,
-`netmhcpan_4.2_affinity_value` — following the convention `to_wide`
-already uses for the same situation, and topiary warns, naming the tool
-and the versions. `Metadata.models` records each. A file with one
-version per tool is unchanged, down to the absence of a warning.
+When two versions of one tool would claim the same output column, that
+tool's columns are now qualified with the version —
+`netmhcpan_4.1b_affinity_value`, `netmhcpan_4.2_affinity_value` —
+following the convention `to_wide` already uses for the same situation,
+and topiary warns, naming the tool and the versions.
+
+The test is a genuine name collision, not merely "two version strings
+appeared for this tool". A file that spells one run's version
+inconsistently across metrics — `netmhcpan_4.1b.aff_nm` beside
+`netmhcpan_4.1.score_ba` — has no collision, and qualifying it would
+split one predictor's affinity axis into two half-populated ones,
+undoing what #206 fixed.
+
+`Metadata.models` keeps its documented `{method: version}` shape, so
+`models["netmhcpan"]` still answers for every file; where a method has
+several versions it holds one of them. The full mapping is
+`metadata.extra["topiary_model_keys"]`, which gives each emitted model
+key the `[method, version]` it was built from. A file with one version
+per tool is unchanged, down to the absence of a warning.
 
 **Fixed: `from_wide` lost the version it was handed.** Independent of
 LENS, and older. `to_wide` appends the version to the model key when one
@@ -31,9 +44,19 @@ method has several, but `from_wide` set
 `prediction_method_name` to the whole key and left `predictor_version`
 NaN — so a round trip produced a method named `netmhcpan_4.1b` with no
 version, and a version-qualified reference like
-`Affinity["netmhcpan", "4.2"]` matched nothing. `to_wide` now records
-the qualified keys in its metadata and `from_wide` reverses the
-encoding, so the method is the method and the version is the version.
+`Affinity["netmhcpan", "4.2"]` matched nothing.
+
+`to_wide` now records what each model key was built from in
+`attrs["topiary_model_keys"]`, and `from_wide` reads it. It does not
+guess: a method genuinely named `netmhcpan_4.1b` and an encoded
+`(netmhcpan, 4.1b)` are the same string, so stripping a trailing
+`_{version}` would rename the former. Only the writer knows which it
+made, and now it says so.
+
+**Added: the DSL refuses a silently arbitrary version.** An unqualified
+`Affinity.value` on a frame holding one method at two versions raised
+nothing and returned whichever row came first. It now raises, listing
+the versions, the way it already did for two methods.
 
 ## 5.28.1
 

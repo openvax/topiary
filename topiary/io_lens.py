@@ -2,8 +2,10 @@
 
 Reads LENS TSV reports (v1.4, v1.5.1, v1.9) into Topiary's wide-form
 schema with a :class:`TopiaryResult` return.  Binding columns are
-remapped to Topiary's ``{model}_{kind}_{field}`` convention; per-model
-versions go into the metadata comment block.  LENS-specific columns
+remapped to Topiary's ``{model}_{kind}_{field}`` convention, or
+``{model}_{version}_{kind}_{field}`` where one tool appears at two
+versions for the same metric; per-model versions go into the metadata
+comment block.  LENS-specific columns
 (``erv_*``, ``priority_score_*``, ``b2m_*``, etc.) pass through as
 annotation columns for use via ``Column("...")`` in the DSL.
 
@@ -30,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import re
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -46,10 +49,11 @@ logger = logging.getLogger(__name__)
 
 # LENS binding column → (model, version, kind, wide-field)
 #
-# The version is extracted here so we can populate ``Metadata.models``;
-# the emitted Topiary wide-form column name uses just ``{model}_{kind}_{field}``
-# (no version), matching the convention of ``to_wide`` / ``from_wide`` when
-# there is no multi-version collision within a single file.
+# The version is extracted here so we can populate ``Metadata.models``.
+# The emitted wide-form name is ``{model}_{kind}_{field}`` — no version —
+# except where one tool appears with several versions for the same
+# metric, when the version is included to keep both, matching what
+# ``to_wide`` does in the same situation.
 #: LENS names a binding column ``<tool>_<version>.<metric>``. The
 #: version is opaque: ``aff_nm`` is an IC50 whether NetMHCpan 4.1, 4.1b
 #: or 4.2 produced it. Keying the table on the version too meant a
@@ -175,7 +179,7 @@ def read_lens(path, tag: str | None = None) -> TopiaryResult:
             "proceeding with best-effort mapping", path.name,
         )
 
-    df, models = _remap_binding_columns(df)
+    df, models, model_key_parts = _remap_binding_columns(df)
     df = _normalize_alleles(df)
     df = _rename_annotations(df)
     df = _handle_tpm(df)
@@ -193,6 +197,12 @@ def read_lens(path, tag: str | None = None) -> TopiaryResult:
     )
     if version is not None:
         meta.extra["lens_version"] = version
+    # ``models`` is keyed by method, so it cannot express a file that
+    # carries two versions of one tool. Record what each emitted model
+    # key was actually built from, which is what ``from_wide`` reads to
+    # split a key back into method and version.
+    meta.extra["topiary_model_keys"] = model_key_parts
+    df.attrs["topiary_model_keys"] = model_key_parts
 
     return TopiaryResult(df, meta)
 
@@ -205,8 +215,12 @@ def read_lens(path, tag: str | None = None) -> TopiaryResult:
 def _remap_binding_columns(df: pd.DataFrame):
     """Rename LENS binding columns to Topiary wide form.
 
-    Returns ``(df, models_dict)`` where *models_dict* maps method
-    name → version for every binding model present.
+    Returns ``(df, models_dict, model_key_parts)``.  *models_dict* maps
+    method name → version for every binding model present, keeping that
+    shape even when a method has several versions (it then holds the
+    first).  *model_key_parts* maps each emitted model key to its
+    ``[method, version]``, which is what lets ``from_wide`` recover the
+    two separately.
     """
     parsed_columns = []
     unmapped = []
@@ -228,13 +242,26 @@ def _remap_binding_columns(df: pd.DataFrame):
     # the collision only surfaces later as a pandas duplicate-column
     # warning that doesn't name the predictor. Qualify the name instead,
     # the way ``to_wide`` does for the same situation.
+    #
+    # The test is whether two versions claim the *same output column*,
+    # not whether two version strings appear anywhere for the tool: a
+    # file that spells one run's version inconsistently across metrics
+    # (``netmhcpan_4.1b.aff_nm`` beside ``netmhcpan_4.1.score_ba``) has
+    # no collision, and splitting it into two predictors would undo
+    # exactly what keying on (tool, metric) was for.
+    versions_by_output = {}
+    for column, model, version, kind, field in parsed_columns:
+        versions_by_output.setdefault((model, kind, field), set()).add(version)
+    collided_models = {
+        model for (model, _, _), versions in versions_by_output.items()
+        if len(versions) > 1
+    }
     collided = {
         model: sorted(set(versions))
         for model, versions in versions_by_model.items()
-        if len(set(versions)) > 1
+        if model in collided_models
     }
     if collided:
-        import warnings
         warnings.warn(
             "; ".join(
                 f"{model} appears with versions {versions}"
@@ -248,15 +275,22 @@ def _remap_binding_columns(df: pd.DataFrame):
 
     rename = {}
     models = {}
+    model_key_parts = {}
     for column, model, version, kind, field in parsed_columns:
         if model in collided:
-            rename[column] = f"{model}_{version}_{kind}_{field}"
-            models[f"{model}_{version}"] = version
+            key = f"{model}_{version}"
+            rename[column] = f"{key}_{kind}_{field}"
+            model_key_parts[key] = [model, version]
         else:
             rename[column] = f"{model}_{kind}_{field}"
-            models[model] = version
+            model_key_parts[model] = [model, version]
+        # ``models`` keeps its documented shape — method name → version —
+        # so ``models["netmhcpan"]`` still answers for every file. When one
+        # method has several versions it can only hold one of them; the
+        # full mapping lives in ``model_key_parts``, which is what
+        # ``from_wide`` reads to recover method and version separately.
+        models.setdefault(model, version)
     if unmapped:
-        import warnings
         warnings.warn(
             f"LENS binding column(s) {sorted(unmapped)} look like predictor "
             f"output but name a tool or metric this topiary doesn't know, so "
@@ -265,7 +299,7 @@ def _remap_binding_columns(df: pd.DataFrame):
             f"kind or field was assigned to them.",
             UserWarning, stacklevel=3,
         )
-    return df.rename(columns=rename), models
+    return df.rename(columns=rename), models, model_key_parts
 
 
 def _normalize_alleles(df: pd.DataFrame) -> pd.DataFrame:

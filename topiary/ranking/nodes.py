@@ -1246,6 +1246,42 @@ def _filter_kind_method_version(ctx, kind, method, version):
                     f"'modelname'}} to EvalContext."
                 )
 
+    # Same ambiguity one level down: a single method present at two
+    # versions. Without this the groupby below would silently take
+    # whichever row came first, which is an arbitrary choice between two
+    # real predictions rather than an answer.
+    if (
+        version is None
+        and "predictor_version" in sub.columns
+        and "prediction_method_name" in sub.columns
+    ):
+        pairs = sub[["prediction_method_name", "predictor_version"]].astype(str)
+        counted = sub[list(ctx.group_keys)].copy()
+        counted["_pair"] = (
+            pairs["prediction_method_name"] + "\x00"
+            + pairs["predictor_version"]
+        )
+        pairs_per_group = counted.groupby(
+            ctx.group_keys, sort=False, dropna=False,
+        )["_pair"].nunique()
+        if (pairs_per_group > 1).any():
+            listed = ", ".join(
+                f"{m} {v}" for m, v in sorted(
+                    {
+                        (m, v) for m, v in zip(
+                            sub["prediction_method_name"],
+                            sub["predictor_version"].astype(str),
+                        ) if pd.notna(m)
+                    }
+                )
+            )
+            raise ValueError(
+                f"Ambiguous: {_kind_name(kind)} is present at more than "
+                f"one predictor version ({listed}). Use "
+                f"{_kind_short_name(kind)}['modelname', 'version'] "
+                f"to pick one."
+            )
+
     return sub
 
 
