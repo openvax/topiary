@@ -191,6 +191,16 @@ class CachedPredictor:
                 f"(peptide, allele, peptide_length, kind); missing "
                 f"kind would collide across kinds."
             )
+        # peptide is the other half of the cache key and is never
+        # legitimately absent — reject it the same way rather than
+        # letting astype(str) turn it into the string "None".
+        na_mask = ~stated_values(df["peptide"])
+        if na_mask.any():
+            raise ValueError(
+                f"CachedPredictor: column 'peptide' must be a non-empty "
+                f"string on every row (got {int(na_mask.sum())} "
+                f"null/empty value(s))."
+            )
         keep = [c for c in _CACHE_COLUMNS if c in df.columns]
         out = df[keep].copy()
         # n_flank / c_flank are part of the composite key — backfill
@@ -203,7 +213,17 @@ class CachedPredictor:
             else:
                 out[flank_col] = out[flank_col].map(_flank_key)
         out["peptide"] = out["peptide"].astype(str)
-        out["allele"] = out["allele"].astype(str)
+        # allele *is* legitimately absent — an allele-free kind
+        # (proteasome_cleavage, antigen_processing) has no allele. But
+        # astype(str) would spell each absence differently: None becomes
+        # "None", NaN becomes "nan", and "" stays "". Since the cache
+        # keys on (peptide, allele, peptide_length, kind), that splits
+        # one predictor's allele-free evidence across three buckets and
+        # surfaces "None" from .alleles as if it were an allele. Collapse
+        # every spelling onto one, the way n_flank/c_flank are.
+        out["allele"] = out["allele"].where(
+            stated_values(out["allele"]), ""
+        ).astype(str)
         out["peptide_length"] = out["peptide_length"].astype(int)
         out["kind"] = out["kind"].astype(str)
         # Version strings may look numeric ("1.0") and get coerced by
@@ -316,7 +336,14 @@ class CachedPredictor:
 
     @property
     def alleles(self):
-        a = set(self._df["allele"].unique().tolist())
+        """Alleles this cache can answer for.
+
+        Allele-free rows are excluded: a row with no allele is not a
+        row about an allele, and reporting its blank key here would
+        offer callers an allele they cannot predict for.
+        """
+        column = self._df["allele"]
+        a = set(column[stated_values(column)].unique().tolist())
         if self.fallback is not None:
             a.update(getattr(self.fallback, "alleles", []))
         return sorted(a)
