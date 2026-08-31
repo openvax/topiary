@@ -36,6 +36,11 @@ _COLUMNS = [
     "transcript_name",
     "gene_expression",
     "transcript_expression",
+    "n_overlapping_reads",
+    "n_alt_reads",
+    "n_ref_reads",
+    "n_alt_reads_supporting_protein_sequence",
+    "field_provenance",
     "annotations",
 ]
 
@@ -50,7 +55,7 @@ def _fragment_to_row(f: ProteinFragment) -> dict:
         val = getattr(f, col)
         if col == "target_intervals":
             row[col] = json.dumps([list(p) for p in val]) if val is not None else ""
-        elif col == "annotations":
+        elif col in ("annotations", "field_provenance"):
             row[col] = json.dumps(val or {}, sort_keys=True)
         elif val is None:
             row[col] = ""
@@ -87,9 +92,22 @@ def _row_to_fragment(row: dict) -> ProteinFragment:
     ann_raw = _clean("annotations")
     annotations = json.loads(ann_raw) if ann_raw else {}
 
+    prov_raw = _clean("field_provenance")
+    field_provenance = json.loads(prov_raw) if prov_raw else {}
+
     def _num(col):
         v = _clean(col)
         return float(v) if v is not None else None
+
+    def _count(col):
+        """An int, or None for a blank cell.
+
+        Blank means the source did not report a count, which is not the
+        same as reporting zero — so it must not become 0 on the way
+        through a file.
+        """
+        v = _clean(col)
+        return int(float(v)) if v is not None else None
 
     def _str(col):
         v = _clean(col)
@@ -115,6 +133,13 @@ def _row_to_fragment(row: dict) -> ProteinFragment:
         transcript_name=_str("transcript_name"),
         gene_expression=_num("gene_expression"),
         transcript_expression=_num("transcript_expression"),
+        n_overlapping_reads=_count("n_overlapping_reads"),
+        n_alt_reads=_count("n_alt_reads"),
+        n_ref_reads=_count("n_ref_reads"),
+        n_alt_reads_supporting_protein_sequence=_count(
+            "n_alt_reads_supporting_protein_sequence"
+        ),
+        field_provenance=field_provenance,
         annotations=annotations,
     )
 

@@ -42,6 +42,75 @@ Output DataFrame columns, beyond the standard prediction fields:
 | `wt_value`, `wt_score`, `wt_affinity`, `wt_percentile_rank`, `wt_prediction_method_name`, `wt_predictor_version` | Populated when `TopiaryPredictor(predict_wt=True)` scores non-null `wt_peptide` values with the configured MHC model(s). Rows without a length-compatible WT peptide keep NaN values. |
 | *(each annotation key)* | Flattened from every fragment's `annotations` dict. Underscore-prefixed keys (e.g. `_subsequence_offset`) are reserved for internal plumbing and never surface as columns. |
 
+## RNA evidence, and knowing which fields are real
+
+Beyond `gene_expression` / `transcript_expression`, a fragment can carry
+read-level evidence:
+
+| Field | Meaning |
+|---|---|
+| `n_overlapping_reads` | Reads spanning the variant position |
+| `n_alt_reads` | Reads supporting the variant allele |
+| `n_ref_reads` | Reads supporting the reference allele |
+| `n_alt_reads_supporting_protein_sequence` | Reads supporting *this assembled protein sequence*, not merely the allele |
+
+These are not derivable from a TPM, which is why they are fields rather than
+annotations.
+
+**`None` is unknown; it is not `0`.** A source with no read data leaves them
+`None`. A source that looked and found no support sets `0`. A consumer must be
+able to tell those apart, so ask `fragment.is_known("n_alt_reads")` rather than
+testing truthiness — and the distinction survives writing to and reading from a
+TSV.
+
+Different sources populate different subsets, and some of them *estimate*. So a
+fragment can also say how real each populated field is:
+
+```python
+from topiary import ProteinFragment, APPROXIMATED, SYNTHESIZED
+
+ProteinFragment(
+    fragment_id="...",
+    sequence="...",
+    variant="chr1:100:N>N",       # invented by the loader; not real alleles
+    n_alt_reads=12,               # reconstructed as depth x VAF, not counted
+    field_provenance={"variant": SYNTHESIZED, "n_alt_reads": APPROXIMATED},
+)
+```
+
+| Provenance | Meaning |
+|---|---|
+| `"measured"` | Observed directly from data |
+| `"approximated"` | Derived or estimated — e.g. read counts as depth × VAF |
+| `"synthesized"` | A placeholder the loader invented because the source supplied none |
+
+A field not named in the mapping is unqualified: it means what it says.
+
+Read it through the accessors rather than the dict:
+
+| Call | Answers |
+|---|---|
+| `is_known(name)` | Does the field carry a value at all? |
+| `provenance_of(name)` | How real is it, or `None` if unqualified |
+| `is_approximate(name)` | Was it estimated rather than observed? |
+| `is_usable_as_biology(name)` | May it be interpreted as a fact about the sample? |
+
+`is_usable_as_biology` is the one that matters for correctness: it is `False`
+for an absent field *and* for a synthesized one. Anything that annotates variant
+effects, reannotates transcripts, or otherwise treats a value as biology must
+check it and refuse rather than compute on a placeholder.
+
+The point of all this is that **a consumer never branches on `source_type`**.
+Every source produces the same shape; they differ only in which fields are
+populated and how real those fields are:
+
+```python
+def rna_support(fragment):
+    if not fragment.is_usable_as_biology("n_alt_reads"):
+        return None
+    return fragment.n_alt_reads
+```
+
 ## source_type vocabulary (recommended, not enforced)
 
 Free-form string. Topiary never interprets it; used for display and DSL filtering. Colon subtyping is convention.
