@@ -2,7 +2,10 @@
 
 Long form: one row per (peptide, allele, model, kind).
 Wide form: one row per (peptide, allele, source), prediction columns become
-``{model}_{kind}_{field}`` (e.g. ``netmhcpan_affinity_value``).
+``{model_key}_{kind}_{field}`` (e.g. ``netmhcpan_affinity_value``), where
+*model_key* is the method name, or ``{method}_{version}`` where one
+method is present at several versions and the bare name could not hold
+both.  ``attrs["topiary_model_keys"]`` records which is which.
 """
 
 import functools
@@ -63,9 +66,12 @@ def _version_str(value):
 def _parse_wide_column(col_name):
     """Parse a wide-form column name into (model_key, kind_short, field).
 
-    Returns None if the column does not match the ``{model}_{kind}_{field}``
-    pattern where kind is a known prediction kind and field is one of
-    value/score/rank.
+    Returns None if the column does not match the
+    ``{model_key}_{kind}_{field}`` pattern where kind is a known
+    prediction kind and field is one of value/score/rank.  The model key
+    is returned whole: whether it encodes a version is not decidable
+    from the name, and ``from_wide`` resolves it from
+    ``attrs["topiary_model_keys"]`` instead.
     """
     # Split off the rightmost segment as field candidate.
     parts = col_name.rsplit("_", 1)
@@ -115,7 +121,7 @@ def to_wide(df):
     -------
     pandas.DataFrame
         Wide-form DataFrame where prediction columns become
-        ``{model}_{kind}_{field}`` columns.
+        ``{model_key}_{kind}_{field}`` columns.
     """
     if hasattr(df, "wide_df") and hasattr(df, "metadata") and hasattr(df, "df"):
         return df.wide_df
@@ -156,11 +162,18 @@ def to_wide(df):
     else:
         model_col = pd.Series("unknown", index=work.index)
 
+    model_key_parts = {}
     if version_collision and "predictor_version" in work.columns:
-        version_col = work["predictor_version"].fillna("").astype(str)
+        version_col = work["predictor_version"].map(_version_str).fillna("")
         work["_model_key"] = model_col + "_" + version_col
+        for key, method, version in zip(
+            work["_model_key"], model_col, version_col
+        ):
+            model_key_parts[str(key)] = [str(method), str(version) or None]
     else:
         work["_model_key"] = model_col
+        for key, method in zip(work["_model_key"], model_col):
+            model_key_parts[str(key)] = [str(method), None]
 
     work["_kind_short"] = work["kind"].apply(_kind_short_name)
 
@@ -247,6 +260,13 @@ def to_wide(df):
 
     if model_versions:
         wide.attrs["topiary_models"] = model_versions
+    if model_key_parts:
+        # What each model key was built from. from_wide reads this rather
+        # than trying to reverse the concatenation by guessing at a
+        # suffix: a method genuinely named "netmhcpan_4.1b" and an
+        # encoded (netmhcpan, 4.1b) are the same string, and only the
+        # writer knows which it made.
+        wide.attrs["topiary_model_keys"] = model_key_parts
 
     return wide
 
@@ -257,7 +277,7 @@ def from_wide(df, metadata=None):
     Parameters
     ----------
     df : pandas.DataFrame
-        Wide-form DataFrame with ``{model}_{kind}_{field}`` columns.
+        Wide-form DataFrame with ``{model_key}_{kind}_{field}`` columns.
     metadata : topiary.io.Metadata, optional
         If provided, model versions are used to populate
         ``predictor_version``.
@@ -301,6 +321,11 @@ def from_wide(df, metadata=None):
     # Also check .attrs if available.
     if not version_lookup and hasattr(df, "attrs"):
         version_lookup = df.attrs.get("topiary_models", {})
+    key_parts = {}
+    if metadata is not None and hasattr(metadata, "extra"):
+        key_parts = (metadata.extra or {}).get("topiary_model_keys") or {}
+    if not key_parts and hasattr(df, "attrs"):
+        key_parts = df.attrs.get("topiary_model_keys") or {}
 
     # For each group-key row, emit one long row per (model, kind).
     group_df = df[group_cols]
@@ -312,10 +337,20 @@ def from_wide(df, metadata=None):
 
         chunk = group_df.copy()
         chunk["kind"] = canonical_kind
-        chunk["prediction_method_name"] = model_key
 
-        # Resolve version from metadata.
-        version = version_lookup.get(model_key, np.nan)
+        # Prefer what the writer recorded: when one method has several
+        # versions its key is "{method}_{version}", and only the writer
+        # knows whether a given key was built that way or is simply a
+        # method whose name ends in something that looks like one.
+        recorded = key_parts.get(model_key)
+        if recorded:
+            method_name, version = recorded[0], recorded[1]
+            if version is None:
+                version = version_lookup.get(model_key, np.nan)
+        else:
+            method_name = model_key
+            version = version_lookup.get(model_key, np.nan)
+        chunk["prediction_method_name"] = method_name
         chunk["predictor_version"] = version
 
         for wide_field, long_col in WIDE_TO_LONG_FIELD.items():
