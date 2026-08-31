@@ -1,5 +1,33 @@
 # Changelog
 
+## 5.26.1
+
+**Correction to the 5.24.0 notes.** They claimed the shipped
+`CANONICAL_METHOD_PREFERENCE` "matches the convention already in use
+downstream, so adopting this changes no existing scores." That was
+wrong, and the claim has been removed from the 5.24.0 entry.
+
+The orders differ in where `netmhcstabpan` sits:
+
+```
+topiary   mhcflurry, netmhcpan, netmhcpan_ba, netmhcpan_el, netmhcstabpan
+vaxrank   mhcflurry, netmhcpan, netmhcstabpan, netmhcpan_el, netmhcpan_ba
+```
+
+So a frame where two of those models produce the *same* kind resolves
+differently depending on which table was consulted — reachable for
+`pMHC_affinity`, where `netmhcpan_ba` predicts affinity directly while
+NetMHCstabPan's affinity is a by-product of predicting stability.
+Adopting topiary's table therefore does change that resolution for a
+consumer that had the other order.
+
+The order itself stands, on the rationale the docstring gives: a model
+whose output for a kind is secondary to its main job sorts after ones
+that predict it directly. What was wrong was asserting compatibility
+without checking it — the divergence is exactly the disagreement
+`resolve_default_methods` exists to end, and it was live between two
+tables while the notes said otherwise.
+
 ## 5.26.0
 
 **`predict_self_nearest` — paired MHC binding for the nearest self
@@ -103,8 +131,7 @@ predictors ahead of ones whose output for a kind is secondary to their
 main job (NetMHCstabPan predicts stability; its affinity comes along
 with it), mode variants after the model they vary, and anything unlisted
 alphabetically after those so the answer is always deterministic. Pass
-`preference=` to override it. The shipped order matches the convention
-already in use downstream, so adopting this changes no existing scores.
+`preference=` to override it.
 
 `validate_default_methods(df, default_methods)` reports an entry naming
 a kind or a model the frame doesn't have. `EvalContext` only consults a
