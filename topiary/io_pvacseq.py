@@ -255,13 +255,38 @@ def _first_present_column(df, *candidates):
 
 
 def _class_of_allele(allele):
-    """Return ``"I"`` / ``"II"`` for an allele string, else ``pd.NA``."""
-    if not isinstance(allele, str):
+    """Return ``"I"`` / ``"II"`` for an allele string, else ``pd.NA``.
+
+    Parsed with mhcgnomes rather than matched on a name prefix.  The
+    prefix test read ``HLA-A/B/C`` as class I and ``HLA-D*`` as class
+    II, which left every other real allele unclassified: the
+    non-classical human class I genes (``HLA-E``, ``-F``, ``-G``) and
+    all non-human MHC (mouse ``H2-Kb``, ``BoLA``, ``Mamu``, ``SLA``).
+    Unclassified is not a harmless answer — ``pd.NA`` drops a row from
+    the ``class_i`` *and* ``class_ii`` filters alike, so the peptide
+    simply isn't there.
+
+    The class comes from mhcgnomes' own ``is_class1`` / ``is_class2``
+    predicates rather than from reading its ``mhc_class`` label, which
+    distinguishes ``Ia`` / ``Ib`` / ``IIa`` / ``IIb``.  Collapsing those
+    to ``I`` / ``II`` by string prefix would be the same kind of guess
+    this function exists to stop making — one layer up.
+    """
+    if not isinstance(allele, str) or not allele.strip():
         return pd.NA
-    a = allele.upper()
-    if a.startswith(("HLA-A", "HLA-B", "HLA-C")):
+    import mhcgnomes
+
+    try:
+        parsed = mhcgnomes.parse(allele)
+    except Exception:  # noqa: BLE001 — mhcgnomes raises many types
+        return pd.NA
+    if not getattr(parsed, "has_mhc_class", False):
+        # Parsed as something without a class of its own — a bare
+        # species, say.
+        return pd.NA
+    if parsed.is_class1:
         return "I"
-    if a.startswith("HLA-D") or a.startswith(("DRB", "DPA", "DPB", "DQA", "DQB")):
+    if parsed.is_class2:
         return "II"
     return pd.NA
 
@@ -282,10 +307,16 @@ def derive_mhc_class(allele_series: pd.Series) -> pd.Series:
     Returns
     -------
     pandas.Series
-        Same index as the input.  Class I (``HLA-A/B/C``) → ``"I"``;
-        any HLA-D* locus → ``"II"``; anything else → ``pd.NA``.
+        Same index as the input.  Class I (including the non-classical
+        ``HLA-E`` / ``-F`` / ``-G`` and non-human MHC) → ``"I"``; class
+        II → ``"II"``; anything mhcgnomes can't place → ``pd.NA``.
     """
-    return allele_series.map(_class_of_allele)
+    if allele_series.empty:
+        return allele_series.map(_class_of_allele)
+    # Alleles repeat heavily; parse each distinct one once.
+    unique = pd.Series(allele_series.dropna().unique())
+    resolved = dict(zip(unique, unique.map(_class_of_allele)))
+    return allele_series.map(lambda a: resolved.get(a, pd.NA))
 
 
 def _summarize_mhc_class(allele_series):
