@@ -21,6 +21,11 @@ one peptide into a single key with two values — so the fix for one
 silent-pick created the conditions for another, which is why it is worth
 closing rather than leaving as a caller error.
 
+The check runs *after* the single-model invariant. A cache spanning two
+models also has two rows per key, and "this cache spans two models" is
+the useful thing to say about it — checking duplicates first answered
+that frame with a message about duplicate keys instead.
+
 **A note on caches written before 5.35.1.** They repair themselves:
 `_normalize` runs on every load, so split allele buckets merge and no
 rows are lost. What does *not* repair itself is a cache whose split

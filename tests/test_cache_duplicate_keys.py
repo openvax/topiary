@@ -121,3 +121,34 @@ def test_concat_can_still_be_told_which_wins():
     )
 
     assert merged._df["score"].tolist() == [0.9]
+
+
+# ---------------------------------------------------------------------------
+# Each guard owns its own case
+# ---------------------------------------------------------------------------
+
+
+def test_a_multi_model_cache_gets_the_multi_model_error():
+    """A cache spanning two models also has two rows per key.
+
+    `_unique_version_pair` already owns that case and names it precisely.
+    Running the duplicate check first would answer "duplicate key" to a
+    frame whose actual problem is that it holds two models — a worse
+    message for a case that has a good one.
+    """
+    df = pd.DataFrame([
+        dict(peptide="SIINFEKLA", peptide_length=9, allele="HLA-A*02:01",
+             kind="pMHC_affinity", value=value, score=0.5,
+             percentile_rank=1.0, prediction_method_name=method,
+             predictor_version="1.0")
+        for method, value in (("netmhcpan", 75.0), ("mhcflurry", 120.0))
+    ])
+
+    with pytest.raises(ValueError, match="span multiple"):
+        CachedPredictor(df)
+
+
+def test_a_single_model_cache_still_reaches_the_duplicate_check():
+    """The ordering must not shadow the check it was reordered around."""
+    with pytest.raises(ValueError, match="more than once with different"):
+        CachedPredictor(_rows([("HLA-A*02:01", 0.1), ("HLA-A*02:01", 0.9)]))

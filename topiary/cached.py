@@ -150,8 +150,13 @@ class CachedPredictor:
             return
 
         self._df = self._normalize(df)
+        # Order matters: a frame spanning two models also has two rows
+        # per key, and _unique_version_pair names that case precisely.
+        # Checking duplicates first would answer a multi-model cache
+        # with a message about duplicate keys instead.
         self.prediction_method_name, self.predictor_version = \
             self._unique_version_pair(self._df)
+        self._df = self._reject_conflicting_duplicates(self._df)
         self._index, self._prefix_index = self._build_index(self._df)
 
     # --- normalization + invariants ---------------------------------
@@ -231,7 +236,7 @@ class CachedPredictor:
         # compares the same shape on both sides of a round-trip.
         out["prediction_method_name"] = out["prediction_method_name"].astype(str)
         out["predictor_version"] = out["predictor_version"].astype(str)
-        return CachedPredictor._reject_conflicting_duplicates(out)
+        return out
 
     @staticmethod
     def _reject_conflicting_duplicates(out: pd.DataFrame) -> pd.DataFrame:
@@ -247,6 +252,11 @@ class CachedPredictor:
 
         Identical duplicates are dropped rather than refused: a file
         listing the same prediction twice is not a contradiction.
+
+        Runs after :meth:`_unique_version_pair`, which owns the
+        multi-model case — a cache holding two models also has two rows
+        per key, and "this cache spans two models" is the useful thing
+        to say about it.
         """
         key_cols = [c for c in _KEY_COLS if c in out.columns]
         if not key_cols or out.empty:
