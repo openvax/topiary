@@ -231,7 +231,55 @@ class CachedPredictor:
         # compares the same shape on both sides of a round-trip.
         out["prediction_method_name"] = out["prediction_method_name"].astype(str)
         out["predictor_version"] = out["predictor_version"].astype(str)
-        return out
+        return CachedPredictor._reject_conflicting_duplicates(out)
+
+    @staticmethod
+    def _reject_conflicting_duplicates(out: pd.DataFrame) -> pd.DataFrame:
+        """Refuse two rows that share a cache key but disagree.
+
+        ``concat`` already guards this and raises by default; the plain
+        constructor did not, so the same question had two answers
+        depending on which door the rows came in. A lookup on a
+        duplicated key silently returned one of the values with nothing
+        said — and after blank alleles were collapsed onto one spelling
+        (5.35.1) a frame carrying two spellings of "no allele" for one
+        peptide became exactly that case.
+
+        Identical duplicates are dropped rather than refused: a file
+        listing the same prediction twice is not a contradiction.
+        """
+        key_cols = [c for c in _KEY_COLS if c in out.columns]
+        if not key_cols or out.empty:
+            return out
+        dup_mask = out.duplicated(subset=key_cols, keep=False)
+        if not dup_mask.any():
+            return out
+
+        value_cols = [
+            c for c in ("value", "score", "percentile_rank",
+                        "prediction_method_name", "predictor_version")
+            if c in out.columns
+        ]
+        deduped = out.drop_duplicates(subset=key_cols + value_cols)
+        conflicting = deduped.duplicated(subset=key_cols, keep=False)
+        if conflicting.any():
+            sample = (
+                deduped[conflicting][key_cols].drop_duplicates()
+                .head(3).to_dict("records")
+            )
+            n_keys = int(
+                deduped[conflicting][key_cols].drop_duplicates().shape[0]
+            )
+            raise ValueError(
+                f"CachedPredictor: {n_keys} cache key(s) appear more than "
+                f"once with different predictions. A cache is a lookup "
+                f"table, so a key with two answers has no defined result "
+                f"— one value would be returned and the other silently "
+                f"ignored. Sample: {sample}. Deduplicate the rows, or use "
+                f"CachedPredictor.concat(..., on_overlap='last'/'first') "
+                f"to say which wins."
+            )
+        return deduped.reset_index(drop=True)
 
     @staticmethod
     def _unique_version_pair(df: pd.DataFrame) -> tuple:

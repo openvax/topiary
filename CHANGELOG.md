@@ -1,5 +1,33 @@
 # Changelog
 
+## 5.36.0
+
+**Fixed: a `CachedPredictor` key with two answers silently returned one
+of them.** `CachedPredictor.concat` already guarded overlapping keys and
+raised by default, offering `on_overlap='last'/'first'/callable` to
+resolve. The plain constructor did not — so the same question had two
+answers depending on which door the rows came in, and a lookup on a
+duplicated key returned one value with nothing said.
+
+Both doors now agree. Rows that share a cache key but carry different
+predictions are refused, with the offending key named and the message
+pointing at `on_overlap`. Identical duplicates are dropped rather than
+refused: a file listing the same prediction twice is not a
+contradiction.
+
+This became directly reachable in 5.35.1. Collapsing every spelling of a
+missing allele onto one made a frame carrying `None` *and* `"nan"` for
+one peptide into a single key with two values — so the fix for one
+silent-pick created the conditions for another, which is why it is worth
+closing rather than leaving as a caller error.
+
+**A note on caches written before 5.35.1.** They repair themselves:
+`_normalize` runs on every load, so split allele buckets merge and no
+rows are lost. What does *not* repair itself is a cache whose split
+buckets held different values for what is now one key — that now raises
+on load rather than silently answering, which is the intended outcome. A
+rebuild is only needed if you cannot deduplicate the source rows.
+
 ## 5.35.1
 
 **Fixed: `CachedPredictor` turned a missing allele into the allele named
