@@ -12,17 +12,45 @@ populated only when the pre- and post-mutation proteins align 1:1,
 because slicing the same offsets out of a frameshifted protein would
 present a different piece of protein as the comparator.
 
-**Added: `is_named_version`.** Whether a value actually names a predictor
-version. `None`, `NaN`, blank, whitespace, and the literal string
-`"nan"` all mean "not stated".
+**Added: `is_named_version`, `known_versions`, `NOT_STATED_VERSIONS`.**
+Whether a value names a predictor version. `None`, `NaN`, whitespace,
+and the literal strings `"nan"`, `"none"`, `"<na>"`, `"nat"`, `"null"`
+all mean "not stated" — those being what a missing value becomes once
+anything calls `str()` on it, which this repo does on reload, on CSV
+round trip, and on cache export.
 
-It is public because it is a one-line rule that is easy to write and easy
-to write *wrong*: `if str(v).strip()` excludes the first four spellings
-and admits the fifth, so a row with no version becomes a version named
-`"nan"`. That exact mistake shipped in topiary and, independently, in a
-downstream consumer that had reimplemented it. The vectorized internal
-form now documents itself as the same rule, and a test asserts the two
-agree — one rule with two shapes rather than two rules.
+It is public because the obvious version of the rule is wrong in a way
+that is easy to miss: `if str(v).strip()` excludes only the *blank*
+spellings, since `str(None)` is `"None"` and `str(float("nan"))` is
+`"nan"` — both truthy. So the naive rule admits three of the five ways a
+version goes missing, not one. That mistake shipped in topiary and,
+independently, twice in a downstream consumer that had reimplemented it.
+
+`known_versions(series)` is the same rule over a column, built from the
+same `NOT_STATED_VERSIONS` set rather than restating the test.
+`is_named_version` now **raises** on a Series or list instead of
+answering — returning True for a column of missing versions would have
+delivered the exact phantom-version outcome the function exists to
+prevent.
+
+**Fixed: three unmigrated copies of that rule.** `wide.py`'s
+`_version_str`, `io.py`'s `_model_version_str` and `cached.py`'s
+identity check each had their own version with different coverage —
+`_version_str` had no `"nan"` test at all, so a stringified missing
+version became the model key `netmhcpan_nan`. All three now delegate.
+
+**Fixed: `fragment_from_effect` could emit a fragment that contradicted
+itself.** A stop codon upstream of the reported mutation gave a
+zero-length sequence carrying a target interval pointing outside it, so
+`peptide_overlaps_target` answered True for a fragment with no residues.
+The window is now clamped so every interval lies inside the sequence.
+Also: the reference window is clipped at its own stop, so a comparator
+cannot carry a `*` the fragment does not; a negative
+`padding_around_mutation` is refused rather than producing negative
+intervals; and an effect exposing a mutant protein with no
+`aa_mutation_start_offset` (varcode's `HaplotypeEffect`,
+`ExonicSpliceSite`) raises a message naming the effect and the attribute
+instead of `TypeError: unsupported operand type(s) for -`.
 
 AGENTS.md gains a section on this: **logic that does real work belongs in
 one documented public function**, because a consumer that needs behavior

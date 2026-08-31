@@ -55,12 +55,16 @@ def _kind_short_to_canonical(short_name):
 
 
 def _version_str(value):
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    return str(value).strip()
+    """The version as text, or "" when none was stated.
+
+    Delegates the "was a version named at all" test to
+    :func:`~topiary.is_named_version` rather than restating it — a
+    local ``str(value).strip()`` admits the literal "nan"/"None" a
+    missing value becomes under ``astype(str)``, which is how a phantom
+    version gets into a model key.
+    """
+    from .ranking import is_named_version
+    return str(value).strip() if is_named_version(value) else ""
 
 
 def _parse_wide_column(col_name):

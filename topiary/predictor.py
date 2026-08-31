@@ -359,18 +359,56 @@ def fragment_from_effect(
     comparator. Leaving it ``None`` there is the same restriction
     ``wt_peptide`` applies, for the same reason.
     """
+    if padding_around_mutation < 0:
+        raise ValueError(
+            f"padding_around_mutation is a count of residues to keep on "
+            f"each side, so it cannot be negative; got "
+            f"{padding_around_mutation}."
+        )
+
     protein_seq = effect.mutant_protein_sequence
     if not protein_seq:
         return None
 
     mut_start = effect.aa_mutation_start_offset
     mut_end = effect.aa_mutation_end_offset
-    seq_start = max(0, mut_start - padding_around_mutation)
+    if mut_start is None or mut_end is None:
+        # Several varcode classes expose a mutant protein while leaving
+        # the offsets at their class-level None (HaplotypeEffect,
+        # ExonicSpliceSite). The internal caller never sees these, but a
+        # consumer doing its own annotation would, and an unguarded
+        # subtraction gives them a TypeError naming neither the effect
+        # nor the attribute.
+        raise ValueError(
+            f"{type(effect).__name__} has a mutant protein sequence but "
+            f"no aa_mutation_start_offset/aa_mutation_end_offset, so the "
+            f"mutated span cannot be located within it. Build the "
+            f"fragment directly with ProteinFragment.from_variant if you "
+            f"know the offsets."
+        )
+
     first_stop = protein_seq.find("*")
     if first_stop < 0:
         first_stop = len(protein_seq)
-    seq_end = min(first_stop, mut_end + padding_around_mutation)
+
+    # Clamp the mutated span into the translated region before padding.
+    # A stop codon upstream of the reported mutation would otherwise
+    # give seq_end < seq_start — an empty sequence carrying a target
+    # interval that points outside it, which reads as a fragment whose
+    # every peptide is novel.
+    # Clamp for the *window* only. The annotations below record what the
+    # effect reported, because _add_legacy_mutation_columns rebases
+    # peptide offsets to absolute protein coordinates with them.
+    window_start = min(mut_start, first_stop)
+    window_end = min(mut_end, first_stop)
+    seq_start = max(0, window_start - padding_around_mutation)
+    seq_end = max(
+        seq_start, min(first_stop, window_end + padding_around_mutation)
+    )
     subsequence = protein_seq[seq_start:seq_end]
+    if not subsequence:
+        # Nothing survives the stop clip; there is no fragment to make.
+        return None
 
     # reference_sequence only meaningful when pre- and post-mutation
     # proteins align 1:1.  Indels / frameshifts need coordinate
@@ -378,13 +416,19 @@ def fragment_from_effect(
     original_protein = getattr(effect, "original_protein_sequence", None)
     reference_subseq = None
     if original_protein and len(original_protein) == len(protein_seq):
+        # Clip the comparator at its own stop as well: a reference
+        # window carrying a "*" the fragment's sequence does not is not
+        # a comparator, and wt_peptide would diff against it.
         reference_subseq = original_protein[seq_start:seq_end]
+        ref_stop = reference_subseq.find("*")
+        if ref_stop >= 0:
+            reference_subseq = reference_subseq[:ref_stop] or None
 
     return ProteinFragment.from_variant(
         sequence=subsequence,
         reference_sequence=reference_subseq,
-        mutation_start=mut_start - seq_start,
-        mutation_end=mut_end - seq_start,
+        mutation_start=window_start - seq_start,
+        mutation_end=min(window_end, seq_end) - seq_start,
         # varcode FrameShift sets aa_mutation_end_offset == len(mutant_protein_sequence),
         # so inframe=True yields the correct target_intervals for frameshifts too.
         inframe=True,

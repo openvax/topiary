@@ -575,61 +575,100 @@ def describe_default_versions(df):
     return described
 
 
+#: Text that means "no version was stated". These are the spellings a
+#: missing value takes once anything calls ``str()`` on it — which this
+#: repo does in several places (``astype(str)`` on reload, a CSV round
+#: trip, a cache export) — plus the blank forms.
+NOT_STATED_VERSIONS = frozenset({"", "nan", "none", "<na>", "nat", "null"})
+
+
 def is_named_version(value) -> bool:
     """Whether *value* actually names a predictor version.
 
     A missing ``predictor_version`` is the **absence of a version
-    claim**, not a version called ``"nan"``. Four spellings all mean
-    "not stated": ``None``, ``NaN``, a blank or whitespace-only string,
-    and the literal text ``"nan"`` (which is what a missing value
-    becomes the moment anything calls ``str()`` on it).
+    claim**, not a version called ``"nan"``. Everything in
+    :data:`NOT_STATED_VERSIONS` means "not stated", along with ``None``,
+    ``NaN`` and whitespace.
 
-    This is deliberately public. It is a one-line rule that is easy to
-    write and easy to write *wrong*: writing ``if str(v).strip()``
-    excludes the first three spellings and admits the fourth, so a row
-    with no version is silently treated as a version named ``"nan"``.
-    That exact mistake shipped in topiary and, independently, in a
-    downstream consumer that had reimplemented the rule. Call this
-    instead of rewriting it.
+    This is public because it is a small rule that is easy to write and
+    easy to write *wrong*. The obvious version, ``if str(v).strip()``,
+    excludes only the blank spellings: ``str(None)`` is ``"None"`` and
+    ``str(float("nan"))`` is ``"nan"``, both truthy, so a row with no
+    version is treated as a version named ``"None"`` or ``"nan"``. That
+    mistake shipped in topiary and, independently, in a downstream
+    consumer that had reimplemented the rule. Call this instead.
 
     Parameters
     ----------
-    value : any
-        A ``predictor_version`` cell — string, ``None``, or ``NaN``.
+    value : scalar
+        One ``predictor_version`` cell — a string, ``None``, or ``NaN``.
+        Pass a Series to :func:`known_versions` instead; a container
+        here raises rather than being silently truthy.
 
     Returns
     -------
     bool
         True when the value names a version.
 
+    Raises
+    ------
+    TypeError
+        If *value* is a Series, array, or other container. Answering
+        "yes" for a column of missing versions would be the exact
+        phantom-version outcome this function exists to prevent.
+
+    See Also
+    --------
+    known_versions : the same rule over a Series.
+
     Examples
     --------
     >>> is_named_version("4.1b")
     True
-    >>> [is_named_version(v) for v in (None, float("nan"), "", "  ", "nan")]
+    >>> [is_named_version(v) for v in (None, float("nan"), "", " ", "nan")]
     [False, False, False, False, False]
     """
+    if isinstance(value, (pd.Series, pd.Index, np.ndarray, list, tuple, set)):
+        raise TypeError(
+            f"is_named_version takes one value, got "
+            f"{type(value).__name__}. Use known_versions() for a Series."
+        )
     if value is None:
         return False
     try:
         if pd.isna(value):
             return False
     except (TypeError, ValueError):
-        # Not a scalar pandas understands; fall through to the text test.
         pass
-    text = str(value).strip()
-    return text != "" and text.lower() != "nan"
+    return str(value).strip().lower() not in NOT_STATED_VERSIONS
+
+
+def known_versions(values) -> pd.Series:
+    """:func:`is_named_version` over a Series, as a boolean mask.
+
+    The vectorized form of the same rule, kept vectorized because it
+    runs over whole columns inside the DSL. It consumes
+    :data:`NOT_STATED_VERSIONS` rather than restating the test, so the
+    two cannot drift; ``tests/test_public_helpers.py`` asserts they
+    agree across every spelling.
+
+    Parameters
+    ----------
+    values : pandas.Series
+        A ``predictor_version`` column.
+
+    Returns
+    -------
+    pandas.Series
+        Boolean mask, True where the row names a version.
+    """
+    text = values.astype(str).str.strip().str.lower()
+    return values.notna() & ~text.isin(NOT_STATED_VERSIONS)
 
 
 def _known_versions(values) -> pd.Series:
-    """Vectorized :func:`is_named_version` over a Series.
-
-    Same rule, kept vectorized because it runs per row on the DSL's hot
-    path. ``test_named_version_rule`` asserts the two agree, so there is
-    one rule with two shapes rather than two rules.
-    """
-    text = values.astype(str).str.strip()
-    return values.notna() & (text != "") & (text.str.lower() != "nan")
+    """Deprecated internal alias for :func:`known_versions`."""
+    return known_versions(values)
 
 
 def _version_sort_key(version):

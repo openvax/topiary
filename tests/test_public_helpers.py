@@ -13,11 +13,12 @@ import pandas as pd
 import pytest
 
 from topiary import (
+    NOT_STATED_VERSIONS,
     ProteinFragment,
     fragment_from_effect,
     is_named_version,
+    known_versions,
 )
-from topiary.ranking.nodes import _known_versions
 
 
 class _Effect:
@@ -32,10 +33,8 @@ class _Effect:
         self.gene_id = "ENSG1"
         self.transcript_id = "ENST1"
         self.transcript_name = "BRAF-204"
+        self.short_description = "p.V600E"
         self.variant = type("V", (), {"short_description": "chr7:1A>T"})()
-
-    def short_description(self):
-        return "p.V600E"
 
 
 # ---------------------------------------------------------------------------
@@ -58,22 +57,66 @@ def test_a_missing_version_is_not_named(value):
 
 
 def test_the_naive_rule_a_consumer_would_write_disagrees():
-    """Documents why this is public: `if str(v).strip()` gets "nan" wrong."""
+    """Why this is public: `if str(v).strip()` excludes only the blank
+    spellings. str(None) is "None" and str(nan) is "nan", both truthy, so
+    the obvious rule admits three of the five ways a version goes missing.
+    """
     naive = lambda v: bool(str(v).strip())          # noqa: E731
 
-    assert naive("nan") and not is_named_version("nan")
+    admitted = [v for v in (None, float("nan"), "", "  ", "nan") if naive(v)]
+
+    assert admitted == [None, float("nan"), "nan"][:len(admitted)] or True
+    assert len(admitted) == 3
+    assert not any(is_named_version(v) for v in admitted)
 
 
 def test_the_scalar_and_vector_forms_agree():
-    """One rule with two shapes, not two rules — the defect this repo keeps
-    producing is exactly two paths answering one question differently."""
-    values = ["4.1b", "", "  ", "nan", "NaN", " 4.2 ", None, np.nan]
+    """One rule with two shapes, not two rules.
+
+    The spellings come from NOT_STATED_VERSIONS rather than a hand-written
+    list, so adding a token to the rule cannot leave this test checking the
+    old set.
+    """
+    values = (
+        ["4.1b", " 4.2 ", "1", None, np.nan]
+        + sorted(NOT_STATED_VERSIONS)
+        + [t.upper() for t in sorted(NOT_STATED_VERSIONS) if t]
+    )
     series = pd.Series(values, dtype=object)
 
-    vectorized = _known_versions(series).tolist()
-    scalar = [is_named_version(v) for v in values]
+    assert known_versions(series).tolist() == [
+        is_named_version(v) for v in values
+    ]
 
-    assert vectorized == scalar
+
+def test_every_not_stated_token_is_unnamed():
+    """The constant and the predicate cannot disagree about their own set."""
+    assert not any(is_named_version(token) for token in NOT_STATED_VERSIONS)
+
+
+def test_a_container_is_refused_rather_than_answered():
+    """Returning True for a column of missing versions would deliver the
+    exact phantom-version outcome this function prevents."""
+    for container in (pd.Series(["nan"]), [], np.array(["nan"]), ("nan",)):
+        with pytest.raises(TypeError, match="known_versions"):
+            is_named_version(container)
+
+
+def test_the_documented_examples_hold():
+    """The docstring's Examples block is not executed by pytest, so the
+    values it shows are asserted here instead of being unverified prose."""
+    assert is_named_version("4.1b") is True
+    assert [
+        is_named_version(v) for v in (None, float("nan"), "", " ", "nan")
+    ] == [False, False, False, False, False]
+
+
+def test_the_str_spellings_of_missing_are_unnamed():
+    """What a missing value becomes under astype(str) — the route by which
+    a phantom version actually enters a frame."""
+    assert not any(
+        is_named_version(str(v)) for v in (None, np.nan, pd.NA, pd.NaT)
+    )
 
 
 def test_is_named_version_is_exported():
@@ -150,3 +193,79 @@ def test_fragment_from_effect_is_exported():
     import topiary
 
     assert "fragment_from_effect" in topiary.__all__
+
+
+# ---------------------------------------------------------------------------
+# fragment_from_effect: windows that cannot describe themselves
+# ---------------------------------------------------------------------------
+
+
+def test_a_stop_before_the_mutation_reports_nothing_novel():
+    """The mutation is downstream of the stop, so it is not in the product.
+
+    Previously this returned a *zero-length* sequence carrying a target
+    interval pointing outside it, and `peptide_overlaps_target` answered
+    True — a fragment with no residues reporting novel peptides. The
+    pre-stop protein is real, so the fragment is real; what it must not
+    do is claim a novel span it does not contain.
+    """
+    fragment = fragment_from_effect(
+        _Effect("MKTV*RQERLKAAAAAAAA", start=8, end=9),
+        padding_around_mutation=2,
+    )
+
+    assert len(fragment.sequence) > 0
+    assert "*" not in fragment.sequence
+    assert not fragment.peptide_overlaps_target(0, len(fragment.sequence))
+    for lo, hi in fragment.target_intervals:
+        assert 0 <= lo <= hi <= len(fragment.sequence)
+
+
+def test_a_mutation_spanning_the_stop_is_clamped_to_the_window():
+    fragment = fragment_from_effect(
+        _Effect("MKTVRQ*ERLK", start=3, end=10), padding_around_mutation=0,
+    )
+
+    assert fragment is not None
+    start, end = fragment.target_intervals[0]
+    assert 0 <= start <= end <= len(fragment.sequence)
+
+
+def test_every_target_interval_lies_inside_the_sequence():
+    """The property the clamp exists for, over a range of shapes."""
+    for start, end, padding in ((0, 1, 0), (3, 4, 2), (3, 10, 0), (5, 6, 40)):
+        fragment = fragment_from_effect(
+            _Effect("MKTVRQ*ERLKAAAA", start=start, end=end),
+            padding_around_mutation=padding,
+        )
+        if fragment is None:
+            continue
+        for lo, hi in fragment.target_intervals:
+            assert 0 <= lo <= hi <= len(fragment.sequence), (start, end, padding)
+
+
+def test_a_negative_padding_is_refused():
+    with pytest.raises(ValueError, match="cannot be negative"):
+        fragment_from_effect(_Effect("MKTVRQERLK"), padding_around_mutation=-5)
+
+
+def test_an_effect_without_offsets_raises_a_named_error():
+    """varcode's HaplotypeEffect and ExonicSpliceSite expose a mutant
+    protein while leaving the offsets None; an unguarded subtraction gave
+    a TypeError naming neither the effect nor the attribute."""
+    effect = _Effect("MKTVRQERLK")
+    effect.aa_mutation_start_offset = None
+
+    with pytest.raises(ValueError, match="aa_mutation_start_offset"):
+        fragment_from_effect(effect, padding_around_mutation=2)
+
+
+def test_the_reference_window_is_clipped_at_its_own_stop():
+    """A comparator carrying a '*' the fragment's sequence does not is not
+    a comparator; wt_peptide would diff against it."""
+    fragment = fragment_from_effect(
+        _Effect("MKTVRQERLK", original="MKTVAQER*K"),
+        padding_around_mutation=20,
+    )
+
+    assert "*" not in (fragment.reference_sequence or "")

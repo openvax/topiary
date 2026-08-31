@@ -158,7 +158,7 @@ class TestFragmentColumnsOnVariantPath:
 
 
 # ---------------------------------------------------------------------------
-# _fragment_from_effect unit tests (varcode-free via mock)
+# fragment_from_effect unit tests (varcode-free via mock)
 # ---------------------------------------------------------------------------
 
 
