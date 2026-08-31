@@ -82,6 +82,30 @@ With a single group key, `ctx.group_index` is a flat `Index` of bare values (mat
 
 To map a per-group result back onto rows, use `ctx.row_group_codes()`, which gives each row the position of its group in `group_index`. Looking group keys up by value is unreliable when a key is null: `NaN` never equals itself.
 
+### Sharing a context
+
+Building a context is not free: it takes a `drop_duplicates` over the frame for the group index and a code array mapping every row to its group. When you run several operations over one frame, build the context once and pass it as `context=`:
+
+```python
+ctx = EvalContext(df, group_keys=group_keys)
+
+affinity = evaluate_scores(df, Affinity.value, context=ctx)
+presented = evaluate_scores(df, Presentation.score, context=ctx)
+ordered = apply_sort(df, [Affinity.value], context=ctx)
+```
+
+`context=` replaces the four options above rather than combining with them — passing both raises, so there is no question of which one won.
+
+**A context belongs to one frame.** `apply_filter` and `apply_sort` both return *new* frames, so a context cannot be threaded down a filter → sort → score pipeline; each step needs its own. Reuse applies to several operations on one unchanged frame. Passing a context built on a different frame raises rather than mapping rows to another frame's groups, and the check is identity rather than equality — a copy has its own row order to account for.
+
+`apply_filter` evaluates with `filter_context=True` (unqualified same-kind references auto-aggregate) while `apply_sort` deliberately does not. Handing one context to both is still fine: `apply_filter` derives the variant it needs, inheriting the grouping rather than recomputing it, and leaves your context's own flag alone. To vary an option yourself:
+
+```python
+strict = ctx.derive(default_methods={"pMHC_affinity": "netmhcpan"})
+```
+
+`derive` inherits the cached grouping when `df`, `group_keys` and `alleles` are unchanged, and recomputes it when they are not.
+
 ## Prediction kinds
 
 Each MHC prediction model produces one or more *kinds* of output. The built-in accessors are:

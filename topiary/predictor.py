@@ -585,6 +585,7 @@ class TopiaryPredictor(object):
         filter_by=None,
         sort_by=None,
         sort_direction="auto",
+        default_methods=None,
         padding_around_mutation=None,
         only_novel_epitopes=False,
         min_gene_expression=0.0,
@@ -636,6 +637,28 @@ class TopiaryPredictor(object):
         sort_direction : "auto", "asc", or "desc"
             Direction for every sort key; "auto" infers per-key
             (asc for percentile_rank and raw affinity, desc otherwise).
+
+        default_methods : dict, optional
+            Per-kind default ``prediction_method_name``, forwarded to
+            ``filter_by`` / ``sort_by`` evaluation.  Needed when this
+            predictor runs two models that produce the same kind: an
+            unqualified reference like ``sort_by=Affinity.value`` is
+            then ambiguous and raises, and this is the only way to
+            resolve it through the predictor::
+
+                TopiaryPredictor(
+                    models=[NetMHCpan, MHCflurry], alleles=[...],
+                    sort_by=Affinity.value,
+                    default_methods={"pMHC_affinity": "mhcflurry"},
+                )
+
+            Accepts the same key spellings as
+            :class:`~topiary.ranking.EvalContext`.  There is
+            deliberately no ``group_keys`` counterpart: the predictor
+            builds its own frame, so the inferred grouping is right by
+            construction.  Use :meth:`TopiaryResult.filter_by` /
+            :meth:`~TopiaryResult.sort_by`, which do take one, if you
+            joined columns on afterwards.
 
         padding_around_mutation : int, optional
             Residues around a mutation to include in candidate epitopes.
@@ -707,6 +730,7 @@ class TopiaryPredictor(object):
         self.filter_by = _coerce_filter_node(filter_by)
         self.sort_by = _coerce_sort_nodes(sort_by)
         self.sort_direction = sort_direction
+        self.default_methods = default_methods
 
         self.min_transcript_expression = min_transcript_expression
         self.min_gene_expression = min_gene_expression
@@ -996,12 +1020,20 @@ class TopiaryPredictor(object):
         # (``peptide_view``, ``best_*``) fall back to guessing from the
         # rows on exactly the path ``filter_by`` / ``sort_by`` drive.
         kind_support = self.kind_support
+        # Likewise ``default_methods``: a predictor running two models
+        # that produce the same kind makes every unqualified reference
+        # in ``sort_by`` ambiguous, and without this there is no way to
+        # resolve it through the predictor.
+        default_methods = self.default_methods
         if self.filter_by is not None:
-            df = apply_filter(df, self.filter_by, kind_support=kind_support)
+            df = apply_filter(
+                df, self.filter_by, kind_support=kind_support,
+                default_methods=default_methods,
+            )
         if self.sort_by:
             df = apply_sort(
                 df, self.sort_by, sort_direction=self.sort_direction,
-                kind_support=kind_support,
+                kind_support=kind_support, default_methods=default_methods,
             )
         return df
 

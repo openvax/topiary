@@ -569,6 +569,57 @@ class EvalContext:
         # method per iteration by setting (kind_value, method_name) here.
         self._method_override = None
 
+    def derive(self, **overrides) -> "EvalContext":
+        """A context on the same frame with some options changed.
+
+        The expensive part of a context is frame-derived — the key
+        frame, the unique group index, the row→group codes — and none of
+        it depends on ``default_methods``, ``filter_context`` or
+        ``kind_support``.  So a derived context that leaves ``df``,
+        ``group_keys`` and ``alleles`` alone inherits those caches
+        outright rather than recomputing them, which is what lets
+        :func:`~topiary.ranking.apply_filter` (which needs
+        ``filter_context=True``) and :func:`~topiary.ranking.apply_sort`
+        (which needs it ``False``) share one grouping.
+
+        Overriding a frame-shaping option is allowed but drops the
+        caches, since they would no longer describe the result.
+        """
+        unknown = set(overrides) - {
+            "df", "group_keys", "default_methods", "filter_context",
+            "kind_support", "alleles",
+        }
+        if unknown:
+            raise TypeError(
+                f"Unknown EvalContext option(s): {sorted(unknown)}"
+            )
+        df = overrides.get("df", self.df)
+        group_keys = overrides.get("group_keys", self.group_keys)
+        alleles = overrides.get("alleles", self.alleles)
+        derived = EvalContext(
+            df,
+            group_keys=group_keys,
+            default_methods=overrides.get(
+                "default_methods", self.default_methods or None
+            ),
+            filter_context=overrides.get(
+                "filter_context", self.filter_context
+            ),
+            kind_support=overrides.get("kind_support", self.kind_support),
+            alleles=alleles,
+        )
+        reshaped = (
+            df is not self.df
+            or list(group_keys) != list(self.group_keys)
+            or list(alleles or ()) != list(self.alleles or ())
+        )
+        if not reshaped:
+            derived._key_frame = self._key_frame
+            derived._group_index = self._group_index
+            derived._group_tuples_cache = self._group_tuples_cache
+            derived._group_codes_cache = self._group_codes_cache
+        return derived
+
     @property
     def key_frame(self) -> pd.DataFrame:
         """The group-key columns, with null spellings collapsed.

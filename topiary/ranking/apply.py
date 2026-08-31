@@ -225,8 +225,59 @@ def _resolve_sort_direction(node, sort_direction):
     return sort_direction
 
 
+def _resolve_context(df, context, *, filter_context, group_keys,
+                     default_methods, kind_support, alleles):
+    """Build the context for an entry point, or adopt the caller's.
+
+    A context caches its grouping against one specific frame, so reusing
+    one across a frame it was not built on would silently score rows
+    against another frame's groups.  The check is identity, not
+    equality: ``apply_filter`` and ``apply_sort`` both return new
+    frames, so a context is only reusable for operations on the frame it
+    was built from -- several ``evaluate_scores`` calls for different
+    score columns, say, or a filter and a sort keyed the same way.
+    """
+    if context is None:
+        return EvalContext(
+            df, group_keys=group_keys, filter_context=filter_context,
+            default_methods=default_methods, kind_support=kind_support,
+            alleles=alleles,
+        )
+    if not isinstance(context, EvalContext):
+        raise TypeError(
+            f"context must be an EvalContext, got "
+            f"{type(context).__name__}"
+        )
+    conflicting = [
+        name for name, value in (
+            ("group_keys", group_keys),
+            ("default_methods", default_methods),
+            ("kind_support", kind_support),
+            ("alleles", alleles),
+        ) if value is not None
+    ]
+    if conflicting:
+        raise ValueError(
+            f"Pass either context= or the individual context options, "
+            f"not both; got context= with {', '.join(sorted(conflicting))}. "
+            f"Use context.derive({conflicting[0]}=...) to change one."
+        )
+    if context.df is not df:
+        raise ValueError(
+            "context was built on a different DataFrame. A context caches "
+            "its grouping against one frame, so reusing it on another "
+            "would map rows to the wrong groups. Note that apply_filter "
+            "and apply_sort return new frames -- build a context per "
+            "frame, or share one across operations on the same frame."
+        )
+    if context.filter_context == filter_context:
+        return context
+    return context.derive(filter_context=filter_context)
+
+
 def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
-                    kind_support=None, alleles=None, fill=np.nan):
+                    kind_support=None, alleles=None, fill=np.nan,
+                    context=None):
     """Evaluate a DSL *node* against *df* and align the result to ``df.index``.
 
     ``DSLNode.eval`` returns a Series indexed by the peptide-allele
@@ -246,7 +297,10 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
 
     *group_keys*, *default_methods*, *kind_support* and *alleles* are
     the shared context options, forwarded to :class:`EvalContext` — see
-    its docstring.
+    its docstring.  Pass *context* instead to reuse a prebuilt
+    :class:`EvalContext` and skip rebuilding the grouping; it must have
+    been built on this same *df*, and it is mutually exclusive with the
+    individual options above.
 
     Returns a ``pd.Series`` with ``df.index`` and a numeric dtype.
     """
@@ -258,9 +312,10 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
                          dtype=float)
 
 
-    ctx = EvalContext(
-        df, group_keys=group_keys, default_methods=default_methods,
-        kind_support=kind_support, alleles=alleles,
+    ctx = _resolve_context(
+        df, context, filter_context=False, group_keys=group_keys,
+        default_methods=default_methods, kind_support=kind_support,
+        alleles=alleles,
     )
     scored = node.eval(ctx).reindex(ctx.group_index)
     aligned = pd.Series(
@@ -274,7 +329,7 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
 
 
 def apply_filter(df, node, *, group_keys=None, default_methods=None,
-                 kind_support=None, alleles=None):
+                 kind_support=None, alleles=None, context=None):
     """Apply a boolean-valued DSL node to *df*.
 
     Keeps all rows for peptide-allele groups whose evaluated value is
@@ -282,15 +337,18 @@ def apply_filter(df, node, *, group_keys=None, default_methods=None,
 
     *group_keys*, *default_methods*, *kind_support* and *alleles* are
     the shared context options, forwarded to :class:`EvalContext` — see
-    its docstring.
+    its docstring.  Pass *context* instead to reuse a prebuilt
+    :class:`EvalContext` and skip rebuilding the grouping; it must have
+    been built on this same *df*, and it is mutually exclusive with the
+    individual options above.
     """
     if node is None or df.empty:
         _check_group_keys(df, group_keys)
         return df if node is None else df.reset_index(drop=True)
 
     _validate_columns(df, node)
-    ctx = EvalContext(
-        df, group_keys=group_keys, filter_context=True,
+    ctx = _resolve_context(
+        df, context, filter_context=True, group_keys=group_keys,
         default_methods=default_methods, kind_support=kind_support,
         alleles=alleles,
     )
@@ -307,7 +365,8 @@ def apply_filter(df, node, *, group_keys=None, default_methods=None,
 
 
 def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
-               default_methods=None, kind_support=None, alleles=None):
+               default_methods=None, kind_support=None, alleles=None,
+               context=None):
     """Sort groups by one or more DSL nodes (lexicographic fallthrough).
 
     *sort_nodes* is a list of DSLNode.  Each node's direction is inferred
@@ -322,7 +381,10 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
 
     *group_keys*, *default_methods*, *kind_support* and *alleles* are
     the shared context options, forwarded to :class:`EvalContext` — see
-    its docstring.
+    its docstring.  Pass *context* instead to reuse a prebuilt
+    :class:`EvalContext` and skip rebuilding the grouping; it must have
+    been built on this same *df*, and it is mutually exclusive with the
+    individual options above.
     """
     if not sort_nodes or df.empty:
         _check_group_keys(df, group_keys)
@@ -331,9 +393,11 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
     for node in sort_nodes:
         _validate_columns(df, node)
 
-    ctx = EvalContext(df, group_keys=group_keys,
-                      default_methods=default_methods,
-                      kind_support=kind_support, alleles=alleles)
+    ctx = _resolve_context(
+        df, context, filter_context=False, group_keys=group_keys,
+        default_methods=default_methods, kind_support=kind_support,
+        alleles=alleles,
+    )
     n_groups = len(ctx.group_index)
     n_keys = len(sort_nodes)
     values_matrix = np.empty((n_groups, n_keys), dtype=float)

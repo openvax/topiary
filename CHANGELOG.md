@@ -1,5 +1,64 @@
 # Changelog
 
+## 5.29.0
+
+**Added: `context=` on `apply_filter` / `apply_sort` / `evaluate_scores`
+(#179).** Since #176 the three entry points took the same `group_keys` /
+`default_methods` / `kind_support` / `alleles` kwargs, so callers could
+*specify* one grouping — but each call still built its own `EvalContext`
+and recomputed the grouping, a `drop_duplicates` over the frame plus a
+row-to-group code array. Pass a prebuilt context instead and that work
+happens once:
+
+```python
+ctx = EvalContext(df, group_keys=gk)
+affinity = evaluate_scores(df, Affinity.value, context=ctx)
+presented = evaluate_scores(df, Presentation.score, context=ctx)
+ordered = apply_sort(df, [Affinity.value], context=ctx)
+```
+
+**What is shareable is narrower than the issue's example suggests, and
+worth stating plainly: `apply_filter` and `apply_sort` both return new
+frames, so a context cannot be threaded down a filter → sort → score
+pipeline.** It is reusable across operations on one *unchanged* frame —
+several `evaluate_scores` calls for different score columns, or a filter
+and a sort keyed the same way. Passing a context built on a different
+frame raises rather than silently mapping rows to another frame's
+groups; the check is identity, not equality.
+
+`apply_filter` needs `filter_context=True` and `apply_sort` deliberately
+needs it `False`, so a shared context cannot simply be handed to both.
+New `EvalContext.derive(**overrides)` returns a context on the same
+frame with options changed, inheriting the frame-derived caches when
+`df` / `group_keys` / `alleles` are untouched and dropping them when
+they are. `apply_filter` uses it internally, so the caller's own context
+is never flipped.
+
+**Added: `default_methods` on `TopiaryPredictor` and
+`TopiaryResult.filter_by` / `sort_by` (#178).** A predictor running two
+models that produce the same kind made every unqualified reference in
+`sort_by` ambiguous, and there was no way to resolve it through the
+predictor:
+
+```python
+TopiaryPredictor(
+    models=[NetMHCpan, MHCflurry], alleles=[...],
+    sort_by=Affinity.value,                      # ValueError: Ambiguous
+    default_methods={"pMHC_affinity": "mhcflurry"},   # now resolvable
+)
+```
+
+Filtering hid this — `filter_context=True` auto-aggregates directional
+comparisons across methods — so it surfaced on the sort rather than on
+the filter that looks the same. `TopiaryResult.filter_by` / `sort_by`
+also gained `group_keys`, for a frame that acquired a provenance column
+after prediction.
+
+There is deliberately no `group_keys` on `TopiaryPredictor`: it builds
+its own frame, so the inferred grouping is right by construction, and a
+knob that can only be set wrong is not worth the surface. `kind_support`
+was already forwarded on both paths.
+
 ## 5.28.2
 
 **Fixed: `read_lens` collapsed two versions of one tool into one column
