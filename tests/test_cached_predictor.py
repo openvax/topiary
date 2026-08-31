@@ -49,6 +49,20 @@ def _df(rows):
 # ---------------------------------------------------------------------------
 
 
+def _key(peptide, allele="HLA-A*02:01", length=9, kind="pMHC_affinity",
+         n_flank=None, c_flank=None, allele_set=None):
+    """The cache key, asked of the builder rather than hand-written.
+
+    Spelling the tuple out in a test pins the key's *shape*, so adding a
+    dimension to the key breaks every such test for no behavioral reason
+    — and passes just as happily if the key is wrong. Ask the thing
+    under test what its key is; assert that the entry is indexed.
+    """
+    return CachedPredictor._row_key_from_values(
+        peptide, allele, length, kind, n_flank, c_flank, allele_set,
+    )
+
+
 class TestConstruction:
     def test_from_dataframe_minimal(self):
         cache = CachedPredictor.from_dataframe(_df([_row()]))
@@ -127,7 +141,7 @@ class TestPredictPeptides:
             _row(peptide="SIINFEKLA", kind="pMHC_affinity"),
             _row(peptide="SIINFEKLA", kind="pMHC_presentation"),
         ]))
-        key = ("SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", "", "")
+        key = _key("SIINFEKLA")
         assert isinstance(cache._index[key], int)
         assert cache._prefix_index[("SIINFEKLA", "HLA-A*02:01", 9)] == [0, 1]
 
@@ -144,7 +158,7 @@ class TestPredictPeptides:
             _row(peptide="SIINFEKLA", kind="pMHC_affinity"),
             _row(peptide="SIINFEKLA", kind="pMHC_presentation"),
         ]))
-        key = ("SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", "", "")
+        key = _key("SIINFEKLA")
         assert cache._index[key] == 0
 
     def test_miss_raises_without_fallback(self):
@@ -248,9 +262,7 @@ class TestFallback:
         cache.predict_peptides_dataframe(["GILGFVFTL"])
         # Second call should NOT hit fallback (we can verify by
         # observing the cache's internal df grew and contains it).
-        assert (
-            "GILGFVFTL", "HLA-A*02:01", 9, "pMHC_affinity", "", "",
-        ) in cache._index
+        assert _key("GILGFVFTL") in cache._index
         assert len(cache._df) == 2
 
     def test_fallback_version_mismatch_rejects(self):
@@ -288,7 +300,7 @@ class TestFallback:
         # overwrite the 42.0 sentinel.
         cache.predict_peptides_dataframe(["SIINFEKLA"])
         preserved_idx = cache._index[
-            ("SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", "", "")
+            _key("SIINFEKLA")
         ]
         preserved = cache._df.iloc[preserved_idx]
         assert preserved["affinity"] == 42.0
@@ -349,9 +361,7 @@ class TestEmptyCacheWithFallback:
             fallback=_matched_fallback(name="random", version="3.0"),
         )
         cache.predict_peptides_dataframe(["SIINFEKLA"])
-        assert (
-            "SIINFEKLA", "HLA-A*02:01", 9, "pMHC_affinity", "", "",
-        ) in cache._index
+        assert _key("SIINFEKLA") in cache._index
 
     def test_empty_df_value_and_no_fallback_still_raises(self):
         empty = pd.DataFrame(columns=list(_row().keys()))

@@ -37,7 +37,7 @@ from typing import Callable, Iterable, List, Mapping, Optional, Union
 import pandas as pd
 
 from .predictor import _backfill_value_from_score
-from .ranking import stated_values
+from .ranking import is_stated, stated_values
 
 
 # Columns a cache row must carry so the core invariant and lookup work.
@@ -77,9 +77,23 @@ _CACHE_COLUMNS = (
 #   different scores.  Absent flanks (None) coexist cleanly with
 #   populated flanks — predictors that don't use flanks just produce
 #   a single (None, None) entry per (peptide, allele, kind).
+# - allele_set: the genotype a haplotype-mode prediction was scored
+#   against.  Exactly the flank argument one field over: the same
+#   peptide scored against two different genotypes produces different
+#   scores, and MHCflurry presentation in haplotype mode reports the
+#   deconvolved best allele — so two genotypes sharing a best allele
+#   collide on every other key column.  Blank for per-allele rows,
+#   which coexist with genotype rows the way absent flanks do.
+#
+# Deliberately *not* in the key: source_sequence_name, peptide_offset,
+# sample_name.  Those say where a peptide was found, not what was
+# predicted about it, and a prediction for (peptide, allele, length,
+# kind, flanks, genotype) is the same prediction whichever protein or
+# sample it came from.  Keying on them would defeat the cache — the
+# same peptide would be re-predicted once per source protein.
 _KEY_COLS = (
     "peptide", "allele", "peptide_length", "kind",
-    "n_flank", "c_flank",
+    "n_flank", "c_flank", "allele_set",
 )
 
 
@@ -212,6 +226,17 @@ class CachedPredictor:
                 out[flank_col] = ""
             else:
                 out[flank_col] = out[flank_col].map(_flank_key)
+        # allele_set is part of the key for the same reason and gets the
+        # same treatment: materialize it so the key shape is well
+        # defined whether or not the source had a genotype column, and
+        # collapse every spelling of "no genotype" onto one so two
+        # spellings are not two cache entries.
+        if "allele_set" not in out.columns:
+            out["allele_set"] = ""
+        else:
+            out["allele_set"] = out["allele_set"].where(
+                stated_values(out["allele_set"]), ""
+            ).astype(str).str.strip()
         out["peptide"] = out["peptide"].astype(str)
         # allele *is* legitimately absent — an allele-free kind
         # (proteasome_cleavage, antigen_processing) has no allele. But
@@ -265,6 +290,7 @@ class CachedPredictor:
             row["kind"],
             row.get("n_flank"),
             row.get("c_flank"),
+            row.get("allele_set"),
         )
 
     @staticmethod
@@ -275,8 +301,16 @@ class CachedPredictor:
         kind,
         n_flank,
         c_flank,
+        allele_set=None,
     ):
-        """Composite cache key from already-extracted row values."""
+        """Composite cache key from already-extracted row values.
+
+        ``allele_set`` goes through the same not-stated rule the rest of
+        topiary uses, so a genotype column that has been through
+        ``astype(str)`` — carrying ``"nan"`` where it carried ``NaN`` —
+        keys the same as a genuinely blank one. Two spellings of "no
+        genotype" must not be two cache entries.
+        """
         return (
             str(peptide),
             str(allele),
@@ -284,6 +318,7 @@ class CachedPredictor:
             str(kind),
             _flank_key(n_flank),
             _flank_key(c_flank),
+            str(allele_set).strip() if is_stated(allele_set) else "",
         )
 
     @classmethod
@@ -300,6 +335,11 @@ class CachedPredictor:
             if "c_flank" in df.columns
             else repeat(None, n)
         )
+        allele_sets = (
+            df["allele_set"].to_numpy(copy=False)
+            if "allele_set" in df.columns
+            else repeat(None, n)
+        )
         for values in zip(
             df["peptide"].to_numpy(copy=False),
             df["allele"].to_numpy(copy=False),
@@ -307,6 +347,7 @@ class CachedPredictor:
             df["kind"].to_numpy(copy=False),
             n_flanks,
             c_flanks,
+            allele_sets,
         ):
             yield cls._row_key_from_values(*values)
 
