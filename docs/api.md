@@ -271,6 +271,18 @@ df = from_predictions(
 )
 ```
 
+Rows come back **in input order**, one per prediction, which is what lets positional data line up:
+
+```python
+df = from_predictions(
+    predictions,
+    extra_columns={"prediction_id": ids, "peptide_offset": offsets},
+    allele_set=lambda prediction: attribution_for(prediction),
+)
+```
+
+`extra_columns` carries identity a prediction doesn't itself have — a provenance key the consumer groups by, or an offset belonging to the candidate a peptide came from rather than to the prediction. A scalar fills the column; a sequence is positional and must match the input's length. `allele_set` also takes a callable, for attribution decided per peptide, where two peptides in one frame legitimately get different sets for the same kind.
+
 It renames to topiary's column vocabulary, fills the context columns a producer may not have set, derives `peptide_length`, and backfills `affinity` for affinity rows — the same normalization `TopiaryPredictor` applies to its own output, so both paths produce one long form. A hand-written builder is a copy of that schema topiary can't see and can't migrate: a column added here never reaches it.
 
 ## Filter expressions

@@ -1,5 +1,40 @@
 # Changelog
 
+## 5.27.0
+
+**`from_predictions()` can carry a consumer's own columns and per-peptide
+allele sets (#203):**
+
+```python
+df = from_predictions(
+    predictions,
+    extra_columns={"prediction_id": ids, "peptide_offset": offsets},
+    allele_set=lambda prediction: attribution_for(prediction),
+)
+```
+
+5.26.0's version could not express two things a real consumer needs, so
+adopting it would still have meant hand-writing the frame — which is
+what the function exists to stop.
+
+`extra_columns` carries identity a prediction doesn't itself have: a
+provenance key the consumer groups by rather than letting topiary infer
+from `source_sequence_name`, or an offset belonging to the candidate a
+peptide came from rather than to the prediction object. A scalar fills
+the column; a sequence is positional, one value per prediction, and a
+length mismatch is an error rather than a silent misalignment.
+
+`allele_set` now also takes a **callable**, receiving each prediction
+(or each row, for a DataFrame input) and returning its alleles or
+``None``. Per-kind was the wrong granularity for attribution decided per
+peptide, where two peptides in one frame legitimately get different sets
+for the same kind — and the alternative, one call per candidate, doesn't
+scale to a report with ~100k of them.
+
+The 1:1 input ordering is now **documented as part of the contract**,
+since positional data depends on it. It was already true; it wasn't
+promised.
+
 ## 5.26.1
 
 **Correction to the 5.24.0 notes.** They claimed the shipped
@@ -27,6 +62,7 @@ that predict it directly. What was wrong was asserting compatibility
 without checking it — the divergence is exactly the disagreement
 `resolve_default_methods` exists to end, and it was live between two
 tables while the notes said otherwise.
+
 
 ## 5.26.0
 
