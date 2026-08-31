@@ -1,5 +1,63 @@
 # Changelog
 
+## 5.33.0
+
+**Added: per-peptide allele sets for `EvalContext(alleles=...)` (#219).**
+`alleles=` declared **one** set for the whole frame. A reader that emits
+one row per (peptide, allele) passing its own threshold — LENS does —
+produces peptides that were each reported against a different subset of
+the genotype, so there is no single set to declare. Every LENS fixture
+vaxrank has carries 2 to 8 distinct allele sets per file.
+
+It now takes the same three forms `from_predictions(allele_set=...)`
+does:
+
+```python
+EvalContext(df, alleles=["HLA-A*02:01", "HLA-B*07:02"])   # every peptide, as before
+EvalContext(df, alleles={"SIINFEKLA": ["HLA-A*02:01"]})    # per peptide
+EvalContext(df, alleles=lambda keys: genotype_for(keys["peptide"]))
+```
+
+Declaring the union instead invents a group for every pairing that was
+never scored. **This is easy to miss**: an expression containing an
+allele-scoped term makes the invented groups read NaN, so the output
+looks unchanged — vaxrank swapped in the union and every fixture came
+out byte-identical. An expression reading only peptide-level evidence
+gives each invented group a real number:
+
+```
+peptide_view(proteasome_cleavage.score), two peptides each scored at one allele
+  union        6 groups scored, 2 of them pairings never predicted
+  per-peptide  4 groups scored, 0 invented
+```
+
+A peptide the mapping or callable declares nothing for keeps only the
+groups its own rows name; it does not inherit another peptide's
+genotype. A mapping key matching no peptide in the frame raises — a key
+that declares nothing is indistinguishable from a peptide left
+undeclared on purpose. An empty set *for one peptide* is meaningful
+("declare nothing here") even though an empty frame-wide sequence stays
+an error.
+
+**Added: `describe_default_versions` (#220).** `resolve_default_versions`
+returns the winner but not what it won against, so a consumer telling a
+user "netMHCpan reports 4.1b and 4.2, scoring with 4.2" had to re-derive
+the candidates — and that re-derivation re-implements "was a version
+named at all", the rule whose subtlety caused the phantom-`"nan"` bug in
+both topiary and vaxrank.
+
+```python
+describe_default_versions(df)   # {("pMHC_affinity", "netmhcpan"): ["4.1b", "4.2"]}
+resolve_default_versions(df)    # {("pMHC_affinity", "netmhcpan"): "4.2"}
+```
+
+Candidates are ordered oldest to newest by the same PEP 440 rule, so the
+winner is the last entry for `prefer="newest"` and the first for
+`prefer="oldest"`, and the keys match `resolve_default_versions` exactly
+so the two zip. `resolve_default_versions` is now implemented *in terms
+of* `describe_default_versions`, so there is one place deciding what
+counts as a version rather than two that can drift.
+
 ## 5.32.0
 
 **Added: read-level evidence and per-field knownness on `ProteinFragment`

@@ -21,6 +21,7 @@ from .ranking import (
     MHC_DEPENDENCE_VALUES,
     mhc_dependence,
     resolve_default_methods,
+    describe_default_versions,
     resolve_default_versions,
     validate_default_methods,
     validate_default_versions,
@@ -95,7 +96,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.32.0"
+__version__ = "5.33.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -123,6 +124,7 @@ __all__ = [
     "MHC_DEPENDENCE_VALUES",
     "mhc_dependence",
     "resolve_default_methods",
+    "describe_default_versions",
     "resolve_default_versions",
     "validate_default_methods",
     "validate_default_versions",

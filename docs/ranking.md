@@ -97,6 +97,24 @@ With a single group key, `ctx.group_index` is a flat `Index` of bare values (mat
 
 To map a per-group result back onto rows, use `ctx.row_group_codes()`, which gives each row the position of its group in `group_index`. Looking group keys up by value is unreliable when a key is null: `NaN` never equals itself.
 
+### Declaring alleles
+
+Group keys come from the rows, so a peptide whose evidence is allele-free — an antigen-processing prediction with nothing in its `allele` column — has no per-allele group for a consumer to read. `alleles=` declares the genotype so `peptide_view` has somewhere to broadcast into.
+
+It takes the same three forms `from_predictions(allele_set=...)` does:
+
+```python
+EvalContext(df, alleles=["HLA-A*02:01", "HLA-B*07:02"])          # every peptide
+EvalContext(df, alleles={"SIINFEKLA": ["HLA-A*02:01"]})           # per peptide
+EvalContext(df, alleles=lambda keys: genotype_for(keys["peptide"]))
+```
+
+**Use a per-peptide form when peptides were not each reported against the whole genotype.** A reader that emits one row per (peptide, allele) passing its own threshold produces exactly that: each peptide arrives scored against only some alleles. Declaring the union then invents a group for every pairing that was never scored, and an expression reading only peptide-level evidence — `proteasome_cleavage.score`, say — gives each invented group a real number, as if that allele had been evaluated.
+
+This is easy to miss, because an expression containing an allele-scoped term makes the invented groups read NaN and the output look unchanged. Unchanged output is not evidence the declaration was right.
+
+A mapping may be keyed by the `peptide` value or by the full peptide-key tuple. A peptide it declares nothing for keeps only the groups its own rows name — it does not inherit another peptide's genotype. A key matching no peptide in the frame raises, since a key that declares nothing looks exactly like a peptide left undeclared on purpose.
+
 ### Sharing a context
 
 Building a context is not free: it takes a `drop_duplicates` over the frame for the group index and a code array mapping every row to its group. When you run several operations over one frame, build the context once and pass it as `context=`:

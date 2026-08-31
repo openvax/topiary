@@ -38,6 +38,7 @@ from __future__ import annotations
 import math
 import operator
 from collections import Counter
+from collections.abc import Mapping
 from types import MappingProxyType
 from difflib import get_close_matches
 from typing import Optional
@@ -331,10 +332,92 @@ def _normalize_group_keys(df, group_keys):
     return keys
 
 
+class _PeptideAlleleLookup:
+    """Resolve the alleles declared for one peptide.
+
+    A mapping may be keyed by the full peptide-key tuple, or — when its
+    keys are not tuples — by the ``peptide`` value alone, which is the
+    spelling a caller reaches for first. Whichever it is, a key that
+    matches no peptide in the frame is an error rather than a silent
+    no-op: a typo'd peptide would otherwise declare nothing and look
+    exactly like a peptide deliberately left undeclared.
+    """
+
+    __slots__ = ("_source", "_peptide_keys", "_by_peptide_column", "_seen")
+
+    def __init__(self, source, peptide_keys):
+        self._source = source
+        self._peptide_keys = list(peptide_keys)
+        self._seen = set()
+        self._by_peptide_column = False
+        if isinstance(source, Mapping) and source:
+            tupled = all(isinstance(k, tuple) for k in source)
+            if not tupled:
+                if "peptide" not in self._peptide_keys:
+                    raise ValueError(
+                        "alleles mapping is keyed by peptide, but 'peptide' "
+                        "is not one of the group keys "
+                        f"({self._peptide_keys}). Key it by the group-key "
+                        "tuple instead."
+                    )
+                self._by_peptide_column = True
+
+    def for_peptide(self, row):
+        """Alleles declared for the peptide described by *row*, or ``()``."""
+        if callable(self._source):
+            declared = self._source(dict(row))
+        else:
+            key = (
+                row["peptide"] if self._by_peptide_column
+                else tuple(row[k] for k in self._peptide_keys)
+            )
+            if key not in self._source:
+                return ()
+            self._seen.add(key)
+            declared = self._source[key]
+        if declared is None:
+            return ()
+        if isinstance(declared, str):
+            raise ValueError(
+                f"alleles for a peptide must be a sequence of allele "
+                f"names, not the string {declared!r}; pass "
+                f"[{declared!r}] for a single allele."
+            )
+        declared = list(declared)
+        if not declared:
+            # Empty is meaningful per peptide — "declare nothing for this
+            # one" — where an empty frame-wide sequence is a mistake, so
+            # it must not go through the frame-level check.
+            return ()
+        return _normalize_alleles(declared) or ()
+
+    def check_all_used(self):
+        """Raise if a mapping entry named a peptide the frame lacks."""
+        if callable(self._source):
+            return
+        unused = sorted(
+            (repr(k) for k in self._source if k not in self._seen),
+            key=str,
+        )
+        if unused:
+            raise ValueError(
+                f"alleles mapping names {len(unused)} peptide(s) not in the "
+                f"frame: {unused[:5]}. A key that matches nothing declares "
+                f"nothing, which is indistinguishable from a peptide left "
+                f"undeclared on purpose."
+            )
+
+
 def _normalize_alleles(alleles):
-    """Validate a declared allele set and return it as a list (or None)."""
+    """Validate a declared allele set and return it as a list (or None).
+
+    A mapping or callable is per-peptide and is kept as-is; only the
+    flat "same set for every peptide" form is materialized here.
+    """
     if alleles is None:
         return None
+    if callable(alleles) or isinstance(alleles, Mapping):
+        return alleles
     if isinstance(alleles, str):
         raise ValueError(
             f"alleles must be a sequence of allele names, not the string "
@@ -431,6 +514,9 @@ def resolve_default_versions(df, prefer="newest"):
     Pairs with a single version are omitted: the result only speaks where
     there is a real choice. Returns a mapping suitable for
     ``default_versions=``.
+
+    :func:`describe_default_versions` returns the candidates this chose
+    between, for telling a user what was ambiguous and what won.
     """
     if prefer not in ("newest", "oldest"):
         raise ValueError(
@@ -442,7 +528,37 @@ def resolve_default_versions(df, prefer="newest"):
     if not needed.issubset(df.columns):
         return {}
 
-    resolved = {}
+    return {
+        key: (candidates[-1] if prefer == "newest" else candidates[0])
+        for key, candidates in describe_default_versions(df).items()
+    }
+
+
+def describe_default_versions(df):
+    """The versions :func:`resolve_default_versions` is choosing between.
+
+    ``{(kind, model): [version, ...]}`` for every pair a model produced at
+    more than one version, ordered oldest to newest by the same PEP 440
+    rule the resolver uses — so the winner is the last entry for
+    ``prefer="newest"`` and the first for ``prefer="oldest"``.
+
+    Picking a version silently is right for scoring but not something to
+    do quietly to a user. Telling them "netMHCpan reports 4.1b and 4.2,
+    scoring with 4.2" needs what the winner won *against*, and deriving
+    that from the frame means re-implementing "was a version named at
+    all" — the rule whose subtlety is the whole reason a caller should
+    not be writing it. A blank, ``None``, ``NaN`` or the literal string
+    ``"nan"`` is not a version, here as everywhere else.
+
+    Keys match :func:`resolve_default_versions` exactly, so the two zip.
+    """
+    if df is None or df.empty:
+        return {}
+    needed = {"kind", "prediction_method_name", "predictor_version"}
+    if not needed.issubset(df.columns):
+        return {}
+
+    described = {}
     grouped = df.dropna(subset=["prediction_method_name"]).groupby(
         ["kind", "prediction_method_name"], sort=False, dropna=True,
     )
@@ -450,14 +566,13 @@ def resolve_default_versions(df, prefer="newest"):
         known = group["predictor_version"][
             _known_versions(group["predictor_version"])
         ]
-        versions = sorted({str(v).strip() for v in known.unique()})
+        versions = {str(v).strip() for v in known.unique()}
         if len(versions) < 2:
             continue
-        ordered = sorted(versions, key=_version_sort_key)
-        resolved[(str(kind_value), str(method))] = (
-            ordered[-1] if prefer == "newest" else ordered[0]
+        described[(str(kind_value), str(method))] = sorted(
+            versions, key=_version_sort_key,
         )
-    return resolved
+    return described
 
 
 def _known_versions(values) -> pd.Series:
@@ -652,14 +767,34 @@ class EvalContext:
     ----------
     df : pandas.DataFrame
         Prediction rows, long-form.
-    alleles : list of str, optional
-        Alleles to evaluate every peptide against — a patient's
-        genotype, typically.  Group keys otherwise come only from the
-        rows, so a peptide whose evidence is allele-free has no
-        per-allele group to read; declaring the set adds one group per
-        peptide per allele for :func:`peptide_view` to broadcast into.
-        Added groups carry no rows, so allele-scoped fields read NaN
-        there.
+    alleles : sequence, mapping, or callable, optional
+        Alleles to evaluate peptides against — a patient's genotype,
+        typically.  Group keys otherwise come only from the rows, so a
+        peptide whose evidence is allele-free has no per-allele group to
+        read; declaring the set adds one group per peptide per allele
+        for :func:`peptide_view` to broadcast into.  Added groups carry
+        no rows, so allele-scoped fields read NaN there.
+
+        Three forms, the same shape
+        :func:`~topiary.from_predictions` takes for ``allele_set``:
+
+        - a **sequence** — the same alleles for every peptide;
+        - a **mapping** — per peptide, keyed by the ``peptide`` value or
+          by the full peptide-key tuple;
+        - a **callable** — receives a dict of the peptide keys, returns
+          that peptide's alleles.
+
+        Per-peptide sets matter when peptides were not each reported
+        against the whole genotype, which is the normal case for a
+        reader that emits one row per (peptide, allele) passing its own
+        threshold.  Declaring the union there invents groups for
+        pairings that were never scored, and an expression reading only
+        peptide-level evidence gives every one of them a real number.
+
+        A peptide the mapping or callable declares nothing for keeps
+        only the groups its own rows name.  A mapping key matching no
+        peptide in the frame raises, since a key that declares nothing
+        is indistinguishable from a peptide left undeclared on purpose.
     group_keys : list of str, optional
         Override the auto-detected peptide-allele group keys.  Use this
         when the frame carries a stable provenance identity (e.g. a
@@ -877,13 +1012,24 @@ class EvalContext:
         """
         key_df = self.key_frame.drop_duplicates()
         peptide_keys = _peptide_keys(self.group_keys)
-        if not self.alleles or "allele" not in self.group_keys:
+        if self.alleles is None or "allele" not in self.group_keys:
+            return key_df
+        per_peptide = callable(self.alleles) or isinstance(
+            self.alleles, Mapping
+        )
+        if not per_peptide and not self.alleles:
             return key_df
         if not peptide_keys:
+            if per_peptide:
+                raise ValueError(
+                    "Per-peptide alleles need a peptide in the group key, "
+                    "but the group key is allele-only. Pass a flat "
+                    "sequence instead."
+                )
             return pd.DataFrame({"allele": self.alleles}).drop_duplicates()
-        declared = key_df[peptide_keys].drop_duplicates().merge(
-            pd.DataFrame({"allele": list(self.alleles)}), how="cross",
-        )
+        declared = self._declared_allele_rows(key_df, peptide_keys)
+        if declared is None:
+            return key_df
         if ALLELE_SET_COLUMN in self.group_keys:
             # A declared group is an ordinary per-allele group; it makes
             # no claim about a genotype the predictor scored.
@@ -893,6 +1039,44 @@ class EvalContext:
         return pd.concat(
             [key_df, declared[self.group_keys]], ignore_index=True,
         ).drop_duplicates()
+
+    def _declared_allele_rows(self, key_df, peptide_keys):
+        """Peptide keys crossed with the alleles declared for each.
+
+        A flat sequence declares one set for every peptide. A mapping or
+        callable declares a set per peptide, which is what a frame whose
+        peptides were each reported against a different subset of a
+        genotype needs: crossing every peptide with the union would
+        invent per-allele groups for pairings that were never scored,
+        and an expression reading only peptide-level evidence gives each
+        of those a real number.
+
+        Returns ``None`` when nothing was declared for any peptide.
+        """
+        peptides = key_df[peptide_keys].drop_duplicates()
+        if not (callable(self.alleles) or isinstance(self.alleles, Mapping)):
+            return peptides.merge(
+                pd.DataFrame({"allele": list(self.alleles)}), how="cross",
+            )
+
+        lookup = _PeptideAlleleLookup(self.alleles, peptide_keys)
+        blocks = []
+        for row in peptides.to_dict("records"):
+            declared = lookup.for_peptide(row)
+            if not declared:
+                # No declaration for this peptide: it keeps only the
+                # groups its rows actually name. Silence here is the
+                # point — an undeclared peptide must not inherit
+                # another's genotype.
+                continue
+            block = pd.DataFrame({"allele": declared})
+            for key in peptide_keys:
+                block[key] = row[key]
+            blocks.append(block)
+        lookup.check_all_used()
+        if not blocks:
+            return None
+        return pd.concat(blocks, ignore_index=True)
 
     def row_group_codes(self) -> np.ndarray:
         """Position within :attr:`group_index` of each row's group.
