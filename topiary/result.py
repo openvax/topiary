@@ -332,7 +332,7 @@ class TopiaryResult:
         kind_support = self.extra.get("kind_support")
         return kind_support if isinstance(kind_support, Mapping) else None
 
-    def filter_by(self, expr):
+    def filter_by(self, expr, *, default_methods=None, group_keys=None):
         """Apply a filter expression. ANDs with any existing filter.
 
         Parameters
@@ -340,6 +340,14 @@ class TopiaryResult:
         expr : str or DSLNode
             A string like ``"affinity <= 500"`` or a DSL node like
             ``Affinity <= 500``.
+        default_methods : dict, optional
+            Per-kind default ``prediction_method_name``, for resolving
+            unqualified references when several methods produce the
+            same kind.
+        group_keys : list of str, optional
+            Override the inferred peptide-allele grouping — for a frame
+            that gained a provenance column the inferred keys would
+            collapse.
 
         Returns
         -------
@@ -370,6 +378,7 @@ class TopiaryResult:
         else:
             filtered_df = apply_filter(
                 df, new_ast, kind_support=self._kind_support(),
+                default_methods=default_methods, group_keys=group_keys,
             )
 
         if self.filter_by_ast is not None:
@@ -385,13 +394,20 @@ class TopiaryResult:
         kwargs["filter_by_ast"] = combined_ast
         return TopiaryResult(filtered_df, **kwargs)
 
-    def sort_by(self, expr):
+    def sort_by(self, expr, *, default_methods=None, group_keys=None):
         """Sort rows by an expression. Replaces any previous sort.
 
         Parameters
         ----------
         expr : str, DSLNode, or list of DSLNode
             Sort expression(s).
+        default_methods : dict, optional
+            Per-kind default ``prediction_method_name``.  Sorting is
+            strict about ambiguity — unlike filtering it does not
+            auto-aggregate across methods — so a frame with two methods
+            for one kind needs this to sort on an unqualified reference.
+        group_keys : list of str, optional
+            Override the inferred peptide-allele grouping.
 
         Returns
         -------
@@ -437,6 +453,7 @@ class TopiaryResult:
         else:
             sorted_df = apply_sort(
                 df, sort_nodes, kind_support=self._kind_support(),
+                default_methods=default_methods, group_keys=group_keys,
             )
 
         kwargs = self._field_kwargs()

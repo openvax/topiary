@@ -312,6 +312,10 @@ options, all forwarded to `EvalContext`:
 
 See [Group identity](ranking.md#group-identity) for when to pass `group_keys`.
 
+All three also accept `context=`, a prebuilt `EvalContext` used in place
+of the four options above — see [Sharing a
+context](ranking.md#sharing-a-context).
+
 ## String parsing
 
 ### Kind aliases
