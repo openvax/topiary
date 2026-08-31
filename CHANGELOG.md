@@ -11,7 +11,7 @@ local workaround.
 
 ```python
 read_lens(path, binding_metrics={
-    ("netmhcpan", "el_score"): ("presentation", "score"),
+    ("newtool", "ic50_nm"): ("affinity", "value"),
     ("sometool", "noisy_metric"): None,   # not a prediction
 })
 ```
@@ -33,10 +33,28 @@ the data would reach the frame and then vanish on `to_long()` — the
 failure mode this area keeps producing, and not one to hand callers a
 new way to cause.
 
+An override cannot build a frame that cannot be read back. Two columns
+of one tool mapping to the same `(kind, field)` would put a duplicate
+column in the frame — one set of values unreachable, `to_long()` raising
+"Expected a 1D array", which is exactly #208's shape. That is refused,
+naming both source columns and the name they collided on. Keys that
+could never match a column, and two keys that normalize to the same
+pair, are refused for the same reason: a validation that lets a silent
+no-op through is not doing its job.
+
 `None` declares a column is not a prediction: it silences the
 unmapped-column warning without remapping anything. The column itself is
 left alone and still reachable as `Column("sometool_1.0.noisy_metric")`
 — overriding a mapping does not delete data.
+
+**Also: the unmapped-column warning now names the `(tool, metric)` key**,
+not only the column name, so it can be pasted straight into
+`binding_metrics` without splitting the column and stripping the version
+by hand. An applied override is recorded in
+`metadata.extra["lens_binding_metrics"]`, alongside `lens_version` and
+`topiary_model_keys` — a frame whose binding columns came from a
+corrected map should not be indistinguishable from one built with the
+defaults.
 
 ## 5.29.0
 

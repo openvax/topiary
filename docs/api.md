@@ -363,7 +363,7 @@ Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use
 | `read_peptide_csv(path)` | CSV with `peptide` col | `{name: peptide}` |
 | `read_sequence_csv(path)` | CSV with `sequence` col | `{name: sequence}` |
 | `read_tsv(path)` / `read_csv(path)` | Topiary-format table with comment-block metadata | `TopiaryResult` |
-| `read_lens(path)` | LENS report (v1.4 / v1.5.1 / v1.9) | `TopiaryResult` (wide form) |
+| `read_lens(path, binding_metrics=None)` | LENS report (v1.4 / v1.5.1 / v1.9) | `TopiaryResult` (wide form) |
 | `read_pvacseq(path)` | pVACseq aggregated or `all_epitopes` TSV (MHC-I or MHC-II) | `TopiaryResult` (long form) |
 | `melt_pvacseq_algorithms(result)` | Loaded pVACseq `all_epitopes` result | `TopiaryResult` with one row per (peptide, allele, algorithm) |
 | `derive_mhc_class(allele_series)` | Allele Series (mhcgnomes-normalized or raw) | Series of `"I"` / `"II"` / `pd.NA` |
@@ -378,7 +378,7 @@ waiting for a topiary release:
 
 ```python
 read_lens(path, binding_metrics={
-    ("netmhcpan", "el_score"): ("presentation", "score"),
+    ("newtool", "ic50_nm"): ("affinity", "value"),
     ("sometool", "noisy_metric"): None,   # not a prediction
 })
 ```
@@ -386,6 +386,11 @@ read_lens(path, binding_metrics={
 Overrides merge over the built-in table, so one column can be patched
 without restating the rest, and a built-in mapping can be corrected as
 well as a missing one added.
+
+Two columns of one tool cannot share a `(kind, field)` — that would put
+a duplicate column in the frame, making one set of values unreachable
+and `to_long()` fail. A mapping that would do it is refused, naming both
+source columns; map one to a different field, or to `None`.
 
 Keys are `(tool, metric)` — the pair the warning itself names — and
 carry no version, so one entry covers a tool however a file spells its

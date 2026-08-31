@@ -40,6 +40,7 @@ import pandas as pd
 
 from .io import Metadata
 from .result import TopiaryResult
+from .wide import WIDE_FIELDS, _known_kind_short_names
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +84,21 @@ _BINDING_METRICS = {
 #: leaving as an absence.
 _BINDING_COLUMN = re.compile(r"^([A-Za-z][A-Za-z0-9]*)_(\d[\w.]*)\.(.+)$")
 
+#: The tool half of ``_BINDING_COLUMN``, for checking that an override
+#: key could ever match a column at all.
+_BINDING_TOOL = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
 
-def _parse_binding_column(column, binding_metrics=None):
+#: Sentinel in the ``field`` slot for a column the caller declared is
+#: not a prediction, to tell "topiary doesn't know this column" from
+#: "the caller says there is nothing to know".
+_ACKNOWLEDGED = object()
+
+
+def _parse_binding_column(
+    column,
+    binding_metrics: Mapping[tuple[str, str], tuple[str, str] | None]
+    | None = None,
+):
     """``(tool, version, kind, field)`` for a LENS binding column.
 
     Returns ``None`` when the column isn't predictor-shaped at all, and
@@ -117,13 +131,10 @@ def _parse_binding_column(column, binding_metrics=None):
     return tool.lower(), version, kind, field
 
 
-#: Sentinel in the ``field`` slot for a column the caller declared is
-#: not a prediction, to tell "topiary doesn't know this column" from
-#: "the caller says there is nothing to know".
-_ACKNOWLEDGED = object()
-
-
-def _resolve_binding_metrics(binding_metrics):
+def _resolve_binding_metrics(
+    binding_metrics: Mapping[tuple[str, str], tuple[str, str] | None]
+    | None,
+):
     """Merge a caller's binding-metric overrides over the built-in table.
 
     Keys are ``(tool, metric)`` — the same key the built-in table uses,
@@ -144,10 +155,9 @@ def _resolve_binding_metrics(binding_metrics):
             f"binding_metrics must be a mapping of (tool, metric) -> "
             f"(kind, field), got {type(binding_metrics).__name__}"
         )
-    from .wide import WIDE_FIELDS
-
-    known_kinds = _known_short_kinds()
+    known_kinds = _known_kind_short_names()
     resolved = dict(_BINDING_METRICS)
+    seen = {}
     for key, spec in binding_metrics.items():
         if (
             not isinstance(key, tuple)
@@ -159,6 +169,28 @@ def _resolve_binding_metrics(binding_metrics):
                 f"pairs, got {key!r}"
             )
         tool, metric = (part.strip().lower() for part in key)
+        # A key no column could ever produce is a silent no-op, which is
+        # the very thing validating up front is for.
+        if not _BINDING_TOOL.match(tool):
+            raise ValueError(
+                f"binding_metrics key {key!r} names a tool no LENS "
+                f"column can match: a tool is letters and digits "
+                f"starting with a letter, since the column name is "
+                f"'<tool>_<version>.<metric>'."
+            )
+        if not metric:
+            raise ValueError(
+                f"binding_metrics key {key!r} has an empty metric."
+            )
+        # Keys are normalized, so two spellings of one key would
+        # otherwise collapse last-one-wins and discard an entry the
+        # caller wrote.
+        if (tool, metric) in seen:
+            raise ValueError(
+                f"binding_metrics has two keys that mean the same "
+                f"(tool, metric): {seen[(tool, metric)]!r} and {key!r}."
+            )
+        seen[(tool, metric)] = key
         if spec is None:
             resolved[(tool, metric)] = None
             continue
@@ -174,24 +206,24 @@ def _resolve_binding_metrics(binding_metrics):
         # back, so the data would reach the frame and then vanish on
         # ``to_long()`` — the failure mode this whole area keeps
         # producing, and not one to hand a caller a new way to cause.
+        if isinstance(kind, str):
+            kind = kind.strip().lower()
         if not isinstance(kind, str) or kind not in known_kinds:
             raise ValueError(
                 f"binding_metrics[{key!r}] names an unknown kind "
                 f"{kind!r}. Use a short kind name, one of "
                 f"{sorted(known_kinds)}."
             )
-        if field not in WIDE_FIELDS:
+        if not isinstance(field, str) or field.strip().lower() not in (
+            WIDE_FIELDS
+        ):
             raise ValueError(
                 f"binding_metrics[{key!r}] names an unknown field "
                 f"{field!r}. Use one of {sorted(WIDE_FIELDS)}."
             )
-        resolved[(tool, metric)] = (str(kind), str(field))
+        resolved[(tool, metric)] = (kind, field.strip().lower())
     return resolved
 
-
-def _known_short_kinds():
-    from .wide import _known_kind_short_names
-    return _known_kind_short_names()
 
 
 # LENS metadata column → Topiary column (pass-through rename).
@@ -240,8 +272,14 @@ def detect_lens_version(columns) -> str | None:
     return None
 
 
-def read_lens(path, tag: str | None = None, *,
-              binding_metrics=None) -> TopiaryResult:
+def read_lens(
+    path,
+    tag: str | None = None,
+    *,
+    binding_metrics: Mapping[
+        tuple[str, str], tuple[str, str] | None
+    ] | None = None,
+) -> TopiaryResult:
     """Read a LENS TSV report into a :class:`TopiaryResult`.
 
     Parameters
@@ -287,6 +325,10 @@ def read_lens(path, tag: str | None = None, *,
         (method → version) map for every binding model found.
     """
     path = Path(path)
+    # Before the read, not after: the overrides depend on nothing in the
+    # file, and a malformed one should not cost a full parse of a large
+    # TSV first.
+    resolved_metrics = _resolve_binding_metrics(binding_metrics)
 
     df = pd.read_csv(path, sep="\t", na_values=["NA"])
 
@@ -298,7 +340,7 @@ def read_lens(path, tag: str | None = None, *,
         )
 
     df, models, model_key_parts = _remap_binding_columns(
-        df, _resolve_binding_metrics(binding_metrics),
+        df, resolved_metrics,
     )
     df = _normalize_alleles(df)
     df = _rename_annotations(df)
@@ -323,6 +365,17 @@ def read_lens(path, tag: str | None = None, *,
     # split a key back into method and version.
     meta.extra["topiary_model_keys"] = model_key_parts
     df.attrs["topiary_model_keys"] = model_key_parts
+    if binding_metrics:
+        # Provenance, alongside lens_version and topiary_model_keys: a
+        # frame whose binding columns came from a corrected map should
+        # not be indistinguishable from one built with the defaults.
+        meta.extra["lens_binding_metrics"] = {
+            f"{tool}.{metric}": list(spec) if spec else None
+            for (tool, metric), spec in sorted(
+                _resolve_binding_metrics(binding_metrics).items()
+            )
+            if _BINDING_METRICS.get((tool, metric)) != spec
+        }
 
     return TopiaryResult(df, meta)
 
@@ -332,7 +385,11 @@ def read_lens(path, tag: str | None = None, *,
 # =============================================================================
 
 
-def _remap_binding_columns(df: pd.DataFrame, binding_metrics=None):
+def _remap_binding_columns(
+    df: pd.DataFrame,
+    binding_metrics: Mapping[tuple[str, str], tuple[str, str] | None]
+    | None = None,
+):
     """Rename LENS binding columns to Topiary wide form.
 
     Returns ``(df, models_dict, model_key_parts)``.  *models_dict* maps
@@ -353,7 +410,8 @@ def _remap_binding_columns(df: pd.DataFrame, binding_metrics=None):
         if kind is None:
             # A column the caller has acknowledged is not a gap.
             if field is not _ACKNOWLEDGED:
-                unmapped.append(column)
+                metric = _BINDING_COLUMN.match(column).group(3)
+                unmapped.append((column, model, metric.lower()))
             continue
         parsed_columns.append((column, model, version, kind, field))
         versions_by_model.setdefault(model, []).append(version)
@@ -412,13 +470,53 @@ def _remap_binding_columns(df: pd.DataFrame, binding_metrics=None):
         # full mapping lives in ``model_key_parts``, which is what
         # ``from_wide`` reads to recover method and version separately.
         models.setdefault(model, version)
+
+    # Two source columns landing on one output name would put a
+    # duplicate column in the frame: pandas allows it, one set of values
+    # becomes unreachable, and ``to_long()`` then raises "Expected a 1D
+    # array". That is #208's shape, and an override is the one way left
+    # to cause it -- the built-in table is injective per tool, but a
+    # caller can map a metric onto a (kind, field) another metric of the
+    # same tool already produces. Unlike a version collision there is no
+    # "keep both" to fall back on, since both would be the same
+    # predictor's same field, so this is refused rather than qualified.
+    claimed = {}
+    for column, target in rename.items():
+        claimed.setdefault(target, []).append(column)
+    conflicts = {
+        target: sorted(columns)
+        for target, columns in claimed.items() if len(columns) > 1
+    }
+    if conflicts:
+        detail = "; ".join(
+            f"{columns} would all become {target!r}"
+            for target, columns in sorted(conflicts.items())
+        )
+        raise ValueError(
+            f"binding_metrics maps more than one column to the same "
+            f"output: {detail}. Two columns cannot share one "
+            f"(tool, kind, field) -- one set of values would be "
+            f"unreachable and to_long() would fail. Map them to "
+            f"different fields, or None to leave one unnormalized."
+        )
+
     if unmapped:
+        # Name the (tool, metric) pairs, not just the column names: that
+        # pair is the ``binding_metrics`` key, so the warning can be
+        # pasted straight into an override without the reader having to
+        # split the column and strip the version by hand.
+        keys = sorted({
+            (tool, metric) for _, tool, metric in unmapped
+        })
         warnings.warn(
-            f"LENS binding column(s) {sorted(unmapped)} look like predictor "
-            f"output but name a tool or metric this topiary doesn't know, so "
-            f"they are left unnormalized. Their values are still in the "
-            f"frame under the original names — nothing was dropped — but no "
-            f"kind or field was assigned to them.",
+            f"LENS binding column(s) {sorted(c for c, _, _ in unmapped)} "
+            f"look like predictor output but name a tool or metric this "
+            f"topiary doesn't know, so they are left unnormalized. Their "
+            f"values are still in the frame under the original names — "
+            f"nothing was dropped — but no kind or field was assigned to "
+            f"them. Pass binding_metrics={{{', '.join(repr(k) for k in keys)}"
+            f": (kind, field)}} to map them, or None to declare them "
+            f"non-predictions.",
             UserWarning, stacklevel=3,
         )
     return df.rename(columns=rename), models, model_key_parts
