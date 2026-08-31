@@ -82,12 +82,18 @@ from .sequence_helpers import (
     protein_subsequences_around_mutations,
 )
 from .cached import CachedPredictor, mhcflurry_composite_version
+from .io_isovar import (
+    fragment_from_isovar_result,
+    fragments_from_isovar_results,
+)
 from .protein_fragment import (
     APPROXIMATED,
     MEASURED,
     PROVENANCE_VALUES,
     SYNTHESIZED,
     ProteinFragment,
+    SEMANTIC_CORE,
+    fragments_from_dataframe,
     make_fragment_id,
 )
 from .self_proteome import SelfProteome
@@ -110,6 +116,7 @@ from .rna_evidence import (
     attach_read_evidence,
     attach_sequence_source,
     describe_read_evidence,
+    provenance_for_method,
     split_reads_by_vaf,
 )
 from .result import (
@@ -119,7 +126,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.37.0"
+__version__ = "5.38.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -202,6 +209,10 @@ __all__ = [
     "protein_subsequences_around_mutations",
     "ProteinFragment",
     "make_fragment_id",
+    "SEMANTIC_CORE",
+    "fragments_from_dataframe",
+    "fragment_from_isovar_result",
+    "fragments_from_isovar_results",
     "MEASURED",
     "APPROXIMATED",
     "SYNTHESIZED",
@@ -232,6 +243,7 @@ __all__ = [
     "attach_read_evidence",
     "attach_sequence_source",
     "describe_read_evidence",
+    "provenance_for_method",
     "split_reads_by_vaf",
     "TopiaryResult",
     "stack_results",

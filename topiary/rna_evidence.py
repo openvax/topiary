@@ -34,7 +34,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .ranking import stated_values
+from types import MappingProxyType
+
+from .ranking import is_stated, stated_values
 
 #: Counted directly from an RNA alignment.
 RNA_READS = "rna_reads"
@@ -53,6 +55,47 @@ TPM_X_DNA_VAF = "tpm_x_dna_vaf"
 READ_COUNT_METHODS = frozenset({
     RNA_READS, RNA_DEPTH_X_VAF, CDS_OVERLAP_READS, TPM_X_DNA_VAF,
 })
+
+#: How each derivation maps onto :data:`~topiary.PROVENANCE_VALUES`.
+#:
+#: Two vocabularies answer different questions — this one says *how* a
+#: number was obtained, ``field_provenance`` says *how real* it is — and
+#: the mapping between them belongs in one place so a reader and a
+#: fragment builder cannot disagree about whether depth x VAF counts as
+#: measured. It does not: only a direct count does.
+METHOD_PROVENANCE = MappingProxyType({
+    RNA_READS: "measured",
+    RNA_DEPTH_X_VAF: "approximated",
+    CDS_OVERLAP_READS: "approximated",
+    TPM_X_DNA_VAF: "approximated",
+})
+
+
+def provenance_for_method(method):
+    """How real a value obtained by *method* is, or ``None`` if unstated.
+
+    Parameters
+    ----------
+    method : str or None
+        One of :data:`READ_COUNT_METHODS`.
+
+    Returns
+    -------
+    str or None
+        A ``field_provenance`` value, or ``None`` when no method was
+        recorded — which means the number was not derived here and
+        carries no claim either way.
+    """
+    if not is_stated(method):
+        return None
+    resolved = METHOD_PROVENANCE.get(str(method).strip())
+    if resolved is None:
+        raise ValueError(
+            f"{method!r} is not a known derivation; use one of "
+            f"{sorted(READ_COUNT_METHODS)}."
+        )
+    return resolved
+
 
 #: How the protein sequence a prediction was made on came to exist.
 #:
@@ -104,6 +147,7 @@ READ_EVIDENCE_COLUMNS = (
     "n_ref_reads",
     "n_alt_reads_supporting_protein_sequence",
     "read_count_method",
+    "supporting_read_count_method",
     "variant_allele_expression",
     "variant_allele_expression_method",
     "sequence_source",
@@ -219,9 +263,22 @@ def attach_read_evidence(
                 f"{supporting_method!r}. A count whose derivation is "
                 f"unnamed cannot be told from one that was measured."
             )
-        out["n_alt_reads_supporting_protein_sequence"] = _counts(supporting)
+        supporting_counts = _counts(supporting)
+        out["n_alt_reads_supporting_protein_sequence"] = supporting_counts
+        # Record the derivation, not just accept it. Without this the
+        # frame carries the count and loses how it was obtained, so a
+        # fragment built from the frame cannot say whether 45 reads were
+        # counted supporting the variant or counted overlapping a CDS.
+        out["supporting_read_count_method"] = pd.Series(
+            [supporting_method if pd.notna(v) else pd.NA
+             for v in supporting_counts],
+            index=out.index, dtype="object",
+        )
     else:
         out["n_alt_reads_supporting_protein_sequence"] = empty
+        out["supporting_read_count_method"] = pd.Series(
+            [pd.NA] * n_rows, index=out.index, dtype="object"
+        )
 
     if expression is not None and dna_vaf is not None:
         abundance = pd.to_numeric(expression, errors="coerce")
@@ -255,6 +312,8 @@ def describe_read_evidence(df: pd.DataFrame) -> dict:
     for column, method_column in (
         ("n_alt_reads", "read_count_method"),
         ("n_ref_reads", "read_count_method"),
+        ("n_alt_reads_supporting_protein_sequence",
+         "supporting_read_count_method"),
         ("variant_allele_expression", "variant_allele_expression_method"),
     ):
         if column not in df.columns or method_column not in df.columns:
