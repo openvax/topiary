@@ -1,5 +1,39 @@
 # Changelog
 
+## 5.36.0
+
+**Fixed: the genotype is now part of the cache key (#229).**
+`CachedPredictor` keyed on
+`(peptide, allele, peptide_length, kind, n_flank, c_flank)`. MHCflurry
+presentation in haplotype mode scores a peptide against a whole genotype
+and reports the *deconvolved best allele*, so two different genotypes
+that deconvolve to the same best allele collided on every key column —
+and the lookup silently returned one of them.
+
+`_CACHE_COLUMNS` already said why this mattered:
+
+> The genotype a haplotype-mode prediction was scored against; blank for
+> per-allele rows. Without it a cached presentation row reads as a
+> prediction for its deconvolved best allele.
+
+`allele_set` joins the key on exactly the argument already made there for
+`n_flank` / `c_flank`: the same peptide in a different context produces a
+different score, so the context is part of the identity. Blank genotypes
+coexist with populated ones the way absent flanks do, and every spelling
+of "no genotype" — `None`, `NaN`, blank, `"nan"` — is one key rather
+than four.
+
+**Deliberately not in the key:** `source_sequence_name`, `peptide_offset`
+and `sample_name`. Those say where a peptide was *found*, not what was
+predicted about it, and a prediction for one
+(peptide, allele, length, kind, flanks, genotype) is the same prediction
+whichever protein or sample it came from. Keying on them would defeat
+the cache — the same peptide would be re-predicted once per source
+protein.
+
+Caches on disk keep loading; the key gains a dimension, so an entry
+written without a genotype keys as blank, which is what it is.
+
 ## 5.35.1
 
 **Fixed: `CachedPredictor` turned a missing allele into the allele named
