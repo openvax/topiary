@@ -1,5 +1,32 @@
 # Changelog
 
+## 5.35.1
+
+**Fixed: `CachedPredictor` turned a missing allele into the allele named
+`"None"`** — the cache axis of the defect 5.35.0 centralized.
+
+`_normalize` rejects null identity columns for `prediction_method_name`,
+`predictor_version` and `kind`, with a comment saying why, then applied
+`astype(str)` to `allele` and `peptide` without the same guard. The
+reasoning was written down and not applied one field over.
+
+Two consequences. The cache keys on
+`(peptide, allele, peptide_length, kind)`, so `None`, `NaN` and `""`
+were three different keys, and one predictor's allele-free evidence sat
+in three buckets while still looking present in the store. And
+`.alleles` — the mhctools surface answering "what can this predict for"
+— reported the string `"None"` as a queryable allele.
+
+An allele-free row is legitimate (`proteasome_cleavage` and the other
+peptide-level kinds have no allele), so `allele` collapses every
+spelling onto `""`, the way `n_flank` / `c_flank` already did, and
+`.alleles` excludes allele-free rows. A missing `peptide` *is* rejected
+— there is no such thing as a peptide-free prediction.
+
+Found by following a downstream report of the identical shape in their
+own store, where the same spellings split one predictor's evidence
+across four buckets.
+
 ## 5.35.0
 
 **Changed: `_fragment_from_effect` is now public as `fragment_from_effect`.**
