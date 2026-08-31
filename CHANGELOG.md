@@ -1,5 +1,34 @@
 # Changelog
 
+## 5.28.1
+
+**Fixed: `derive_mhc_class` classified alleles by name prefix.**
+
+It read `HLA-A/B/C` as class I and `HLA-D*` as class II, so every other
+real allele came back `pd.NA`:
+
+| allele | before | after |
+|---|---|---|
+| `HLA-E*01:01`, `-F`, `-G` | NA | I |
+| `H2-Kb` (mouse) | NA | I |
+| `H2-IAb` (mouse) | NA | II |
+| `BoLA-N*01301`, `Mamu-A1*001:01`, `SLA-1*01:01` | NA | I |
+
+`pd.NA` is not a harmless answer here: it drops a row from the
+`class_i` **and** `class_ii` filters alike, so those peptides were in
+neither view rather than in the wrong one. The non-classical human class
+I genes are the reachable case for a human pipeline; the non-human ones
+matter for anyone predicting outside *Homo sapiens*.
+
+Alleles are now parsed with mhcgnomes, which places all of the above.
+AGENTS.md has said so all along — *"Use mhcgnomes for MHC allele
+parsing. Never `startswith("HLA-")` or other string hacks — alleles
+aren't always human"* — and this was the one place in the codebase not
+following it.
+
+Distinct alleles are parsed once per call rather than once per row:
+100k rows over two distinct alleles takes ~13 ms.
+
 ## 5.28.0
 
 **Fixed: `read_lens` dropped a predictor whose version spelling it
