@@ -55,6 +55,11 @@ import numpy as np
 import pandas as pd
 
 from .ranking import stated_values
+from .rna_evidence import (
+    PVACSEQ_EPITOPE,
+    attach_read_evidence,
+    attach_sequence_source,
+)
 from .io import Metadata
 from .result import TopiaryResult
 
@@ -498,6 +503,22 @@ def _parse_all_epitopes(df):
     for src, dst in _ALL_ANNOTATIONS.items():
         if src in df.columns:
             out[dst] = df[src].values
+
+    # RNA read-level evidence. pVACseq reports a depth and a variant
+    # allele fraction, so the alt/ref split is arithmetic rather than
+    # counted — attach_read_evidence names that on every row it derives.
+    out = attach_read_evidence(
+        out,
+        overlapping=df["Tumor RNA Depth"] if "Tumor RNA Depth" in df else None,
+        vaf=df["Tumor RNA VAF"] if "Tumor RNA VAF" in df else None,
+        expression=(
+            df["Transcript Expression"]
+            if "Transcript Expression" in df
+            else df.get("Gene Expression")
+        ),
+        dna_vaf=df["Tumor DNA VAF"] if "Tumor DNA VAF" in df else None,
+    )
+    out = attach_sequence_source(out, PVACSEQ_EPITOPE)
 
     # Per-algorithm score columns pass through as snake_case names.
     for col in df.columns:
