@@ -63,6 +63,21 @@ validate_default_methods(df, user_supplied)     # catches a typo at config time
 
 `resolve_default_methods` returns an entry only for kinds that actually have a choice, and resolves by `CANONICAL_METHOD_PREFERENCE` — a **tie-break convention, not a quality ranking**. It orders general-purpose predictors ahead of ones whose output for a kind is secondary to their main job, then anything unlisted alphabetically, so the answer is always deterministic. Pass your own `preference=` to override it, or qualify the reference (`Affinity["netmhcpan"]`) if you care which model answers.
 
+### Versions
+
+The same question one level down: when one model produced a kind at several versions, an unqualified reference is ambiguous and raises. `default_versions` answers it, keyed on `(kind, model)` — a version means nothing without the model it belongs to:
+
+```python
+from topiary import resolve_default_versions, validate_default_versions
+
+versions = resolve_default_versions(df)   # {("pMHC_affinity", "netmhcpan"): "4.2"}
+evaluate_scores(df, node, default_versions=versions)
+```
+
+`resolve_default_versions` orders by PEP 440, so `4.10` beats `4.9`; pass `prefer="oldest"` for a pipeline pinned to an older validated model. A version that isn't PEP 440 — a build tag, a date, a git hash — sorts before everything that parses, so "newest" means a real release rather than whichever string happened to sort last.
+
+Like `default_methods`, it only speaks where there is a real choice: a model present at one version is omitted.
+
 `validate_default_methods` exists because `EvalContext` only consults a default when a kind is *actually* ambiguous — so an entry naming a model that never ran sits inert until the day two models do produce that kind, and then starts deciding.
 
 One thing is deliberately *not* shared: on a frame where several methods produce the same kind, `apply_filter` auto-aggregates an unqualified reference across them (`nanmin` for `<`/`<=`, `nanmax` for `>`/`>=`), while `apply_sort` and `evaluate_scores` stay strict and raise on the ambiguity. Pass `default_methods={"affinity": "mhcflurry"}` (or qualify the reference, `Affinity["mhcflurry"]`) to get one answer from all three.

@@ -54,7 +54,9 @@ from .nodes import (
     MHC_DEPENDENCE_VALUES,
     mhc_dependence,
     resolve_default_methods,
+    resolve_default_versions,
     validate_default_methods,
+    validate_default_versions,
     _kind_matches,
     _kind_name,
     _kind_short_name,
@@ -139,5 +141,7 @@ __all__ = [
     "MHC_DEPENDENCE_VALUES",
     "mhc_dependence",
     "resolve_default_methods",
+    "resolve_default_versions",
     "validate_default_methods",
+    "validate_default_versions",
 ]

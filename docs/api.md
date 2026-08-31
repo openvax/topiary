@@ -307,6 +307,7 @@ options, all forwarded to `EvalContext`:
 |--------|---------|
 | `group_keys` | Explicit group identity columns; default infers them from the DataFrame |
 | `default_methods` | Per-kind default `prediction_method_name` for unqualified references |
+| `default_versions` | Per-`(kind, model)` default `predictor_version`, when one model has several |
 | `kind_support` | Per-(model, kind) metadata from `TopiaryPredictor.kind_support` |
 | `alleles` | Alleles every peptide is evaluated against, so allele-free evidence reaches a genotype |
 
