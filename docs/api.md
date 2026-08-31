@@ -309,7 +309,7 @@ options, all forwarded to `EvalContext`:
 | `default_methods` | Per-kind default `prediction_method_name` for unqualified references |
 | `default_versions` | Per-`(kind, model)` default `predictor_version`, when one model has several |
 | `kind_support` | Per-(model, kind) metadata from `TopiaryPredictor.kind_support` |
-| `alleles` | Alleles every peptide is evaluated against, so allele-free evidence reaches a genotype |
+| `alleles` | Alleles peptides are evaluated against, so allele-free evidence reaches a genotype. Sequence (all peptides), mapping, or callable (per peptide) |
 
 See [Group identity](ranking.md#group-identity) for when to pass `group_keys`.
 
