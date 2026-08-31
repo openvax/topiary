@@ -70,7 +70,14 @@ from .sequence_helpers import (
     protein_subsequences_around_mutations,
 )
 from .cached import CachedPredictor, mhcflurry_composite_version
-from .protein_fragment import ProteinFragment, make_fragment_id
+from .protein_fragment import (
+    APPROXIMATED,
+    MEASURED,
+    PROVENANCE_VALUES,
+    SYNTHESIZED,
+    ProteinFragment,
+    make_fragment_id,
+)
 from .self_proteome import SelfProteome
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
 from .io_protein_fragment import read_fragments, write_fragments, iter_fragments
@@ -88,7 +95,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.31.1"
+__version__ = "5.32.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -162,6 +169,10 @@ __all__ = [
     "protein_subsequences_around_mutations",
     "ProteinFragment",
     "make_fragment_id",
+    "MEASURED",
+    "APPROXIMATED",
+    "SYNTHESIZED",
+    "PROVENANCE_VALUES",
     "read_fragments",
     "write_fragments",
     "iter_fragments",

@@ -25,6 +25,22 @@ from typing import Iterable, Optional
 # =============================================================================
 
 
+#: How real a field's value is, for :attr:`ProteinFragment.field_provenance`.
+#:
+#: A field not named in the mapping is unqualified — it means what it
+#: says. These qualify a field that *has* a value, which is the case a
+#: bare ``None`` cannot express: "populated but estimated" and
+#: "populated but invented" are neither absent nor trustworthy.
+MEASURED = "measured"
+APPROXIMATED = "approximated"
+SYNTHESIZED = "synthesized"
+
+PROVENANCE_VALUES = frozenset({MEASURED, APPROXIMATED, SYNTHESIZED})
+
+#: Provenance values a consumer must not interpret as biology.
+_NOT_BIOLOGY = frozenset({SYNTHESIZED})
+
+
 @dataclass(frozen=True, eq=False)
 class ProteinFragment:
     """A protein/peptide sequence with source-type, target-region, and
@@ -76,6 +92,38 @@ class ProteinFragment:
         Ensembl id.
     gene_expression, transcript_expression : float, optional
         Expression evidence carried forward into prediction rows.
+    n_overlapping_reads, n_alt_reads, n_ref_reads, \
+n_alt_reads_supporting_protein_sequence : int, optional
+        RNA read-level evidence.  Not derivable from the aggregate
+        expression fields above, and separately useful: a consumer that
+        weights a candidate by depth of support needs the counts, not a
+        TPM.  ``n_alt_reads_supporting_protein_sequence`` is deliberately
+        distinct from ``n_alt_reads`` — it counts reads supporting *this
+        assembled protein sequence*, not merely the variant allele.
+
+        ``None`` means **unknown**, and is not the same as ``0``.  A
+        source with no read data leaves these ``None``; a source that
+        looked and found no support sets ``0``.  Collapsing the two
+        would let a consumer read "no RNA support" out of "this source
+        cannot answer".
+    field_provenance : dict, optional
+        Per-field statement of how real a value is, mapping a field name
+        to one of :data:`PROVENANCE_VALUES`:
+
+        - ``"measured"`` — observed directly from data.
+        - ``"approximated"`` — derived or estimated, e.g. read counts
+          reconstructed as depth × VAF rather than counted.
+        - ``"synthesized"`` — a placeholder the loader invented because
+          the source did not supply one.  **Anything interpreting such a
+          field as biology must refuse rather than compute.**
+
+        A field absent from this mapping is unqualified: it means what
+        it says.  This exists so a consumer can tell a populated field
+        that is real from one that merely has a value — which a
+        multi-source abstraction cannot express any other way, since
+        every source populates a different subset and some of them
+        estimate.  Use :meth:`provenance_of`, :meth:`is_known` and
+        :meth:`is_usable_as_biology` rather than reading the dict.
     annotations : dict
         Tool-specific signals that don't fit the above fields.
         Serialized as JSON in TSV IO; carried through prediction as
@@ -106,6 +154,13 @@ class ProteinFragment:
     gene_expression: Optional[float] = None
     transcript_expression: Optional[float] = None
 
+    n_overlapping_reads: Optional[int] = None
+    n_alt_reads: Optional[int] = None
+    n_ref_reads: Optional[int] = None
+    n_alt_reads_supporting_protein_sequence: Optional[int] = None
+
+    field_provenance: dict = field(default_factory=dict)
+
     annotations: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------
@@ -123,6 +178,75 @@ class ProteinFragment:
 
     def __hash__(self):
         return hash(self.fragment_id)
+
+    def __post_init__(self):
+        """Reject a provenance mapping that cannot mean anything.
+
+        A typo'd field name or an unknown label would sit inert and
+        silently stop protecting the field it was written to protect,
+        which is worse than not writing it.
+        """
+        if not self.field_provenance:
+            return
+        if not isinstance(self.field_provenance, dict):
+            raise TypeError(
+                f"field_provenance must be a dict of field name -> "
+                f"provenance, got {type(self.field_provenance).__name__}"
+            )
+        known = {f.name for f in dataclasses.fields(self)}
+        for name, value in self.field_provenance.items():
+            if name not in known:
+                raise ValueError(
+                    f"field_provenance names {name!r}, which is not a "
+                    f"ProteinFragment field. Use annotations for "
+                    f"tool-specific signals."
+                )
+            if value not in PROVENANCE_VALUES:
+                raise ValueError(
+                    f"field_provenance[{name!r}] is {value!r}; use one of "
+                    f"{sorted(PROVENANCE_VALUES)}."
+                )
+
+    # ------------------------------------------------------------------
+    # Knownness
+    # ------------------------------------------------------------------
+
+    def provenance_of(self, name: str) -> Optional[str]:
+        """How real *name*'s value is, or ``None`` if unqualified."""
+        return self.field_provenance.get(name)
+
+    def is_known(self, name: str) -> bool:
+        """Whether *name* carries a value at all.
+
+        The distinction this exists for: ``n_alt_reads == 0`` means the
+        source looked and found no support; ``n_alt_reads is None``
+        means the source cannot answer. Both are legitimate and they are
+        not the same claim.
+        """
+        if name not in {f.name for f in dataclasses.fields(self)}:
+            raise ValueError(
+                f"{name!r} is not a ProteinFragment field."
+            )
+        return getattr(self, name) is not None
+
+    def is_approximate(self, name: str) -> bool:
+        """Whether *name*'s value was derived rather than observed."""
+        return self.provenance_of(name) == APPROXIMATED
+
+    def is_usable_as_biology(self, name: str) -> bool:
+        """Whether *name* may be interpreted as a fact about the sample.
+
+        False for a field that is absent, and for one whose value the
+        loader synthesized because the source supplied none — a
+        placeholder ref/alt, say, which anything doing variant effect
+        annotation must refuse rather than compute on. An approximated
+        value is usable but should be understood as an estimate; ask
+        :meth:`is_approximate` when that matters.
+        """
+        return (
+            self.is_known(name)
+            and self.provenance_of(name) not in _NOT_BIOLOGY
+        )
 
     # ------------------------------------------------------------------
     # Properties
@@ -183,13 +307,9 @@ class ProteinFragment:
         annotations.  Unknown keys are rejected to catch typos — pass
         them through ``annotations`` instead.
         """
-        known = {
-            "fragment_id", "source_type", "sequence",
-            "reference_sequence", "germline_sequence", "target_intervals",
-            "variant", "effect", "effect_type",
-            "gene", "gene_id", "transcript_id", "transcript_name",
-            "gene_expression", "transcript_expression", "annotations",
-        }
+        # Derived, not restated: a hand-maintained copy of the field
+        # list silently rejects every field added after it was written.
+        known = {f.name for f in dataclasses.fields(cls)}
         unknown = set(d.keys()) - known
         if unknown:
             raise ValueError(
@@ -215,6 +335,13 @@ class ProteinFragment:
             transcript_name=d.get("transcript_name"),
             gene_expression=d.get("gene_expression"),
             transcript_expression=d.get("transcript_expression"),
+            n_overlapping_reads=d.get("n_overlapping_reads"),
+            n_alt_reads=d.get("n_alt_reads"),
+            n_ref_reads=d.get("n_ref_reads"),
+            n_alt_reads_supporting_protein_sequence=d.get(
+                "n_alt_reads_supporting_protein_sequence"
+            ),
+            field_provenance=dict(d.get("field_provenance") or {}),
             annotations=dict(d.get("annotations") or {}),
         )
 

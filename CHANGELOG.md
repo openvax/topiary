@@ -1,5 +1,54 @@
 # Changelog
 
+## 5.32.0
+
+**Added: read-level evidence and per-field knownness on `ProteinFragment`
+(#102).** The first half of the multi-source fragment work — consumer
+requirements from vaxrank, which would drop its own
+`MutantProteinFragment` and read topiary's. isovar integration is not part
+of this; see the issue.
+
+Four RNA read-count fields, none derivable from the aggregate expression
+the fragment already carried:
+
+```python
+n_overlapping_reads
+n_alt_reads
+n_ref_reads
+n_alt_reads_supporting_protein_sequence   # this assembled sequence, not just the allele
+```
+
+**`None` means unknown, and is not `0`.** A source with no read data
+leaves them `None`; a source that looked and found nothing sets `0`.
+Collapsing the two would let a consumer read "no RNA support" out of "this
+source cannot answer" — and the distinction survives a TSV round trip,
+since a distinction that does not serialize is decorative.
+
+`field_provenance` states how real a populated field is, mapping a field
+name to `"measured"`, `"approximated"` or `"synthesized"`:
+
+```python
+ProteinFragment(
+    ...,
+    variant="chr1:100:N>N",
+    n_alt_reads=12,
+    field_provenance={"variant": SYNTHESIZED, "n_alt_reads": APPROXIMATED},
+)
+```
+
+This covers what a bare `None` cannot say. A LENS or pVACseq read count is
+real but *estimated* (CDS-overlapping reads; depth × VAF). A placeholder
+ref/alt invented because the source supplied none has a value that means
+nothing, and anything doing variant-effect annotation on it must refuse
+rather than compute. Read it through `provenance_of`, `is_known`,
+`is_approximate` and `is_usable_as_biology` rather than the dict. A
+provenance entry naming a field that does not exist, or a label outside
+the vocabulary, is refused — a typo would sit inert and quietly stop
+protecting the field it was written for.
+
+**Fixed: `ProteinFragment.from_dict` hardcoded its field list**, so it
+rejected every field added after that list was written. It now derives the
+set from the dataclass and cannot drift again.
 ## 5.31.1
 
 **Fixed: `SelfProteome.nearest` crashed when a peptide-length bucket was
