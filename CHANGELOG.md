@@ -1,5 +1,57 @@
 # Changelog
 
+## 5.31.0
+
+**Added: `default_versions` and `resolve_default_versions` (#214).**
+`default_methods` answered "which model, when a kind has several".
+Nothing answered "which version, when a model has several", so an
+unqualified reference on a multi-version frame raised with no configured
+way through:
+
+```python
+EvalContext(df, default_versions={("pMHC_affinity", "netmhcpan"): "4.2"})
+resolve_default_versions(df)          # {("pMHC_affinity", "netmhcpan"): "4.2"}
+validate_default_versions(df, mapping)
+```
+
+Keyed on `(kind, model)` because a version is only meaningful within a
+model — `"4.2"` says nothing on its own. Forwarded by `apply_filter`,
+`apply_sort` and `evaluate_scores` like the other context options.
+
+`resolve_default_versions(df, prefer="newest")` orders by PEP 440, which
+is the only ordering where `4.10` beats `4.9`; `prefer="oldest"` serves a
+pipeline pinned to an older validated model. Versions that aren't PEP 440
+(a build tag, a date, a git hash) sort *before* everything that parses,
+so "newest" means a real release rather than whichever string sorted
+last, with the string as a deterministic tiebreak.
+
+Unconfigured behavior is unchanged — an ambiguous version still raises,
+and the error now names `default_versions` alongside the bracket form.
+
+**This was our own gap, made worse by our own fix.** 5.28.2 added the
+version-ambiguity raise so two versions of one model could no longer be
+silently resolved to whichever row came first. That was right, but it
+shipped without the way through — in the same release series whose notes
+described the identical problem one level up as "a working configuration
+turned into a hard error". Keeping both versions of a multi-version LENS
+table (#208) is what made it reachable: a consumer's default scoring
+expression could not run on that input at all.
+
+**An unknown version is not a version.** A missing `predictor_version` —
+NaN, `None`, blank, or no column at all — is the absence of a version
+claim, and both the ambiguity check and the resolver now treat it that
+way. Previously a frame with one real version alongside rows recording
+none raised `Ambiguous: ... (netmhcpan 4.2, netmhcpan nan)`, naming a
+version no caller could pass, while `resolve_default_versions` dropped
+the NaN and reported no choice to make — so feeding the resolver's own
+answer back in still crashed. A genuine disagreement between two real
+versions still raises, and the message no longer invents a third.
+
+`packaging` is now a declared dependency. It was already present
+transitively, but the version ordering depends on it, and a fallback that
+quietly demotes every version to string order is not a fallback worth
+having.
+
 ## 5.30.0
 
 **Added: `read_lens(..., binding_metrics=...)` (#211).** The binding-column

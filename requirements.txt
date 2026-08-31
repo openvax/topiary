@@ -4,4 +4,6 @@ mhctools>=3.14.1
 varcode>=4.18.0
 gtfparse>=0.0.4
 mhcnames
+# PEP 440 ordering for resolve_default_versions
+packaging
 argcomplete>=1.10

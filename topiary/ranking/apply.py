@@ -226,7 +226,8 @@ def _resolve_sort_direction(node, sort_direction):
 
 
 def _resolve_context(df, context, *, filter_context, group_keys,
-                     default_methods, kind_support, alleles):
+                     default_methods, kind_support, alleles,
+                     default_versions):
     """Build the context for an entry point, or adopt the caller's.
 
     A context caches its grouping against one specific frame, so reusing
@@ -241,7 +242,7 @@ def _resolve_context(df, context, *, filter_context, group_keys,
         return EvalContext(
             df, group_keys=group_keys, filter_context=filter_context,
             default_methods=default_methods, kind_support=kind_support,
-            alleles=alleles,
+            alleles=alleles, default_versions=default_versions,
         )
     if not isinstance(context, EvalContext):
         raise TypeError(
@@ -252,6 +253,7 @@ def _resolve_context(df, context, *, filter_context, group_keys,
         name for name, value in (
             ("group_keys", group_keys),
             ("default_methods", default_methods),
+            ("default_versions", default_versions),
             ("kind_support", kind_support),
             ("alleles", alleles),
         ) if value is not None
@@ -277,7 +279,7 @@ def _resolve_context(df, context, *, filter_context, group_keys,
 
 def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
                     kind_support=None, alleles=None, fill=np.nan,
-                    context=None):
+                    context=None, default_versions=None):
     """Evaluate a DSL *node* against *df* and align the result to ``df.index``.
 
     ``DSLNode.eval`` returns a Series indexed by the peptide-allele
@@ -295,9 +297,9 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
     callers pick semantics — ``.fillna(0.0)`` for additive scoring,
     ``.fillna(-inf)`` for ranking.
 
-    *group_keys*, *default_methods*, *kind_support* and *alleles* are
-    the shared context options, forwarded to :class:`EvalContext` — see
-    its docstring.  Pass *context* instead to reuse a prebuilt
+    *group_keys*, *default_methods*, *default_versions*, *kind_support*
+    and *alleles* are the shared context options, forwarded to
+    :class:`EvalContext` — see its docstring.  Pass *context* instead to reuse a prebuilt
     :class:`EvalContext` and skip rebuilding the grouping; it must have
     been built on this same *df*, and it is mutually exclusive with the
     individual options above.
@@ -315,7 +317,7 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
     ctx = _resolve_context(
         df, context, filter_context=False, group_keys=group_keys,
         default_methods=default_methods, kind_support=kind_support,
-        alleles=alleles,
+        alleles=alleles, default_versions=default_versions,
     )
     scored = node.eval(ctx).reindex(ctx.group_index)
     aligned = pd.Series(
@@ -329,15 +331,16 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
 
 
 def apply_filter(df, node, *, group_keys=None, default_methods=None,
-                 kind_support=None, alleles=None, context=None):
+                 kind_support=None, alleles=None, context=None,
+                 default_versions=None):
     """Apply a boolean-valued DSL node to *df*.
 
     Keeps all rows for peptide-allele groups whose evaluated value is
     truthy.  ``None`` for *node* is a no-op.
 
-    *group_keys*, *default_methods*, *kind_support* and *alleles* are
-    the shared context options, forwarded to :class:`EvalContext` — see
-    its docstring.  Pass *context* instead to reuse a prebuilt
+    *group_keys*, *default_methods*, *default_versions*, *kind_support*
+    and *alleles* are the shared context options, forwarded to
+    :class:`EvalContext` — see its docstring.  Pass *context* instead to reuse a prebuilt
     :class:`EvalContext` and skip rebuilding the grouping; it must have
     been built on this same *df*, and it is mutually exclusive with the
     individual options above.
@@ -350,7 +353,7 @@ def apply_filter(df, node, *, group_keys=None, default_methods=None,
     ctx = _resolve_context(
         df, context, filter_context=True, group_keys=group_keys,
         default_methods=default_methods, kind_support=kind_support,
-        alleles=alleles,
+        alleles=alleles, default_versions=default_versions,
     )
     # Reindex defensively so a misbehaving node (index mismatch) surfaces
     # as NaN → False rather than silently picking up rows from a
@@ -366,7 +369,7 @@ def apply_filter(df, node, *, group_keys=None, default_methods=None,
 
 def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
                default_methods=None, kind_support=None, alleles=None,
-               context=None):
+               context=None, default_versions=None):
     """Sort groups by one or more DSL nodes (lexicographic fallthrough).
 
     *sort_nodes* is a list of DSLNode.  Each node's direction is inferred
@@ -379,9 +382,9 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
     promotes nor penalizes it and the remaining keys decide.  Ties keep
     the order the groups appear in the frame.
 
-    *group_keys*, *default_methods*, *kind_support* and *alleles* are
-    the shared context options, forwarded to :class:`EvalContext` — see
-    its docstring.  Pass *context* instead to reuse a prebuilt
+    *group_keys*, *default_methods*, *default_versions*, *kind_support*
+    and *alleles* are the shared context options, forwarded to
+    :class:`EvalContext` — see its docstring.  Pass *context* instead to reuse a prebuilt
     :class:`EvalContext` and skip rebuilding the grouping; it must have
     been built on this same *df*, and it is mutually exclusive with the
     individual options above.
@@ -396,7 +399,7 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
     ctx = _resolve_context(
         df, context, filter_context=False, group_keys=group_keys,
         default_methods=default_methods, kind_support=kind_support,
-        alleles=alleles,
+        alleles=alleles, default_versions=default_versions,
     )
     n_groups = len(ctx.group_index)
     n_keys = len(sort_nodes)

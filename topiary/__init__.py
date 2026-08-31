@@ -21,7 +21,9 @@ from .ranking import (
     MHC_DEPENDENCE_VALUES,
     mhc_dependence,
     resolve_default_methods,
+    resolve_default_versions,
     validate_default_methods,
+    validate_default_versions,
     KindAccessor,
     Len,
     LogisticExpr,
@@ -86,7 +88,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.30.0"
+__version__ = "5.31.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -114,7 +116,9 @@ __all__ = [
     "MHC_DEPENDENCE_VALUES",
     "mhc_dependence",
     "resolve_default_methods",
+    "resolve_default_versions",
     "validate_default_methods",
+    "validate_default_versions",
     "KindAccessor",
     "Len",
     "LogisticExpr",

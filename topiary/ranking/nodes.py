@@ -43,6 +43,7 @@ from difflib import get_close_matches
 from typing import Optional
 
 import numpy as np
+from packaging.version import InvalidVersion, Version
 import pandas as pd
 from mhctools import MHC_DEPENDENCE_VALUES, Kind
 
@@ -412,6 +413,166 @@ def resolve_default_methods(df, preference=None):
     return resolved
 
 
+def resolve_default_versions(df, prefer="newest"):
+    """Pick one ``predictor_version`` per (kind, model) that has several.
+
+    The version-level counterpart of :func:`resolve_default_methods`, and
+    for the same reason: raising on ambiguity is the right default, but a
+    consumer needs one supported way to say "use the newest" rather than
+    each inventing its own preference table and disagreeing about what
+    newest means.
+
+    Ordering is PEP 440 where the versions parse as PEP 440, which is the
+    only ordering under which ``4.10`` beats ``4.9``; anything unparseable
+    sorts before everything that parses, and ties break on the string, so
+    the answer is always deterministic. Pass ``prefer="oldest"`` for a
+    pipeline pinned to an older validated model.
+
+    Pairs with a single version are omitted: the result only speaks where
+    there is a real choice. Returns a mapping suitable for
+    ``default_versions=``.
+    """
+    if prefer not in ("newest", "oldest"):
+        raise ValueError(
+            f"prefer must be 'newest' or 'oldest', got {prefer!r}"
+        )
+    if df is None or df.empty:
+        return {}
+    needed = {"kind", "prediction_method_name", "predictor_version"}
+    if not needed.issubset(df.columns):
+        return {}
+
+    resolved = {}
+    grouped = df.dropna(subset=["prediction_method_name"]).groupby(
+        ["kind", "prediction_method_name"], sort=False, dropna=True,
+    )
+    for (kind_value, method), group in grouped:
+        known = group["predictor_version"][
+            _known_versions(group["predictor_version"])
+        ]
+        versions = sorted({str(v).strip() for v in known.unique()})
+        if len(versions) < 2:
+            continue
+        ordered = sorted(versions, key=_version_sort_key)
+        resolved[(str(kind_value), str(method))] = (
+            ordered[-1] if prefer == "newest" else ordered[0]
+        )
+    return resolved
+
+
+def _known_versions(values) -> pd.Series:
+    """The entries of *values* that actually name a version.
+
+    A missing ``predictor_version`` — NaN, None, or blank — is the
+    absence of a version claim, not a version called "nan". Treating it
+    as one produces a phantom second version, and then an ambiguity
+    error naming a version the caller cannot possibly pass.
+    """
+    text = values.astype(str).str.strip()
+    return values.notna() & (text != "") & (text.str.lower() != "nan")
+
+
+def _version_sort_key(version):
+    """PEP 440 order where possible, deterministic where not.
+
+    ``packaging`` is imported at module scope rather than here so a
+    missing install fails loudly. Catching ImportError alongside
+    InvalidVersion would silently demote *every* version to string
+    order, which is the ordering this function exists to avoid.
+    """
+    try:
+        return (1, Version(str(version)), "")
+    except InvalidVersion:
+        # Not PEP 440 (a build tag, a date, a git hash). Sorting these
+        # before every parseable version keeps "newest" meaning a real
+        # release rather than whichever string happened to sort last.
+        return (0, _UNPARSEABLE_VERSION, str(version))
+
+
+class _UnparseableVersion:
+    """Sorts equal to itself, so the string tiebreak decides."""
+
+    __slots__ = ()
+
+    def __lt__(self, other):
+        return False
+
+    def __gt__(self, other):
+        return False
+
+    def __eq__(self, other):
+        return isinstance(other, _UnparseableVersion)
+
+    def __hash__(self):
+        return hash(_UnparseableVersion)
+
+
+_UNPARSEABLE_VERSION = _UnparseableVersion()
+
+
+def _normalize_default_versions(mapping):
+    """Canonicalize ``default_versions`` keys to ``(kind, model)`` pairs."""
+    aliases = _build_kind_aliases()
+    out = {}
+    for key, version in mapping.items():
+        if (
+            not isinstance(key, tuple)
+            or len(key) != 2
+        ):
+            raise TypeError(
+                f"default_versions keys must be (kind, model) pairs, "
+                f"got {key!r}. A version is only meaningful within a "
+                f"model, so the model has to be named."
+            )
+        kind_key, method = key
+        if not isinstance(version, str):
+            raise TypeError(
+                f"default_versions[{key!r}] must be a version string, "
+                f"got {type(version).__name__}"
+            )
+        if not isinstance(method, str):
+            raise TypeError(
+                f"default_versions[{key!r}] model must be a string, "
+                f"got {type(method).__name__}"
+            )
+        kind_value = _canonical_kind_key(kind_key, aliases, "default_versions")
+        out[(kind_value, method)] = version
+    return out
+
+
+def validate_default_versions(df, default_versions):
+    """Raise if *default_versions* names a (kind, model) or version *df* lacks.
+
+    Same rationale as :func:`validate_default_methods`: a default is only
+    consulted when a reference is actually ambiguous, so an entry naming
+    a model or version that never ran sits inert until the day it starts
+    deciding.
+    """
+    normalized = _normalize_default_versions(default_versions)
+    if df is None or df.empty:
+        return
+    needed = {"kind", "prediction_method_name", "predictor_version"}
+    if not needed.issubset(df.columns):
+        return
+    for (kind_value, method), version in normalized.items():
+        rows = df[
+            (df["kind"] == kind_value)
+            & (df["prediction_method_name"] == method)
+        ]
+        if rows.empty:
+            continue
+        available = sorted({
+            str(v).strip() for v in rows["predictor_version"][
+                _known_versions(rows["predictor_version"])
+            ].unique()
+        })
+        if version not in available:
+            raise ValueError(
+                f"No {kind_value} predictions from {method} at "
+                f"predictor_version {version!r}. Available: {available}"
+            )
+
+
 def validate_default_methods(df, default_methods):
     """Raise if *default_methods* names a kind or model *df* doesn't have.
 
@@ -455,24 +616,28 @@ def _normalize_default_methods(mapping):
                 f"default_methods[{key!r}] must be a method name string, "
                 f"got {type(method).__name__}"
             )
-        kind = aliases.get(_kind_name(key).lower())
-        if kind is None:
-            # Surface the canonical kind values and every DSL short
-            # alias so a user who typed 'banana' sees that 'ba' /
-            # 'affinity' / 'pMHC_affinity' all map to the same kind.
-            # The alias dict is lower-cased for case-insensitive
-            # lookup; skip lower-case duplicates of canonicals to
-            # keep the list readable.
-            canonical = {_kind_value(k) for k in aliases.values()}
-            canonical_lower = {c.lower() for c in canonical}
-            shorts = {a for a in aliases.keys() if a not in canonical_lower}
-            accepted = sorted(shorts | canonical)
-            raise ValueError(
-                f"default_methods key {key!r} is not a known kind. "
-                f"Accepted spellings: {accepted}"
-            )
-        out[_kind_value(kind)] = method
+        out[_canonical_kind_key(key, aliases, "default_methods")] = method
     return out
+
+
+def _canonical_kind_key(key, aliases, label):
+    """A kind spelling → its canonical ``kind`` value, or a helpful raise."""
+    kind = aliases.get(_kind_name(key).lower())
+    if kind is None:
+        # Surface the canonical kind values and every DSL short alias so
+        # a user who typed 'banana' sees that 'ba' / 'affinity' /
+        # 'pMHC_affinity' all map to the same kind. The alias dict is
+        # lower-cased for case-insensitive lookup; skip lower-case
+        # duplicates of canonicals to keep the list readable.
+        canonical = {_kind_value(k) for k in aliases.values()}
+        canonical_lower = {c.lower() for c in canonical}
+        shorts = {a for a in aliases.keys() if a not in canonical_lower}
+        accepted = sorted(shorts | canonical)
+        raise ValueError(
+            f"{label} key {key!r} is not a known kind. "
+            f"Accepted spellings: {accepted}"
+        )
+    return _kind_value(kind)
 
 
 class EvalContext:
@@ -524,6 +689,21 @@ class EvalContext:
                     "pMHC_stability": "netmhcstabpan",
                 },
             )
+    default_versions : dict, optional
+        Per-(kind, model) default ``predictor_version``, for resolving
+        unqualified references when one model produced the same kind at
+        several versions.  Keyed on the pair because a version is only
+        meaningful within a model: ``4.2`` says nothing on its own.
+        Keys accept the same kind spellings as *default_methods*::
+
+            EvalContext(
+                df,
+                default_versions={("pMHC_affinity", "netmhcpan"): "4.2"},
+            )
+
+        :func:`resolve_default_versions` builds one for the common
+        "newest wins" case.  Without this kwarg an ambiguous version
+        raises, as an ambiguous method does.
     filter_context : bool, optional
         When true, directional ``Comparison`` nodes
         (``<``, ``<=``, ``>``, ``>=``) with unqualified same-kind refs
@@ -534,15 +714,15 @@ class EvalContext:
     """
 
     __slots__ = (
-        "df", "group_keys", "default_methods", "filter_context",
-        "kind_support", "alleles",
+        "df", "group_keys", "default_methods", "default_versions",
+        "filter_context", "kind_support", "alleles",
         "_group_index", "_key_frame", "_group_tuples_cache",
         "_group_codes_cache", "_method_override",
     )
 
     def __init__(
         self, df, group_keys=None, default_methods=None, filter_context=False,
-        kind_support=None, alleles=None,
+        kind_support=None, alleles=None, default_versions=None,
     ):
         self.df = df
         if group_keys is None:
@@ -551,6 +731,10 @@ class EvalContext:
             self.group_keys = _normalize_group_keys(df, group_keys)
         self.default_methods = (
             _normalize_default_methods(default_methods) if default_methods else {}
+        )
+        self.default_versions = (
+            _normalize_default_versions(default_versions)
+            if default_versions else {}
         )
         self.filter_context = filter_context
         # mhctools >=3.13.7 per-(model, kind) metadata. Optional; when
@@ -586,8 +770,8 @@ class EvalContext:
         caches, since they would no longer describe the result.
         """
         unknown = set(overrides) - {
-            "df", "group_keys", "default_methods", "filter_context",
-            "kind_support", "alleles",
+            "df", "group_keys", "default_methods", "default_versions",
+            "filter_context", "kind_support", "alleles",
         }
         if unknown:
             raise TypeError(
@@ -601,6 +785,9 @@ class EvalContext:
             group_keys=group_keys,
             default_methods=overrides.get(
                 "default_methods", self.default_methods or None
+            ),
+            default_versions=overrides.get(
+                "default_versions", self.default_versions or None
             ),
             filter_context=overrides.get(
                 "filter_context", self.filter_context
@@ -1301,27 +1488,59 @@ def _filter_kind_method_version(ctx, kind, method, version):
     # versions. Without this the groupby below would silently take
     # whichever row came first, which is an arbitrary choice between two
     # real predictions rather than an answer.
+    # A configured default resolves the version the same way
+    # ``default_methods`` resolves the model one level up.
+    effective_version = version
     if (
-        version is None
+        effective_version is None
+        and ctx.default_versions
+        and "prediction_method_name" in sub.columns
+        and "predictor_version" in sub.columns
+    ):
+        methods_here = {
+            str(m) for m in sub["prediction_method_name"].dropna().unique()
+        }
+        wanted = {
+            ctx.default_versions[(kind_val, method)]
+            for method in methods_here
+            if (kind_val, method) in ctx.default_versions
+        }
+        if len(wanted) == 1:
+            candidate = next(iter(wanted))
+            matched = sub[sub["predictor_version"].astype(str) == candidate]
+            if not matched.empty:
+                sub = matched
+                effective_version = candidate
+
+    if (
+        effective_version is None
         and "predictor_version" in sub.columns
         and "prediction_method_name" in sub.columns
     ):
-        pairs = sub[["prediction_method_name", "predictor_version"]].astype(str)
-        counted = sub[list(ctx.group_keys)].copy()
+        # Only rows that name a version can disagree about one. A frame
+        # that simply does not record versions is not ambiguous, and
+        # neither is one version plus rows that record none — otherwise
+        # every reader that leaves predictor_version empty would start
+        # raising, with nothing the caller could pass to resolve it.
+        named = sub[_known_versions(sub["predictor_version"])]
+        pairs = named[
+            ["prediction_method_name", "predictor_version"]
+        ].astype(str)
+        counted = named[list(ctx.group_keys)].copy()
         counted["_pair"] = (
             pairs["prediction_method_name"] + "\x00"
             + pairs["predictor_version"]
         )
         pairs_per_group = counted.groupby(
             ctx.group_keys, sort=False, dropna=False,
-        )["_pair"].nunique()
-        if (pairs_per_group > 1).any():
+        )["_pair"].nunique() if not counted.empty else pd.Series(dtype=int)
+        if len(pairs_per_group) and (pairs_per_group > 1).any():
             listed = ", ".join(
                 f"{m} {v}" for m, v in sorted(
                     {
                         (m, v) for m, v in zip(
-                            sub["prediction_method_name"],
-                            sub["predictor_version"].astype(str),
+                            named["prediction_method_name"],
+                            named["predictor_version"].astype(str),
                         ) if pd.notna(m)
                     }
                 )
@@ -1330,7 +1549,9 @@ def _filter_kind_method_version(ctx, kind, method, version):
                 f"Ambiguous: {_kind_name(kind)} is present at more than "
                 f"one predictor version ({listed}). Use "
                 f"{_kind_short_name(kind)}['modelname', 'version'] "
-                f"to pick one."
+                f"to pick one, or pass default_versions="
+                f"{{{(kind_val, 'modelname')!r}: 'version'}} to "
+                f"EvalContext (resolve_default_versions(df) builds one)."
             )
 
     return sub
