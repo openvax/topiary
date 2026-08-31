@@ -1,5 +1,43 @@
 # Changelog
 
+## 5.30.0
+
+**Added: `read_lens(..., binding_metrics=...)` (#211).** The binding-column
+map was private and `read_lens` took no mapping argument, so a consumer
+hitting an unmapped or mis-mapped column had no supported way to correct
+it locally — the only route was a topiary release. That is the real cost
+behind #208 blocking a downstream consumer outright instead of being a
+local workaround.
+
+```python
+read_lens(path, binding_metrics={
+    ("netmhcpan", "el_score"): ("presentation", "score"),
+    ("sometool", "noisy_metric"): None,   # not a prediction
+})
+```
+
+Overrides **merge over** the built-in table rather than replacing it, so
+one column can be patched without restating the other thirteen. They can
+also correct a built-in mapping, not only fill a gap.
+
+Keys are `(tool, metric)` — the same pair the unmapped-column warning
+already names, so what topiary tells you is what you pass back — and
+deliberately carry no version: a mapping keyed on the raw column name
+would stop working the moment a file spelled the version differently,
+which is the brittleness #206 removed. Tool and metric are matched
+case- and whitespace-insensitively.
+
+Values are `(kind, field)`, validated up front. An unknown kind or field
+would emit a wide-form column name that `from_wide` cannot read back, so
+the data would reach the frame and then vanish on `to_long()` — the
+failure mode this area keeps producing, and not one to hand callers a
+new way to cause.
+
+`None` declares a column is not a prediction: it silences the
+unmapped-column warning without remapping anything. The column itself is
+left alone and still reachable as `Column("sometool_1.0.noisy_metric")`
+— overriding a mapping does not delete data.
+
 ## 5.29.0
 
 **Added: `context=` on `apply_filter` / `apply_sort` / `evaluate_scores`

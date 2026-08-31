@@ -33,6 +33,7 @@ from __future__ import annotations
 import logging
 import re
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 
 import pandas as pd
@@ -83,13 +84,18 @@ _BINDING_METRICS = {
 _BINDING_COLUMN = re.compile(r"^([A-Za-z][A-Za-z0-9]*)_(\d[\w.]*)\.(.+)$")
 
 
-def _parse_binding_column(column):
+def _parse_binding_column(column, binding_metrics=None):
     """``(tool, version, kind, field)`` for a LENS binding column.
 
     Returns ``None`` when the column isn't predictor-shaped at all, and
     ``(tool, version, None, None)`` when it is but names a tool or
     metric the table doesn't cover — the caller reports those rather
     than dropping them silently.
+
+    *binding_metrics* is a caller override, already normalized and
+    merged over the built-in table by :func:`_resolve_binding_metrics`.
+    A key mapped to ``None`` there is one the caller has declared is not
+    a prediction: it reads as unmapped, but is not reported as a gap.
     """
     if not isinstance(column, str):
         return None
@@ -97,11 +103,95 @@ def _parse_binding_column(column):
     if match is None:
         return None
     tool, version, metric = match.groups()
-    spec = _BINDING_METRICS.get((tool.lower(), metric.lower()))
-    if spec is None:
+    table = _BINDING_METRICS if binding_metrics is None else binding_metrics
+    key = (tool.lower(), metric.lower())
+    if key not in table:
         return tool.lower(), version, None, None
+    spec = table[key]
+    if spec is None:
+        # Acknowledged by the caller as a non-prediction column. It
+        # still passes through to the frame as an annotation column;
+        # what changes is only that it is no longer reported as a gap.
+        return tool.lower(), version, None, _ACKNOWLEDGED
     kind, field = spec
     return tool.lower(), version, kind, field
+
+
+#: Sentinel in the ``field`` slot for a column the caller declared is
+#: not a prediction, to tell "topiary doesn't know this column" from
+#: "the caller says there is nothing to know".
+_ACKNOWLEDGED = object()
+
+
+def _resolve_binding_metrics(binding_metrics):
+    """Merge a caller's binding-metric overrides over the built-in table.
+
+    Keys are ``(tool, metric)`` — the same key the built-in table uses,
+    and the same pair the unmapped-column warning names, so what topiary
+    tells you is what you pass back. Deliberately *not* the raw column
+    name: that would carry the version, and a mapping that stops working
+    when a file spells the version differently is the brittleness #206
+    removed.
+
+    Values are ``(kind, field)``, or ``None`` to declare the column a
+    non-prediction — which silences the unmapped warning for it and
+    leaves the column itself untouched.
+    """
+    if binding_metrics is None:
+        return None
+    if not isinstance(binding_metrics, Mapping):
+        raise TypeError(
+            f"binding_metrics must be a mapping of (tool, metric) -> "
+            f"(kind, field), got {type(binding_metrics).__name__}"
+        )
+    from .wide import WIDE_FIELDS
+
+    known_kinds = _known_short_kinds()
+    resolved = dict(_BINDING_METRICS)
+    for key, spec in binding_metrics.items():
+        if (
+            not isinstance(key, tuple)
+            or len(key) != 2
+            or not all(isinstance(part, str) for part in key)
+        ):
+            raise ValueError(
+                f"binding_metrics keys must be (tool, metric) string "
+                f"pairs, got {key!r}"
+            )
+        tool, metric = (part.strip().lower() for part in key)
+        if spec is None:
+            resolved[(tool, metric)] = None
+            continue
+        if not isinstance(spec, tuple) or len(spec) != 2:
+            raise ValueError(
+                f"binding_metrics[{key!r}] must be a (kind, field) pair, "
+                f"or None to declare it a non-prediction column; "
+                f"got {spec!r}"
+            )
+        kind, field = spec
+        # Validate up front. An unknown kind or field would emit a
+        # wide-form column name that ``_parse_wide_column`` cannot read
+        # back, so the data would reach the frame and then vanish on
+        # ``to_long()`` — the failure mode this whole area keeps
+        # producing, and not one to hand a caller a new way to cause.
+        if not isinstance(kind, str) or kind not in known_kinds:
+            raise ValueError(
+                f"binding_metrics[{key!r}] names an unknown kind "
+                f"{kind!r}. Use a short kind name, one of "
+                f"{sorted(known_kinds)}."
+            )
+        if field not in WIDE_FIELDS:
+            raise ValueError(
+                f"binding_metrics[{key!r}] names an unknown field "
+                f"{field!r}. Use one of {sorted(WIDE_FIELDS)}."
+            )
+        resolved[(tool, metric)] = (str(kind), str(field))
+    return resolved
+
+
+def _known_short_kinds():
+    from .wide import _known_kind_short_names
+    return _known_kind_short_names()
 
 
 # LENS metadata column → Topiary column (pass-through rename).
@@ -150,7 +240,8 @@ def detect_lens_version(columns) -> str | None:
     return None
 
 
-def read_lens(path, tag: str | None = None) -> TopiaryResult:
+def read_lens(path, tag: str | None = None, *,
+              binding_metrics=None) -> TopiaryResult:
     """Read a LENS TSV report into a :class:`TopiaryResult`.
 
     Parameters
@@ -160,6 +251,33 @@ def read_lens(path, tag: str | None = None) -> TopiaryResult:
     tag : str, optional
         Source label for :class:`Metadata.sources`. Defaults to the
         filename.
+    binding_metrics : mapping, optional
+        Overrides for the built-in binding-column map, merged over it
+        rather than replacing it — patch one column without restating
+        the rest.  Keys are ``(tool, metric)``, the same pair the
+        unmapped-column warning names, so what topiary tells you is what
+        you pass back::
+
+            read_lens(path, binding_metrics={
+                ("netmhcpan", "el_score"): ("presentation", "score"),
+                ("sometool", "noisy_metric"): None,   # not a prediction
+            })
+
+        Values are ``(kind, field)`` with *kind* a short kind name
+        (``"affinity"``, ``"presentation"``, ...) and *field* one of
+        ``"value"`` / ``"score"`` / ``"rank"``.  Both parts are
+        validated up front, since an unreadable wide-form name would
+        put data in the frame that ``to_long()`` then silently drops.
+
+        ``None`` says "this one is not a prediction" — it silences the
+        unmapped-column warning without remapping anything.  The column
+        is left alone, passing through as an annotation column reachable
+        as ``Column("sometool_1.0.noisy_metric")``; overriding a mapping
+        does not delete data.
+
+        Keys are deliberately version-free: a mapping keyed on the raw
+        column name would stop working the moment a file spelled the
+        version differently.
 
     Returns
     -------
@@ -179,7 +297,9 @@ def read_lens(path, tag: str | None = None) -> TopiaryResult:
             "proceeding with best-effort mapping", path.name,
         )
 
-    df, models, model_key_parts = _remap_binding_columns(df)
+    df, models, model_key_parts = _remap_binding_columns(
+        df, _resolve_binding_metrics(binding_metrics),
+    )
     df = _normalize_alleles(df)
     df = _rename_annotations(df)
     df = _handle_tpm(df)
@@ -212,7 +332,7 @@ def read_lens(path, tag: str | None = None) -> TopiaryResult:
 # =============================================================================
 
 
-def _remap_binding_columns(df: pd.DataFrame):
+def _remap_binding_columns(df: pd.DataFrame, binding_metrics=None):
     """Rename LENS binding columns to Topiary wide form.
 
     Returns ``(df, models_dict, model_key_parts)``.  *models_dict* maps
@@ -226,12 +346,14 @@ def _remap_binding_columns(df: pd.DataFrame):
     unmapped = []
     versions_by_model = {}
     for column in df.columns:
-        parsed = _parse_binding_column(column)
+        parsed = _parse_binding_column(column, binding_metrics)
         if parsed is None:
             continue
         model, version, kind, field = parsed
         if kind is None:
-            unmapped.append(column)
+            # A column the caller has acknowledged is not a gap.
+            if field is not _ACKNOWLEDGED:
+                unmapped.append(column)
             continue
         parsed_columns.append((column, model, version, kind, field))
         versions_by_model.setdefault(model, []).append(version)

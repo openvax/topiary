@@ -370,6 +370,30 @@ Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use
 | `slice_regions(seqs, regions)` | Sequences + intervals | `{name:start-end: subseq}` |
 | `exclude_by(df, ref, mode)` | DataFrame + ref sequences | Filtered DataFrame |
 
+### Correcting a LENS binding-column mapping
+
+`read_lens` warns when a file has a predictor-shaped column its built-in
+map doesn't cover. Pass `binding_metrics` to close the gap without
+waiting for a topiary release:
+
+```python
+read_lens(path, binding_metrics={
+    ("netmhcpan", "el_score"): ("presentation", "score"),
+    ("sometool", "noisy_metric"): None,   # not a prediction
+})
+```
+
+Overrides merge over the built-in table, so one column can be patched
+without restating the rest, and a built-in mapping can be corrected as
+well as a missing one added.
+
+Keys are `(tool, metric)` — the pair the warning itself names — and
+carry no version, so one entry covers a tool however a file spells its
+release. Values are `(kind, field)` with `field` one of
+`value` / `score` / `rank`, validated up front; `None` declares the
+column a non-prediction, silencing the warning while leaving the column
+in place as an annotation column.
+
 ## Source functions
 
 | Function | Returns |
