@@ -1,5 +1,59 @@
 # Changelog
 
+## 5.37.0
+
+**Added: RNA read-level evidence from the readers, with each number
+naming its derivation (#102).** 5.32.0 added the fields to
+`ProteinFragment`; nothing populated them. `read_lens` and
+`read_pvacseq` do now.
+
+```
+n_overlapping_reads   n_alt_reads   n_ref_reads   read_count_method
+               1233           429           804     rna_depth_x_vaf
+```
+
+The derivation is named because "429 reads counted" and "429 reads
+implied by depth × VAF" are different claims:
+
+| Method | Meaning |
+|---|---|
+| `rna_reads` | Counted directly from an RNA alignment |
+| `rna_depth_x_vaf` | depth × VAF, rounded — not counted |
+| `cds_overlap_reads` | Counted, but of reads overlapping the peptide's CDS rather than supporting the variant |
+| `tpm_x_dna_vaf` | Transcript abundance × DNA VAF — an expression proxy, not a read count |
+
+Per source: **pVACseq** reports `Tumor RNA Depth` (a real count) and
+`Tumor RNA VAF`, so the depth is counted and the split is arithmetic.
+**LENS** counts reads covering the genomic origin *and* reads covering it
+with the peptide's CDS — both real counts, but the second is of
+something adjacent to what was asked for, which is why it is
+`cds_overlap_reads` rather than `rna_reads`. A LENS row with no `vaf`
+gets no split and no method, rather than a zero.
+
+**Added: `variant_allele_expression`**, the bulk-RNA fallback —
+transcript abundance × DNA VAF, for when there is no alignment to count
+alt reads from. It assumes both alleles are transcribed equally, so a
+variant on a transcriptionally silenced allele looks expressed — the
+error being exactly what allele-specific counting exists to detect,
+which is why it is labelled rather than mixed in with measured values.
+
+**Added: `sequence_source`.** `source_type` says what an antigen *is*
+(`"variant:snv"`) and deliberately says nothing about method, so a frame
+could not answer "was this sequence assembled from RNA or translated
+from the reference?" — the first question you ask auditing a ranking.
+One of `isovar_assembly`, `varcode_translation`, `lens_pep_context`,
+`pvacseq_epitope`, `caller_supplied`.
+
+`describe_read_evidence(df)` summarizes how a run's numbers were
+obtained without walking the rows. `split_reads_by_vaf` and
+`attach_read_evidence` are public, so a caller with its own source uses
+the same implementation rather than writing the arithmetic again.
+
+`None` throughout means the source could not answer, which is not zero —
+and `attach_read_evidence` refuses a supporting count whose derivation
+is unnamed, since a count that cannot be told from a measurement is
+worse than no count.
+
 ## 5.36.0
 
 **Fixed: the genotype is now part of the cache key (#229).**

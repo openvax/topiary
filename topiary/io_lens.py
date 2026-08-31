@@ -39,6 +39,12 @@ from pathlib import Path
 import pandas as pd
 
 from .io import Metadata
+from .rna_evidence import (
+    CDS_OVERLAP_READS,
+    LENS_PEP_CONTEXT,
+    attach_read_evidence,
+    attach_sequence_source,
+)
 from .result import TopiaryResult
 from .wide import WIDE_FIELDS, _known_kind_short_names
 
@@ -347,6 +353,21 @@ def read_lens(
     df = _handle_tpm(df)
     df = _derive_peptide_columns(df)
     df = _derive_effect_type(df)
+    # RNA read-level evidence. LENS counts reads covering the genomic
+    # origin (a direct count) and reads covering it *with the peptide's
+    # CDS* — also a count, but of reads overlapping the coding sequence
+    # rather than supporting the variant allele, which is why that one
+    # is named cds_overlap_reads rather than rna_reads.
+    df = attach_read_evidence(
+        df,
+        overlapping=df.get("rna_reads_covering_genomic_origin"),
+        vaf=df.get("vaf"),
+        supporting=df.get("rna_reads_covering_genomic_origin_with_peptide_cds"),
+        supporting_method=CDS_OVERLAP_READS,
+        expression=df.get("tpm"),
+        dna_vaf=df.get("vaf"),
+    )
+    df = attach_sequence_source(df, LENS_PEP_CONTEXT)
     df = _add_source_sequence_name(df)
     df["peptide_offset"] = 0
 

@@ -100,6 +100,18 @@ from .io_pvacseq import (
     melt_pvacseq_algorithms,
     read_pvacseq,
 )
+from .rna_evidence import (
+    CDS_OVERLAP_READS,
+    READ_COUNT_METHODS,
+    RNA_DEPTH_X_VAF,
+    RNA_READS,
+    SEQUENCE_SOURCES,
+    TPM_X_DNA_VAF,
+    attach_read_evidence,
+    attach_sequence_source,
+    describe_read_evidence,
+    split_reads_by_vaf,
+)
 from .result import (
     TopiaryResult,
     stack_results,
@@ -107,7 +119,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.36.0"
+__version__ = "5.37.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -211,6 +223,16 @@ __all__ = [
     "detect_form",
     "from_wide",
     "to_wide",
+    "RNA_READS",
+    "RNA_DEPTH_X_VAF",
+    "CDS_OVERLAP_READS",
+    "TPM_X_DNA_VAF",
+    "READ_COUNT_METHODS",
+    "SEQUENCE_SOURCES",
+    "attach_read_evidence",
+    "attach_sequence_source",
+    "describe_read_evidence",
+    "split_reads_by_vaf",
     "TopiaryResult",
     "stack_results",
     "combine_predictions",
