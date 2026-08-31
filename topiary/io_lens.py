@@ -50,24 +50,55 @@ logger = logging.getLogger(__name__)
 # the emitted Topiary wide-form column name uses just ``{model}_{kind}_{field}``
 # (no version), matching the convention of ``to_wide`` / ``from_wide`` when
 # there is no multi-version collision within a single file.
-_BINDING_MAP = {
-    # NetMHCpan 4.1b (present in v1.4, v1.5.1; absent in v1.9)
-    "netmhcpan_4.1b.aff_nm":       ("netmhcpan",     "4.1b",  "affinity",     "value"),
-    "netmhcpan_4.1b.score_ba":     ("netmhcpan",     "4.1b",  "affinity",     "score"),
-    "netmhcpan_4.1b.perc_rank_ba": ("netmhcpan",     "4.1b",  "affinity",     "rank"),
-    "netmhcpan_4.1b.score_el":     ("netmhcpan",     "4.1b",  "presentation", "score"),
-    "netmhcpan_4.1b.perc_rank_el": ("netmhcpan",     "4.1b",  "presentation", "rank"),
-    # MHCflurry 2.1.1 (present in all three versions)
-    "mhcflurry_2.1.1.aff":         ("mhcflurry",     "2.1.1", "affinity",     "value"),
-    "mhcflurry_2.1.1.aff_perc":    ("mhcflurry",     "2.1.1", "affinity",     "rank"),
-    "mhcflurry_2.1.1.proc_score":  ("mhcflurry",     "2.1.1", "antigen_processing", "score"),
-    "mhcflurry_2.1.1.pres_score":  ("mhcflurry",     "2.1.1", "presentation", "score"),
-    "mhcflurry_2.1.1.pres_perc":   ("mhcflurry",     "2.1.1", "presentation", "rank"),
-    # NetMHCstabpan 1.0 (v1.4 only)
-    "netmhcstabpan_1.0.stab_pred_score": ("netmhcstabpan", "1.0", "stability", "score"),
-    "netmhcstabpan_1.0.halflife_hours":  ("netmhcstabpan", "1.0", "stability", "value"),
-    "netmhcstabpan_1.0.perc_rank_stab":  ("netmhcstabpan", "1.0", "stability", "rank"),
+#: LENS names a binding column ``<tool>_<version>.<metric>``. The
+#: version is opaque: ``aff_nm`` is an IC50 whether NetMHCpan 4.1, 4.1b
+#: or 4.2 produced it. Keying the table on the version too meant a
+#: spelling topiary had not seen dropped that predictor's whole axis
+#: from the frame, with nothing raised — so the table is keyed on what
+#: determines meaning, and the version is recorded rather than matched.
+_BINDING_METRICS = {
+    ("netmhcpan", "aff_nm"):              ("affinity",           "value"),
+    ("netmhcpan", "score_ba"):            ("affinity",           "score"),
+    ("netmhcpan", "perc_rank_ba"):        ("affinity",           "rank"),
+    ("netmhcpan", "score_el"):            ("presentation",       "score"),
+    ("netmhcpan", "perc_rank_el"):        ("presentation",       "rank"),
+    ("mhcflurry", "aff"):                 ("affinity",           "value"),
+    ("mhcflurry", "aff_perc"):            ("affinity",           "rank"),
+    ("mhcflurry", "proc_score"):          ("antigen_processing", "score"),
+    ("mhcflurry", "pres_score"):          ("presentation",       "score"),
+    ("mhcflurry", "pres_perc"):           ("presentation",       "rank"),
+    ("netmhcstabpan", "stab_pred_score"): ("stability",          "score"),
+    ("netmhcstabpan", "halflife_hours"):  ("stability",          "value"),
+    ("netmhcstabpan", "perc_rank_stab"):  ("stability",          "rank"),
 }
+
+#: ``<tool>_<version>.<metric>`` — the shape of a LENS binding column.
+#: A column matching this that the table doesn't cover is a predictor
+#: topiary hasn't met, which is worth saying out loud rather than
+#: leaving as an absence.
+_BINDING_COLUMN = re.compile(r"^([A-Za-z][A-Za-z0-9]*)_(\d[\w.]*)\.(.+)$")
+
+
+def _parse_binding_column(column):
+    """``(tool, version, kind, field)`` for a LENS binding column.
+
+    Returns ``None`` when the column isn't predictor-shaped at all, and
+    ``(tool, version, None, None)`` when it is but names a tool or
+    metric the table doesn't cover — the caller reports those rather
+    than dropping them silently.
+    """
+    if not isinstance(column, str):
+        return None
+    match = _BINDING_COLUMN.match(column)
+    if match is None:
+        return None
+    tool, version, metric = match.groups()
+    spec = _BINDING_METRICS.get((tool.lower(), metric.lower()))
+    if spec is None:
+        return tool.lower(), version, None, None
+    kind, field = spec
+    return tool.lower(), version, kind, field
+
 
 # LENS metadata column → Topiary column (pass-through rename).
 _ANNOTATION_RENAME = {
@@ -78,10 +109,16 @@ _ANNOTATION_RENAME = {
 }
 
 # Columns used by version detection.
+#: Columns used by version detection.  The v1.4 marker is expressed as
+#: a (tool, metric) pair for the same reason the binding table is: a
+#: NetMHCstabPan release topiary hasn't seen should not make a v1.4 file
+#: undetectable.
 _VERSION_MARKERS = [
     ("v1.9",   {"lohhla_allele_loss_pval"}),
     ("v1.5.1", {"snaf_exp"}),
-    ("v1.4",   {"netmhcstabpan_1.0.stab_pred_score"}),
+]
+_VERSION_MARKER_METRICS = [
+    ("v1.4", ("netmhcstabpan", "stab_pred_score")),
 ]
 
 
@@ -95,6 +132,16 @@ def detect_lens_version(columns) -> str | None:
     cols = set(columns)
     for version, markers in _VERSION_MARKERS:
         if markers <= cols:
+            return version
+    present = set()
+    for column in cols:
+        parsed = _parse_binding_column(column)
+        if parsed is not None:
+            tool, _, _, _ = parsed
+            match = _BINDING_COLUMN.match(column)
+            present.add((tool, match.group(3).lower()))
+    for version, marker in _VERSION_MARKER_METRICS:
+        if marker in present:
             return version
     return None
 
@@ -163,12 +210,27 @@ def _remap_binding_columns(df: pd.DataFrame):
     """
     rename = {}
     models = {}
-    for lens_col, (model, version, kind, field) in _BINDING_MAP.items():
-        if lens_col not in df.columns:
+    unmapped = []
+    for column in df.columns:
+        parsed = _parse_binding_column(column)
+        if parsed is None:
             continue
-        wide_col = f"{model}_{kind}_{field}"
-        rename[lens_col] = wide_col
+        model, version, kind, field = parsed
+        if kind is None:
+            unmapped.append(column)
+            continue
+        rename[column] = f"{model}_{kind}_{field}"
         models[model] = version
+    if unmapped:
+        import warnings
+        warnings.warn(
+            f"LENS binding column(s) {sorted(unmapped)} look like predictor "
+            f"output but name a tool or metric this topiary doesn't know, so "
+            f"they are left unnormalized. Their values are still in the "
+            f"frame under the original names — nothing was dropped — but no "
+            f"kind or field was assigned to them.",
+            UserWarning, stacklevel=3,
+        )
     return df.rename(columns=rename), models
 
 

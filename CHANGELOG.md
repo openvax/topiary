@@ -1,5 +1,41 @@
 # Changelog
 
+## 5.28.0
+
+**Fixed: `read_lens` dropped a predictor whose version spelling it
+didn't know (#206).**
+
+A LENS binding column is named `<tool>_<version>.<metric>`, and the
+mapping table was keyed on the whole name. `netmhcpan_4.1b.aff_nm`
+mapped; `netmhcpan_4.1.aff_nm` passed through verbatim, so that
+predictor's entire affinity axis was absent from the normalized frame —
+with nothing raised. A consumer reading normalized names could not tell
+"this tool emitted nothing" from "this tool emitted something under a
+version I don't recognize".
+
+`aff_nm` is an IC50 whichever NetMHCpan produced it, so the table is now
+keyed on `(tool, metric)` and the version is *recorded* — in
+`Metadata.models`, where it already was — rather than matched. A new
+predictor release needs no change here. Version detection had the same
+brittleness for its NetMHCstabPan marker and got the same treatment.
+
+**A column topiary doesn't recognize is now reported.** One that looks
+like predictor output but names an unknown tool or metric warns, naming
+the column. Its values stay in the frame under the original name —
+nothing is discarded — but the silence was the part that made this
+expensive to find.
+
+**Correction to the 5.27.0 notes.** They described the `allele_set`
+callable as serving "attribution decided per peptide". It doesn't.
+`allele_set` declares *the genotype a prediction was scored against*, and
+a peptide-level score is then projected to every allele group present —
+so naming one allele does not withhold the score from the others.
+Attributing a peptide-level score to some alleles and not others is a
+different operation, and one topiary does not provide. The callable is
+still useful for its actual purpose: per-prediction genotype
+declaration, where different predictions in one frame were scored
+against different allele sets.
+
 ## 5.27.0
 
 **`from_predictions()` can carry a consumer's own columns and per-peptide
