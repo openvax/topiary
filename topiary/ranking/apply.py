@@ -7,6 +7,7 @@ import pandas as pd
 from mhctools import Kind
 
 from .nodes import (
+    stated_values,
     ALLELE_SET_COLUMN,
     BestAlleleField,
     EvalContext,
@@ -98,7 +99,7 @@ def _validate_columns(df, node):
 
 def _blank(values):
     series = pd.Series(values)
-    return (series.isna() | (series.astype(str).str.strip() == "")).to_numpy()
+    return (~stated_values(series)).to_numpy()
 
 
 def _peptide_level_groups(ctx):

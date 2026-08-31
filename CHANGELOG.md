@@ -33,6 +33,34 @@ answering — returning True for a column of missing versions would have
 delivered the exact phantom-version outcome the function exists to
 prevent.
 
+**Centralized: one definition of "did the source say anything here?"**
+The question was being asked eight different ways — for versions,
+alleles, kinds, method names, filter values and TSV cells — and **none
+of the copies rejected `"nan"`**, so a frame that had been through
+`astype(str)` anywhere carried stringified nulls that every check
+accepted as real values. A stringified missing allele became a real
+per-allele group.
+
+There are now two public predicates and one set:
+
+```python
+is_stated(value)        # scalar:  did the source say anything here?
+stated_values(series)   # the same rule over a column
+NOT_STATED              # the spellings that mean "no": "", "nan", "none", "<na>", "nat", "null"
+```
+
+`is_named_version` / `known_versions` remain as the version-facing names
+and delegate — versions were never special. Both scalar forms **raise**
+on a container instead of answering; returning True for a column of
+missing values is the outcome they exist to prevent.
+
+`NULL_TEXT` is `NOT_STATED` minus the empty string, and the group key
+collapses it into a real null. The distinction is load-bearing rather
+than cosmetic: `str(None)` is `"None"` and `str(nan)` is `"nan"`, but
+**never `""`** — so a blank cell is a stated-but-empty value, which
+frames use as a group of its own for allele-free rows. Collapsing it
+would merge groups a caller meant to keep apart.
+
 **Fixed: three unmigrated copies of that rule.** `wide.py`'s
 `_version_str`, `io.py`'s `_model_version_str` and `cached.py`'s
 identity check each had their own version with different coverage —

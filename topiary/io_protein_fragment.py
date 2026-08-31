@@ -19,6 +19,7 @@ from typing import Iterable, Iterator, List
 import pandas as pd
 
 from .protein_fragment import ProteinFragment
+from .ranking import is_stated
 
 _COLUMNS = [
     "fragment_id",
@@ -79,7 +80,7 @@ def _row_to_fragment(row: dict) -> ProteinFragment:
             return None
         if isinstance(v, float) and pd.isna(v):
             return None
-        if isinstance(v, str) and v == "":
+        if isinstance(v, str) and not is_stated(v):
             return None
         return v
 

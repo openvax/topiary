@@ -13,11 +13,15 @@ import pandas as pd
 import pytest
 
 from topiary import (
+    NOT_STATED,
     NOT_STATED_VERSIONS,
+    NULL_TEXT,
     ProteinFragment,
     fragment_from_effect,
     is_named_version,
+    is_stated,
     known_versions,
+    stated_values,
 )
 
 
@@ -98,7 +102,7 @@ def test_a_container_is_refused_rather_than_answered():
     """Returning True for a column of missing versions would deliver the
     exact phantom-version outcome this function prevents."""
     for container in (pd.Series(["nan"]), [], np.array(["nan"]), ("nan",)):
-        with pytest.raises(TypeError, match="known_versions"):
+        with pytest.raises(TypeError, match="stated_values|known_versions"):
             is_named_version(container)
 
 
@@ -269,3 +273,118 @@ def test_the_reference_window_is_clipped_at_its_own_stop():
     )
 
     assert "*" not in (fragment.reference_sequence or "")
+
+
+# ---------------------------------------------------------------------------
+# One rule, every axis
+# ---------------------------------------------------------------------------
+#
+# "Did the source say anything here?" is one question. It was being asked
+# seven different ways — for versions, alleles, kinds, method names, filter
+# values and TSV cells — and none of the copies rejected "nan", which is
+# what a missing value becomes the moment anything stringifies it.
+
+
+def test_the_version_helpers_are_the_general_rule():
+    """Versions were never special; the named form must not drift from it."""
+    values = ["4.1b", None, np.nan, "", "  ", *sorted(NOT_STATED)]
+
+    assert [is_named_version(v) for v in values] == [
+        is_stated(v) for v in values
+    ]
+    series = pd.Series(values, dtype=object)
+    assert known_versions(series).tolist() == stated_values(series).tolist()
+
+
+def test_the_deprecated_alias_still_points_at_the_rule():
+    assert NOT_STATED_VERSIONS is NOT_STATED
+
+
+def test_a_stringified_missing_allele_is_not_an_allele():
+    """The same defect on the allele axis: a frame round-tripped through
+    text carries "nan" where it carried NaN, and that became a real
+    per-allele group."""
+    from topiary import EvalContext
+
+    rows = [
+        dict(source_sequence_name="s", peptide="SIINFEKLA", peptide_offset=0,
+             allele=allele, kind="proteasome_cleavage", value=0.9, score=0.9,
+             percentile_rank=1.0, prediction_method_name="netchop",
+             predictor_version="1")
+        for allele in ("HLA-A*02:01", "nan")
+    ]
+    index = list(EvalContext(pd.DataFrame(rows)).group_index)
+    alleles = [key[3] for key in index]
+
+    # The text "nan" must have become a real null, not a group of its own.
+    # (Asserting on str(allele) would pass either way: str(float("nan"))
+    # is also "nan".)
+    assert any(pd.isna(a) for a in alleles)
+    assert not any(isinstance(a, str) and a.lower() in NULL_TEXT
+                   for a in alleles)
+    assert len(index) == 2
+
+
+def test_the_scalar_and_vector_general_forms_agree():
+    values = (
+        ["HLA-A*02:01", "4.1b", " x ", None, np.nan, pd.NA]
+        + sorted(NOT_STATED)
+        + [t.upper() for t in sorted(NOT_STATED) if t]
+    )
+
+    assert stated_values(pd.Series(values, dtype=object)).tolist() == [
+        is_stated(v) for v in values
+    ]
+
+
+def test_no_module_writes_the_test_itself():
+    """The centralization, asserted rather than described.
+
+    A local `str(x).strip()`-style blankness test is how the copies drifted
+    apart; this fails if one comes back.
+    """
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "topiary"
+    pattern = re.compile(
+        r"""astype\(str\)\.str\.strip\(\)\s*(==|!=)\s*["']["']"""
+        r"""|str\(\w+\)\.strip\(\)\s*(==|!=)\s*["']["']"""
+    )
+    offenders = [
+        f"{path.relative_to(root)}:{n}"
+        for path in root.rglob("*.py")
+        for n, line in enumerate(path.read_text().splitlines(), 1)
+        if pattern.search(line)
+    ]
+
+    assert offenders == [], (
+        f"blankness re-implemented instead of is_stated/stated_values: "
+        f"{offenders}"
+    )
+
+
+def test_a_blank_key_stays_its_own_group():
+    """"" is a stated-but-empty value, not a stringified null.
+
+    str(None) is "None" and str(nan) is "nan" — never "". Frames use a
+    blank allele as a group of its own for allele-free rows, so
+    collapsing it into null would merge groups a caller meant apart.
+    """
+    from topiary import EvalContext
+
+    rows = [
+        dict(source_sequence_name="s", peptide="SIINFEKLA", peptide_offset=0,
+             allele=allele, kind="proteasome_cleavage", value=0.9, score=0.9,
+             percentile_rank=1.0, prediction_method_name="netchop",
+             predictor_version="1")
+        for allele in ("HLA-A*02:01", "")
+    ]
+    alleles = [k[3] for k in EvalContext(pd.DataFrame(rows)).group_index]
+
+    assert "" in alleles
+
+
+def test_blank_is_not_null_text():
+    assert "" in NOT_STATED
+    assert "" not in NULL_TEXT
