@@ -489,8 +489,15 @@ def from_predictions(predictions, *, sample_name="", allele_set=None,
           mixed list of per-allele and genotype-level predictions;
         - a **callable** taking one prediction (or one row, for a
           DataFrame input) and returning its alleles, or ``None`` —
-          for attribution decided per peptide, where two peptides in
-          one frame legitimately get different sets for the same kind.
+          for a frame where different predictions were scored against
+          different genotypes.
+
+        All three declare *what a prediction was scored against*. None
+        of them withholds a peptide-level score from an allele: that
+        score projects to every allele group present, so naming a subset
+        here does not restrict it. Attribution — crediting a
+        peptide-level score to some alleles and not others — is a
+        separate decision topiary does not make for you.
     extra_columns : dict, optional
         Columns to write alongside the schema, as ``{name: value}``.
         A scalar fills the column; a sequence is taken positionally,
