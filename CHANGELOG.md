@@ -1,5 +1,40 @@
 # Changelog
 
+## 5.28.2
+
+**Fixed: `read_lens` collapsed two versions of one tool into one column
+(#208).** A regression introduced by 5.28.0.
+
+Keying binding columns on `(tool, metric)` fixed the version-brittleness
+in #206 but left the emitted name — `{tool}_{kind}_{field}` — with no
+room for a version. A table carrying both `netmhcpan_4.1b.aff_nm` and
+`netmhcpan_4.2.aff_nm` produced the column `netmhcpan_affinity_value`
+twice, one version's values were dropped, and `Metadata.models` kept
+only one. topiary said nothing: the sole signal was a pandas
+duplicate-column warning later, which doesn't name the predictor that
+lost its values, and `to_long()` raised `ValueError: Expected a 1D
+array` — so a consumer could not route around it either.
+
+Multi-version LENS tables are a real input shape, not a constructed
+edge case.
+
+When one tool appears with several versions its columns are now
+qualified — `netmhcpan_4.1b_affinity_value`,
+`netmhcpan_4.2_affinity_value` — following the convention `to_wide`
+already uses for the same situation, and topiary warns, naming the tool
+and the versions. `Metadata.models` records each. A file with one
+version per tool is unchanged, down to the absence of a warning.
+
+**Fixed: `from_wide` lost the version it was handed.** Independent of
+LENS, and older. `to_wide` appends the version to the model key when one
+method has several, but `from_wide` set
+`prediction_method_name` to the whole key and left `predictor_version`
+NaN — so a round trip produced a method named `netmhcpan_4.1b` with no
+version, and a version-qualified reference like
+`Affinity["netmhcpan", "4.2"]` matched nothing. `to_wide` now records
+the qualified keys in its metadata and `from_wide` reverses the
+encoding, so the method is the method and the version is the version.
+
 ## 5.28.1
 
 **Fixed: `derive_mhc_class` classified alleles by name prefix.**
@@ -28,6 +63,7 @@ following it.
 
 Distinct alleles are parsed once per call rather than once per row:
 100k rows over two distinct alleles takes ~13 ms.
+
 
 ## 5.28.0
 

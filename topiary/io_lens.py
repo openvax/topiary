@@ -208,9 +208,9 @@ def _remap_binding_columns(df: pd.DataFrame):
     Returns ``(df, models_dict)`` where *models_dict* maps method
     name → version for every binding model present.
     """
-    rename = {}
-    models = {}
+    parsed_columns = []
     unmapped = []
+    versions_by_model = {}
     for column in df.columns:
         parsed = _parse_binding_column(column)
         if parsed is None:
@@ -219,8 +219,42 @@ def _remap_binding_columns(df: pd.DataFrame):
         if kind is None:
             unmapped.append(column)
             continue
-        rename[column] = f"{model}_{kind}_{field}"
-        models[model] = version
+        parsed_columns.append((column, model, version, kind, field))
+        versions_by_model.setdefault(model, []).append(version)
+
+    # A LENS table may legitimately carry two versions of one tool. The
+    # emitted name has no room for a version, so both would land on the
+    # same column and one set of values would be lost — silently, since
+    # the collision only surfaces later as a pandas duplicate-column
+    # warning that doesn't name the predictor. Qualify the name instead,
+    # the way ``to_wide`` does for the same situation.
+    collided = {
+        model: sorted(set(versions))
+        for model, versions in versions_by_model.items()
+        if len(set(versions)) > 1
+    }
+    if collided:
+        import warnings
+        warnings.warn(
+            "; ".join(
+                f"{model} appears with versions {versions}"
+                for model, versions in sorted(collided.items())
+            )
+            + ". Including the version in the column names so both are "
+            "kept — the emitted names are "
+            "'{tool}_{version}_{kind}_{field}' for these tools.",
+            UserWarning, stacklevel=3,
+        )
+
+    rename = {}
+    models = {}
+    for column, model, version, kind, field in parsed_columns:
+        if model in collided:
+            rename[column] = f"{model}_{version}_{kind}_{field}"
+            models[f"{model}_{version}"] = version
+        else:
+            rename[column] = f"{model}_{kind}_{field}"
+            models[model] = version
     if unmapped:
         import warnings
         warnings.warn(

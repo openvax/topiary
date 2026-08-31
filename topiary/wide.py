@@ -186,6 +186,22 @@ def to_wide(df):
                 if version_str:
                     model_versions[method_str] = version_str
                     break
+    if version_collision and "predictor_version" in df.columns:
+        # The column names carry the version, so the metadata has to as
+        # well: keyed by method alone it can only hold one of them, and
+        # from_wide would have nothing to reverse the encoding with.
+        for method, rows in (
+            df.dropna(subset=["prediction_method_name"])
+            .groupby("prediction_method_name", sort=False)
+        ):
+            method_str = str(method).strip()
+            if not method_str:
+                continue
+            for version in rows["predictor_version"].dropna().unique():
+                version_str = _version_str(version)
+                if version_str:
+                    model_versions[f"{method_str}_{version_str}"] = version_str
+
     attr_models = getattr(df, "attrs", {}).get("topiary_models", {})
     if observed_methods and hasattr(attr_models, "items"):
         for method, version in attr_models.items():
@@ -312,10 +328,19 @@ def from_wide(df, metadata=None):
 
         chunk = group_df.copy()
         chunk["kind"] = canonical_kind
-        chunk["prediction_method_name"] = model_key
 
         # Resolve version from metadata.
         version = version_lookup.get(model_key, np.nan)
+        method_name = model_key
+        if isinstance(version, str) and version and model_key.endswith(
+            f"_{version}"
+        ):
+            # to_wide appends the version to the model key when one
+            # method has several; strip it back off so the method is the
+            # method and the version is the version, rather than a
+            # method named "netmhcpan_4.1b".
+            method_name = model_key[: -(len(version) + 1)]
+        chunk["prediction_method_name"] = method_name
         chunk["predictor_version"] = version
 
         for wide_field, long_col in WIDE_TO_LONG_FIELD.items():
