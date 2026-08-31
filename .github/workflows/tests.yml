@@ -9,6 +9,10 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       HAS_NETMHC_TOKEN: ${{ secrets.NETMHC_BUNDLE_ACCESS_TOKEN != '' }}
+      # Pin pyensembl's data directory rather than trusting its default.
+      # The cache below is only useful if it names the directory pyensembl
+      # actually writes to, and "~/.pyensembl" was not it.
+      PYENSEMBL_CACHE_DIR: ${{ github.workspace }}/pyensembl-data
     strategy:
       fail-fast: true
       matrix:
@@ -22,10 +26,11 @@ jobs:
           cache: 'pip'
           cache-dependency-path: requirements.txt
       - name: Cache pyensembl data
+        id: ensembl-cache
         uses: actions/cache@v4
         with:
-          path: ~/.pyensembl
-          key: pyensembl-GRCh37.75-GRCm38.102-GRCh38.93-GRCm38.93-v1
+          path: ${{ github.workspace }}/pyensembl-data
+          key: pyensembl-GRCh37.75-GRCm38.102-GRCh38.93-GRCm38.93-v2
       - name: Checkout private netmhc-bundle repo
         if: env.HAS_NETMHC_TOKEN == 'true'
         uses: actions/checkout@v4
@@ -59,12 +64,42 @@ jobs:
         run: |
           ./lint.sh
       - name: Download Ensembl data
+        if: steps.ensembl-cache.outputs.cache-hit != 'true'
         run: |
           echo "Before installing Ensembl releases" && df -h
-          pyensembl install --release 75 --species human --custom-mirror https://github.com/openvax/ensembl-data/releases/download/GRCh37.75/
-          pyensembl install --release 102 --species mouse --custom-mirror https://github.com/openvax/ensembl-data/releases/download/GRCm38.102/
-          pyensembl install --release 93 --species human --custom-mirror https://github.com/openvax/ensembl-data/releases/download/GRCh38.93/
-          pyensembl install --release 93 --species mouse --custom-mirror https://github.com/openvax/ensembl-data/releases/download/GRCm38.93/
+          # Four downloads from one host, each fatal to the whole build.
+          # Retry with backoff: the failures seen in practice are 504s and
+          # transient DNS, both of which a second attempt clears.
+          install_release() {
+            local attempt
+            for attempt in 1 2 3; do
+              if pyensembl install --release "$1" --species "$2" \
+                  --custom-mirror "$3"; then
+                return 0
+              fi
+              echo "::warning::pyensembl install $2 $1 failed (attempt $attempt/3)"
+              sleep $((attempt * 15))
+            done
+            echo "::error::pyensembl install $2 $1 failed after 3 attempts"
+            return 1
+          }
+          BASE=https://github.com/openvax/ensembl-data/releases/download
+          install_release 75  human "$BASE/GRCh37.75/"
+          install_release 102 mouse "$BASE/GRCm38.102/"
+          install_release 93  human "$BASE/GRCh38.93/"
+          install_release 93  mouse "$BASE/GRCm38.93/"
+      - name: Verify Ensembl data is present
+        run: |
+          # Fail loudly if the directory is empty. The previous cache step
+          # pointed at a path pyensembl never wrote to and silently saved
+          # nothing for months; a cache that stops working should break the
+          # build, not quietly restore the every-run download it replaced.
+          if [ -z "$(ls -A "$PYENSEMBL_CACHE_DIR" 2>/dev/null)" ]; then
+            echo "::error::PYENSEMBL_CACHE_DIR ($PYENSEMBL_CACHE_DIR) is empty"
+            exit 1
+          fi
+          echo "Ensembl data in $PYENSEMBL_CACHE_DIR:"
+          du -sh "$PYENSEMBL_CACHE_DIR"
       - name: Test with pytest
         if: env.HAS_NETMHC_TOKEN == 'true'
         run: |
