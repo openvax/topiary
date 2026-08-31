@@ -12,7 +12,7 @@
 
 import logging
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 import numpy as np
 import pandas as pd
@@ -460,7 +460,8 @@ def _normalize_prediction_frame(df):
     return _backfill_value_from_score(df)
 
 
-def from_predictions(predictions, *, sample_name="", allele_set=None):
+def from_predictions(predictions, *, sample_name="", allele_set=None,
+                     extra_columns=None):
     """Build topiary's long-form frame from mhctools predictions.
 
     For callers holding ``mhctools.Prediction`` objects — a report
@@ -478,42 +479,88 @@ def from_predictions(predictions, *, sample_name="", allele_set=None):
     sample_name : str
         Written to every row.  Blank is normal for a single-sample run
         and is not treated as identity.
-    allele_set : sequence or dict, optional
+    allele_set : sequence, dict, or callable, optional
         The genotype a prediction was scored against, for kinds where
         that is the subject rather than the single ``allele`` on the row
-        (see ``allele_set`` in the docs).  A sequence applies to every
-        row; a ``{kind: alleles}`` mapping applies per kind, which is
-        what a mixed list of per-allele and genotype-level predictions
-        needs.
+        (see ``allele_set`` in the docs).  Three forms:
+
+        - a **sequence** of allele names — applies to every row;
+        - a ``{kind: alleles}`` **mapping** — applies per kind, for a
+          mixed list of per-allele and genotype-level predictions;
+        - a **callable** taking one prediction (or one row, for a
+          DataFrame input) and returning its alleles, or ``None`` —
+          for attribution decided per peptide, where two peptides in
+          one frame legitimately get different sets for the same kind.
+    extra_columns : dict, optional
+        Columns to write alongside the schema, as ``{name: value}``.
+        A scalar fills the column; a sequence is taken positionally,
+        one entry per prediction, and must match the input's length.
+
+        This is for identity a prediction doesn't carry: a provenance
+        key the consumer groups by, or an offset that belongs to the
+        candidate a peptide came from rather than to the prediction
+        object.  Without it a caller with its own group identity would
+        still be hand-writing the frame, which is what this function
+        exists to stop.
 
     Returns
     -------
     pandas.DataFrame
-        Long form: one row per prediction, ready for the ranking DSL and
-        for :func:`topiary.to_csv`.
+        Long form: one row per prediction, **in input order**, ready for
+        the ranking DSL and for :func:`topiary.to_csv`.  The 1:1 order
+        is part of the contract, so positional data lines up.
     """
     if isinstance(predictions, pd.DataFrame):
-        raw = predictions.copy()
+        sources = [row for _, row in predictions.iterrows()]
+        raw = predictions.copy().reset_index(drop=True)
     else:
-        rows = [p.to_row(sample_name) for p in predictions]
+        sources = list(predictions)
+        rows = [p.to_row(sample_name) for p in sources]
         if not rows:
-            return _normalize_prediction_frame(
+            empty = _normalize_prediction_frame(
                 pd.DataFrame(columns=list(_MHCTOOLS_COLUMNS))
             )
+            return _attach_extra_columns(empty, extra_columns, sources)
         raw = pd.DataFrame(rows)
 
     df = _normalize_prediction_frame(raw)
+    df = _attach_extra_columns(df, extra_columns, sources)
     if df.empty or allele_set is None:
         return df
-    return _attach_allele_sets(df, allele_set)
+    return _attach_allele_sets(df, allele_set, sources)
 
 
-def _attach_allele_sets(df, allele_set):
-    """Write ``allele_set`` from a sequence (all rows) or a per-kind map."""
+def _attach_extra_columns(df, extra_columns, sources):
+    """Write caller-supplied columns, scalars or one value per prediction."""
+    if not extra_columns:
+        return df
+    df = df.copy()
+    for name, value in extra_columns.items():
+        if isinstance(value, str) or not isinstance(value, Iterable):
+            df[name] = value
+            continue
+        values = list(value)
+        if len(values) != len(sources):
+            raise ValueError(
+                f"extra_columns[{name!r}] has {len(values)} values for "
+                f"{len(sources)} prediction(s). A sequence is positional — "
+                f"one value per prediction, in input order — so the lengths "
+                f"have to match. Pass a scalar to fill the column instead."
+            )
+        df[name] = values
+    return df
+
+
+def _attach_allele_sets(df, allele_set, sources):
+    """Write ``allele_set``: per row, per kind, or one set for the frame."""
     df = df.copy()
     if ALLELE_SET_COLUMN not in df.columns:
         df[ALLELE_SET_COLUMN] = ""
-    if isinstance(allele_set, Mapping):
+    if callable(allele_set):
+        df[ALLELE_SET_COLUMN] = [
+            format_allele_set(allele_set(source) or ()) for source in sources
+        ]
+    elif isinstance(allele_set, Mapping):
         for kind, alleles in allele_set.items():
             kind_value = _kind_value(kind)
             formatted = format_allele_set(alleles)

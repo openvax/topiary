@@ -180,3 +180,129 @@ def test_it_matches_the_predictors_own_normalization():
 def test_a_non_prediction_input_fails_loudly(bad):
     with pytest.raises((AttributeError, TypeError)):
         from_predictions([bad])
+
+
+# ---------------------------------------------------------------------------
+# Carrying a consumer's own columns (topiary #203)
+# ---------------------------------------------------------------------------
+
+
+def _two():
+    return [
+        _prediction(peptide="SIINFEKLA", allele="HLA-A*02:01", value=50.0),
+        _prediction(peptide="ELAGIGILT", allele="HLA-B*07:02", value=900.0),
+    ]
+
+
+def test_a_sequence_is_positional_one_value_per_prediction():
+    """A consumer's group identity isn't on the Prediction object."""
+    df = from_predictions(
+        _two(), extra_columns={"prediction_id": ["variant-1", "variant-2"]},
+    )
+
+    assert df["prediction_id"].tolist() == ["variant-1", "variant-2"]
+
+
+def test_rows_come_back_in_input_order():
+    """The 1:1 ordering is the contract positional data relies on."""
+    df = from_predictions(_two())
+
+    assert df["peptide"].tolist() == ["SIINFEKLA", "ELAGIGILT"]
+
+
+def test_a_scalar_fills_the_column():
+    df = from_predictions(_two(), extra_columns={"source": "lens"})
+
+    assert df["source"].tolist() == ["lens", "lens"]
+
+
+def test_an_extra_column_can_replace_a_derived_one():
+    """A candidate's offset, not the prediction's."""
+    df = from_predictions(_two(), extra_columns={"peptide_offset": [10, 25]})
+
+    assert df["peptide_offset"].tolist() == [10, 25]
+
+
+def test_a_length_mismatch_is_rejected():
+    with pytest.raises(ValueError, match="one value per prediction"):
+        from_predictions(_two(), extra_columns={"prediction_id": ["only-one"]})
+
+
+def test_the_identity_reaches_the_group_keys():
+    """The reason the column has to be there at build time."""
+    from topiary.ranking import EvalContext
+
+    df = from_predictions(
+        _two(), extra_columns={"prediction_id": ["variant-1", "variant-2"]},
+    )
+    keys = ["prediction_id", "peptide", "peptide_offset", "allele"]
+
+    assert EvalContext(df, group_keys=keys).group_keys == keys
+
+
+def test_extra_columns_work_on_a_dataframe_input():
+    raw = pd.DataFrame([p.to_row() for p in _two()])
+
+    df = from_predictions(raw, extra_columns={"prediction_id": ["a", "b"]})
+
+    assert df["prediction_id"].tolist() == ["a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# Per-peptide allele sets
+# ---------------------------------------------------------------------------
+
+
+def test_a_callable_gives_each_prediction_its_own_set():
+    """Attribution decided per peptide, not per kind."""
+    policy = {
+        "SIINFEKLA": ["HLA-A*02:01"],
+        "ELAGIGILT": ["HLA-A*02:01", "HLA-B*07:02"],
+    }
+
+    df = from_predictions(_two(), allele_set=lambda p: policy.get(p.peptide))
+
+    assert df["allele_set"].tolist() == [
+        "HLA-A*02:01", "HLA-A*02:01,HLA-B*07:02",
+    ]
+
+
+def test_a_callable_returning_none_leaves_the_set_empty():
+    df = from_predictions(
+        _two(),
+        allele_set=lambda p: ["HLA-A*02:01"] if p.peptide == "SIINFEKLA" else None,
+    )
+
+    assert df["allele_set"].tolist() == ["HLA-A*02:01", ""]
+
+
+def test_a_callable_receives_rows_for_a_dataframe_input():
+    raw = pd.DataFrame([p.to_row() for p in _two()])
+
+    df = from_predictions(raw, allele_set=lambda row: [row["allele"]])
+
+    assert df["allele_set"].tolist() == ["HLA-A*02:01", "HLA-B*07:02"]
+
+
+def test_the_sequence_and_mapping_forms_still_work():
+    by_kind = from_predictions(
+        _two(), allele_set={"pMHC_affinity": ["HLA-B*07:02", "HLA-A*02:01"]},
+    )
+    flat = from_predictions(_two(), allele_set=["HLA-A*02:01"])
+
+    assert by_kind["allele_set"].tolist() == ["HLA-A*02:01,HLA-B*07:02"] * 2
+    assert flat["allele_set"].tolist() == ["HLA-A*02:01"] * 2
+
+
+def test_both_together_is_the_shape_a_consumer_needs():
+    """Own identity plus per-peptide attribution, in one call."""
+    df = from_predictions(
+        _two(),
+        extra_columns={"prediction_id": ["variant-1", "variant-2"],
+                       "peptide_offset": [10, 25]},
+        allele_set=lambda p: [p.allele],
+    )
+
+    assert df["prediction_id"].tolist() == ["variant-1", "variant-2"]
+    assert df["peptide_offset"].tolist() == [10, 25]
+    assert df["allele_set"].tolist() == ["HLA-A*02:01", "HLA-B*07:02"]
