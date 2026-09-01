@@ -36,6 +36,7 @@ from .io import _model_version_str
 from mhctools.pred import COLUMNS as _PRED_COLUMNS
 
 from .protein_fragment import ProteinFragment
+from .rna_evidence import VARCODE_TRANSLATION
 from .sequence_helpers import (
     check_padding_around_mutation,
     peptide_mutation_interval,
@@ -446,6 +447,11 @@ def fragment_from_effect(
             _SUBSEQ_OFFSET_KEY: seq_start,
             _MUTATION_START_KEY: mut_start,
             _MUTATION_END_KEY: mut_end,
+            # Translated from the reference, not assembled from reads:
+            # this sequence carries the reference everywhere except the
+            # variant itself, which is the difference a consumer
+            # auditing a ranking needs to see.
+            "sequence_source": VARCODE_TRANSLATION,
         },
     )
 

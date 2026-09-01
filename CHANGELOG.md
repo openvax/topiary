@@ -1,5 +1,53 @@
 # Changelog
 
+## 5.38.0
+
+**Added: isovar → `ProteinFragment`, and every other path with it
+(#102).** 5.37.0 put `isovar_assembly` in the vocabulary with nothing
+emitting it — a name for a thing that did not exist, which is the same
+shape as a configured knob that does nothing.
+
+```python
+fragment_from_isovar_result(result)      # one result
+fragments_from_isovar_results(results)   # drops those with no RNA support
+fragments_from_dataframe(read_lens(path).df)      # the table readers
+fragment_from_effect(effect, padding)             # varcode, since 5.35.0
+```
+
+**isovar is the only source that counts.** It assembles a protein
+sequence from reads and counts the ones supporting it, so its numbers are
+`measured`. pVACseq derives the split from depth × VAF and LENS counts
+reads overlapping the peptide's CDS — both `approximated`. One mapping,
+`provenance_for_method`, decides which is which, so a frame and a
+fragment cannot disagree about whether depth × VAF counts as measured.
+It does not.
+
+**Optional in the strong sense**: isovar is not imported at module
+scope, not in `requirements.txt`, and `import topiary` does not import
+it. A consumer that only reads LENS reports should not pay for a package
+it never calls. There is a test asserting it stays unimported.
+
+**Every path now reaches a fragment with the same core.** `SEMANTIC_CORE`
+names the fields every source speaks to, whether or not it can fill
+them, so this reads all four without knowing which it has:
+
+```python
+def rna_support(fragment):
+    if not fragment.is_usable_as_biology("n_alt_reads"):
+        return None
+    return fragment.n_alt_reads, fragment.is_approximate("n_alt_reads")
+```
+
+isovar returns `(30, False)`, pVACseq a count with `True`, varcode
+`None` — no branching on `source_type`, which is why `source_type` stays
+biological.
+
+**Fixed: the supporting-count derivation was accepted and not
+recorded.** `attach_read_evidence` took `supporting_method` and dropped
+it, so a frame carried LENS's count of 45 CDS-overlapping reads with no
+way to say it was not 45 reads supporting the variant. It is now a
+column, and the fragment reads it.
+
 ## 5.37.0
 
 **Added: RNA read-level evidence from the readers, with each number

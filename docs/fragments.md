@@ -59,6 +59,44 @@ Two rules worth knowing before you rely on it:
 
 It returns `None` when the effect has no mutant protein sequence at all (silent, non-coding, untranslatable). That is an absence, not an error.
 
+## Every source reaches a fragment
+
+Four paths, one shape. They differ only in which fields they can fill:
+
+| Source | Builder | Sequence is | Read counts |
+|---|---|---|---|
+| isovar | `fragment_from_isovar_result(result)` | assembled from RNA reads | **counted** (`measured`) |
+| varcode | `fragment_from_effect(effect, padding)` | translated from the reference | none |
+| LENS | `fragments_from_dataframe(read_lens(p).df)` | the peptide's context | overlapping counted; support is CDS-overlap (`approximated`) |
+| pVACseq | `fragments_from_dataframe(read_pvacseq(p).df)` | the peptide itself | depth × VAF (`approximated`) |
+
+```python
+def rna_support(fragment):
+    if not fragment.is_usable_as_biology("n_alt_reads"):
+        return None
+    return fragment.n_alt_reads, fragment.is_approximate("n_alt_reads")
+```
+
+That function reads all four without knowing which it has: isovar returns
+`(30, False)`, pVACseq returns a count with `True`, varcode returns `None`
+because it has no RNA data at all. **No branching on `source_type`** — which is
+the whole point of the abstraction, and why `source_type` stays biological.
+
+`SEMANTIC_CORE` names the fields every source is expected to speak to, whether
+or not it can populate them.
+
+### isovar is optional in the strong sense
+
+Not imported at module scope, not in `requirements.txt`, and topiary's shape is
+identical whether or not it is installed — `import topiary` does not import it.
+Only `fragment_from_isovar_result` needs it, and it says how to install it if
+missing. A consumer that only reads LENS reports should not pay for a package
+it never calls.
+
+isovar is also the only source that *counts* the reads supporting an assembled
+sequence. Everything else derives them or counts something adjacent, which is
+what the derivation names record.
+
 ## RNA evidence, and knowing which fields are real
 
 Beyond `gene_expression` / `transcript_expression`, a fragment can carry

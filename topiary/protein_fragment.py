@@ -553,3 +553,172 @@ def collect_annotations(fragments: Iterable[ProteinFragment]) -> set:
     for f in fragments:
         keys.update(f.annotations.keys())
     return keys
+
+
+# ---------------------------------------------------------------------------
+# Every path to a fragment
+# ---------------------------------------------------------------------------
+
+#: The fields every source is expected to speak to, whether or not it can
+#: populate them. A source that cannot answer leaves them ``None``, which
+#: :meth:`ProteinFragment.is_known` distinguishes from zero — that is what
+#: makes one consumer code path work across every source.
+SEMANTIC_CORE = (
+    "fragment_id", "source_type", "sequence", "target_intervals",
+    "variant", "gene", "gene_id", "transcript_id",
+    "gene_expression", "transcript_expression",
+    "n_overlapping_reads", "n_alt_reads", "n_ref_reads",
+    "n_alt_reads_supporting_protein_sequence",
+)
+
+_FRAGMENT_IDENTITY = ("source_sequence_name", "variant", "peptide")
+
+_COUNT_FIELDS = (
+    "n_overlapping_reads", "n_alt_reads", "n_ref_reads",
+    "n_alt_reads_supporting_protein_sequence",
+)
+
+
+def fragments_from_dataframe(df, *, sequence_column=None):
+    """Fragments from a reader's frame — the LENS / pVACseq path.
+
+    :func:`~topiary.fragment_from_effect` covers varcode and
+    :func:`~topiary.fragment_from_isovar_result` covers isovar; this
+    covers the sources that arrive as a table. All three produce the
+    same :data:`SEMANTIC_CORE`, differing only in which fields they can
+    fill, so a consumer reads one shape rather than branching on where
+    the data came from.
+
+    Read counts carry the provenance their derivation implies —
+    ``rna_reads`` is ``measured``, ``rna_depth_x_vaf`` and
+    ``cds_overlap_reads`` are ``approximated`` — via one mapping in
+    :mod:`topiary.rna_evidence`, so a frame and a fragment cannot
+    disagree about whether a number was counted.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        A frame from :func:`~topiary.read_lens` or
+        :func:`~topiary.read_pvacseq`, or anything with the same
+        columns.
+    sequence_column : str, optional
+        Which column holds the fragment's sequence. Defaults to the
+        first of ``sequence`` / ``pep_context`` / ``peptide`` present —
+        so a reader that carries surrounding context uses it, and one
+        that carries only the peptide produces the degenerate fragment
+        whose sequence *is* the peptide.
+
+    Returns
+    -------
+    list of ProteinFragment
+        One per distinct (source, variant, sequence). Rows with no
+        sequence are skipped: a fragment with nothing to present is not
+        a fragment.
+    """
+    import pandas as pd
+
+    from .rna_evidence import provenance_for_method
+    from .ranking import is_stated
+
+    if df is None or len(df) == 0:
+        return []
+
+    if sequence_column is None:
+        for candidate in ("sequence", "pep_context", "peptide"):
+            if candidate in df.columns:
+                sequence_column = candidate
+                break
+    if sequence_column is None or sequence_column not in df.columns:
+        raise ValueError(
+            f"No sequence column found. Looked for 'sequence', "
+            f"'pep_context', 'peptide'; frame has "
+            f"{sorted(df.columns)[:8]}... Pass sequence_column= to say "
+            f"which column holds the fragment's sequence."
+        )
+
+    identity = [c for c in _FRAGMENT_IDENTITY if c in df.columns]
+    if sequence_column not in identity:
+        identity = identity + [sequence_column]
+
+    fragments = []
+    for _, group in df.groupby(identity, sort=False, dropna=False):
+        row = group.iloc[0]
+        sequence = row.get(sequence_column)
+        if not is_stated(sequence):
+            continue
+
+        counts = {}
+        provenance = {}
+        method = row.get("read_count_method")
+        supporting_method = row.get("supporting_read_count_method")
+        for count_field in _COUNT_FIELDS:
+            value = row.get(count_field)
+            if value is None or pd.isna(value):
+                continue
+            counts[count_field] = int(value)
+            # n_overlapping_reads is a direct count wherever a reader
+            # reports it; only the split carries the derivation.
+            applicable = (
+                None if count_field == "n_overlapping_reads"
+                else (supporting_method if count_field.endswith("_sequence")
+                      else method)
+            )
+            resolved = provenance_for_method(applicable)
+            if resolved is not None:
+                provenance[count_field] = resolved
+
+        expression_method = row.get("variant_allele_expression_method")
+        if is_stated(expression_method):
+            provenance["transcript_expression"] = provenance_for_method(
+                expression_method
+            )
+
+        annotations = {}
+        for key in ("sequence_source", "read_count_method",
+                    "supporting_read_count_method",
+                    "variant_allele_expression",
+                    "variant_allele_expression_method"):
+            value = row.get(key)
+            if is_stated(value) and not (
+                isinstance(value, float) and pd.isna(value)
+            ):
+                annotations[key] = value
+
+        fragments.append(ProteinFragment(
+            fragment_id=make_fragment_id(
+                prefix=str(row.get("variant") or row.get(
+                    "source_sequence_name") or "fragment"),
+                sequence=str(sequence),
+            ),
+            source_type=_optional(row.get("source_type")),
+            sequence=str(sequence),
+            target_intervals=None,
+            variant=_optional(row.get("variant")),
+            gene=_optional(row.get("gene")),
+            gene_id=_optional(row.get("gene_id")),
+            transcript_id=_optional(row.get("transcript_id")),
+            gene_expression=_optional_float(row.get("gene_expression")),
+            transcript_expression=_optional_float(
+                row.get("transcript_expression")
+            ),
+            field_provenance=provenance,
+            annotations=annotations,
+            **counts,
+        ))
+    return fragments
+
+
+def _optional(value):
+    """The value as a string, or ``None`` when the source said nothing."""
+    from .ranking import is_stated
+    return str(value) if is_stated(value) else None
+
+
+def _optional_float(value):
+    from .ranking import is_stated
+    if not is_stated(value):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
