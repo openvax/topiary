@@ -45,6 +45,7 @@ class _ProteinSequence:
     transcript_ids = ["ENST1", "ENST2"]
     transcript_names = ["BRAF-204"]
     num_supporting_fragments = 27
+    num_supporting_reads = 52
 
 
 class _IsovarResult:
@@ -53,8 +54,11 @@ class _IsovarResult:
     top_protein_sequence = _ProteinSequence()
     variant = "chr7 g.140453136 A>T"
     num_total_fragments = 61
+    num_total_reads = 118
     num_alt_fragments = 30
+    num_alt_reads = 58
     num_ref_fragments = 31
+    num_ref_reads = 60
 
 
 class _NoRNASupport:
@@ -100,10 +104,10 @@ def test_isovar_counts_are_measured_not_derived():
     these, every other source estimates or counts something adjacent."""
     fragment = fragment_from_isovar_result(_IsovarResult())
 
-    assert fragment.n_alt_reads == 30
-    assert fragment.n_ref_reads == 31
-    assert fragment.n_overlapping_reads == 61
-    assert fragment.n_alt_reads_supporting_protein_sequence == 27
+    assert fragment.n_alt_fragments == 30
+    assert fragment.n_alt_reads == 58
+    assert fragment.n_rna_alt == 30        # fragments preferred
+    assert fragment.rna_evidence_subject() == "fragments"
     assert not fragment.is_approximate("n_alt_reads")
     assert fragment.is_usable_as_biology("n_alt_reads")
 
@@ -247,7 +251,7 @@ def test_a_consumer_reads_every_source_through_one_path():
         fragment_from_effect(_Effect(), padding_around_mutation=2)
     )
 
-    assert isovar == (30, False)          # counted
+    assert isovar == (58, False)          # counted
     assert pvacseq[1] is True             # derived
     assert varcode is None                # no RNA data at all
 

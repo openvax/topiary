@@ -1,5 +1,73 @@
 # Changelog
 
+## 5.45.0
+
+**Replaced the read/fragment API. 5.43.0 and 5.44.0 were built on a
+false premise and this supersedes both.**
+
+isovar exposes `num_alt_reads` **and** `num_alt_fragments` — reads,
+fragments, ref, total, supporting, both units for every count. topiary
+carried only the fragment counts, stored them in fields named
+`n_alt_reads`, and then added an API to explain that reads were
+unavailable. They were never unavailable.
+
+```python
+# before — a fragment count in a field named for reads, and this:
+fragment.count_in("n_alt_reads", "reads")   # None
+```
+
+Asking a field named `n_alt_reads` for reads and being told `None` was
+not a subtle contract, it was a wrong one.
+
+**Now both units are carried under names that say what they hold:**
+
+| Reads | Fragments |
+|---|---|
+| `n_alt_reads` | `n_alt_fragments` |
+| `n_ref_reads` | `n_ref_fragments` |
+| `n_overlapping_reads` | `n_overlapping_fragments` |
+| `n_alt_reads_supporting_protein_sequence` | `n_alt_fragments_supporting_protein_sequence` |
+
+**And one accessor per quantity takes the better of the two:**
+
+```python
+fragment.n_rna_alt                  # 30  — fragments, since isovar has them
+fragment.n_rna_ref
+fragment.n_rna_overlapping
+fragment.n_rna_supporting_protein_sequence
+fragment.rna_evidence_subject()     # "fragments" | "reads" | None
+```
+
+Fragments are preferred where a source reports them, because a
+paired-end fragment is one molecule read twice — one piece of evidence
+and two reads. Reads are used where that is all there is. Frames carry
+the same `n_rna_*` columns plus `rna_evidence_subject`, so **one
+threshold spans every source** and a number that travels can still name
+its unit.
+
+**Renamed: `rna_reads` → `rna_alignment`** (old name kept as an alias).
+It is a *method*, naming where a number came from, and it explicitly
+fixes no unit — an aligner counts reads and fragments alike. Calling it
+`rna_reads` implied the unit it refused to fix, which only became
+visibly wrong once the value it labels could be fragments.
+
+**Where every number comes from, alongside what it counts:**
+
+| Source | `n_alt_reads` | `n_alt_fragments` | `n_rna_alt` | method |
+|---|---|---|---|---|
+| isovar | 58 | 30 | 30 (fragments) | `rna_alignment` |
+| pVACseq | 429 | — | 429 (reads) | `rna_depth_x_vaf` |
+| LENS | from `vaf` | — | reads | `rna_depth_x_vaf` |
+
+Where a source gives only depth and a variant allele fraction, the alt
+count is depth × VAF — computed, and labelled as computed rather than
+passed off as counted.
+
+Removed: `count_in`, `read_count_subject` (the fragment method and the
+frame column), `count_column_for_subject`, `subject_for_method`, and
+5.44.0's renaming of count columns by subject. All of it existed to
+work around carrying one unit under the other's name.
+
 ## 5.44.0
 
 **Fixed: read counts did not survive fragment → prediction frame.** The

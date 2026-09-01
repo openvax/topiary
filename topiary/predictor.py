@@ -1491,21 +1491,21 @@ class TopiaryPredictor(object):
         ):
             df[attr] = _map_attr(attr)
 
-        # Read counts are named for what they count, so a threshold
-        # written against n_alt_reads cannot be answered by a fragment
-        # count. The subject comes from the fragments themselves.
-        from .rna_evidence import count_column_for_subject
-        subjects = {
-            f.annotations.get("read_count_subject") for f in fragments
-        }
-        subject = subjects.pop() if len(subjects) == 1 else None
+        # RNA evidence, in whichever units the source reported. Each
+        # column says what it holds; attach_rna_evidence_columns then
+        # adds the n_rna_* columns a threshold should be written
+        # against, preferring fragments where both exist.
+        from .rna_evidence import attach_rna_evidence_columns
         for attr in (
             "n_overlapping_reads", "n_alt_reads", "n_ref_reads",
             "n_alt_reads_supporting_protein_sequence",
+            "n_overlapping_fragments", "n_alt_fragments", "n_ref_fragments",
+            "n_alt_fragments_supporting_protein_sequence",
         ):
             values = _map_attr(attr)
             if values.notna().any():
-                df[count_column_for_subject(attr, subject)] = values
+                df[attr] = values
+        df = attach_rna_evidence_columns(df)
 
         def _overlaps(row):
             f = by_id.get(row["fragment_id"])

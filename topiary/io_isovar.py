@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .protein_fragment import ProteinFragment
-from .rna_evidence import FRAGMENTS, ISOVAR_ASSEMBLY, RNA_READS
+from .rna_evidence import ISOVAR_ASSEMBLY, RNA_ALIGNMENT
 
 _MIN_ISOVAR = (1, 7, 2)
 _MIN_ISOVAR_TEXT = "1.7.2"
@@ -104,23 +104,33 @@ def fragment_from_isovar_result(
         getattr(protein_sequence, "transcript_names", ()) or ()
     )
 
-    # isovar counts *fragments*, not reads: num_alt_fragments, not
-    # num_alt_reads. Both exist on IsovarResult, and carrying the
-    # fragment count under a field named for reads is the same shape as
-    # the CDS-overlap column — a real count of an adjacent thing. The
-    # subject is recorded rather than the field renamed, because a
-    # consumer's threshold has to know which bar it cleared.
+    # isovar reports both units for every count, so carry both under
+    # names that say which is which. Putting the fragment count in a
+    # field named for reads was the same mistake as the CDS-overlap
+    # column: a real count of one thing under a name for another.
     counts = dict(
         n_overlapping_reads=_as_count(
-            getattr(isovar_result, "num_total_fragments", None)
+            getattr(isovar_result, "num_total_reads", None)
         ),
         n_alt_reads=_as_count(
-            getattr(isovar_result, "num_alt_fragments", None)
+            getattr(isovar_result, "num_alt_reads", None)
         ),
         n_ref_reads=_as_count(
-            getattr(isovar_result, "num_ref_fragments", None)
+            getattr(isovar_result, "num_ref_reads", None)
         ),
         n_alt_reads_supporting_protein_sequence=_as_count(
+            getattr(protein_sequence, "num_supporting_reads", None)
+        ),
+        n_overlapping_fragments=_as_count(
+            getattr(isovar_result, "num_total_fragments", None)
+        ),
+        n_alt_fragments=_as_count(
+            getattr(isovar_result, "num_alt_fragments", None)
+        ),
+        n_ref_fragments=_as_count(
+            getattr(isovar_result, "num_ref_fragments", None)
+        ),
+        n_alt_fragments_supporting_protein_sequence=_as_count(
             getattr(protein_sequence, "num_supporting_fragments", None)
         ),
     )
@@ -148,8 +158,7 @@ def fragment_from_isovar_result(
         field_provenance=provenance,
         annotations={
             "sequence_source": ISOVAR_ASSEMBLY,
-            "read_count_method": RNA_READS,
-            "read_count_subject": FRAGMENTS,
+            "read_count_method": RNA_ALIGNMENT,
             # Every transcript consistent with the assembled sequence,
             # not just the one named above. A release mismatch that
             # leaves these unresolvable downstream is visible rather

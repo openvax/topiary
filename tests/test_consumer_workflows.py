@@ -201,14 +201,18 @@ class _ProteinSequence:
     transcript_ids = ["ENST1"]
     transcript_names = ["BRAF-204"]
     num_supporting_fragments = 27
+    num_supporting_reads = 52
 
 
 class _IsovarResult:
     top_protein_sequence = _ProteinSequence()
     variant = "chr7 g.140453136 A>T"
     num_total_fragments = 61
+    num_total_reads = 118
     num_alt_fragments = 30
+    num_alt_reads = 58
     num_ref_fragments = 31
+    num_ref_reads = 60
 
 
 def test_one_consumer_function_reads_every_source():

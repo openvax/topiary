@@ -94,6 +94,18 @@ class ProteinFragment:
         Expression evidence carried forward into prediction rows.
     n_overlapping_reads, n_alt_reads, n_ref_reads, \
 n_alt_reads_supporting_protein_sequence : int, optional
+        RNA evidence counted in **reads**.
+    n_overlapping_fragments, n_alt_fragments, n_ref_fragments, \
+n_alt_fragments_supporting_protein_sequence : int, optional
+        The same evidence counted in **fragments**. A paired-end
+        fragment is one molecule read twice, so it is one piece of
+        evidence and two reads — which is why both are carried rather
+        than one being converted to the other. isovar reports both;
+        sources that estimate from depth report only reads.
+
+        Prefer the :attr:`n_rna_alt` family over either: it takes the
+        better of the two and says which it took.
+
         RNA read-level evidence.  Not derivable from the aggregate
         expression fields above, and separately useful: a consumer that
         weights a candidate by depth of support needs the counts, not a
@@ -158,6 +170,11 @@ n_alt_reads_supporting_protein_sequence : int, optional
     n_alt_reads: Optional[int] = None
     n_ref_reads: Optional[int] = None
     n_alt_reads_supporting_protein_sequence: Optional[int] = None
+
+    n_overlapping_fragments: Optional[int] = None
+    n_alt_fragments: Optional[int] = None
+    n_ref_fragments: Optional[int] = None
+    n_alt_fragments_supporting_protein_sequence: Optional[int] = None
 
     field_provenance: dict = field(default_factory=dict)
 
@@ -233,61 +250,80 @@ n_alt_reads_supporting_protein_sequence : int, optional
         """Whether *name*'s value was derived rather than observed."""
         return self.provenance_of(name) == APPROXIMATED
 
-    def read_count_subject(self) -> Optional[str]:
-        """What this fragment's read counts count, or ``None`` if unstated.
+    # ------------------------------------------------------------------
+    # RNA evidence: ask for the evidence, not for a unit
+    # ------------------------------------------------------------------
 
-        ``"fragments"`` for an RNA-assembled fragment (isovar counts
-        fragments), ``"reads"`` for a depth-based estimate.
+    @property
+    def n_rna_alt(self) -> Optional[int]:
+        """RNA evidence supporting the variant allele.
+
+        Fragments when the source counted them, reads otherwise.
+        :meth:`rna_evidence_subject` says which you got.
+
+        Prefer this to reading :attr:`n_alt_reads` or
+        :attr:`n_alt_fragments` directly. A paired-end fragment is one
+        molecule read twice, so it is *one* piece of evidence and *two*
+        reads — fragments are the better count where a source has them,
+        and reads are what you get where it does not.
         """
-        return self.annotations.get("read_count_subject")
+        return self._rna_evidence("alt")[0]
 
-    def count_in(self, name: str, subject: str) -> Optional[int]:
-        """*name*'s value if it counts *subject*, else ``None``.
+    @property
+    def n_rna_ref(self) -> Optional[int]:
+        """RNA evidence supporting the reference allele."""
+        return self._rna_evidence("ref")[0]
 
-        The point of the subject vocabulary. Five fragments and five
-        reads are different bars, so a threshold has to know which it
-        cleared — and a source that counted the other thing should
-        **say so rather than substitute**, because converting between
-        them needs library information no source carries.
+    @property
+    def n_rna_overlapping(self) -> Optional[int]:
+        """RNA evidence covering the variant position."""
+        return self._rna_evidence("overlapping")[0]
 
-        Within one run the unit is consistent and a ranking does not
-        change either way. The harm is in what travels: a documented
-        ``n_alt_reads > 5``, a config copied between projects, a number
-        in a paper.
+    @property
+    def n_rna_supporting_protein_sequence(self) -> Optional[int]:
+        """RNA evidence supporting *this assembled protein sequence*.
 
-        Parameters
-        ----------
-        name : str
-            A read-count field, e.g. ``"n_alt_reads"``.
-        subject : str
-            One of :data:`~topiary.READ_SUBJECTS`.
-
-        Returns
-        -------
-        int or None
-            ``None`` when the field is absent, or when this fragment's
-            counts are of the other subject.
-
-        Examples
-        --------
-        >>> fragment.count_in("n_alt_reads", "fragments")  # doctest: +SKIP
-        30
-        >>> fragment.count_in("n_alt_reads", "reads")      # doctest: +SKIP
-        None
+        Distinct from :attr:`n_rna_alt`: that counts support for the
+        variant allele, this counts support for the whole assembled
+        sequence, which only an assembler can report.
         """
-        from .rna_evidence import READ_SUBJECTS
+        return self._rna_evidence("supporting")[0]
 
-        if subject not in READ_SUBJECTS:
-            raise ValueError(
-                f"subject must be one of {sorted(READ_SUBJECTS)}, got "
-                f"{subject!r}. A count without a stated subject cannot "
-                f"be compared against a threshold."
-            )
-        if not self.is_known(name):
-            return None
-        if self.read_count_subject() != subject:
-            return None
-        return getattr(self, name)
+    def rna_evidence_subject(self) -> Optional[str]:
+        """What the ``n_rna_*`` values are counted in.
+
+        ``"fragments"``, ``"reads"``, or ``None`` when this fragment
+        carries no RNA evidence at all. Report it alongside a count that
+        travels — five fragments and five reads are different bars.
+        """
+        for name in ("alt", "overlapping", "ref", "supporting"):
+            value, subject = self._rna_evidence(name)
+            if value is not None:
+                return subject
+        return None
+
+    _RNA_FIELDS = {
+        "alt": ("n_alt_fragments", "n_alt_reads"),
+        "ref": ("n_ref_fragments", "n_ref_reads"),
+        "overlapping": ("n_overlapping_fragments", "n_overlapping_reads"),
+        "supporting": (
+            "n_alt_fragments_supporting_protein_sequence",
+            "n_alt_reads_supporting_protein_sequence",
+        ),
+    }
+
+    def _rna_evidence(self, name):
+        """``(value, subject)`` — fragments if present, else reads."""
+        from .rna_evidence import FRAGMENTS, READS
+
+        fragment_field, read_field = self._RNA_FIELDS[name]
+        value = getattr(self, fragment_field, None)
+        if value is not None:
+            return value, FRAGMENTS
+        value = getattr(self, read_field, None)
+        if value is not None:
+            return value, READS
+        return None, None
 
     def is_usable_as_biology(self, name: str) -> bool:
         """Whether *name* may be interpreted as a fact about the sample.
