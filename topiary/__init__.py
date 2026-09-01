@@ -86,6 +86,7 @@ from .io_isovar import (
     DEFAULT_PROTEIN_SEQUENCE_LENGTH,
     fragment_from_isovar_result,
     fragments_from_isovar_results,
+    fragments_from_effects,
     fragments_from_variants,
 )
 from .protein_fragment import (
@@ -215,6 +216,7 @@ __all__ = [
     "fragments_from_dataframe",
     "fragment_from_isovar_result",
     "fragments_from_isovar_results",
+    "fragments_from_effects",
     "fragments_from_variants",
     "DEFAULT_PROTEIN_SEQUENCE_LENGTH",
     "MEASURED",

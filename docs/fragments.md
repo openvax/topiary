@@ -90,9 +90,11 @@ rather than dropping them. The fragments stay distinguishable by
 `sequence_source`, which is the reason to record it rather than blend an
 RNA-backed candidate with an inferred one.
 
-isovar is needed **only** when `alignment_file` is given. A caller without RNA
-never touches the optional dependency — there is a test asserting the reference
-arm works with isovar unimportable.
+isovar is needed **only** when `alignment_file` is given. `fragments_from_effects`
+is the reference arm on its own, public because a caller with variants and no
+alignment file wants exactly that. The test suite for this path imports isovar
+nowhere — the RNA arm is exercised through a fake — so it runs in an environment
+that has never installed it.
 
 ## Every source reaches a fragment
 
@@ -124,8 +126,9 @@ or not it can populate them.
 
 Not imported at module scope, not in `requirements.txt`, and topiary's shape is
 identical whether or not it is installed — `import topiary` does not import it.
-Only `fragment_from_isovar_result` needs it, and it says how to install it if
-missing. A consumer that only reads LENS reports should not pay for a package
+Only `fragments_from_variants` with an `alignment_file` imports it, and it says
+how to install it if missing. `fragment_from_isovar_result` needs nothing from
+isovar at all — it reads an already-built result by attribute. A consumer that only reads LENS reports should not pay for a package
 it never calls.
 
 isovar is also the only source that *counts* the reads supporting an assembled
