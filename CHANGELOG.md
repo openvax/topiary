@@ -1,5 +1,42 @@
 # Changelog
 
+## 5.44.0
+
+**Fixed: read counts did not survive fragment → prediction frame.** The
+frame carried `read_count_method` and `read_count_subject` — which
+arrive as annotations — describing a count that was not there. So it
+said how a number was obtained and what it counted, while omitting the
+number. The four count fields now propagate the way `gene_expression`
+already did.
+
+**Fixed: a threshold written for reads was answered by a fragment
+count.** Once the counts reached the frame, `n_alt_reads > 5` on an
+isovar-derived frame was satisfied by 8 *fragments*. Both are integers
+and both are plausible, so nothing failed.
+
+Count columns are now named for what they count. A fragment-subject
+frame has `n_alt_fragments`; a read-subject frame keeps `n_alt_reads`:
+
+```
+n_alt_reads > 5        ValueError: Column 'n_alt_reads' not found.
+                       Did you mean: ['n_alt_fragments', ...]
+n_alt_fragments > 5    works
+```
+
+Naming rather than only tagging is what makes the wrong reference fail.
+5.43.0 put the subject on the fragment and on the frame; a threshold is
+written against a *column name*, and the DSL was never going to consult
+a sibling column before answering.
+
+Reader frames are unchanged — both state `reads`, so both keep the
+`n_*_reads` spelling. A source that states no subject keeps it too,
+since that is what a source which does not say counts.
+
+**Cost, stated plainly:** on any other path this would break every
+existing config. It is free here only because the isovar path shipped
+days ago and nothing depends on it yet — which is the argument for doing
+it now rather than later.
+
 ## 5.43.0
 
 **Added: a read count now names what it counts.** isovar counts

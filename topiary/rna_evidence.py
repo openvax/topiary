@@ -145,6 +145,38 @@ METHOD_SUBJECT = MappingProxyType({
 })
 
 
+#: Count fields, and what each is called when it counts fragments.
+#:
+#: The frame column is named for what it counts. A threshold is written
+#: against a column name, so a name that does not say its subject lets a
+#: bar written for reads be cleared by fragments — silently, because
+#: both are integers and both are plausible.
+COUNT_FIELDS_BY_SUBJECT = MappingProxyType({
+    "n_overlapping_reads": "n_overlapping_fragments",
+    "n_alt_reads": "n_alt_fragments",
+    "n_ref_reads": "n_ref_fragments",
+    "n_alt_reads_supporting_protein_sequence":
+        "n_alt_fragments_supporting_protein_sequence",
+})
+
+
+def count_column_for_subject(field: str, subject) -> str:
+    """The column name *field* takes when it counts *subject*.
+
+    ``reads`` keeps the ``n_*_reads`` names; ``fragments`` gets
+    ``n_*_fragments``. An unstated subject keeps the read spelling,
+    since that is what every source that does not say counts.
+
+    Naming the column rather than only tagging it is what makes a wrong
+    reference fail: the DSL raises "Column not found" and lists what is
+    there, so a threshold written for reads cannot quietly be answered
+    by a fragment count.
+    """
+    if not is_stated(subject) or str(subject).strip() != FRAGMENTS:
+        return field
+    return COUNT_FIELDS_BY_SUBJECT.get(field, field)
+
+
 def subject_for_method(method):
     """What a value obtained by *method* counts, or ``None`` if it depends.
 
