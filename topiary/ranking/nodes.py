@@ -2624,7 +2624,24 @@ class PeptideView(DSLNode):
 
     def _eval_peptide_level(self, ctx, sub, peptide_keys, dependence,
                             aggregable):
-        """Read the one row per peptide and broadcast it to its groups."""
+        """Read the one row per peptide and broadcast it to its groups.
+
+        A row that *names* an allele is not broadcast. Peptide-level
+        evidence usually carries no allele, and then there is exactly
+        one thing the reference can mean — this peptide's value, for
+        every allele. But a producer that writes such a row onto one
+        allele is saying something narrower, and projecting it anyway
+        credits a score to alleles the row explicitly did not name.
+        Blank-allele rows broadcast; named rows land in their own group
+        and nowhere else.
+
+        ``haplotype`` is deliberately exempt. mhctools stamps a
+        genotype-level score with the allele it deconvolved as the best
+        presenter, so the allele there is an artifact of reporting
+        rather than a restriction — treating it as one would strand a
+        joint score on a single allele, which is the failure projection
+        exists to prevent.
+        """
         inner = self.inner
         if sub is None:
             return ctx.empty_series()
@@ -2634,17 +2651,57 @@ class PeptideView(DSLNode):
 
         values = pd.to_numeric(sub[col_name], errors="coerce")
         keep = values.notna()
+        if not keep.any():
+            return ctx.empty_series()
+
+        restricts = (
+            dependence == "none"
+            and "allele" in ctx.group_keys
+            and "allele" in sub.columns
+        )
+        named = (
+            keep & stated_values(sub["allele"]) if restricts
+            else pd.Series(False, index=sub.index)
+        )
+
+        broadcast = self._broadcast_unnamed(
+            ctx, sub, peptide_keys, values, keep & ~named,
+            dependence, aggregable,
+        )
+        if not named.any():
+            return broadcast
+        return self._overlay_named(ctx, sub, values, named, broadcast)
+
+    def _broadcast_unnamed(self, ctx, sub, peptide_keys, values, keep,
+                           dependence, aggregable):
+        """The classic path: one value per peptide, across its groups."""
+        if not keep.any():
+            return ctx.empty_series()
         valid = sub.loc[keep, peptide_keys].assign(
             __peptide_value=values[keep],
         )
-        if valid.empty:
-            return ctx.empty_series()
-
         stats = valid.groupby(peptide_keys, sort=False, dropna=False)[
             "__peptide_value"
         ].agg(["first", "min", "max"])
         self._check_one_value_per_peptide(stats, dependence, aggregable)
         return _broadcast_per_peptide(ctx, stats["first"], peptide_keys)
+
+    def _overlay_named(self, ctx, sub, values, named, broadcast):
+        """Write allele-restricted rows onto their own groups only."""
+        result = broadcast.copy()
+        positions = {key: i for i, key in enumerate(ctx.group_index)}
+        single_key = len(ctx.group_keys) == 1
+        array = result.to_numpy(dtype=float, copy=True)
+        rows = sub.loc[named, list(ctx.group_keys)]
+        for value, (_, row) in zip(values[named], rows.iterrows()):
+            key = (
+                row[ctx.group_keys[0]] if single_key
+                else tuple(row[k] for k in ctx.group_keys)
+            )
+            position = positions.get(key)
+            if position is not None:
+                array[position] = value
+        return pd.Series(array, index=ctx.group_index)
 
     def _check_one_value_per_peptide(self, stats, dependence, aggregable):
         """A peptide-level read must not find the peptide disagreeing.
