@@ -1,5 +1,39 @@
 # Changelog
 
+## 5.40.0
+
+**Added: `fragments_from_variants` — isovar, actually run (#102).**
+5.38.0 could adapt an `IsovarResult` a caller already had. This runs
+isovar to produce them, so topiary can build the surrounding protein
+context for a mutation from RNA rather than only consume someone else's:
+
+```python
+fragments = fragments_from_variants(variants, alignment_file=bam)  # assembled
+fragments = fragments_from_variants(variants)                      # translated
+```
+
+**The two arms are interchangeable.** Both return `ProteinFragment`s
+with the same core, so a pipeline does not change shape when the RNA
+does or does not exist. What differs is what the fragments can tell
+you — an assembled sequence carries the patient's other variants and
+whatever phasing the reads support, plus counted read support; a
+translated one carries the reference everywhere except the variant, and
+no counts. `annotations["sequence_source"]` says which, so an RNA-backed
+candidate and an inferred one never blend.
+
+`protein_sequence_length` is a *sequence* length, not a peptide length:
+a fragment is scanned by a sliding window downstream, so the assembled
+context must contain every peptide that could cover the mutation.
+Default 25. `padding_around_mutation` defaults to half of it so the
+reference arm produces a comparable window.
+
+`allow_reference_fallback=True` translates variants isovar could not
+support instead of dropping them.
+
+isovar is needed **only** when `alignment_file` is given — the reference
+arm imports nothing from it, with a test asserting that arm works while
+isovar is unimportable.
+
 ## 5.39.0
 
 **Fixed: a peptide-level row that names an allele was projected onto

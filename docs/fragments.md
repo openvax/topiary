@@ -59,6 +59,41 @@ Two rules worth knowing before you rely on it:
 
 It returns `None` when the effect has no mutant protein sequence at all (silent, non-coding, untranslatable). That is an absence, not an error.
 
+## Building fragments from variants, with or without RNA
+
+```python
+from topiary import fragments_from_variants
+
+# RNA available: the context around each mutation is assembled from reads
+fragments = fragments_from_variants(variants, alignment_file=bam)
+
+# No RNA: the same variants translated from the reference
+fragments = fragments_from_variants(variants)
+```
+
+**The two arms are interchangeable.** Both return `ProteinFragment`s with the
+same core, so the rest of a pipeline does not change shape when the RNA does or
+does not exist. What changes is what the fragments can tell you: an assembled
+sequence carries the patient's other variants and whatever phasing the reads
+support, and comes with counted read support; a translated one carries the
+reference everywhere except the variant itself, and no read counts at all.
+`annotations["sequence_source"]` says which.
+
+`protein_sequence_length` is a *sequence* length, not a peptide length — a
+fragment is scanned by a sliding window downstream, so the assembled context has
+to be long enough to contain every peptide that could cover the mutation.
+Default 25 (a 9-mer plus 8 either side). `padding_around_mutation` defaults to
+half of it, so the reference arm produces a comparable window.
+
+`allow_reference_fallback=True` translates variants isovar could not support
+rather than dropping them. The fragments stay distinguishable by
+`sequence_source`, which is the reason to record it rather than blend an
+RNA-backed candidate with an inferred one.
+
+isovar is needed **only** when `alignment_file` is given. A caller without RNA
+never touches the optional dependency — there is a test asserting the reference
+arm works with isovar unimportable.
+
 ## Every source reaches a fragment
 
 Four paths, one shape. They differ only in which fields they can fill:

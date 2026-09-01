@@ -169,6 +169,147 @@ def fragments_from_isovar_results(isovar_results):
     return fragments
 
 
+#: Default assembled window around a mutation, in amino acids.
+#:
+#: A fragment is scanned by a sliding window later, so the assembled
+#: sequence has to be long enough to contain every peptide that could
+#: cover the mutation — the peptide length plus padding on both sides.
+#: 9 + 2 * 8 is the usual class-I shape.
+DEFAULT_PROTEIN_SEQUENCE_LENGTH = 25
+
+
+def fragments_from_variants(
+    variants,
+    alignment_file=None,
+    *,
+    protein_sequence_length: int = DEFAULT_PROTEIN_SEQUENCE_LENGTH,
+    padding_around_mutation: Optional[int] = None,
+    allow_reference_fallback: bool = False,
+    transcript_id_whitelist=None,
+    filter_thresholds=None,
+    **isovar_kwargs,
+):
+    """Fragments for *variants*, assembled from RNA when RNA is available.
+
+    The point of entry that makes the sources interchangeable: give it a
+    ``alignment_file`` and the protein context is **assembled from
+    reads**, carrying the patient's other variants and whatever phasing
+    the reads support; leave it out and the same variants are
+    **translated from the reference**. Either way the result is a list
+    of :class:`~topiary.ProteinFragment` with the same core, so the rest
+    of a pipeline does not change when the RNA does or does not exist.
+
+    The assembled sequence is deliberately longer than one peptide.  A
+    fragment is scanned by a sliding window downstream, so it has to
+    contain every peptide that could cover the mutation — hence
+    *protein_sequence_length*, not a peptide length.
+
+    Parameters
+    ----------
+    variants : varcode.VariantCollection or iterable of varcode.Variant
+        The variants to build fragments for.
+    alignment_file : pysam.AlignmentFile, optional
+        RNA alignment. When given, isovar assembles the protein sequence
+        from the reads covering each variant and counts the reads
+        supporting it. When ``None``, every fragment comes from
+        reference translation and carries no read counts.
+    protein_sequence_length : int
+        Amino acids of assembled context around the mutation.
+    padding_around_mutation : int, optional
+        Residues kept either side of the mutation on the *reference*
+        path. Defaults to half the remaining context, so both paths
+        produce comparable windows.
+    allow_reference_fallback : bool
+        When true, a variant isovar could not support is translated from
+        the reference instead of being dropped. The fragments say which
+        they are via ``annotations["sequence_source"]``, so a consumer
+        can tell an RNA-backed candidate from an inferred one — the
+        distinction is the reason to record it rather than blend them.
+    transcript_id_whitelist, filter_thresholds
+        Passed to :func:`isovar.run_isovar`.
+    **isovar_kwargs
+        Also passed through — ``read_collector``,
+        ``min_shared_fragments_for_phasing`` and friends.
+
+    Returns
+    -------
+    list of ProteinFragment
+
+    Notes
+    -----
+    Requires isovar only when *alignment_file* is given. The reference
+    path has no such dependency, so a caller without RNA never imports
+    it.
+    """
+    if padding_around_mutation is None:
+        padding_around_mutation = max(1, (protein_sequence_length - 1) // 2)
+
+    variants = list(variants)
+    if alignment_file is None:
+        return _reference_fragments(variants, padding_around_mutation)
+
+    isovar = _check_isovar()
+    from isovar.protein_sequence_creator import ProteinSequenceCreator
+
+    creator = isovar_kwargs.pop("protein_sequence_creator", None)
+    if creator is None:
+        creator = ProteinSequenceCreator(
+            protein_sequence_length=protein_sequence_length,
+        )
+    results = isovar.run_isovar(
+        variants=variants,
+        alignment_file=alignment_file,
+        transcript_id_whitelist=transcript_id_whitelist,
+        protein_sequence_creator=creator,
+        filter_thresholds=filter_thresholds,
+        **isovar_kwargs,
+    )
+
+    fragments = []
+    unsupported = []
+    for result in results:
+        fragment = fragment_from_isovar_result(result)
+        if fragment is not None:
+            fragments.append(fragment)
+        else:
+            unsupported.append(getattr(result, "variant", None))
+
+    if unsupported and allow_reference_fallback:
+        fragments.extend(
+            _reference_fragments(
+                [v for v in unsupported if v is not None],
+                padding_around_mutation,
+            )
+        )
+    return fragments
+
+
+def _reference_fragments(variants, padding_around_mutation):
+    """Translate variants from the reference — the no-RNA path.
+
+    Kept in this module so both arms of :func:`fragments_from_variants`
+    live together, but it imports nothing from isovar: a caller with no
+    alignment file never touches the optional dependency.
+    """
+    from .predictor import fragment_from_effect
+
+    fragments = []
+    for variant in variants:
+        try:
+            effects = variant.effects()
+        except AttributeError:
+            continue
+        effect = effects.top_priority_effect()
+        if effect is None:
+            continue
+        fragment = fragment_from_effect(
+            effect, padding_around_mutation=padding_around_mutation,
+        )
+        if fragment is not None:
+            fragments.append(fragment)
+    return fragments
+
+
 def _as_count(value):
     """A non-negative int, or None when the value was not stated."""
     if value is None:
