@@ -39,10 +39,11 @@ from pathlib import Path
 import pandas as pd
 
 from .io import Metadata
-from .rna_evidence import (
+from .evidence import (
     LENS_PEP_CONTEXT,
     RNA_DEPTH_X_SOURCE_VAF,
-    attach_read_evidence,
+    attach_rna_evidence,
+    source_column,
     attach_sequence_source,
 )
 from .result import TopiaryResult
@@ -364,12 +365,27 @@ def read_lens(
     # DNA VAF, so it is not used to scale expression — doing so would
     # assert an assay nobody stated. LENS rows carried no expression
     # estimate anyway.
-    df = attach_read_evidence(
+    df = attach_rna_evidence(
         df,
         overlapping=df.get("rna_reads_covering_genomic_origin"),
         vaf=df.get("vaf"),
         vaf_method=RNA_DEPTH_X_SOURCE_VAF,
     )
+    # LENS's own numbers keep LENS's name. `vaf` especially: an
+    # unqualified fraction landing in a frame beside pVACseq's
+    # `pvacseq_tumor_rna_vaf` would be the one column a caller could not
+    # attribute. No DNA columns are written — LENS never says its
+    # fraction is from DNA, and asserting it would be a guess.
+    df = df.rename(columns={
+        name: source_column("lens", name)
+        for name in (
+            "vaf",
+            "rna_reads_covering_genomic_origin",
+            "rna_reads_covering_genomic_origin_with_peptide_cds",
+            "proportion_rna_reads_covering_genomic_origin_with_peptide_cds",
+        )
+        if name in df.columns
+    })
     df = attach_sequence_source(df, LENS_PEP_CONTEXT)
     df = _add_source_sequence_name(df)
     df["peptide_offset"] = 0

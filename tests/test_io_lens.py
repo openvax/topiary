@@ -275,7 +275,7 @@ class TestAnnotations:
         r = read_lens(V1_4)
         # Spot-check a selection of annotation columns.
         for col in [
-            "vaf", "ccf", "priority_score", "erv_orf_id",
+            "lens_vaf", "ccf", "priority_score", "erv_orf_id",
             "mean_mtec_tpm", "gene_detectable_normal_tissues",
             "pep_context", "coding_sequence",
         ]:
@@ -360,8 +360,8 @@ class TestDSLIntegration:
         from topiary.ranking import Column
         r = read_lens(V1_4).to_long()
         # Filter on vaf (pass-through annotation)
-        if "vaf" in r.df.columns:
+        if "lens_vaf" in r.df.columns:
             try:
-                apply_filter(r.df, Column("vaf") >= 0.0)
+                apply_filter(r.df, Column("lens_vaf") >= 0.0)
             except Exception as e:  # noqa: BLE001
-                pytest.fail(f"Column('vaf') filter failed: {e}")
+                pytest.fail(f"Column('lens_vaf') filter failed: {e}")

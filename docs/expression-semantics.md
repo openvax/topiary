@@ -671,8 +671,12 @@ Expression fields are just `column()` references with short aliases. The parser 
 ```
 gene_tpm           →  Column("gene_tpm")
 transcript_tpm     →  Column("transcript_tpm")
-vaf                →  Column("vaf")
+rna_vaf            →  Column("rna_vaf")
 ```
+
+Reach for the canonical `rna_vaf` / `dna_vaf` rather than a tool's own
+fraction: a source-prefixed column such as `lens_vaf` exists only on frames
+from that tool, and naming an absent column raises.
 
 This means any user-provided column works — the aliases are just convenience for common ones. Users can always fall back to `column(my_custom_field)` for arbitrary data.
 

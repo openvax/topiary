@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .protein_fragment import ProteinFragment
-from .rna_evidence import ISOVAR_ASSEMBLY, RNA_ALIGNMENT
+from .evidence import ISOVAR_ASSEMBLY, RNA_ALIGNMENT
 
 _MIN_ISOVAR = (1, 7, 2)
 _MIN_ISOVAR_TEXT = "1.7.2"

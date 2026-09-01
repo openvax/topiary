@@ -92,10 +92,10 @@ class ProteinFragment:
         Ensembl id.
     gene_expression, transcript_expression : float, optional
         Expression evidence carried forward into prediction rows.
-    n_overlapping_reads, n_alt_reads, n_ref_reads, \
+    n_overlapping_reads, n_alt_reads, n_ref_reads, n_other_reads, \
 n_alt_reads_supporting_protein_sequence : int, optional
         RNA evidence counted in **reads**.
-    n_overlapping_fragments, n_alt_fragments, n_ref_fragments, \
+    n_overlapping_fragments, n_alt_fragments, n_ref_fragments, n_other_fragments, \
 n_alt_fragments_supporting_protein_sequence : int, optional
         The same evidence counted in **fragments**. A paired-end
         fragment is one molecule read twice, so it is one piece of
@@ -169,11 +169,13 @@ n_alt_fragments_supporting_protein_sequence : int, optional
     n_overlapping_reads: Optional[int] = None
     n_alt_reads: Optional[int] = None
     n_ref_reads: Optional[int] = None
+    n_other_reads: Optional[int] = None
     n_alt_reads_supporting_protein_sequence: Optional[int] = None
 
     n_overlapping_fragments: Optional[int] = None
     n_alt_fragments: Optional[int] = None
     n_ref_fragments: Optional[int] = None
+    n_other_fragments: Optional[int] = None
     n_alt_fragments_supporting_protein_sequence: Optional[int] = None
 
     field_provenance: dict = field(default_factory=dict)
@@ -275,6 +277,16 @@ n_alt_fragments_supporting_protein_sequence : int, optional
         return self._rna_evidence("ref")[0]
 
     @property
+    def n_rna_other(self) -> Optional[int]:
+        """Support for neither the reference nor the alt allele, or ``None``.
+
+        A third allele at the locus, a sequencing error, or a nearby
+        indel. ``None`` where the source counted only alt and depth, in
+        which case the reference count already absorbs these.
+        """
+        return self._rna_evidence("other")[0]
+
+    @property
     def n_rna_overlapping(self) -> Optional[int]:
         """RNA evidence covering the variant position."""
         return self._rna_evidence("overlapping")[0]
@@ -305,6 +317,7 @@ n_alt_fragments_supporting_protein_sequence : int, optional
     _RNA_FIELDS = {
         "alt": ("n_alt_fragments", "n_alt_reads"),
         "ref": ("n_ref_fragments", "n_ref_reads"),
+        "other": ("n_other_fragments", "n_other_reads"),
         "overlapping": ("n_overlapping_fragments", "n_overlapping_reads"),
         "supporting": (
             "n_alt_fragments_supporting_protein_sequence",
@@ -314,7 +327,7 @@ n_alt_fragments_supporting_protein_sequence : int, optional
 
     def _rna_evidence(self, name):
         """``(value, subject)`` — fragments if present, else reads."""
-        from .rna_evidence import FRAGMENTS, READS
+        from .evidence import FRAGMENTS, READS
 
         fragment_field, read_field = self._RNA_FIELDS[name]
         value = getattr(self, fragment_field, None)
@@ -691,7 +704,7 @@ def fragments_from_dataframe(df, *, sequence_column=None):
     Read counts carry the provenance their derivation implies —
     ``rna_reads`` is ``measured``, ``rna_depth_x_vaf`` and
     ``cds_overlap_reads`` are ``approximated`` — via one mapping in
-    :mod:`topiary.rna_evidence`, so a frame and a fragment cannot
+    :mod:`topiary.evidence`, so a frame and a fragment cannot
     disagree about whether a number was counted.
 
     Parameters
@@ -716,7 +729,7 @@ def fragments_from_dataframe(df, *, sequence_column=None):
     """
     import pandas as pd
 
-    from .rna_evidence import provenance_for_method
+    from .evidence import provenance_for_method
     from .ranking import is_stated
 
     if df is None or len(df) == 0:

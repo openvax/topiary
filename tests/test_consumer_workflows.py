@@ -69,7 +69,8 @@ def test_a_lens_report_can_be_filtered_and_sorted_by_a_dsl_expression():
 
 @pytest.mark.parametrize("expression", [
     "gene_tpm > 1",
-    "vaf > 0.1",
+    "lens_vaf > 0.1",
+    "rna_vaf > 0.1",
     "n_rna_alt > 5",
     "affinity['netmhcpan'].value.logistic_normalized(350,150) * (gene_tpm > 1)",
 ])
@@ -95,6 +96,9 @@ def test_the_lens_renames_are_what_the_dsl_sees():
     for original, renamed in (
         ("tpm", "gene_tpm"), ("gene_name", "gene"),
         ("variant_coords", "variant"),
+        # LENS's own fraction keeps LENS's name: unqualified `vaf` would
+        # be unattributable next to another tool's VAF in a stacked frame.
+        ("vaf", "lens_vaf"),
     ):
         assert renamed in df.columns, f"{original} should surface as {renamed}"
         assert original not in df.columns

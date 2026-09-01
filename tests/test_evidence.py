@@ -20,7 +20,7 @@ from topiary import (
     RNA_DEPTH_X_SOURCE_VAF,
     RNA_DEPTH_X_VAF,
     TPM_X_DNA_VAF,
-    attach_read_evidence,
+    attach_rna_evidence,
     attach_sequence_source,
     describe_read_evidence,
     read_lens,
@@ -109,7 +109,7 @@ def test_the_expression_estimate_is_abundance_times_fraction():
     df = _read(read_pvacseq, PVACSEQ).df
     row = df.dropna(subset=["rna_alt_expression"]).iloc[0]
 
-    expected = row["transcript_expression"] * row["tumor_dna_vaf"]
+    expected = row["transcript_expression"] * row["pvacseq_tumor_dna_vaf"]
     assert row["rna_alt_expression"] == pytest.approx(expected)
 
 
@@ -128,7 +128,7 @@ def test_lens_populates_the_counted_columns():
 def test_lens_rows_without_a_vaf_get_no_split_and_no_method():
     """Absent stays absent, and says so — it does not become zero."""
     df = _read(read_lens, LENS).df
-    unstated = df[df["vaf"].isna()]
+    unstated = df[df["lens_vaf"].isna()]
 
     assert unstated["n_rna_alt"].isna().all()
     assert unstated["rna_evidence_method"].isna().all()
@@ -136,7 +136,7 @@ def test_lens_rows_without_a_vaf_get_no_split_and_no_method():
 
 def test_lens_rows_with_a_vaf_do_get_a_split():
     df = _read(read_lens, LENS).df
-    stated = df[df["vaf"].notna()]
+    stated = df[df["lens_vaf"].notna()]
 
     assert len(stated) > 0
     assert stated["n_rna_alt"].notna().all()
@@ -157,7 +157,7 @@ def test_a_cds_overlap_count_keeps_its_own_name():
         warnings.simplefilter("ignore", UserWarning)
         df = read_lens(LENS).df
 
-    assert "rna_reads_covering_genomic_origin_with_peptide_cds" in df.columns
+    assert "lens_rna_reads_covering_genomic_origin_with_peptide_cds" in df.columns
     assert "n_alt_reads_supporting_protein_sequence" not in df.columns
 
 
@@ -167,7 +167,7 @@ def test_a_cds_overlap_count_keeps_its_own_name():
 
 
 def test_a_frame_with_no_rna_columns_gets_absent_not_zero():
-    frame = attach_read_evidence(pd.DataFrame({"x": [1, 2, 3]}))
+    frame = attach_rna_evidence(pd.DataFrame({"x": [1, 2, 3]}))
 
     for column in ("n_rna_overlapping", "n_rna_alt", "n_rna_ref"):
         assert frame[column].isna().all()
@@ -176,7 +176,7 @@ def test_a_frame_with_no_rna_columns_gets_absent_not_zero():
 
 def test_the_columns_exist_even_when_unpopulated():
     """Same shape from every source; only which fields are filled differs."""
-    frame = attach_read_evidence(pd.DataFrame({"x": [1]}))
+    frame = attach_rna_evidence(pd.DataFrame({"x": [1]}))
 
     assert "n_rna_alt" in frame.columns
     assert "rna_evidence_method" in frame.columns
@@ -200,7 +200,7 @@ def test_describe_reports_how_each_number_was_obtained():
 
 def test_describe_says_nothing_about_columns_nothing_populated():
     assert describe_read_evidence(
-        attach_read_evidence(pd.DataFrame({"x": [1]}))
+        attach_rna_evidence(pd.DataFrame({"x": [1]}))
     ) == {}
 
 
