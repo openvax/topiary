@@ -1,5 +1,19 @@
 # Changelog
 
+## 5.45.1
+
+**Added: `docs/consumer-guide.md`** — what topiary offers a downstream
+consumer as of 5.45.0, and what changed across the 5.28.2–5.45.0 series.
+
+Written because a consumer adopting this stretch had to reconstruct it
+from twenty-three changelog entries and a dozen cross-session messages.
+It covers the nine RNA-evidence columns and what each method means, the
+four paths to a `ProteinFragment` and the one shape they share, the DSL's
+ambiguity resolution and per-peptide alleles, the shared helpers that
+exist so consumers stop reimplementing them, and a floor-by-feature
+table. Every code example in it was executed against the shipped
+package.
+
 ## 5.45.0
 
 **Replaced the read/fragment API. 5.43.0 and 5.44.0 were built on a
