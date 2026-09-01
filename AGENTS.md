@@ -31,6 +31,33 @@ Before telling the user a change is "complete":
 - `./test.sh` — pytest (with coverage where configured)
 - `./deploy.sh [version]` — lint → test → optional version bump → build → twine upload → tag → push
 
+## Test the whole, not the parts
+
+**Before saying a workflow is supported, run it.** Checking that the pieces
+exist is not checking that they compose.
+
+The failure this comes from: asked whether a downstream consumer was blocked, I
+verified that the four capabilities their design needed were exported and said
+they were unblocked. They were exported. They did not compose — the one
+operation being asked for was silently discarded, so the feature built on them
+produced identical output for every setting. A second time, I said the DSL could
+reference a LENS annotation by a name that does not exist, having read that the
+reader passes annotations through without running an expression.
+
+So:
+
+- **A claim about behavior needs something that runs behind it.** Not two files
+  read and joined in your head.
+- **Assert the difference, not the presence.** "The policy has an effect" means
+  two configurations produce different answers. That a capability is exported,
+  a column is present, or a name is in `__all__` is not evidence the workflow
+  works — those pass just as happily when it doesn't.
+- **`tests/test_consumer_workflows.py` is where composed workflows live.** When
+  a consumer asks whether something is supported, the answer belongs there as a
+  test before it goes in a message.
+- The same applies to *your own* fix: after changing something, ask what the
+  change enables, not only what it repairs.
+
 ## Public API over private helpers
 
 **Logic that does real work belongs in one documented public function, not in a
