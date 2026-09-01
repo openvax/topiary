@@ -1481,8 +1481,31 @@ class TopiaryPredictor(object):
             "source_type", "variant", "effect", "effect_type",
             "gene", "gene_id", "transcript_id", "transcript_name",
             "gene_expression", "transcript_expression",
+            # RNA read evidence, for the same reason expression is here:
+            # a consumer filtering or weighting on it reads the
+            # prediction frame, not the fragment. Without these the
+            # frame carried read_count_method and read_count_subject —
+            # which arrive as annotations — describing a count that was
+            # not there, so the frame said how a number was obtained and
+            # what it counted while omitting the number.
         ):
             df[attr] = _map_attr(attr)
+
+        # Read counts are named for what they count, so a threshold
+        # written against n_alt_reads cannot be answered by a fragment
+        # count. The subject comes from the fragments themselves.
+        from .rna_evidence import count_column_for_subject
+        subjects = {
+            f.annotations.get("read_count_subject") for f in fragments
+        }
+        subject = subjects.pop() if len(subjects) == 1 else None
+        for attr in (
+            "n_overlapping_reads", "n_alt_reads", "n_ref_reads",
+            "n_alt_reads_supporting_protein_sequence",
+        ):
+            values = _map_attr(attr)
+            if values.notna().any():
+                df[count_column_for_subject(attr, subject)] = values
 
         def _overlaps(row):
             f = by_id.get(row["fragment_id"])
