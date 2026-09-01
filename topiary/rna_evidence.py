@@ -61,6 +61,15 @@ CDS_OVERLAP_READS = "cds_overlap_reads"
 #: proxy, not a read count.
 TPM_X_DNA_VAF = "tpm_x_dna_vaf"
 
+#: RNA depth x a VAF whose assay the source did not state.
+#:
+#: LENS carries one unqualified ``vaf`` column while naming its read
+#: columns ``rna_*`` explicitly, so topiary cannot tell whether the
+#: fraction is from RNA or DNA. The count is still the best available
+#: estimate, but calling it ``rna_depth_x_vaf`` would assert an assay
+#: nobody stated.
+RNA_DEPTH_X_SOURCE_VAF = "rna_depth_x_source_vaf"
+
 #: Reported by the source, which did not say how it got there.
 #:
 #: pVACseq's aggregated report supplies its own ``Allele Expr``. Passing
@@ -71,8 +80,8 @@ TPM_X_DNA_VAF = "tpm_x_dna_vaf"
 SOURCE_REPORTED = "source_reported"
 
 READ_COUNT_METHODS = frozenset({
-    RNA_ALIGNMENT, RNA_DEPTH_X_VAF, CDS_OVERLAP_READS, TPM_X_DNA_VAF,
-    SOURCE_REPORTED,
+    RNA_ALIGNMENT, RNA_DEPTH_X_VAF, RNA_DEPTH_X_SOURCE_VAF,
+    CDS_OVERLAP_READS, TPM_X_DNA_VAF, SOURCE_REPORTED,
 })
 
 #: How each derivation maps onto :data:`~topiary.PROVENANCE_VALUES`.
@@ -85,6 +94,7 @@ READ_COUNT_METHODS = frozenset({
 METHOD_PROVENANCE = MappingProxyType({
     RNA_ALIGNMENT: "measured",
     RNA_DEPTH_X_VAF: "approximated",
+    RNA_DEPTH_X_SOURCE_VAF: "approximated",
     CDS_OVERLAP_READS: "approximated",
     TPM_X_DNA_VAF: "approximated",
     # The source stands behind it, but did not say how it got there, so
@@ -268,8 +278,8 @@ READ_EVIDENCE_COLUMNS = (
     "n_rna_overlapping",
     "rna_evidence_subject",
     "rna_evidence_method",
-    "variant_allele_expression",
-    "variant_allele_expression_method",
+    "rna_alt_expression",
+    "rna_alt_expression_method",
     "sequence_source",
 )
 
@@ -324,7 +334,8 @@ def attach_read_evidence(
     supporting_method=None,
     expression=None,
     dna_vaf=None,
-    reported_variant_allele_expression=None,
+    reported_rna_alt_expression=None,
+    vaf_method=RNA_DEPTH_X_VAF,
 ) -> pd.DataFrame:
     """Write the read-evidence columns onto *df*, naming each derivation.
 
@@ -366,7 +377,7 @@ def attach_read_evidence(
     )
     if overlapping is not None and vaf is not None:
         alt, ref = split_reads_by_vaf(overlapping, vaf)
-        method = RNA_DEPTH_X_VAF
+        method = vaf_method
     else:
         alt, ref, method = empty, empty, None
     out["n_rna_alt"] = alt
@@ -392,15 +403,15 @@ def attach_read_evidence(
         # assembled count lives on ProteinFragment where it is real.
         pass
 
-    if reported_variant_allele_expression is not None:
+    if reported_rna_alt_expression is not None:
         # The source supplied the number. Keep it and say where it came
         # from, rather than overwriting it with our own estimate or
         # passing it through unlabelled as if we had derived it.
         reported = pd.to_numeric(
-            reported_variant_allele_expression, errors="coerce"
+            reported_rna_alt_expression, errors="coerce"
         )
-        out["variant_allele_expression"] = reported
-        out["variant_allele_expression_method"] = pd.Series(
+        out["rna_alt_expression"] = reported
+        out["rna_alt_expression_method"] = pd.Series(
             [SOURCE_REPORTED if pd.notna(v) else pd.NA for v in reported],
             index=out.index, dtype="object",
         )
@@ -410,16 +421,16 @@ def attach_read_evidence(
         estimate = (abundance * fraction).where(
             abundance.notna() & fraction.notna()
         )
-        out["variant_allele_expression"] = estimate
-        out["variant_allele_expression_method"] = pd.Series(
+        out["rna_alt_expression"] = estimate
+        out["rna_alt_expression_method"] = pd.Series(
             [TPM_X_DNA_VAF if pd.notna(v) else pd.NA for v in estimate],
             index=out.index, dtype="object",
         )
     else:
-        out["variant_allele_expression"] = pd.Series(
+        out["rna_alt_expression"] = pd.Series(
             [np.nan] * n_rows, index=out.index, dtype="float64"
         )
-        out["variant_allele_expression_method"] = pd.Series(
+        out["rna_alt_expression_method"] = pd.Series(
             [pd.NA] * n_rows, index=out.index, dtype="object"
         )
     out["rna_evidence_subject"] = pd.Series(
@@ -442,7 +453,7 @@ def describe_read_evidence(df: pd.DataFrame) -> dict:
         ("n_rna_alt", "rna_evidence_method"),
         ("n_rna_ref", "rna_evidence_method"),
         ("n_rna_overlapping", "rna_evidence_method"),
-        ("variant_allele_expression", "variant_allele_expression_method"),
+        ("rna_alt_expression", "rna_alt_expression_method"),
     ):
         if column not in df.columns or method_column not in df.columns:
             continue

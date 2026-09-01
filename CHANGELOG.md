@@ -45,6 +45,26 @@ the same `n_rna_*` columns plus `rna_evidence_subject`, so **one
 threshold spans every source** and a number that travels can still name
 its unit.
 
+**Every generated column is now scoped by assay.**
+`variant_allele_expression` is `rna_alt_expression` (with
+`rna_alt_expression_method`) — it is an RNA quantity and the name did
+not say so. The counts and the two describing columns were already
+`n_rna_*` / `rna_evidence_*`.
+
+**Fixed: LENS's unqualified `vaf` was used as both an RNA and a DNA
+fraction.** LENS carries one `vaf` column while naming its read columns
+`rna_*` explicitly, so the fraction's assay is unstated — and topiary
+was using it *both* to split the RNA depth *and* as a DNA VAF to scale
+expression. One of those was necessarily wrong.
+
+It now splits the depth under a method that says what actually happened,
+`rna_depth_x_source_vaf`, rather than `rna_depth_x_vaf` asserting an
+assay nobody stated. It is no longer used to scale expression, so LENS
+frames carry no `rna_alt_expression` — they carried none anyway, since
+the estimate was empty on every row. pVACseq's VAFs *are* qualified
+(`Tumor RNA VAF`, `Tumor DNA VAF`), so it keeps `rna_depth_x_vaf` and
+`tpm_x_dna_vaf`.
+
 **Simplified the reader-observable columns.** A LENS frame carried 12
 topiary-generated evidence columns and four of them were exact
 duplicates: `n_rna_alt` equalled `n_alt_reads` on every reader, since no

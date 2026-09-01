@@ -41,6 +41,7 @@ import pandas as pd
 from .io import Metadata
 from .rna_evidence import (
     LENS_PEP_CONTEXT,
+    RNA_DEPTH_X_SOURCE_VAF,
     attach_read_evidence,
     attach_sequence_source,
 )
@@ -357,12 +358,17 @@ def read_lens(
     # CDS* — also a count, but of reads overlapping the coding sequence
     # rather than supporting the variant allele, which is why that one
     # is named cds_overlap_reads rather than rna_reads.
+    # LENS carries one unqualified `vaf` while naming its read columns
+    # `rna_*` explicitly, so the fraction's assay is unstated. It is
+    # still the best available split of the RNA depth, but it is not a
+    # DNA VAF, so it is not used to scale expression — doing so would
+    # assert an assay nobody stated. LENS rows carried no expression
+    # estimate anyway.
     df = attach_read_evidence(
         df,
         overlapping=df.get("rna_reads_covering_genomic_origin"),
         vaf=df.get("vaf"),
-        expression=df.get("tpm"),
-        dna_vaf=df.get("vaf"),
+        vaf_method=RNA_DEPTH_X_SOURCE_VAF,
     )
     df = attach_sequence_source(df, LENS_PEP_CONTEXT)
     df = _add_source_sequence_name(df)

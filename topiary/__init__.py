@@ -112,6 +112,7 @@ from .io_pvacseq import (
 from .rna_evidence import (
     CDS_OVERLAP_READS,
     READ_COUNT_METHODS,
+    RNA_DEPTH_X_SOURCE_VAF,
     RNA_DEPTH_X_VAF,
     RNA_ALIGNMENT,
     RNA_READS,
@@ -248,6 +249,7 @@ __all__ = [
     "to_wide",
     "RNA_ALIGNMENT",
     "RNA_READS",
+    "RNA_DEPTH_X_SOURCE_VAF",
     "RNA_DEPTH_X_VAF",
     "CDS_OVERLAP_READS",
     "TPM_X_DNA_VAF",

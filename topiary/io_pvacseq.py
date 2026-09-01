@@ -478,7 +478,7 @@ def _parse_aggregated(df):
         vaf=df["RNA VAF"] if "RNA VAF" in df else None,
         expression=df["RNA Expr"] if "RNA Expr" in df else None,
         dna_vaf=df["DNA VAF"] if "DNA VAF" in df else None,
-        reported_variant_allele_expression=(
+        reported_rna_alt_expression=(
             df["Allele Expr"] if "Allele Expr" in df else None
         ),
     )

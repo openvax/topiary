@@ -17,6 +17,7 @@ import pytest
 
 from topiary import (
     CDS_OVERLAP_READS,
+    RNA_DEPTH_X_SOURCE_VAF,
     RNA_DEPTH_X_VAF,
     TPM_X_DNA_VAF,
     attach_read_evidence,
@@ -95,21 +96,21 @@ def test_pvacseq_names_the_split_as_derived():
     assert set(df["rna_evidence_method"].dropna()) == {RNA_DEPTH_X_VAF}
 
 
-def test_pvacseq_estimates_variant_allele_expression():
+def test_pvacseq_estimates_rna_alt_expression():
     df = _read(read_pvacseq, PVACSEQ).df
 
-    assert df["variant_allele_expression"].notna().any()
-    assert set(df["variant_allele_expression_method"].dropna()) == {
+    assert df["rna_alt_expression"].notna().any()
+    assert set(df["rna_alt_expression_method"].dropna()) == {
         TPM_X_DNA_VAF,
     }
 
 
 def test_the_expression_estimate_is_abundance_times_fraction():
     df = _read(read_pvacseq, PVACSEQ).df
-    row = df.dropna(subset=["variant_allele_expression"]).iloc[0]
+    row = df.dropna(subset=["rna_alt_expression"]).iloc[0]
 
     expected = row["transcript_expression"] * row["tumor_dna_vaf"]
-    assert row["variant_allele_expression"] == pytest.approx(expected)
+    assert row["rna_alt_expression"] == pytest.approx(expected)
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +140,10 @@ def test_lens_rows_with_a_vaf_do_get_a_split():
 
     assert len(stated) > 0
     assert stated["n_rna_alt"].notna().all()
-    assert set(stated["rna_evidence_method"]) == {RNA_DEPTH_X_VAF}
+    # LENS's `vaf` carries no assay qualifier, so the method says the
+    # depth was multiplied by *the source's* fraction rather than
+    # asserting it was an RNA one.
+    assert set(stated["rna_evidence_method"]) == {RNA_DEPTH_X_SOURCE_VAF}
 
 
 def test_a_cds_overlap_count_keeps_its_own_name():
@@ -190,7 +194,7 @@ def test_describe_reports_how_each_number_was_obtained():
         "n_rna_alt": RNA_DEPTH_X_VAF,
         "n_rna_ref": RNA_DEPTH_X_VAF,
         "n_rna_overlapping": RNA_DEPTH_X_VAF,
-        "variant_allele_expression": TPM_X_DNA_VAF,
+        "rna_alt_expression": TPM_X_DNA_VAF,
     }
 
 

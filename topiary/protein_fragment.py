@@ -764,7 +764,7 @@ def fragments_from_dataframe(df, *, sequence_column=None):
             if resolved is not None:
                 provenance[field] = resolved
 
-        expression_method = row.get("variant_allele_expression_method")
+        expression_method = row.get("rna_alt_expression_method")
         if is_stated(expression_method):
             provenance["transcript_expression"] = provenance_for_method(
                 expression_method
@@ -773,8 +773,8 @@ def fragments_from_dataframe(df, *, sequence_column=None):
         annotations = {}
         for key in ("sequence_source", "rna_evidence_method",
                     "rna_evidence_subject",
-                    "variant_allele_expression",
-                    "variant_allele_expression_method"):
+                    "rna_alt_expression",
+                    "rna_alt_expression_method"):
             value = row.get(key)
             if is_stated(value) and not (
                 isinstance(value, float) and pd.isna(value)

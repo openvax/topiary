@@ -5,7 +5,7 @@ the frame. Filed with three problems; two of them were fixed by 5.37.0
 before the issue was read, and this closes the third.
 
 Fixed in 5.37.0, asserted here so they stay fixed:
-  - both frames carry `variant_allele_expression` (there was never an
+  - both frames carry `rna_alt_expression` (there was never an
     `allele_expression`, so no two names for one quantity)
   - both label the derivation, on the expression *and* the read axes
 
@@ -86,19 +86,19 @@ def test_the_raw_string_is_still_kept_separately(frames):
 
 @pytest.mark.parametrize("reader", ["lens", "pvacseq"])
 def test_both_readers_name_the_variant_allele_estimate_the_same(frames, reader):
-    assert "variant_allele_expression" in frames[reader].columns
+    assert "rna_alt_expression" in frames[reader].columns
 
 
 @pytest.mark.parametrize("reader", ["lens", "pvacseq"])
 def test_neither_reader_uses_the_other_spelling(frames, reader):
-    """`allele_expression` and `variant_allele_expression` would be the
+    """`allele_expression` and `rna_alt_expression` would be the
     same quantity under two names."""
     assert "allele_expression" not in frames[reader].columns
 
 
 @pytest.mark.parametrize("reader", ["lens", "pvacseq"])
 @pytest.mark.parametrize("column", [
-    "variant_allele_expression_method",
+    "rna_alt_expression_method",
     "rna_evidence_method",
 ])
 def test_both_readers_label_every_derivation(frames, reader, column):
@@ -146,7 +146,7 @@ def _pvacseq(path):
 def test_both_pvacseq_flavours_name_expression_the_same(path):
     df = _pvacseq(path)
 
-    assert "variant_allele_expression" in df.columns
+    assert "rna_alt_expression" in df.columns
     assert "transcript_expression" in df.columns
 
 
@@ -168,7 +168,7 @@ def test_both_flavours_label_their_derivations(path):
     df = _pvacseq(path)
 
     for column in ("rna_evidence_method",
-                   "variant_allele_expression_method"):
+                   "rna_alt_expression_method"):
         assert column in df.columns
 
 
@@ -178,14 +178,14 @@ def test_a_source_supplied_estimate_says_so():
     discard the number the source stands behind."""
     df = _pvacseq(AGGREGATED)
 
-    methods = set(df["variant_allele_expression_method"].dropna())
+    methods = set(df["rna_alt_expression_method"].dropna())
     assert methods == {"source_reported"}
 
 
 def test_a_derived_estimate_says_that_instead():
     df = _pvacseq(ALL_EPITOPES)
 
-    methods = set(df["variant_allele_expression_method"].dropna())
+    methods = set(df["rna_alt_expression_method"].dropna())
     assert methods == {"tpm_x_dna_vaf"}
 
 
@@ -203,6 +203,6 @@ def test_one_filter_spans_both_pvacseq_flavours(path):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
-        scores = evaluate_scores(df, parse("variant_allele_expression > 0"))
+        scores = evaluate_scores(df, parse("rna_alt_expression > 0"))
 
     assert len(scores) == len(df)
