@@ -1,5 +1,25 @@
 # Changelog
 
+## 5.41.0
+
+**Fixed: gene-level expression had two names (#238).** `read_lens`
+called it `gene_tpm`; `read_pvacseq` called it `gene_expression`. A
+filter naming either matched nothing on the other frame rather than
+failing, so a consumer had to know which reader produced the frame —
+the thing a shared vocabulary exists to avoid.
+
+LENS frames now also carry `gene_expression`, the name topiary already
+uses for gene-level abundance in `ProteinFragment.gene_expression` and
+in `read_pvacseq`. `gene_tpm` stays as the LENS-native spelling, and
+`gene_tpm_raw` still holds the original string, since LENS writes fusion
+rows as composites and the numeric column is NaN for them.
+
+The other two problems in #238 were already fixed by 5.37.0, before the
+issue was read: both readers emit `variant_allele_expression` (there is
+no `allele_expression` on either frame, so no one quantity under two
+names), and both label every derivation — on the expression axis and the
+read axis. They are pinned by tests now rather than left to chance.
+
 ## 5.40.0
 
 **Added: `fragments_from_variants` — isovar, actually run (#102).**

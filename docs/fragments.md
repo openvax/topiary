@@ -135,6 +135,18 @@ isovar is also the only source that *counts* the reads supporting an assembled
 sequence. Everything else derives them or counts something adjacent, which is
 what the derivation names record.
 
+## One vocabulary across readers
+
+Both readers describe expression the same way, so a filter does not have to
+know which produced the frame:
+
+| Column | Meaning |
+|---|---|
+| `gene_expression` | Gene-level abundance. On LENS also available as `gene_tpm` (its native spelling), with the original string in `gene_tpm_raw` |
+| `transcript_expression` | Transcript-level abundance, where the source has it |
+| `variant_allele_expression` | Abundance attributed to the variant allele — an estimate; see below |
+| `*_method` | How each of those was obtained |
+
 ## RNA evidence, and knowing which fields are real
 
 Beyond `gene_expression` / `transcript_expression`, a fragment can carry
