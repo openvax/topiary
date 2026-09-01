@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .protein_fragment import ProteinFragment
-from .rna_evidence import ISOVAR_ASSEMBLY, RNA_READS
+from .rna_evidence import FRAGMENTS, ISOVAR_ASSEMBLY, RNA_READS
 
 _MIN_ISOVAR = (1, 7, 2)
 _MIN_ISOVAR_TEXT = "1.7.2"
@@ -104,7 +104,12 @@ def fragment_from_isovar_result(
         getattr(protein_sequence, "transcript_names", ()) or ()
     )
 
-    # isovar counts these; nothing is derived, so they are measured.
+    # isovar counts *fragments*, not reads: num_alt_fragments, not
+    # num_alt_reads. Both exist on IsovarResult, and carrying the
+    # fragment count under a field named for reads is the same shape as
+    # the CDS-overlap column — a real count of an adjacent thing. The
+    # subject is recorded rather than the field renamed, because a
+    # consumer's threshold has to know which bar it cleared.
     counts = dict(
         n_overlapping_reads=_as_count(
             getattr(isovar_result, "num_total_fragments", None)
@@ -144,6 +149,7 @@ def fragment_from_isovar_result(
         annotations={
             "sequence_source": ISOVAR_ASSEMBLY,
             "read_count_method": RNA_READS,
+            "read_count_subject": FRAGMENTS,
             # Every transcript consistent with the assembled sequence,
             # not just the one named above. A release mismatch that
             # leaves these unresolvable downstream is visible rather

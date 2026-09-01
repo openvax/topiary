@@ -1,5 +1,48 @@
 # Changelog
 
+## 5.43.0
+
+**Added: a read count now names what it counts.** isovar counts
+*fragments* — `num_alt_fragments`, not `num_alt_reads`. A depth × VAF
+estimate is inherently about *reads*, because depth is a read depth.
+Both landed in `n_alt_reads`, so the field was honest about **how** a
+number was obtained and silent about **what it counts** — the same shape
+as the CDS-overlap column, a real count of an adjacent thing.
+
+```python
+fragment.read_count_subject()                    # "fragments" or "reads"
+fragment.count_in("n_alt_reads", FRAGMENTS)      # 30
+fragment.count_in("n_alt_reads", READS)          # None — says so
+```
+
+Frames carry `read_count_subject` beside `read_count_method`.
+
+**Why it matters, and where it does not.** Within one run the unit is
+internally consistent, so a ranking does not change. The harm is
+entirely in what travels: a documented `n_alt_reads > 5`, a config
+copied between projects, a number in a paper. Five fragments and five
+reads are different bars, and nothing said which was cleared.
+
+Fragments are the right subject for a `sqrt()` confidence weight: two
+mates of one fragment are not independent evidence, so read counts
+overstate paired-end support roughly twofold relative to single-end —
+precisely the distortion a diminishing-returns transform should not
+inherit.
+
+**What this deliberately does not attempt.** Perfect cross-path
+comparability is unattainable: converting a read estimate to fragments
+needs library information no source carries. So there is no conversion
+and no single comparable number. Every path names its subject, a score
+names the subject it wants, and a source asked for the other one
+**returns `None` rather than substituting** — the derivation rule one
+level up.
+
+`rna_reads` deliberately fixes no subject: it says a count came from an
+alignment, not whether the aligner counted reads or fragments, so the
+producer states it.
+
+Design settled with the downstream consumer, whose framing this is.
+
 ## 5.42.0
 
 **Fixed: `read_pvacseq` spoke two vocabularies depending on which
