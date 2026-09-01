@@ -1,5 +1,37 @@
 # Changelog
 
+## 5.46.0
+
+**Fixed: the consumer guide overpromised.** It said the nine evidence
+columns were "identical across readers". They are the same
+*vocabulary*, not the same *columns* — a reader emits one only where its
+source can answer, and a pVACseq **aggregated** report has no gene-level
+abundance, so no `gene_expression`.
+
+That mattered for the exact use the guide recommends: naming an absent
+column in an expression raises rather than evaluating to NaN, so a
+config written against a LENS frame would break on an aggregated
+pVACseq one. Corrected, with the failure shown.
+
+Raising stays the behaviour, and the columns stay absent rather than
+all-null. A present-but-empty column asserts the question was asked and
+answered as nothing; absent beats substituted here as everywhere else.
+
+**Added: `available_evidence_columns(df)` and `EVIDENCE_COLUMNS`**, so a
+consumer writing a portable config can check rather than discover the
+gap at runtime.
+
+**Fixed: the guide was not in the distribution.** No `docs/` in the
+sdist and no `.md` in the wheel, so anyone working from an installed
+package could not find the document framed as "the thing you read
+instead of asking". `MANIFEST.in` now ships `docs/`.
+
+Both found by the downstream consumer checking the guide's claims
+against the shipped package instead of reading it — which is what the
+guide asks its readers to do, so it is fitting that it is how the guide
+was found wrong. Every *code example* in it had been executed; the
+sentence summarising them had not.
+
 ## 5.45.1
 
 **Added: `docs/consumer-guide.md`** — what topiary offers a downstream
