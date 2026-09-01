@@ -27,11 +27,7 @@ from topiary import (
     read_lens,
     read_pvacseq,
 )
-from topiary.rna_evidence import (
-    CDS_OVERLAP_READS,
-    RNA_DEPTH_X_VAF,
-    RNA_READS,
-)
+from topiary.rna_evidence import RNA_ALIGNMENT, RNA_DEPTH_X_VAF
 
 LENS = "tests/data/lens/sample_v1_4.tsv"
 PVACSEQ = "tests/data/pvacseq/mhc_i_all_epitopes.tsv"
@@ -124,7 +120,7 @@ def test_isovar_records_that_the_sequence_was_assembled():
     fragment = fragment_from_isovar_result(_IsovarResult())
 
     assert fragment.annotations["sequence_source"] == "isovar_assembly"
-    assert fragment.annotations["read_count_method"] == RNA_READS
+    assert fragment.annotations["rna_evidence_method"] == RNA_ALIGNMENT
 
 
 def test_supporting_transcripts_are_carried():
@@ -186,18 +182,18 @@ def test_pvacseq_counts_are_marked_derived():
 
     assert fragment.n_alt_reads > 0
     assert fragment.is_approximate("n_alt_reads")
-    assert fragment.annotations["read_count_method"] == RNA_DEPTH_X_VAF
+    assert fragment.annotations["rna_evidence_method"] == RNA_DEPTH_X_VAF
 
 
-def test_a_lens_cds_overlap_count_is_marked_derived():
-    """It is a real count — of something adjacent to what was asked."""
-    fragment = fragments_from_dataframe(_frame(read_lens, LENS))[0]
+def test_a_lens_cds_overlap_count_keeps_its_own_name():
+    """LENS counts reads overlapping the peptide's CDS, which is not a
+    count of reads supporting the assembled protein sequence. It stays
+    under the source's own column rather than being emitted under a name
+    that overstates it."""
+    frame = _frame(read_lens, LENS)
 
-    assert fragment.n_alt_reads_supporting_protein_sequence > 0
-    assert fragment.is_approximate("n_alt_reads_supporting_protein_sequence")
-    assert fragment.annotations["supporting_read_count_method"] == (
-        CDS_OVERLAP_READS
-    )
+    assert "rna_reads_covering_genomic_origin_with_peptide_cds" in frame.columns
+    assert "n_alt_reads_supporting_protein_sequence" not in frame.columns
 
 
 def test_a_reader_frame_records_its_sequence_source():
@@ -270,6 +266,5 @@ def test_only_isovar_reports_counted_reads():
 def test_the_method_to_provenance_map_is_single_valued():
     """One mapping, so a frame and a fragment cannot disagree about
     whether depth x VAF counts as measured. It does not."""
-    assert provenance_for_method(RNA_READS) == "measured"
+    assert provenance_for_method(RNA_ALIGNMENT) == "measured"
     assert provenance_for_method(RNA_DEPTH_X_VAF) == "approximated"
-    assert provenance_for_method(CDS_OVERLAP_READS) == "approximated"

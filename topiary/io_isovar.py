@@ -158,7 +158,7 @@ def fragment_from_isovar_result(
         field_provenance=provenance,
         annotations={
             "sequence_source": ISOVAR_ASSEMBLY,
-            "read_count_method": RNA_ALIGNMENT,
+            "rna_evidence_method": RNA_ALIGNMENT,
             # Every transcript consistent with the assembled sequence,
             # not just the one named above. A release mismatch that
             # leaves these unresolvable downstream is visible rather

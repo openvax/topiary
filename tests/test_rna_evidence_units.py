@@ -206,7 +206,7 @@ def test_the_underlying_columns_are_still_there(isovar_frame):
 # ---------------------------------------------------------------------------
 #
 # Two independent questions, and the answers must not imply each other:
-# `read_count_method` says where a number came from, `rna_evidence_subject`
+# `rna_evidence_method` says where a number came from, `rna_evidence_subject`
 # says what it counts. The method was called `rna_reads` while explicitly
 # fixing no subject — misleading once the value it labels can be fragments.
 
@@ -216,7 +216,7 @@ def test_an_alignment_derived_count_names_its_source_not_a_unit(
 ):
     from topiary import RNA_ALIGNMENT
 
-    assert isovar_fragment.annotations["read_count_method"] == RNA_ALIGNMENT
+    assert isovar_fragment.annotations["rna_evidence_method"] == RNA_ALIGNMENT
     assert isovar_fragment.rna_evidence_subject() == FRAGMENTS
 
 
@@ -237,7 +237,7 @@ def test_an_indirect_count_says_how_it_was_computed(reader, path, method):
     depth x VAF — computed, and labelled as computed."""
     df = _reader_frame(reader, path)
 
-    assert set(df["read_count_method"].dropna()) == {method}
+    assert set(df["rna_evidence_method"].dropna()) == {method}
 
 
 def test_a_computed_count_is_not_called_measured():
@@ -253,4 +253,4 @@ def test_every_populated_count_can_say_where_it_came_from(isovar_frame):
 
     assert populated.any()
     assert isovar_frame.loc[populated, "rna_evidence_subject"].notna().all()
-    assert isovar_frame.loc[populated, "read_count_method"].notna().all()
+    assert isovar_frame.loc[populated, "rna_evidence_method"].notna().all()

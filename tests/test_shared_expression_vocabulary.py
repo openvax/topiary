@@ -99,8 +99,7 @@ def test_neither_reader_uses_the_other_spelling(frames, reader):
 @pytest.mark.parametrize("reader", ["lens", "pvacseq"])
 @pytest.mark.parametrize("column", [
     "variant_allele_expression_method",
-    "read_count_method",
-    "supporting_read_count_method",
+    "rna_evidence_method",
 ])
 def test_both_readers_label_every_derivation(frames, reader, column):
     """The reason for labelling one applies identically to the other: the
@@ -168,7 +167,7 @@ def test_neither_flavour_uses_the_old_spellings(path):
 def test_both_flavours_label_their_derivations(path):
     df = _pvacseq(path)
 
-    for column in ("read_count_method", "supporting_read_count_method",
+    for column in ("rna_evidence_method",
                    "variant_allele_expression_method"):
         assert column in df.columns
 

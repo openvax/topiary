@@ -665,10 +665,17 @@ SEMANTIC_CORE = (
 
 _FRAGMENT_IDENTITY = ("source_sequence_name", "variant", "peptide")
 
-_COUNT_FIELDS = (
-    "n_overlapping_reads", "n_alt_reads", "n_ref_reads",
-    "n_alt_reads_supporting_protein_sequence",
-)
+#: Frame column → the fragment field it fills, per unit.
+#:
+#: The frame carries one name per quantity (``n_rna_alt``) plus the unit
+#: it is in; the fragment carries a field per unit. This is where the
+#: two meet, so the fragment never holds a fragment count under a name
+#: for reads.
+_FRAME_COUNTS = {
+    "n_rna_alt": ("n_alt_reads", "n_alt_fragments"),
+    "n_rna_ref": ("n_ref_reads", "n_ref_fragments"),
+    "n_rna_overlapping": ("n_overlapping_reads", "n_overlapping_fragments"),
+}
 
 
 def fragments_from_dataframe(df, *, sequence_column=None):
@@ -741,23 +748,21 @@ def fragments_from_dataframe(df, *, sequence_column=None):
 
         counts = {}
         provenance = {}
-        method = row.get("read_count_method")
-        supporting_method = row.get("supporting_read_count_method")
-        for count_field in _COUNT_FIELDS:
-            value = row.get(count_field)
+        method = row.get("rna_evidence_method")
+        subject = row.get("rna_evidence_subject")
+        for column, (read_field, fragment_field) in _FRAME_COUNTS.items():
+            value = row.get(column)
             if value is None or pd.isna(value):
                 continue
-            counts[count_field] = int(value)
-            # n_overlapping_reads is a direct count wherever a reader
-            # reports it; only the split carries the derivation.
-            applicable = (
-                None if count_field == "n_overlapping_reads"
-                else (supporting_method if count_field.endswith("_sequence")
-                      else method)
+            field = (
+                fragment_field
+                if is_stated(subject) and str(subject).strip() == "fragments"
+                else read_field
             )
-            resolved = provenance_for_method(applicable)
+            counts[field] = int(value)
+            resolved = provenance_for_method(method)
             if resolved is not None:
-                provenance[count_field] = resolved
+                provenance[field] = resolved
 
         expression_method = row.get("variant_allele_expression_method")
         if is_stated(expression_method):
@@ -766,8 +771,8 @@ def fragments_from_dataframe(df, *, sequence_column=None):
             )
 
         annotations = {}
-        for key in ("sequence_source", "read_count_method",
-                    "read_count_subject", "supporting_read_count_method",
+        for key in ("sequence_source", "rna_evidence_method",
+                    "rna_evidence_subject",
                     "variant_allele_expression",
                     "variant_allele_expression_method"):
             value = row.get(key)

@@ -45,6 +45,34 @@ the same `n_rna_*` columns plus `rna_evidence_subject`, so **one
 threshold spans every source** and a number that travels can still name
 its unit.
 
+**Simplified the reader-observable columns.** A LENS frame carried 12
+topiary-generated evidence columns and four of them were exact
+duplicates: `n_rna_alt` equalled `n_alt_reads` on every reader, since no
+reader produces fragments. Both readers now expose the same nine:
+
+```
+n_rna_alt   n_rna_ref   n_rna_overlapping
+rna_evidence_subject    rna_evidence_method
+variant_allele_expression   variant_allele_expression_method
+sequence_source   gene_expression
+```
+
+One name per quantity, one column saying the unit, one saying the
+origin. The unit-specific `n_*_reads` / `n_*_fragments` fields stay on
+`ProteinFragment`, where a caller who needs a specific unit names it —
+on a frame they duplicated `n_rna_*` for every single-unit source.
+
+`read_count_method` is `rna_evidence_method`, matching
+`rna_evidence_subject`.
+
+**Dropped `n_alt_reads_supporting_protein_sequence` and
+`supporting_read_count_method` from reader frames.** LENS counts reads
+overlapping the peptide's *CDS*, which is not a count of reads
+supporting the assembled protein sequence — emitting it under that name
+overstated what the reader has. It passes through under LENS's own
+column instead. The assembled count stays on `ProteinFragment`, where
+isovar makes it real.
+
 **Renamed: `rna_reads` → `rna_alignment`** (old name kept as an alias).
 It is a *method*, naming where a number came from, and it explicitly
 fixes no unit — an aligner counts reads and fragments alike. Calling it

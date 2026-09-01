@@ -40,7 +40,6 @@ import pandas as pd
 
 from .io import Metadata
 from .rna_evidence import (
-    CDS_OVERLAP_READS,
     LENS_PEP_CONTEXT,
     attach_read_evidence,
     attach_sequence_source,
@@ -362,8 +361,6 @@ def read_lens(
         df,
         overlapping=df.get("rna_reads_covering_genomic_origin"),
         vaf=df.get("vaf"),
-        supporting=df.get("rna_reads_covering_genomic_origin_with_peptide_cds"),
-        supporting_method=CDS_OVERLAP_READS,
         expression=df.get("tpm"),
         dna_vaf=df.get("vaf"),
     )

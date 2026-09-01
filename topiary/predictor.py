@@ -1484,7 +1484,7 @@ class TopiaryPredictor(object):
             # RNA read evidence, for the same reason expression is here:
             # a consumer filtering or weighting on it reads the
             # prediction frame, not the fragment. Without these the
-            # frame carried read_count_method and read_count_subject —
+            # frame carried rna_evidence_method and rna_evidence_subject —
             # which arrive as annotations — describing a count that was
             # not there, so the frame said how a number was obtained and
             # what it counted while omitting the number.

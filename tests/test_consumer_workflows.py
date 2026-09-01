@@ -70,7 +70,7 @@ def test_a_lens_report_can_be_filtered_and_sorted_by_a_dsl_expression():
 @pytest.mark.parametrize("expression", [
     "gene_tpm > 1",
     "vaf > 0.1",
-    "n_alt_reads > 5",
+    "n_rna_alt > 5",
     "affinity['netmhcpan'].value.logistic_normalized(350,150) * (gene_tpm > 1)",
 ])
 def test_a_lens_annotation_is_addressable_from_the_dsl(expression):

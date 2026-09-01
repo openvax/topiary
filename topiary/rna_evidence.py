@@ -254,13 +254,20 @@ def attach_sequence_source(df: pd.DataFrame, source: str) -> pd.DataFrame:
 
 
 #: Columns this module writes, in the order a reader should expect them.
+#:
+#: One name per quantity, plus one column saying what unit the counts
+#: are in and one saying where they came from. The unit-specific
+#: ``n_*_reads`` / ``n_*_fragments`` fields live on
+#: :class:`~topiary.ProteinFragment`, where a caller who needs one unit
+#: specifically can name it; on a frame they were exact duplicates of
+#: ``n_rna_*`` for every source that reports a single unit, which is
+#: every reader.
 READ_EVIDENCE_COLUMNS = (
-    "n_overlapping_reads",
-    "n_alt_reads",
-    "n_ref_reads",
-    "n_alt_reads_supporting_protein_sequence",
-    "read_count_method",
-    "supporting_read_count_method",
+    "n_rna_alt",
+    "n_rna_ref",
+    "n_rna_overlapping",
+    "rna_evidence_subject",
+    "rna_evidence_method",
     "variant_allele_expression",
     "variant_allele_expression_method",
     "sequence_source",
@@ -354,7 +361,7 @@ def attach_read_evidence(
     n_rows = len(out)
     empty = pd.Series([pd.NA] * n_rows, index=out.index, dtype="Int64")
 
-    out["n_overlapping_reads"] = (
+    out["n_rna_overlapping"] = (
         _counts(overlapping) if overlapping is not None else empty
     )
     if overlapping is not None and vaf is not None:
@@ -362,9 +369,9 @@ def attach_read_evidence(
         method = RNA_DEPTH_X_VAF
     else:
         alt, ref, method = empty, empty, None
-    out["n_alt_reads"] = alt
-    out["n_ref_reads"] = ref
-    out["read_count_method"] = pd.Series(
+    out["n_rna_alt"] = alt
+    out["n_rna_ref"] = ref
+    out["rna_evidence_method"] = pd.Series(
         [method if method and pd.notna(a) else pd.NA for a in alt],
         index=out.index, dtype="object",
     )
@@ -377,22 +384,13 @@ def attach_read_evidence(
                 f"{supporting_method!r}. A count whose derivation is "
                 f"unnamed cannot be told from one that was measured."
             )
-        supporting_counts = _counts(supporting)
-        out["n_alt_reads_supporting_protein_sequence"] = supporting_counts
-        # Record the derivation, not just accept it. Without this the
-        # frame carries the count and loses how it was obtained, so a
-        # fragment built from the frame cannot say whether 45 reads were
-        # counted supporting the variant or counted overlapping a CDS.
-        out["supporting_read_count_method"] = pd.Series(
-            [supporting_method if pd.notna(v) else pd.NA
-             for v in supporting_counts],
-            index=out.index, dtype="object",
-        )
-    else:
-        out["n_alt_reads_supporting_protein_sequence"] = empty
-        out["supporting_read_count_method"] = pd.Series(
-            [pd.NA] * n_rows, index=out.index, dtype="object"
-        )
+        # A count of reads overlapping the peptide's CDS is not a count
+        # of reads supporting the assembled protein sequence, and only
+        # an assembler reports the latter. Rather than emit a column
+        # whose name overstates what a reader has, the source's own
+        # column is left to pass through under its own name; the
+        # assembled count lives on ProteinFragment where it is real.
+        pass
 
     if reported_variant_allele_expression is not None:
         # The source supplied the number. Keep it and say where it came
@@ -424,25 +422,31 @@ def attach_read_evidence(
         out["variant_allele_expression_method"] = pd.Series(
             [pd.NA] * n_rows, index=out.index, dtype="object"
         )
-    return attach_rna_evidence_columns(out)
+    out["rna_evidence_subject"] = pd.Series(
+        [READS if pd.notna(v) else pd.NA for v in out["n_rna_alt"]]
+        if "n_rna_alt" in out.columns else [pd.NA] * n_rows,
+        index=out.index, dtype="object",
+    )
+    return out
 
 
 def describe_read_evidence(df: pd.DataFrame) -> dict:
-    """``{column: method}`` for every read-evidence column *df* populates.
+    """``{column: method}`` for every evidence column *df* populates.
 
-    The frame-level summary of what the per-row method columns say, for a
-    caller reporting how a run's numbers were obtained without walking
+    The frame-level summary of what the per-row method columns say, for
+    a caller reporting how a run's numbers were obtained without walking
     the rows.
     """
     described = {}
     for column, method_column in (
-        ("n_alt_reads", "read_count_method"),
-        ("n_ref_reads", "read_count_method"),
-        ("n_alt_reads_supporting_protein_sequence",
-         "supporting_read_count_method"),
+        ("n_rna_alt", "rna_evidence_method"),
+        ("n_rna_ref", "rna_evidence_method"),
+        ("n_rna_overlapping", "rna_evidence_method"),
         ("variant_allele_expression", "variant_allele_expression_method"),
     ):
         if column not in df.columns or method_column not in df.columns:
+            continue
+        if not df[column].notna().any():
             continue
         methods = df[method_column][stated_values(df[method_column])]
         for method in sorted(set(methods.tolist())):
