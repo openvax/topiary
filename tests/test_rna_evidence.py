@@ -17,6 +17,7 @@ import pytest
 
 from topiary import (
     CDS_OVERLAP_READS,
+    RNA_DEPTH_X_SOURCE_VAF,
     RNA_DEPTH_X_VAF,
     TPM_X_DNA_VAF,
     attach_read_evidence,
@@ -84,32 +85,32 @@ def test_pvacseq_populates_the_read_counts():
     df = _read(read_pvacseq, PVACSEQ).df
 
     row = df.iloc[0]
-    assert row["n_overlapping_reads"] > 0
-    assert row["n_alt_reads"] + row["n_ref_reads"] == row["n_overlapping_reads"]
+    assert row["n_rna_overlapping"] > 0
+    assert row["n_rna_alt"] + row["n_rna_ref"] == row["n_rna_overlapping"]
 
 
 def test_pvacseq_names_the_split_as_derived():
     """Not counted — depth x VAF, and the frame says so."""
     df = _read(read_pvacseq, PVACSEQ).df
 
-    assert set(df["read_count_method"].dropna()) == {RNA_DEPTH_X_VAF}
+    assert set(df["rna_evidence_method"].dropna()) == {RNA_DEPTH_X_VAF}
 
 
-def test_pvacseq_estimates_variant_allele_expression():
+def test_pvacseq_estimates_rna_alt_expression():
     df = _read(read_pvacseq, PVACSEQ).df
 
-    assert df["variant_allele_expression"].notna().any()
-    assert set(df["variant_allele_expression_method"].dropna()) == {
+    assert df["rna_alt_expression"].notna().any()
+    assert set(df["rna_alt_expression_method"].dropna()) == {
         TPM_X_DNA_VAF,
     }
 
 
 def test_the_expression_estimate_is_abundance_times_fraction():
     df = _read(read_pvacseq, PVACSEQ).df
-    row = df.dropna(subset=["variant_allele_expression"]).iloc[0]
+    row = df.dropna(subset=["rna_alt_expression"]).iloc[0]
 
     expected = row["transcript_expression"] * row["tumor_dna_vaf"]
-    assert row["variant_allele_expression"] == pytest.approx(expected)
+    assert row["rna_alt_expression"] == pytest.approx(expected)
 
 
 # ---------------------------------------------------------------------------
@@ -120,8 +121,8 @@ def test_the_expression_estimate_is_abundance_times_fraction():
 def test_lens_populates_the_counted_columns():
     df = _read(read_lens, LENS).df
 
-    assert df["n_overlapping_reads"].notna().any()
-    assert df["n_alt_reads_supporting_protein_sequence"].notna().any()
+    assert df["n_rna_overlapping"].notna().any()
+    assert df["n_rna_alt"].notna().any()
 
 
 def test_lens_rows_without_a_vaf_get_no_split_and_no_method():
@@ -129,8 +130,8 @@ def test_lens_rows_without_a_vaf_get_no_split_and_no_method():
     df = _read(read_lens, LENS).df
     unstated = df[df["vaf"].isna()]
 
-    assert unstated["n_alt_reads"].isna().all()
-    assert unstated["read_count_method"].isna().all()
+    assert unstated["n_rna_alt"].isna().all()
+    assert unstated["rna_evidence_method"].isna().all()
 
 
 def test_lens_rows_with_a_vaf_do_get_a_split():
@@ -138,27 +139,26 @@ def test_lens_rows_with_a_vaf_do_get_a_split():
     stated = df[df["vaf"].notna()]
 
     assert len(stated) > 0
-    assert stated["n_alt_reads"].notna().all()
-    assert set(stated["read_count_method"]) == {RNA_DEPTH_X_VAF}
+    assert stated["n_rna_alt"].notna().all()
+    # LENS's `vaf` carries no assay qualifier, so the method says the
+    # depth was multiplied by *the source's* fraction rather than
+    # asserting it was an RNA one.
+    assert set(stated["rna_evidence_method"]) == {RNA_DEPTH_X_SOURCE_VAF}
 
 
-def test_a_cds_overlap_count_is_not_called_a_read_count():
-    """It is a genuine count — of reads overlapping the peptide's CDS, not
-    of reads supporting the variant. The distinction is the point."""
-    frame = attach_read_evidence(
-        pd.DataFrame({"x": [1]}),
-        supporting=pd.Series([45]),
-        supporting_method=CDS_OVERLAP_READS,
-    )
+def test_a_cds_overlap_count_keeps_its_own_name():
+    """LENS counts reads overlapping the peptide's CDS, which is not a
+    count of reads supporting the assembled protein sequence. Emitting it
+    under that name would overstate what the reader has, so it passes
+    through under the source's own column instead."""
+    import warnings
 
-    assert frame["n_alt_reads_supporting_protein_sequence"].tolist() == [45]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        df = read_lens(LENS).df
 
-
-def test_an_unnamed_supporting_derivation_is_refused():
-    with pytest.raises(ValueError, match="must name a derivation"):
-        attach_read_evidence(
-            pd.DataFrame({"x": [1]}), supporting=pd.Series([45]),
-        )
+    assert "rna_reads_covering_genomic_origin_with_peptide_cds" in df.columns
+    assert "n_alt_reads_supporting_protein_sequence" not in df.columns
 
 
 # ---------------------------------------------------------------------------
@@ -169,18 +169,17 @@ def test_an_unnamed_supporting_derivation_is_refused():
 def test_a_frame_with_no_rna_columns_gets_absent_not_zero():
     frame = attach_read_evidence(pd.DataFrame({"x": [1, 2, 3]}))
 
-    for column in ("n_overlapping_reads", "n_alt_reads", "n_ref_reads",
-                   "n_alt_reads_supporting_protein_sequence"):
+    for column in ("n_rna_overlapping", "n_rna_alt", "n_rna_ref"):
         assert frame[column].isna().all()
-    assert frame["read_count_method"].isna().all()
+    assert frame["rna_evidence_method"].isna().all()
 
 
 def test_the_columns_exist_even_when_unpopulated():
     """Same shape from every source; only which fields are filled differs."""
     frame = attach_read_evidence(pd.DataFrame({"x": [1]}))
 
-    assert "n_alt_reads" in frame.columns
-    assert "read_count_method" in frame.columns
+    assert "n_rna_alt" in frame.columns
+    assert "rna_evidence_method" in frame.columns
 
 
 # ---------------------------------------------------------------------------
@@ -192,9 +191,10 @@ def test_describe_reports_how_each_number_was_obtained():
     df = _read(read_pvacseq, PVACSEQ).df
 
     assert describe_read_evidence(df) == {
-        "n_alt_reads": RNA_DEPTH_X_VAF,
-        "n_ref_reads": RNA_DEPTH_X_VAF,
-        "variant_allele_expression": TPM_X_DNA_VAF,
+        "n_rna_alt": RNA_DEPTH_X_VAF,
+        "n_rna_ref": RNA_DEPTH_X_VAF,
+        "n_rna_overlapping": RNA_DEPTH_X_VAF,
+        "rna_alt_expression": TPM_X_DNA_VAF,
     }
 
 

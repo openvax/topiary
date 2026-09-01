@@ -29,6 +29,7 @@ class _ProteinSequence:
     transcript_ids = ["ENST1"]
     transcript_names = ["BRAF-204"]
     num_supporting_fragments = 27
+    num_supporting_reads = 52
 
 
 class _Result:
@@ -37,8 +38,11 @@ class _Result:
         self.variant = variant
         self.passes_all_filters = passes
         self.num_total_fragments = 61
+        self.num_total_reads = 118
         self.num_alt_fragments = 30
+        self.num_alt_reads = 58
         self.num_ref_fragments = 31
+        self.num_ref_reads = 60
 
 
 class _FakeCreator:
@@ -150,7 +154,8 @@ def test_isovar_knobs_are_passed_through(isovar):
 def test_the_read_counts_come_through_as_measured(isovar):
     fragment = fragments_from_variants(["v"], alignment_file=object())[0]
 
-    assert fragment.n_alt_reads == 30
+    assert fragment.n_rna_alt == 30            # fragments preferred
+    assert fragment.n_alt_reads == 58          # reads also carried
     assert not fragment.is_approximate("n_alt_reads")
 
 
@@ -322,14 +327,14 @@ def test_no_effects_yields_no_fragments():
 def test_the_two_arms_are_read_the_same_way(isovar):
     """Interchangeable means the caller's next line does not change."""
     def support(fragment):
-        if not fragment.is_usable_as_biology("n_alt_reads"):
-            return None
-        return fragment.n_alt_reads
+        """What a consumer should write: ask for the evidence, not a unit."""
+        return fragment.n_rna_alt
 
     rna = fragments_from_variants(["v"], alignment_file=object())[0]
     reference = fragments_from_effects([_Effect()], padding_around_mutation=8)[0]
 
     assert isinstance(rna, ProteinFragment)
     assert isinstance(reference, ProteinFragment)
-    assert support(rna) == 30
+    assert support(rna) == 30                      # fragments, preferred
+    assert rna.rna_evidence_subject() == "fragments"
     assert support(reference) is None
