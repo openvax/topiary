@@ -220,3 +220,63 @@ def test_an_attribution_policy_can_now_change_the_scores():
     ]))
 
     assert whole_genotype != best_allele_only
+
+
+# ---------------------------------------------------------------------------
+# The warning has to describe what happened
+# ---------------------------------------------------------------------------
+#
+# The message a user reads when their scores change is the only signal they
+# get. Saying "carries no allele" to someone whose allele-naming rows just
+# stopped broadcasting describes the opposite of what topiary did.
+
+
+def test_the_warning_says_rows_name_alleles_when_they_do():
+    with pytest.warns(UserWarning, match="whose rows name alleles"):
+        parse("antigen_processing['mhcflurry'].score").eval(
+            EvalContext(pd.DataFrame(_affinity_rows() + [
+                _row("antigen_processing", "HLA-A*02:01", 0.8),
+            ]))
+        )
+
+
+def test_the_warning_says_no_allele_when_that_is_true():
+    with pytest.warns(UserWarning, match="which carries no allele"):
+        parse("antigen_processing['mhcflurry'].score").eval(
+            EvalContext(pd.DataFrame(_affinity_rows() + [
+                _row("antigen_processing", None, 0.8),
+            ]))
+        )
+
+
+def test_the_warning_distinguishes_all_named_from_mixed():
+    """A mixed frame projects the blank rows; an all-named one does not."""
+    with pytest.warns(UserWarning, match="and no other"):
+        parse("antigen_processing['mhcflurry'].score").eval(
+            EvalContext(pd.DataFrame(_affinity_rows() + [
+                _row("antigen_processing", "HLA-A*02:01", 0.8),
+            ]))
+        )
+    with pytest.warns(UserWarning, match="projects the allele-free rows"):
+        parse("antigen_processing['mhcflurry'].score").eval(
+            EvalContext(pd.DataFrame(_affinity_rows() + [
+                _row("antigen_processing", "HLA-A*02:01", 0.8),
+                _row("antigen_processing", None, 0.3),
+            ]))
+        )
+
+
+def test_every_branch_states_the_outcome_not_the_counterfactual():
+    """"would leave every group NaN" is what topiary avoided, not what it
+    did. Each message has to name the action taken."""
+    for extra in (
+        [_row("antigen_processing", "HLA-A*02:01", 0.8)],
+        [_row("antigen_processing", None, 0.8)],
+    ):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            parse("antigen_processing['mhcflurry'].score").eval(
+                EvalContext(pd.DataFrame(_affinity_rows() + extra))
+            )
+        message = str(caught[0].message)
+        assert "so topiary credits" in message or "so topiary projects" in message

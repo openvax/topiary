@@ -2004,24 +2004,48 @@ class Field(DSLNode):
 
         kind_name = _kind_short_name(self.kind)
         if dependence == "none":
-            subject = f"{kind_name}, which carries no allele,"
-            reading = "would leave every allele group NaN"
+            # Say which shape the rows are actually in. A frame whose
+            # peptide-level rows name alleles is no longer broadcast
+            # wholesale (#232), and telling that user their rows "carry
+            # no allele" describes the opposite of what happened —
+            # exactly when their scores just narrowed.
+            named = (
+                "allele" in sub.columns and stated_values(sub["allele"]).any()
+            )
+            if named:
+                all_named = stated_values(sub["allele"]).all()
+                subject = (
+                    f"{kind_name}, which is peptide-level but whose rows "
+                    f"name alleles,"
+                )
+                reading = (
+                    "credits each row to the allele it names and no other"
+                    if all_named else
+                    "credits each allele-naming row to that allele, and "
+                    "projects the allele-free rows across the rest"
+                )
+            else:
+                subject = f"{kind_name}, which carries no allele,"
+                reading = (
+                    "projects its peptide-level value across them — "
+                    "reading it directly would leave every allele group NaN"
+                )
         else:
             subject = (
                 f"{kind_name}, which is predicted for a whole genotype "
                 f"rather than one allele,"
             )
             reading = (
+                "projects it across the genotype — reading it directly "
                 "would hand that joint score to the single allele "
                 "mhctools deconvolved as the best one, leaving the rest "
                 "of the genotype NaN"
             )
         import warnings
         warnings.warn(
-            f"{self!r} reads {subject} in a grouping keyed by allele. "
-            f"Reading it directly {reading}, so its peptide-level value "
-            f"is projected across them — write peptide_view({self!r}) to "
-            f"say so explicitly and silence this warning.",
+            f"{self!r} reads {subject} in a grouping keyed by allele, so "
+            f"topiary {reading}. Write peptide_view({self!r}) to say so "
+            f"explicitly and silence this warning.",
             UserWarning, stacklevel=4,
         )
         return PeptideView(self).eval(ctx)

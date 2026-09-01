@@ -37,6 +37,12 @@ conflict.** They are two answers to two questions. Two *blank-allele*
 rows that disagree still raise, since that is a peptide contradicting
 itself.
 
+**The warning now describes what happened.** It said "which carries no
+allele" in every case — which becomes false the moment a row names one,
+and that is exactly the user whose scores just narrowed. Three messages
+now, naming the action taken rather than the counterfactual avoided:
+rows all naming alleles, rows mixed, and rows carrying none.
+
 This unblocks allele attribution downstream (openvax/vaxrank#349):
 writing a row onto chosen alleles is the natural way to say "credit this
 evidence here", and it was being discarded — so every attribution policy
