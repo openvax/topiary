@@ -441,6 +441,55 @@ def attach_read_evidence(
     return out
 
 
+#: The evidence columns a reader emits when its source can answer.
+EVIDENCE_COLUMNS = (
+    "n_rna_alt",
+    "n_rna_ref",
+    "n_rna_overlapping",
+    "rna_evidence_subject",
+    "rna_evidence_method",
+    "rna_alt_expression",
+    "rna_alt_expression_method",
+    "gene_expression",
+    "sequence_source",
+)
+
+
+def available_evidence_columns(df: pd.DataFrame) -> tuple:
+    """Which of :data:`EVIDENCE_COLUMNS` *df* actually has.
+
+    Readers emit an evidence column only where the source can answer, so
+    the set is the same *vocabulary* across readers rather than the same
+    *columns*: a pVACseq aggregated report has no gene-level abundance,
+    and a LENS file without a ``tpm`` column has none either.
+
+    That matters because naming an absent column in an expression
+    **raises** rather than evaluating to NaN — which is the right
+    behaviour, and the reason to check before writing a config that has
+    to run against more than one source.
+
+    The alternative, emitting all-null columns everywhere, is worse: a
+    column that is present and empty asserts the question was asked and
+    answered as nothing. Absent beats substituted here as everywhere
+    else.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+
+    Returns
+    -------
+    tuple of str
+        In :data:`EVIDENCE_COLUMNS` order.
+
+    Examples
+    --------
+    >>> missing = set(EVIDENCE_COLUMNS) - set(available_evidence_columns(df))
+    ... # doctest: +SKIP
+    """
+    return tuple(c for c in EVIDENCE_COLUMNS if c in df.columns)
+
+
 def describe_read_evidence(df: pd.DataFrame) -> dict:
     """``{column: method}`` for every evidence column *df* populates.
 

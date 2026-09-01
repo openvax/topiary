@@ -132,6 +132,7 @@ def test_a_consumer_can_ask_how_a_number_was_obtained_on_either_frame(frames):
 # opposite. A function with two branches needs both exercised.
 
 AGGREGATED = "tests/data/pvacseq/mhc_i_aggregated.tsv"
+LENS_FIXTURE_PATH = LENS
 ALL_EPITOPES = "tests/data/pvacseq/mhc_i_all_epitopes.tsv"
 
 
@@ -206,3 +207,64 @@ def test_one_filter_spans_both_pvacseq_flavours(path):
         scores = evaluate_scores(df, parse("rna_alt_expression > 0"))
 
     assert len(scores) == len(df)
+
+
+# ---------------------------------------------------------------------------
+# The vocabulary is shared; the columns are not always present
+# ---------------------------------------------------------------------------
+#
+# The consumer guide claimed the nine evidence columns were "identical across
+# readers". They are the same *vocabulary* — a reader emits one only where its
+# source can answer. A pVACseq aggregated report has no gene-level abundance.
+#
+# This matters because naming an absent column raises rather than evaluating
+# to NaN, so a config written against one source can break on another.
+
+
+def test_the_evidence_vocabulary_is_shared():
+    from topiary import EVIDENCE_COLUMNS, available_evidence_columns
+
+    for path in (LENS_FIXTURE_PATH, ALL_EPITOPES, AGGREGATED):
+        reader = read_lens if str(path).endswith("sample_v1_4.tsv") else read_pvacseq
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            available = available_evidence_columns(reader(path).df)
+        assert set(available) <= set(EVIDENCE_COLUMNS)
+        assert "n_rna_alt" in available
+
+
+def test_an_aggregated_report_has_no_gene_level_abundance():
+    """The specific gap the guide got wrong."""
+    from topiary import available_evidence_columns
+
+    available = available_evidence_columns(_pvacseq(AGGREGATED))
+
+    assert "gene_expression" not in available
+    assert "gene_expression" in available_evidence_columns(
+        _pvacseq(ALL_EPITOPES)
+    )
+
+
+def test_naming_an_absent_column_raises_rather_than_dropping_everything():
+    """A silent NaN would drop every row in a filter and say nothing."""
+    with pytest.raises(ValueError, match="not found"):
+        evaluate_scores(_pvacseq(AGGREGATED), parse("gene_expression > 1"))
+
+
+def test_absent_columns_are_absent_not_all_null():
+    """A present-but-empty column asserts the question was asked and
+    answered as nothing."""
+    df = _pvacseq(AGGREGATED)
+
+    assert "gene_expression" not in df.columns
+
+
+def test_the_portable_columns_are_on_every_source():
+    """What makes a threshold against n_rna_alt actually portable."""
+    from topiary import available_evidence_columns
+
+    for df in (_pvacseq(AGGREGATED), _pvacseq(ALL_EPITOPES)):
+        available = available_evidence_columns(df)
+        for column in ("n_rna_alt", "rna_evidence_subject",
+                       "rna_evidence_method"):
+            assert column in available

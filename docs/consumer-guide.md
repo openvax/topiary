@@ -29,7 +29,8 @@ unchanged against LENS, pVACseq, or a predictor's own output.
 
 ## RNA evidence
 
-Nine columns, identical across readers:
+Nine columns. **The same vocabulary across readers, not the same columns** — a
+reader emits one only where its source can answer:
 
 | Column | Meaning |
 |---|---|
@@ -43,8 +44,36 @@ Nine columns, identical across readers:
 | `gene_expression` | Gene-level abundance |
 | `sequence_source` | How the protein sequence came to exist |
 
-**Write thresholds against `n_rna_alt`.** It is populated wherever a source can
-answer, whatever unit that source counts in.
+**Check which are present before naming one in a config that has to run against
+more than one source:**
+
+```python
+from topiary import available_evidence_columns, EVIDENCE_COLUMNS
+
+missing = set(EVIDENCE_COLUMNS) - set(available_evidence_columns(df))
+```
+
+Naming an absent column in an expression **raises** rather than evaluating to
+NaN:
+
+```
+gene_expression > 1  on a pVACseq aggregated frame
+  ValueError: Column 'gene_expression' not found in DataFrame.
+              Did you mean: ['rna_alt_expression', 'transcript_expression', ...]
+```
+
+That is the intended behaviour — a silent NaN would drop every row in a filter
+and say nothing. The alternative, emitting all-null columns everywhere, is
+worse: a column that is present and empty asserts the question was asked and
+answered as nothing. Absent beats substituted here as everywhere else.
+
+Concretely, a pVACseq *aggregated* report has no gene-level abundance, so it has
+no `gene_expression`; a LENS file without a `tpm` column has none either.
+
+**`n_rna_alt`, `rna_evidence_subject` and `rna_evidence_method` are present
+wherever a source reports any RNA evidence at all**, which is what makes a
+threshold written against `n_rna_alt` portable — whatever unit that source
+counts in.
 
 **Read `rna_evidence_subject` before a number leaves the run.** Within one run
 the unit is consistent and rankings are unaffected. It matters for things that

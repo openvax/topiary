@@ -126,7 +126,9 @@ from .rna_evidence import (
     attach_sequence_source,
     describe_read_evidence,
     provenance_for_method,
+    EVIDENCE_COLUMNS,
     attach_rna_evidence_columns,
+    available_evidence_columns,
     split_reads_by_vaf,
 )
 from .result import (
@@ -136,7 +138,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.45.1"
+__version__ = "5.46.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -258,6 +260,8 @@ __all__ = [
     "READS",
     "READ_SUBJECTS",
     "attach_rna_evidence_columns",
+    "available_evidence_columns",
+    "EVIDENCE_COLUMNS",
     "READ_COUNT_METHODS",
     "SEQUENCE_SOURCES",
     "attach_read_evidence",

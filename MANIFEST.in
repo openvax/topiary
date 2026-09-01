@@ -1,0 +1,11 @@
+# Ship the docs with the source distribution.
+#
+# docs/consumer-guide.md is written as the reference a downstream
+# consumer reads instead of asking; a consumer working from an installed
+# package could not find it when it lived only in the repo.
+include README.md
+include CHANGELOG.md
+include LICENSE
+include requirements.txt
+recursive-include docs *.md
+recursive-include topiary/data *
