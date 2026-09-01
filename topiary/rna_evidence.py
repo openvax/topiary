@@ -52,8 +52,18 @@ CDS_OVERLAP_READS = "cds_overlap_reads"
 #: proxy, not a read count.
 TPM_X_DNA_VAF = "tpm_x_dna_vaf"
 
+#: Reported by the source, which did not say how it got there.
+#:
+#: pVACseq's aggregated report supplies its own ``Allele Expr``. Passing
+#: that through as if topiary had derived it would claim a derivation
+#: nobody can check, and dropping it in favour of our own estimate would
+#: discard the number the source actually stands behind. Neither
+#: ``measured`` nor any of the arithmetic terms is true of it.
+SOURCE_REPORTED = "source_reported"
+
 READ_COUNT_METHODS = frozenset({
     RNA_READS, RNA_DEPTH_X_VAF, CDS_OVERLAP_READS, TPM_X_DNA_VAF,
+    SOURCE_REPORTED,
 })
 
 #: How each derivation maps onto :data:`~topiary.PROVENANCE_VALUES`.
@@ -68,6 +78,9 @@ METHOD_PROVENANCE = MappingProxyType({
     RNA_DEPTH_X_VAF: "approximated",
     CDS_OVERLAP_READS: "approximated",
     TPM_X_DNA_VAF: "approximated",
+    # The source stands behind it, but did not say how it got there, so
+    # it cannot be called measured.
+    SOURCE_REPORTED: "approximated",
 })
 
 
@@ -204,6 +217,7 @@ def attach_read_evidence(
     supporting_method=None,
     expression=None,
     dna_vaf=None,
+    reported_variant_allele_expression=None,
 ) -> pd.DataFrame:
     """Write the read-evidence columns onto *df*, naming each derivation.
 
@@ -280,7 +294,19 @@ def attach_read_evidence(
             [pd.NA] * n_rows, index=out.index, dtype="object"
         )
 
-    if expression is not None and dna_vaf is not None:
+    if reported_variant_allele_expression is not None:
+        # The source supplied the number. Keep it and say where it came
+        # from, rather than overwriting it with our own estimate or
+        # passing it through unlabelled as if we had derived it.
+        reported = pd.to_numeric(
+            reported_variant_allele_expression, errors="coerce"
+        )
+        out["variant_allele_expression"] = reported
+        out["variant_allele_expression_method"] = pd.Series(
+            [SOURCE_REPORTED if pd.notna(v) else pd.NA for v in reported],
+            index=out.index, dtype="object",
+        )
+    elif expression is not None and dna_vaf is not None:
         abundance = pd.to_numeric(expression, errors="coerce")
         fraction = _fractions(dna_vaf)
         estimate = (abundance * fraction).where(

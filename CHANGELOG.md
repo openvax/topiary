@@ -1,5 +1,37 @@
 # Changelog
 
+## 5.42.0
+
+**Fixed: `read_pvacseq` spoke two vocabularies depending on which
+flavour of its own format it was given (#238).** The aggregated report
+supplies pVACseq's own `Allele Expr` and `RNA Expr`, which were passed
+through as `allele_expression` and `rna_transcript_expression` — names
+the all_epitopes path never emits. **And that branch never called
+`attach_read_evidence` at all**, so it had no method columns whatsoever:
+
+```
+all_epitopes   variant_allele_expression + 3 method columns
+aggregated     allele_expression, rna_transcript_expression, no methods
+```
+
+So no single filter worked across two pVACseq files. Both branches now
+emit the same columns.
+
+**Added: `SOURCE_REPORTED`.** When pVACseq supplies the estimate itself,
+neither answer was honest — passing it through unlabelled claims a
+derivation nobody can check, and recomputing it discards the number the
+source stands behind. `variant_allele_expression_method` is
+`source_reported` on the aggregated path and `tpm_x_dna_vaf` where
+topiary derived it. It maps to `approximated`, not `measured`: the
+source stands behind the number but did not say how it got there.
+
+This was the sharper half of #238 and I closed the issue without it,
+having verified on the all_epitopes fixture and concluded about the
+reader. The consumer who reported it made the mirror-image error,
+grepping for `express` against headers abbreviated `Expr`. **A function
+with two branches needs both exercised**; the tests are parameterized
+over both flavours now.
+
 ## 5.41.0
 
 **Fixed: gene-level expression had two names (#238).** `read_lens`

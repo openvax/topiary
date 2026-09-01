@@ -207,11 +207,13 @@ _AGG_ANNOTATIONS = {
     "Gene":                    "gene",
     "Best Transcript":         "transcript",
     "ID":                      "variant",
-    "RNA Expr":                "rna_transcript_expression",
-    "RNA VAF":                 "rna_vaf",
-    "Allele Expr":             "allele_expression",
-    "RNA Depth":               "rna_depth",
-    "DNA VAF":                 "dna_vaf",
+    # Same names the all_epitopes path uses. A reader that speaks two
+    # vocabularies depending on which flavour of its own format it was
+    # given means no single filter works across two pVACseq files.
+    "RNA Expr":                "transcript_expression",
+    "RNA VAF":                 "tumor_rna_vaf",
+    "RNA Depth":               "tumor_rna_depth",
+    "DNA VAF":                 "tumor_dna_vaf",
     "Tier":                    "pvacseq_tier",
     "Num Passing Transcripts": "pvacseq_num_passing_transcripts",
     "Num Included Peptides":   "pvacseq_num_included_peptides",
@@ -465,7 +467,22 @@ def _parse_aggregated(df):
     for src, dst in _AGG_ANNOTATIONS.items():
         if src in df.columns:
             out[dst] = df[src].values
-    return out
+
+    # The same evidence columns the all_epitopes path emits. pVACseq's
+    # aggregated report supplies "Allele Expr" itself, so that value is
+    # kept and labelled source_reported rather than being recomputed or
+    # passed through unlabelled.
+    out = attach_read_evidence(
+        out,
+        overlapping=df["RNA Depth"] if "RNA Depth" in df else None,
+        vaf=df["RNA VAF"] if "RNA VAF" in df else None,
+        expression=df["RNA Expr"] if "RNA Expr" in df else None,
+        dna_vaf=df["DNA VAF"] if "DNA VAF" in df else None,
+        reported_variant_allele_expression=(
+            df["Allele Expr"] if "Allele Expr" in df else None
+        ),
+    )
+    return attach_sequence_source(out, PVACSEQ_EPITOPE)
 
 
 def _parse_all_epitopes(df):
