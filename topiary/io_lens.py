@@ -585,6 +585,14 @@ def _handle_tpm(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["gene_tpm_raw"] = df["tpm"]
     df["gene_tpm"] = pd.to_numeric(df["tpm"], errors="coerce")
+    # Also under topiary's own name for gene-level abundance, which is
+    # what ProteinFragment.gene_expression and read_pvacseq already use.
+    # Without it a filter reading "gene_expression" matches nothing on a
+    # LENS frame and everything on a pVACseq one — a consumer would have
+    # to know which reader produced the frame, which is the thing the
+    # shared vocabulary exists to avoid. gene_tpm stays as the
+    # LENS-native spelling.
+    df["gene_expression"] = df["gene_tpm"]
     df = df.drop(columns=["tpm"])
     # If every raw value coerced cleanly, drop the raw column.
     if df["gene_tpm"].notna().sum() == df["gene_tpm_raw"].notna().sum():
