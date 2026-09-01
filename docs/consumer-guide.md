@@ -1,0 +1,278 @@
+# Consumer guide
+
+What topiary offers a downstream consumer, as of **5.45.0**, and what changed
+across 5.28.2–5.45.0.
+
+Written for vaxrank, but nothing here is vaxrank-specific.
+
+---
+
+## The shortest useful version
+
+```python
+from topiary import read_lens, evaluate_scores, resolve_default_methods
+from topiary.ranking import parse
+
+df = read_lens(path).to_long().df
+
+scores = evaluate_scores(
+    df,
+    parse("affinity.value.logistic_normalized(350, 150) * (n_rna_alt > 5)"),
+    default_methods=resolve_default_methods(df),
+)
+```
+
+Every reader produces the same column vocabulary, so that expression runs
+unchanged against LENS, pVACseq, or a predictor's own output.
+
+---
+
+## RNA evidence
+
+Nine columns, identical across readers:
+
+| Column | Meaning |
+|---|---|
+| `n_rna_alt` | Evidence supporting the variant allele |
+| `n_rna_ref` | Evidence supporting the reference allele |
+| `n_rna_overlapping` | Evidence covering the position |
+| `rna_evidence_subject` | `"reads"` or `"fragments"` — what those counts count |
+| `rna_evidence_method` | How they were obtained |
+| `rna_alt_expression` | Abundance attributed to the variant allele |
+| `rna_alt_expression_method` | How that was obtained |
+| `gene_expression` | Gene-level abundance |
+| `sequence_source` | How the protein sequence came to exist |
+
+**Write thresholds against `n_rna_alt`.** It is populated wherever a source can
+answer, whatever unit that source counts in.
+
+**Read `rna_evidence_subject` before a number leaves the run.** Within one run
+the unit is consistent and rankings are unaffected. It matters for things that
+travel — a documented threshold, a config copied between projects, a number in
+a paper. Five fragments and five reads are different bars.
+
+### Where each number came from
+
+`rna_evidence_method` is one of:
+
+| Method | Meaning | Provenance |
+|---|---|---|
+| `rna_alignment` | Counted from an RNA alignment | `measured` |
+| `rna_depth_x_vaf` | RNA depth × RNA VAF, rounded | `approximated` |
+| `rna_depth_x_source_vaf` | RNA depth × a VAF whose assay the source did not state | `approximated` |
+| `cds_overlap_reads` | Counted, but of reads overlapping the peptide's CDS | `approximated` |
+| `tpm_x_dna_vaf` | Transcript abundance × DNA VAF | `approximated` |
+| `source_reported` | The source supplied the number without saying how | `approximated` |
+
+`topiary.provenance_for_method(method)` maps a method to its provenance, so
+there is one definition of what counts as measured. It does not: only a direct
+count does.
+
+`describe_read_evidence(df)` summarises a whole frame without walking rows.
+
+### Per source
+
+| | `n_rna_alt` | subject | method |
+|---|---|---|---|
+| isovar | 30 | `fragments` | `rna_alignment` |
+| pVACseq | 429 | `reads` | `rna_depth_x_vaf` |
+| LENS | from `vaf` | `reads` | `rna_depth_x_source_vaf` |
+
+**LENS's `vaf` carries no assay qualifier.** LENS names its read columns `rna_*`
+explicitly and leaves `vaf` bare, so topiary cannot tell whether the fraction is
+from RNA or DNA. It is used to split the RNA depth — under a method that says
+so — and *not* to scale expression, which would assert the opposite assay. If
+you derive anything from that column yourself, the same ambiguity applies.
+
+---
+
+## Fragments
+
+Four sources, one shape:
+
+```python
+fragments_from_variants(variants, alignment_file=bam)   # assembled from RNA
+fragments_from_variants(variants)                        # translated from reference
+fragments_from_effects(effects, padding_around_mutation) # reference arm alone
+fragments_from_dataframe(read_lens(path).df)             # from a reader frame
+fragment_from_isovar_result(result)                      # an IsovarResult you hold
+```
+
+`SEMANTIC_CORE` names the fields every source speaks to. They differ only in
+which they can fill, so one consumer function reads all of them:
+
+```python
+def support(fragment):
+    return fragment.n_rna_alt          # None where the source has no RNA
+```
+
+**isovar is optional in the strong sense** — not in `requirements.txt`, and
+`import topiary` does not import it. Only `fragments_from_variants` with an
+`alignment_file` needs it.
+
+### Reads and fragments
+
+isovar reports both units. Both are carried, each under a name that says what it
+holds:
+
+```python
+fragment.n_alt_reads        # 58
+fragment.n_alt_fragments    # 30
+fragment.n_rna_alt          # 30 — fragments preferred
+fragment.rna_evidence_subject()      # "fragments"
+```
+
+Fragments are preferred where a source has them: a paired-end fragment is one
+molecule read twice, so it is one piece of evidence and two reads. Reads are
+used where that is all there is. There is no conversion between them — that
+needs library information no source carries.
+
+### Knowing which fields are real
+
+```python
+fragment.is_known("n_alt_reads")             # populated at all?
+fragment.provenance_of("n_alt_reads")        # measured | approximated | synthesized
+fragment.is_approximate("n_alt_reads")
+fragment.is_usable_as_biology("n_alt_reads") # False for absent *and* synthesized
+```
+
+`None` means the source could not answer. It is not zero, and the distinction
+survives a TSV round trip. `is_usable_as_biology` is the one that matters for
+correctness: a placeholder the loader invented has a value that means nothing,
+and anything doing variant-effect annotation on it must refuse rather than
+compute.
+
+---
+
+## The ranking DSL
+
+### Resolving ambiguity
+
+A frame with two models producing one kind, or one model at two versions, raises
+rather than guessing. Both have a configured answer:
+
+```python
+evaluate_scores(df, node,
+                default_methods=resolve_default_methods(df),
+                default_versions=resolve_default_versions(df))
+```
+
+`describe_default_versions(df)` returns the candidates each choice was made
+between, so a run can report "netMHCpan at 4.1b and 4.2, scoring with 4.2"
+without re-deriving anything. `validate_default_*` catches an entry naming a
+model or version that never ran.
+
+Version ordering is PEP 440 — `4.10` beats `4.9` — and a version that is not
+PEP 440 sorts before everything that parses, so "newest" means a real release.
+
+### Alleles
+
+`alleles=` takes a sequence, a mapping, or a callable:
+
+```python
+EvalContext(df, alleles=["HLA-A*02:01", "HLA-B*07:02"])   # every peptide
+EvalContext(df, alleles={"SIINFEKLA": ["HLA-A*02:01"]})    # per peptide
+EvalContext(df, alleles=lambda keys: genotype_for(keys["peptide"]))
+```
+
+**Use a per-peptide form when peptides were not each reported against the whole
+genotype** — a reader emitting one row per (peptide, allele) passing its own
+threshold produces exactly that. Declaring the union invents a group for every
+pairing that was never scored, and an expression reading only peptide-level
+evidence gives each invented group a real number.
+
+### Peptide-level evidence
+
+A row whose kind is MHC-independent broadcasts across a peptide's allele groups
+— **unless the row names an allele**, in which case it lands there and nowhere
+else. That is the mechanism for allele attribution: writing a row onto chosen
+alleles is how a policy says "credit this evidence here".
+
+`KIND_MHC_DEPENDENCE` and `mhc_dependence()` say which kinds are peptide-level.
+There are five, not one.
+
+### Sharing a context
+
+```python
+ctx = EvalContext(df, group_keys=gk)
+a = evaluate_scores(df, node_a, context=ctx)
+b = evaluate_scores(df, node_b, context=ctx)
+```
+
+`apply_filter` and `apply_sort` return *new* frames, so a context cannot be
+threaded down a pipeline — reuse applies to several operations on one unchanged
+frame. Passing a stale one raises.
+
+---
+
+## Shared helpers, so you do not reimplement them
+
+```python
+is_stated(value)        # did the source say anything here?
+stated_values(series)   # the same rule over a column
+is_named_version(value) # the same rule, named for predictor_version
+```
+
+`None`, `NaN`, blank, and the literal strings `"nan"` / `"None"` / `"<NA>"` all
+mean *not stated*. The obvious version of this test — `if str(v).strip()` —
+excludes only the blank spellings, since `str(None)` is `"None"` and
+`str(float("nan"))` is `"nan"`, both truthy. That mistake shipped in topiary and
+independently in a consumer that had reimplemented it.
+
+Also public rather than reimplemented: `fragment_from_effect`,
+`resolve_default_methods`, `CANONICAL_METHOD_PREFERENCE`, `KIND_MHC_DEPENDENCE`,
+`derive_mhc_class`.
+
+---
+
+## Reader escape hatches
+
+```python
+read_lens(path, binding_metrics={("newtool", "ic50_nm"): ("affinity", "value")})
+```
+
+Merged over the built-in table, keyed on `(tool, metric)` — the pair the
+unmapped-column warning prints, and version-free so one entry covers a tool
+however a file spells its release. `None` as a value declares a column a
+non-prediction, silencing the warning without remapping it.
+
+---
+
+## What changed, 5.28.2 → 5.45.0
+
+Floors worth knowing:
+
+| Need | Floor |
+|---|---|
+| Multi-version LENS tables keep both versions | 5.28.2 |
+| `default_methods` on the predictor | 5.29.0 |
+| `read_lens(binding_metrics=...)` | 5.30.0 |
+| `default_versions` | 5.31.0 |
+| `is_stated` / `is_named_version` | 5.35.0 |
+| `allele_set` in the cache key | 5.36.0 |
+| RNA evidence from the readers | 5.37.0 |
+| Per-peptide `alleles=` | 5.33.0 |
+| Named-allele rows not broadcast | 5.39.0 |
+| `fragments_from_variants` (isovar) | 5.40.0 |
+| RNA columns scoped and cut to nine | 5.45.0 |
+
+### Removed in 5.45.0, with no compatibility shim
+
+`count_in`, `read_count_subject`, `count_column_for_subject`,
+`subject_for_method`, the per-subject column renaming from 5.44.0, and the
+supporting-count columns on reader frames.
+
+All of it existed to work around one mistake: topiary carried isovar's
+*fragment* counts in fields named `n_alt_reads`, then built an API to explain
+why reads were unavailable. isovar exposes `num_alt_reads` beside
+`num_alt_fragments`; they were never unavailable. Carrying both under honest
+names left nothing for those five to do.
+
+### Caches
+
+A `CachedPredictor` store written before 5.36.0 loads fine — `_normalize` runs
+on every construction and repairs split allele buckets. What does not repair
+itself is a store whose split buckets held *different* values for what is now
+one key; that raises on load rather than silently answering, which is intended.
+`allele_set` joined the cache key in 5.36.0, so two genotypes deconvolving to
+the same best allele are two entries rather than one silently picked.
