@@ -772,11 +772,16 @@ def test_best_field_without_a_direction_is_rejected_not_downgraded():
 
 
 def test_no_direction_error_explains_the_real_cause():
-    """Not 'mhc_dependence=single_allele means one row per peptide'."""
+    """Not 'mhc_dependence=single_allele means one row per peptide'.
+
+    The disagreeing rows must be **allele-free** to be a disagreement.
+    Two allele-restricted rows are two answers to two questions (#232),
+    not one peptide contradicting itself.
+    """
     df = pd.DataFrame([
-        _row(allele=allele, kind="antigen_processing", value=value,
+        _row(allele=None, kind="antigen_processing", value=value,
              prediction_method_name="mhcflurry")
-        for allele, value in zip(ALLELES, (0.9, 0.1))
+        for value in (0.9, 0.1)
     ])
 
     with pytest.raises(ValueError, match="no defined best direction"):

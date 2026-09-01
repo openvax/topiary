@@ -1,5 +1,54 @@
 # Changelog
 
+## 5.39.0
+
+**Fixed: a peptide-level row that names an allele was projected onto
+every other allele (#232).** The explicit allele was silently discarded:
+
+```
+row: antigen_processing, allele=HLA-A*02:01, score=0.8
+
+  HLA-A*02:01    0.8
+  HLA-B*07:02    0.8      <- the row said A*02:01
+```
+
+Peptide-level evidence usually carries no allele, and then there is
+exactly one thing a reference to it can mean — this peptide's value, for
+every allele — so topiary projects it. But a producer that writes such a
+row *onto one allele* is saying something narrower, and projecting it
+anyway credits a score to alleles the row explicitly did not name. That
+is a value attributed to something that did not state it, the same
+family as the stringified-null group keys one level up.
+
+Now: a blank-allele row broadcasts as before; a row that names an allele
+lands in that allele's group and nowhere else; and the two compose — the
+named row claims its allele, a blank row fills the rest. "Names an
+allele" uses the same `is_stated` rule as everything else, so a frame
+that went through `astype(str)` does not stop broadcasting.
+
+**`haplotype` is deliberately exempt.** mhctools stamps a genotype-level
+score with the allele it deconvolved as the best presenter, so that
+allele is an artifact of reporting rather than a restriction — treating
+it as one would strand a joint score on a single allele, which is the
+failure projection exists to prevent.
+
+**Two peptide-level rows at different alleles are no longer a
+conflict.** They are two answers to two questions. Two *blank-allele*
+rows that disagree still raise, since that is a peptide contradicting
+itself.
+
+**The warning now describes what happened.** It said "which carries no
+allele" in every case — which becomes false the moment a row names one,
+and that is exactly the user whose scores just narrowed. Three messages
+now, naming the action taken rather than the counterfactual avoided:
+rows all naming alleles, rows mixed, and rows carrying none.
+
+This unblocks allele attribution downstream (openvax/vaxrank#349):
+writing a row onto chosen alleles is the natural way to say "credit this
+evidence here", and it was being discarded — so every attribution policy
+produced identical per-allele scores, and a narrowing knob could compute
+an answer and then silently fail to apply it.
+
 ## 5.38.0
 
 **Added: isovar → `ProteinFragment`, and every other path with it
