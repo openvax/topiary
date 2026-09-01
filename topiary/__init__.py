@@ -83,8 +83,11 @@ from .sequence_helpers import (
 )
 from .cached import CachedPredictor, mhcflurry_composite_version
 from .io_isovar import (
+    DEFAULT_PROTEIN_SEQUENCE_LENGTH,
     fragment_from_isovar_result,
     fragments_from_isovar_results,
+    fragments_from_effects,
+    fragments_from_variants,
 )
 from .protein_fragment import (
     APPROXIMATED,
@@ -126,7 +129,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.39.1"
+__version__ = "5.40.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -213,6 +216,9 @@ __all__ = [
     "fragments_from_dataframe",
     "fragment_from_isovar_result",
     "fragments_from_isovar_results",
+    "fragments_from_effects",
+    "fragments_from_variants",
+    "DEFAULT_PROTEIN_SEQUENCE_LENGTH",
     "MEASURED",
     "APPROXIMATED",
     "SYNTHESIZED",

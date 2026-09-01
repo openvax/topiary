@@ -1,5 +1,67 @@
 # Changelog
 
+## 5.40.0
+
+**Added: `fragments_from_variants` — isovar, actually run (#102).**
+5.38.0 could adapt an `IsovarResult` a caller already had. This runs
+isovar to produce them, so topiary can build the surrounding protein
+context for a mutation from RNA rather than only consume someone else's:
+
+```python
+fragments = fragments_from_variants(variants, alignment_file=bam)  # assembled
+fragments = fragments_from_variants(variants)                      # translated
+```
+
+**The two arms are interchangeable.** Both return `ProteinFragment`s
+with the same core, so a pipeline does not change shape when the RNA
+does or does not exist. What differs is what the fragments can tell
+you — an assembled sequence carries the patient's other variants and
+whatever phasing the reads support, plus counted read support; a
+translated one carries the reference everywhere except the variant, and
+no counts. `annotations["sequence_source"]` says which, so an RNA-backed
+candidate and an inferred one never blend.
+
+`protein_sequence_length` is a *sequence* length, not a peptide length:
+a fragment is scanned by a sliding window downstream, so the assembled
+context must contain every peptide that could cover the mutation.
+Default 25. `padding_around_mutation` defaults to half of it so the
+reference arm produces a comparable window.
+
+`allow_reference_fallback=True` translates variants isovar could not
+support instead of dropping them.
+
+`filter_thresholds` now actually filters. **isovar records filter
+outcomes and never drops anything**, so a caller's thresholds — and
+isovar's own defaults — annotated results that then flowed on as
+RNA-backed evidence. `require_passing_filters=True` drops them; pass
+`False` for the old behaviour.
+
+Assembly is turned **on**. isovar defaults `variant_sequence_assembly`
+to off, which requires a single read or fragment to span the whole
+window — so a longer context yields *fewer* variants rather than longer
+sequences, and "carrying the phasing the reads support" would not be
+true of the result. The default window is isovar's 21 rather than a
+raised 25, for the same reason.
+
+`fragments_from_effects` is public: the reference arm on its own, for a
+caller with variants and no alignment file. It filters silent and
+non-coding effects first (several varcode classes expose a
+`mutant_protein_sequence` while leaving the amino-acid offsets `None`,
+and `fragment_from_effect` raises on those — one such effect anywhere in
+a batch discarded every fragment already built), and it uses
+expression-aware transcript selection when transcript expression is
+given, so the same variants pick the same transcript whichever entry
+point built them.
+
+Conflicting or inapplicable arguments are refused rather than silently
+resolved: `protein_sequence_length` together with a
+`protein_sequence_creator` (the creator's length used to win silently),
+isovar-only arguments with no `alignment_file` (they were swallowed), a
+non-positive window, and a `padding_around_mutation` too small to
+contain an epitope — the last validated by the existing
+`check_padding_around_mutation` rather than a fresh derivation.
+
+isovar is needed **only** when `alignment_file` is given.
 ## 5.39.1
 
 **Added: `tests/test_consumer_workflows.py`** — documented workflows
