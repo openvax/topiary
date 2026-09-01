@@ -68,6 +68,61 @@ def test_pvacseq_derives_dna_counts_from_depth_and_vaf():
     assert row["dna_evidence_subject"] == "reads"
 
 
+def test_the_dna_subject_is_inferred_not_asserted():
+    """It was hardcoded to READS, which made it a literal, not data.
+
+    A depth x VAF split really is about reads, because depth is a read
+    depth — that one is inferable. A direct count's unit is known only
+    to whoever counted it.
+    """
+    split = attach_dna_evidence(
+        pd.DataFrame({"x": [1]}), depth=pd.Series([100]), vaf=pd.Series([0.4]),
+    )
+    assert split["dna_evidence_subject"].iloc[0] == "reads"
+
+    counted = attach_dna_evidence(
+        pd.DataFrame({"x": [1]}), alt=pd.Series([40]), ref=pd.Series([60]),
+    )
+    assert "dna_evidence_subject" not in counted.columns
+
+    stated = attach_dna_evidence(
+        pd.DataFrame({"x": [1]}), alt=pd.Series([40]), ref=pd.Series([60]),
+        subject="fragments",
+    )
+    assert stated["dna_evidence_subject"].iloc[0] == "fragments"
+
+
+def test_a_nonsense_dna_subject_is_refused():
+    with pytest.raises(ValueError, match="subject must be"):
+        attach_dna_evidence(
+            pd.DataFrame({"x": [1]}), alt=pd.Series([40]), subject="molecules",
+        )
+
+
+def test_dna_counts_come_from_the_dna_columns_not_the_rna_ones():
+    """The fixture cannot prove this: its DNA and RNA depths are equal.
+
+    tests/data/pvacseq/mhc_i_all_epitopes.tsv has Tumor DNA Depth ==
+    Tumor RNA Depth on every row, so a reader wired to the wrong column
+    passes every assertion made against it. Build the case the fixture
+    cannot: distinct depths, distinct fractions, and check each assay
+    landed on its own numbers.
+    """
+    df = pd.DataFrame({"x": [1]})
+    out = attach_rna_evidence(
+        df, overlapping=pd.Series([200]), vaf=pd.Series([0.5]),
+    )
+    out = attach_dna_evidence(
+        out, depth=pd.Series([100]), vaf=pd.Series([0.25]),
+    )
+    assert out["n_rna_overlapping"].iloc[0] == 200
+    assert out["n_dna_overlapping"].iloc[0] == 100
+    assert out["n_rna_alt"].iloc[0] == 100
+    assert out["n_dna_alt"].iloc[0] == 25
+    assert out["rna_vaf"].iloc[0] == pytest.approx(0.5)
+    assert out["dna_vaf"].iloc[0] == pytest.approx(0.25)
+
+
 def test_a_depth_without_a_fraction_yields_no_split_rather_than_zero():
     out = attach_dna_evidence(
         pd.DataFrame({"x": [1]}), depth=pd.Series([50]), vaf=pd.Series([None]),

@@ -551,6 +551,7 @@ def attach_dna_evidence(
     alt=None,
     ref=None,
     method=None,
+    subject=None,
 ) -> pd.DataFrame:
     """Write the DNA-evidence columns onto *df*, naming the derivation.
 
@@ -580,6 +581,12 @@ def attach_dna_evidence(
         Overrides the derivation name. Defaults to
         :data:`DNA_ALIGNMENT` for direct counts and
         :data:`DNA_DEPTH_X_VAF` for a split.
+    subject : {"reads", "fragments"}, optional
+        What the counts count. Only a caller supplying direct counts
+        knows this; a depth x VAF split infers :data:`READS` because
+        depth is a read depth. Where neither applies the column is
+        omitted rather than guessed — a wrong unit is how a documented
+        threshold silently changes meaning between sources.
 
     Returns
     -------
@@ -593,6 +600,12 @@ def attach_dna_evidence(
     :func:`available_evidence_columns` keeps meaning "what this source
     could answer".
     """
+    if subject is not None and subject not in (READS, FRAGMENTS):
+        raise ValueError(
+            f"attach_dna_evidence: subject must be {READS!r} or "
+            f"{FRAGMENTS!r}, got {subject!r}."
+        )
+    given_subject = subject
     out = df.copy()
     empty = pd.Series([pd.NA] * len(out), index=out.index, dtype="Int64")
 
@@ -634,10 +647,18 @@ def attach_dna_evidence(
             [derivation if pd.notna(a) else pd.NA for a in counted_alt],
             index=out.index, dtype="object",
         )
-        out["dna_evidence_subject"] = pd.Series(
-            [READS if pd.notna(a) else pd.NA for a in counted_alt],
-            index=out.index, dtype="object",
-        )
+        # Only where something actually determines it. A depth x VAF
+        # split is about reads whatever produced it, because depth is a
+        # read depth; a direct count's unit is known only to whoever
+        # counted, so an unstated one is left absent rather than
+        # asserted. Hardcoding READS here would have made the column a
+        # literal wearing a data column's clothes.
+        subject = given_subject or METHOD_SUBJECT.get(derivation)
+        if subject is not None:
+            out["dna_evidence_subject"] = pd.Series(
+                [subject if pd.notna(a) else pd.NA for a in counted_alt],
+                index=out.index, dtype="object",
+            )
     if depth is not None:
         out["n_dna_overlapping"] = overlapping
     if ref is not None:
