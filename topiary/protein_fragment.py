@@ -233,6 +233,62 @@ n_alt_reads_supporting_protein_sequence : int, optional
         """Whether *name*'s value was derived rather than observed."""
         return self.provenance_of(name) == APPROXIMATED
 
+    def read_count_subject(self) -> Optional[str]:
+        """What this fragment's read counts count, or ``None`` if unstated.
+
+        ``"fragments"`` for an RNA-assembled fragment (isovar counts
+        fragments), ``"reads"`` for a depth-based estimate.
+        """
+        return self.annotations.get("read_count_subject")
+
+    def count_in(self, name: str, subject: str) -> Optional[int]:
+        """*name*'s value if it counts *subject*, else ``None``.
+
+        The point of the subject vocabulary. Five fragments and five
+        reads are different bars, so a threshold has to know which it
+        cleared — and a source that counted the other thing should
+        **say so rather than substitute**, because converting between
+        them needs library information no source carries.
+
+        Within one run the unit is consistent and a ranking does not
+        change either way. The harm is in what travels: a documented
+        ``n_alt_reads > 5``, a config copied between projects, a number
+        in a paper.
+
+        Parameters
+        ----------
+        name : str
+            A read-count field, e.g. ``"n_alt_reads"``.
+        subject : str
+            One of :data:`~topiary.READ_SUBJECTS`.
+
+        Returns
+        -------
+        int or None
+            ``None`` when the field is absent, or when this fragment's
+            counts are of the other subject.
+
+        Examples
+        --------
+        >>> fragment.count_in("n_alt_reads", "fragments")  # doctest: +SKIP
+        30
+        >>> fragment.count_in("n_alt_reads", "reads")      # doctest: +SKIP
+        None
+        """
+        from .rna_evidence import READ_SUBJECTS
+
+        if subject not in READ_SUBJECTS:
+            raise ValueError(
+                f"subject must be one of {sorted(READ_SUBJECTS)}, got "
+                f"{subject!r}. A count without a stated subject cannot "
+                f"be compared against a threshold."
+            )
+        if not self.is_known(name):
+            return None
+        if self.read_count_subject() != subject:
+            return None
+        return getattr(self, name)
+
     def is_usable_as_biology(self, name: str) -> bool:
         """Whether *name* may be interpreted as a fact about the sample.
 
@@ -675,7 +731,7 @@ def fragments_from_dataframe(df, *, sequence_column=None):
 
         annotations = {}
         for key in ("sequence_source", "read_count_method",
-                    "supporting_read_count_method",
+                    "read_count_subject", "supporting_read_count_method",
                     "variant_allele_expression",
                     "variant_allele_expression_method"):
             value = row.get(key)

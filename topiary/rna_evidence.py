@@ -110,6 +110,53 @@ def provenance_for_method(method):
     return resolved
 
 
+#: What a read count counts.
+#:
+#: A count needs a subject as well as a derivation. isovar counts
+#: **fragments**; a depth x VAF estimate is inherently about **reads**,
+#: because depth is a read depth. Five fragments and five reads are
+#: different bars, and ``n_alt_reads`` alone cannot say which was
+#: cleared.
+#:
+#: Within one run the unit is internally consistent, so a ranking does
+#: not change. The harm is in things that travel: a documented
+#: ``n_alt_reads > 5`` threshold, a config copied between projects, a
+#: number in a paper.
+#:
+#: Perfect cross-path comparability is not available and is not the
+#: goal — converting a read estimate to fragments needs library
+#: information the source does not carry. The goal is that every path
+#: names its subject, and a source that cannot supply the subject a
+#: caller wants says so rather than substituting.
+FRAGMENTS = "fragments"
+READS = "reads"
+
+READ_SUBJECTS = frozenset({FRAGMENTS, READS})
+
+#: What each derivation counts, where the derivation determines it.
+#:
+#: A depth x VAF estimate is about reads whatever produced it, because
+#: depth is a read depth. ``rna_reads`` is left out deliberately: it
+#: says the count came from an alignment, not whether the aligner was
+#: counting reads or fragments, so the producer has to say.
+METHOD_SUBJECT = MappingProxyType({
+    RNA_DEPTH_X_VAF: READS,
+    CDS_OVERLAP_READS: READS,
+})
+
+
+def subject_for_method(method):
+    """What a value obtained by *method* counts, or ``None`` if it depends.
+
+    Returns ``None`` for derivations that do not fix the subject —
+    ``rna_reads`` says a count came from an alignment, not whether the
+    aligner counted reads or fragments — so the producer states it.
+    """
+    if not is_stated(method):
+        return None
+    return METHOD_SUBJECT.get(str(method).strip())
+
+
 #: How the protein sequence a prediction was made on came to exist.
 #:
 #: ``source_type`` says what an antigen *is* (``"variant:snv"``), which
@@ -160,6 +207,7 @@ READ_EVIDENCE_COLUMNS = (
     "n_ref_reads",
     "n_alt_reads_supporting_protein_sequence",
     "read_count_method",
+    "read_count_subject",
     "supporting_read_count_method",
     "variant_allele_expression",
     "variant_allele_expression_method",
@@ -266,6 +314,11 @@ def attach_read_evidence(
     out["n_ref_reads"] = ref
     out["read_count_method"] = pd.Series(
         [method if method and pd.notna(a) else pd.NA for a in alt],
+        index=out.index, dtype="object",
+    )
+    subject = subject_for_method(method) if method else None
+    out["read_count_subject"] = pd.Series(
+        [subject if subject and pd.notna(a) else pd.NA for a in alt],
         index=out.index, dtype="object",
     )
 
