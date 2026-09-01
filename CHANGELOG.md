@@ -1,5 +1,34 @@
 # Changelog
 
+## 5.39.1
+
+**Added: `tests/test_consumer_workflows.py`** — documented workflows
+exercised end to end, and a standing rule in AGENTS.md to keep them
+there.
+
+This exists because of a specific failure. Asked whether a downstream
+consumer was blocked, I checked that the four capabilities their design
+needed were exported and said they were unblocked. They were exported.
+They did not *compose*: writing a peptide-level row onto an allele to
+mean "credit this evidence here" was silently discarded, so every
+attribution policy produced identical scores (fixed in 5.39.0 as #232).
+Separately, I said the DSL could reference a LENS annotation named
+`tpm`, having read that the reader passes annotations through without
+running an expression — the column is `gene_tpm`, since `tpm` gets
+special handling for fusion rows and the raw string is kept in
+`gene_tpm_raw`.
+
+Checking that parts exist is not checking that the whole works. The new
+tests walk each workflow from input to answer: a LENS report filtered
+and sorted by a DSL expression; annotations addressable under their
+actual names; the resolve-then-evaluate loop and the raise that guards
+it; **narrowing attribution changing the answer** rather than the
+pieces merely existing; one consumer function reading isovar, LENS and
+pVACseq fragments; and a shared context serving several operations plus
+the guard that makes sharing safe.
+
+No behavior change.
+
 ## 5.39.0
 
 **Fixed: a peptide-level row that names an allele was projected onto
