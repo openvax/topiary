@@ -36,7 +36,7 @@ from .io import _model_version_str
 from mhctools.pred import COLUMNS as _PRED_COLUMNS
 
 from .protein_fragment import ProteinFragment
-from .rna_evidence import VARCODE_TRANSLATION
+from .evidence import VARCODE_TRANSLATION
 from .sequence_helpers import (
     check_padding_around_mutation,
     peptide_mutation_interval,
@@ -1495,7 +1495,7 @@ class TopiaryPredictor(object):
         # column says what it holds; attach_rna_evidence_columns then
         # adds the n_rna_* columns a threshold should be written
         # against, preferring fragments where both exist.
-        from .rna_evidence import attach_rna_evidence_columns
+        from .evidence import attach_rna_evidence_columns
         for attr in (
             "n_overlapping_reads", "n_alt_reads", "n_ref_reads",
             "n_alt_reads_supporting_protein_sequence",

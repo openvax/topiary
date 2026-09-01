@@ -27,7 +27,7 @@ from topiary import (
     read_lens,
     read_pvacseq,
 )
-from topiary.rna_evidence import RNA_ALIGNMENT, RNA_DEPTH_X_VAF
+from topiary.evidence import RNA_ALIGNMENT, RNA_DEPTH_X_VAF
 
 LENS = "tests/data/lens/sample_v1_4.tsv"
 PVACSEQ = "tests/data/pvacseq/mhc_i_all_epitopes.tsv"
@@ -192,7 +192,7 @@ def test_a_lens_cds_overlap_count_keeps_its_own_name():
     that overstates it."""
     frame = _frame(read_lens, LENS)
 
-    assert "rna_reads_covering_genomic_origin_with_peptide_cds" in frame.columns
+    assert "lens_rna_reads_covering_genomic_origin_with_peptide_cds" in frame.columns
     assert "n_alt_reads_supporting_protein_sequence" not in frame.columns
 
 

@@ -55,9 +55,10 @@ import numpy as np
 import pandas as pd
 
 from .ranking import stated_values
-from .rna_evidence import (
+from .evidence import (
     PVACSEQ_EPITOPE,
-    attach_read_evidence,
+    attach_dna_evidence,
+    attach_rna_evidence,
     attach_sequence_source,
 )
 from .io import Metadata
@@ -211,9 +212,9 @@ _AGG_ANNOTATIONS = {
     # vocabularies depending on which flavour of its own format it was
     # given means no single filter works across two pVACseq files.
     "RNA Expr":                "transcript_expression",
-    "RNA VAF":                 "tumor_rna_vaf",
-    "RNA Depth":               "tumor_rna_depth",
-    "DNA VAF":                 "tumor_dna_vaf",
+    "RNA VAF":                 "pvacseq_tumor_rna_vaf",
+    "RNA Depth":               "pvacseq_tumor_rna_depth",
+    "DNA VAF":                 "pvacseq_tumor_dna_vaf",
     "Tier":                    "pvacseq_tier",
     "Num Passing Transcripts": "pvacseq_num_passing_transcripts",
     "Num Included Peptides":   "pvacseq_num_included_peptides",
@@ -234,12 +235,12 @@ _ALL_ANNOTATIONS = {
     "Transcript":            "transcript",
     "Gene Expression":       "gene_expression",
     "Transcript Expression": "transcript_expression",
-    "Tumor DNA Depth":       "tumor_dna_depth",
-    "Tumor DNA VAF":         "tumor_dna_vaf",
-    "Tumor RNA Depth":       "tumor_rna_depth",
-    "Tumor RNA VAF":         "tumor_rna_vaf",
-    "Normal Depth":          "normal_depth",
-    "Normal VAF":            "normal_vaf",
+    "Tumor DNA Depth":       "pvacseq_tumor_dna_depth",
+    "Tumor DNA VAF":         "pvacseq_tumor_dna_vaf",
+    "Tumor RNA Depth":       "pvacseq_tumor_rna_depth",
+    "Tumor RNA VAF":         "pvacseq_tumor_rna_vaf",
+    "Normal Depth":          "pvacseq_normal_depth",
+    "Normal VAF":            "pvacseq_normal_vaf",
     "Protein Position":      "protein_position",
     "HGVSc":                 "hgvsc",
     "HGVSp":                 "hgvsp",
@@ -472,7 +473,7 @@ def _parse_aggregated(df):
     # aggregated report supplies "Allele Expr" itself, so that value is
     # kept and labelled source_reported rather than being recomputed or
     # passed through unlabelled.
-    out = attach_read_evidence(
+    out = attach_rna_evidence(
         out,
         overlapping=df["RNA Depth"] if "RNA Depth" in df else None,
         vaf=df["RNA VAF"] if "RNA VAF" in df else None,
@@ -481,6 +482,11 @@ def _parse_aggregated(df):
         reported_rna_alt_expression=(
             df["Allele Expr"] if "Allele Expr" in df else None
         ),
+    )
+    # The aggregated report states a DNA VAF but no DNA depth, so the
+    # fraction is all topiary can carry: no depth means no alt/ref split.
+    out = attach_dna_evidence(
+        out, vaf=df["DNA VAF"] if "DNA VAF" in df else None,
     )
     return attach_sequence_source(out, PVACSEQ_EPITOPE)
 
@@ -523,8 +529,8 @@ def _parse_all_epitopes(df):
 
     # RNA read-level evidence. pVACseq reports a depth and a variant
     # allele fraction, so the alt/ref split is arithmetic rather than
-    # counted — attach_read_evidence names that on every row it derives.
-    out = attach_read_evidence(
+    # counted — attach_rna_evidence names that on every row it derives.
+    out = attach_rna_evidence(
         out,
         overlapping=df["Tumor RNA Depth"] if "Tumor RNA Depth" in df else None,
         vaf=df["Tumor RNA VAF"] if "Tumor RNA VAF" in df else None,
@@ -534,6 +540,13 @@ def _parse_all_epitopes(df):
             else df.get("Gene Expression")
         ),
         dna_vaf=df["Tumor DNA VAF"] if "Tumor DNA VAF" in df else None,
+    )
+    # all_epitopes states both a DNA depth and a DNA VAF, so the same
+    # depth x VAF arithmetic that produces n_rna_* produces n_dna_*.
+    out = attach_dna_evidence(
+        out,
+        depth=df["Tumor DNA Depth"] if "Tumor DNA Depth" in df else None,
+        vaf=df["Tumor DNA VAF"] if "Tumor DNA VAF" in df else None,
     )
     out = attach_sequence_source(out, PVACSEQ_EPITOPE)
 

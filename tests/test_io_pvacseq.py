@@ -264,7 +264,7 @@ class TestLoadAllEpitopes:
 
     def test_annotation_columns_renamed(self):
         r = read_pvacseq(MHC_I_ALL)
-        assert {"gene_expression", "tumor_dna_vaf", "variant_type"} <= set(r.df.columns)
+        assert {"gene_expression", "pvacseq_tumor_dna_vaf", "variant_type"} <= set(r.df.columns)
 
     def test_effect_type_substitution_for_missense(self):
         r = read_pvacseq(MHC_I_ALL)

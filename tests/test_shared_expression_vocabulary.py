@@ -123,7 +123,7 @@ def test_a_consumer_can_ask_how_a_number_was_obtained_on_either_frame(frames):
 # The sharper bug behind #238, and the one I missed: read_pvacseq took two
 # branches. Its aggregated report supplies pVACseq's own `Allele Expr` and
 # `RNA Expr`, which were passed through under names the all_epitopes path
-# never emits — and that path never ran attach_read_evidence at all, so it
+# never emits — and that path never ran attach_rna_evidence at all, so it
 # had no method columns.
 #
 # Both of us mis-verified this by checking one branch: I read the

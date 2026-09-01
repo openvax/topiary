@@ -27,22 +27,49 @@ unchanged against LENS, pVACseq, or a predictor's own output.
 
 ---
 
-## RNA evidence
+## RNA and DNA evidence
 
-Nine columns. **The same vocabulary across readers, not the same columns** — a
-reader emits one only where its source can answer:
+Columns come in three layers. **Filter against layer 1.**
+
+1. **Canonical cross-source** — same meaning from every reader.
+2. **Canonical unit-specific** — `n_alt_reads` / `n_alt_fragments`, present
+   only where a source reports both units and they differ.
+3. **Source-prefixed originals** — `lens_vaf`, `pvacseq_tumor_dna_vaf`:
+   exactly the number the tool printed, never reinterpreted. Find them with
+   `source_columns(df)`, or `source_columns(df, "lens")` for one tool.
+
+**The same vocabulary across readers, not the same columns** — a reader emits
+one only where its source can answer:
 
 | Column | Meaning |
 |---|---|
 | `n_rna_alt` | Evidence supporting the variant allele |
 | `n_rna_ref` | Evidence supporting the reference allele |
-| `n_rna_overlapping` | Evidence covering the position |
+| `n_rna_other` | Evidence supporting neither — a third allele, error, or nearby indel |
+| `n_rna_overlapping` | Evidence covering the position (total coverage) |
+| `rna_vaf` | Variant allele fraction |
 | `rna_evidence_subject` | `"reads"` or `"fragments"` — what those counts count |
 | `rna_evidence_method` | How they were obtained |
 | `rna_alt_expression` | Abundance attributed to the variant allele |
 | `rna_alt_expression_method` | How that was obtained |
 | `gene_expression` | Gene-level abundance |
 | `sequence_source` | How the protein sequence came to exist |
+
+**DNA support is the same shape**, so a filter written against RNA depth
+becomes the DNA one by changing three letters: `n_dna_alt`, `n_dna_ref`,
+`n_dna_other`, `n_dna_overlapping`, `dna_vaf`, `dna_evidence_subject`,
+`dna_evidence_method`. There is no DNA expression pair — abundance is a
+transcript property.
+
+`n_rna_other` / `n_dna_other` are **absent unless the source counted the
+reference independently.** Where topiary derived `ref` as `depth - alt`, that
+figure already absorbs the other alleles, so reporting a difference of zero
+would assert a clean locus nobody checked.
+
+**A column is omitted, not nulled, where the source cannot answer it.** A
+pVACseq aggregated report states a DNA VAF but no DNA depth, so it gets
+`dna_vaf` and no `n_dna_*` at all — a column full of nulls would make
+`available_evidence_columns()` report a capability the source lacks.
 
 **Check which are present before naming one in a config that has to run against
 more than one source:**
@@ -101,17 +128,33 @@ count does.
 
 ### Per source
 
-| | `n_rna_alt` | subject | method |
-|---|---|---|---|
-| isovar | 30 | `fragments` | `rna_alignment` |
-| pVACseq | 429 | `reads` | `rna_depth_x_vaf` |
-| LENS | from `vaf` | `reads` | `rna_depth_x_source_vaf` |
+| | `n_rna_alt` | subject | method | DNA columns |
+|---|---|---|---|---|
+| isovar | 30 | `fragments` | `rna_alignment` | none — isovar reads RNA |
+| pVACseq (all_epitopes) | 429 | `reads` | `rna_depth_x_vaf` | yes, from DNA depth × DNA VAF |
+| pVACseq (aggregated) | from `RNA VAF` | `reads` | `rna_depth_x_vaf` | `dna_vaf` only — no DNA depth stated |
+| LENS | from `lens_vaf` | `reads` | `rna_depth_x_source_vaf` | none — see below |
 
-**LENS's `vaf` carries no assay qualifier.** LENS names its read columns `rna_*`
-explicitly and leaves `vaf` bare, so topiary cannot tell whether the fraction is
-from RNA or DNA. It is used to split the RNA depth — under a method that says
-so — and *not* to scale expression, which would assert the opposite assay. If
-you derive anything from that column yourself, the same ambiguity applies.
+**LENS's `vaf` carries no assay qualifier**, and lands as `lens_vaf`. LENS names
+its read columns `rna_*` explicitly and leaves `vaf` bare, so topiary cannot tell
+whether the fraction is from RNA or DNA. It is used to split the RNA depth —
+under a method that says so — and *not* to scale expression or to populate any
+`n_dna_*` column, either of which would assert an assay nobody stated.
+
+### Multiple samples
+
+Evidence is per row, and `sample_name` is a first-class column and a DSL group
+key, so a stacked multi-sample frame already carries each sample's own counts
+and each stays attributable:
+
+```python
+merged = stack_results([per_sample_result(name) for name in samples])
+merged.df[["sample_name", "n_rna_alt", "n_rna_overlapping", "rna_vaf"]]
+```
+
+**There is no built-in cross-sample aggregate yet** — summing counts across
+samples is currently a `groupby` you write yourself. Tracked in
+[#247](https://github.com/openvax/topiary/issues/247).
 
 ---
 
@@ -284,6 +327,12 @@ Floors worth knowing:
 | Named-allele rows not broadcast | 5.39.0 |
 | `fragments_from_variants` (isovar) | 5.40.0 |
 | RNA columns scoped and cut to nine | 5.45.0 |
+| DNA evidence columns, mirroring the RNA ones | 5.47.0 |
+| `n_rna_other` / `n_dna_other` for third-allele support | 5.47.0 |
+| `rna_vaf` / `dna_vaf` canonical fractions | 5.47.0 |
+| Source prefixes: `vaf` → `lens_vaf`, `tumor_dna_vaf` → `pvacseq_tumor_dna_vaf` | 5.47.0 |
+| `PREDICTION_KEY_COLUMNS` public | 5.47.0 |
+| `topiary.rna_evidence` module renamed to `topiary.evidence` | 5.47.0 |
 
 ### Removed in 5.45.0, with no compatibility shim
 

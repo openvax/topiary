@@ -81,7 +81,11 @@ from .sequence_helpers import (
     contains_mutant_residues,
     protein_subsequences_around_mutations,
 )
-from .cached import CachedPredictor, mhcflurry_composite_version
+from .cached import (
+    CachedPredictor,
+    PREDICTION_KEY_COLUMNS,
+    mhcflurry_composite_version,
+)
 from .io_isovar import (
     DEFAULT_PROTEIN_SEQUENCE_LENGTH,
     fragment_from_isovar_result,
@@ -109,7 +113,7 @@ from .io_pvacseq import (
     melt_pvacseq_algorithms,
     read_pvacseq,
 )
-from .rna_evidence import (
+from .evidence import (
     CDS_OVERLAP_READS,
     READ_COUNT_METHODS,
     RNA_DEPTH_X_SOURCE_VAF,
@@ -122,13 +126,22 @@ from .rna_evidence import (
     READ_SUBJECTS,
     SOURCE_REPORTED,
     TPM_X_DNA_VAF,
-    attach_read_evidence,
+    attach_dna_evidence,
+    attach_rna_evidence,
     attach_sequence_source,
     describe_read_evidence,
     provenance_for_method,
+    DNA_ALIGNMENT,
+    DNA_DEPTH_X_VAF,
+    DNA_EVIDENCE_COLUMNS,
     EVIDENCE_COLUMNS,
+    RNA_EVIDENCE_COLUMNS,
+    SOURCE_PREFIXES,
     attach_rna_evidence_columns,
     available_evidence_columns,
+    other_allele_count,
+    source_column,
+    source_columns,
     split_reads_by_vaf,
 )
 from .result import (
@@ -138,7 +151,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.46.0"
+__version__ = "5.47.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -264,10 +277,20 @@ __all__ = [
     "EVIDENCE_COLUMNS",
     "READ_COUNT_METHODS",
     "SEQUENCE_SOURCES",
-    "attach_read_evidence",
+    "attach_rna_evidence",
     "attach_sequence_source",
     "describe_read_evidence",
     "provenance_for_method",
+    "attach_dna_evidence",
+    "other_allele_count",
+    "source_column",
+    "source_columns",
+    "SOURCE_PREFIXES",
+    "PREDICTION_KEY_COLUMNS",
+    "RNA_EVIDENCE_COLUMNS",
+    "DNA_EVIDENCE_COLUMNS",
+    "DNA_ALIGNMENT",
+    "DNA_DEPTH_X_VAF",
     "split_reads_by_vaf",
     "TopiaryResult",
     "stack_results",

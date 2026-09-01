@@ -91,10 +91,20 @@ _CACHE_COLUMNS = (
 # kind, flanks, genotype) is the same prediction whichever protein or
 # sample it came from.  Keying on them would defeat the cache — the
 # same peptide would be re-predicted once per source protein.
-_KEY_COLS = (
+#: The columns that decide whether two rows are the same prediction.
+#:
+#: Public because it is a decision a consumer has to agree with rather
+#: than guess at: anyone building a cache table, de-duplicating one, or
+#: checking whether two shards overlap needs the same answer topiary
+#: uses, and a private copy of this tuple is a copy that drifts.
+#:
+#: The reasoning for each column, and for the three deliberately left
+#: out, is in the comment block above.
+PREDICTION_KEY_COLUMNS = (
     "peptide", "allele", "peptide_length", "kind",
     "n_flank", "c_flank", "allele_set",
 )
+
 
 
 class CachedPredictor:
@@ -1033,7 +1043,7 @@ class CachedPredictor:
         combined = pd.concat(
             [c._df for c in caches], ignore_index=True,
         )
-        key_cols = list(_KEY_COLS)
+        key_cols = list(PREDICTION_KEY_COLUMNS)
 
         dup_mask = combined.duplicated(subset=key_cols, keep=False)
         if dup_mask.any():
@@ -1056,7 +1066,7 @@ class CachedPredictor:
                 f" (and {len(dupes) - 5} more)"
             raise ValueError(
                 f"CachedPredictor.concat: {len(dupes)} overlapping "
-                f"(peptide, allele, peptide_length, kind) key(s) across "
+                f"{tuple(key_cols)} key(s) across "
                 f"shards.  Sample: {sample}{extra}.  Pass "
                 f"on_overlap='last' / 'first' / callable to resolve."
             )

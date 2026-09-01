@@ -1,4 +1,4 @@
-"""RNA read-level evidence, and saying where each number came from.
+"""Read-level DNA and RNA evidence, and saying where each number came from.
 
 Readers report RNA support differently, and the difference matters. isovar
 counts reads supporting an assembled protein sequence. pVACseq reports a
@@ -25,6 +25,22 @@ transcribed equally, so a variant on a transcriptionally silenced allele
 looks expressed. That error is exactly the phenomenon allele-specific
 counting exists to detect, which is why the estimate is labelled rather
 than silently mixed in with measured values.
+
+DNA support is carried in the same shape under a ``dna_`` prefix
+(:func:`attach_dna_evidence`), so a caller writing a depth threshold writes
+it the same way for either assay and can always tell which one it got.
+
+Three layers of column, and which to reach for:
+
+1. **Canonical cross-source** — ``n_rna_alt``, ``rna_vaf``, ``n_dna_alt``,
+   ``dna_vaf`` and friends. Same meaning from every reader. Write
+   filters against these.
+2. **Canonical unit-specific** — ``n_alt_reads`` / ``n_alt_fragments``.
+   Same meaning everywhere, present only where a source reports both
+   units and they genuinely differ.
+3. **Source-prefixed originals** — ``lens_vaf``, ``pvacseq_tumor_dna_depth``.
+   Exactly the number the tool printed, never reinterpreted. See
+   :data:`SOURCE_PREFIXES`.
 
 ``None`` throughout means the source could not answer, which is not the
 same as answering zero.
@@ -70,6 +86,18 @@ TPM_X_DNA_VAF = "tpm_x_dna_vaf"
 #: nobody stated.
 RNA_DEPTH_X_SOURCE_VAF = "rna_depth_x_source_vaf"
 
+#: DNA depth x DNA VAF, rounded — arithmetic, not counted.
+#:
+#: The DNA twin of :data:`RNA_DEPTH_X_VAF`. Kept as a separate term
+#: rather than reusing the RNA one so that a row naming its derivation
+#: also names its assay: a caller reading ``rna_depth_x_vaf`` in a
+#: ``dna_evidence_method`` column would have no way to tell a mislabelled
+#: frame from a correct one.
+DNA_DEPTH_X_VAF = "dna_depth_x_vaf"
+
+#: Counted directly from a DNA alignment, in whichever unit it reported.
+DNA_ALIGNMENT = "dna_alignment"
+
 #: Reported by the source, which did not say how it got there.
 #:
 #: pVACseq's aggregated report supplies its own ``Allele Expr``. Passing
@@ -79,9 +107,15 @@ RNA_DEPTH_X_SOURCE_VAF = "rna_depth_x_source_vaf"
 #: ``measured`` nor any of the arithmetic terms is true of it.
 SOURCE_REPORTED = "source_reported"
 
+#: Every named derivation, RNA and DNA alike.
+#:
+#: One set rather than one per assay: the question a caller asks is
+#: "is this a derivation topiary knows about", and a term is already
+#: self-identifying as to assay.
 READ_COUNT_METHODS = frozenset({
     RNA_ALIGNMENT, RNA_DEPTH_X_VAF, RNA_DEPTH_X_SOURCE_VAF,
     CDS_OVERLAP_READS, TPM_X_DNA_VAF, SOURCE_REPORTED,
+    DNA_ALIGNMENT, DNA_DEPTH_X_VAF,
 })
 
 #: How each derivation maps onto :data:`~topiary.PROVENANCE_VALUES`.
@@ -100,6 +134,8 @@ METHOD_PROVENANCE = MappingProxyType({
     # The source stands behind it, but did not say how it got there, so
     # it cannot be called measured.
     SOURCE_REPORTED: "approximated",
+    DNA_ALIGNMENT: "measured",
+    DNA_DEPTH_X_VAF: "approximated",
 })
 
 
@@ -160,7 +196,9 @@ READ_SUBJECTS = frozenset({FRAGMENTS, READS})
 #: counting reads or fragments, so the producer has to say.
 METHOD_SUBJECT = MappingProxyType({
     RNA_DEPTH_X_VAF: READS,
+    RNA_DEPTH_X_SOURCE_VAF: READS,
     CDS_OVERLAP_READS: READS,
+    DNA_DEPTH_X_VAF: READS,
 })
 
 
@@ -175,6 +213,7 @@ METHOD_SUBJECT = MappingProxyType({
 RNA_EVIDENCE_PREFERENCE = MappingProxyType({
     "n_rna_alt": ("n_alt_fragments", "n_alt_reads"),
     "n_rna_ref": ("n_ref_fragments", "n_ref_reads"),
+    "n_rna_other": ("n_other_fragments", "n_other_reads"),
     "n_rna_overlapping": ("n_overlapping_fragments", "n_overlapping_reads"),
     "n_rna_supporting_protein_sequence": (
         "n_alt_fragments_supporting_protein_sequence",
@@ -297,6 +336,64 @@ def _fractions(values) -> pd.Series:
     return numeric.where((numeric >= 0) & (numeric <= 1))
 
 
+def _vaf_from(stated, alt, depth, index):
+    """The canonical variant allele fraction for one assay.
+
+    Prefers the fraction the source stated over one recomputed from the
+    counts. They agree to rounding where topiary derived the counts *from*
+    the fraction, and where it did not, the source's own number is the
+    one it stands behind.
+
+    Absent wherever neither a stated fraction nor a usable alt/depth pair
+    exists, so "no variant reads" and "nobody measured" stay apart.
+    """
+    if stated is not None:
+        fraction = _fractions(stated)
+        fraction.index = index
+        if fraction.notna().any():
+            return fraction
+    if alt is None or depth is None:
+        return pd.Series([np.nan] * len(index), index=index, dtype="float64")
+    counts, total = _counts(alt), _counts(depth)
+    counts.index, total.index = index, index
+    usable = counts.notna() & total.notna() & (total > 0)
+    return (
+        counts.astype("Float64") / total.astype("Float64")
+    ).where(usable).astype("float64")
+
+
+def other_allele_count(overlapping, alt, ref):
+    """Reads at the locus supporting neither the reference nor the alt allele.
+
+    A third allele, a sequencing error, or a nearby indel all land here.
+    Worth seeing separately: a variant with 40 alt, 10 ref and 50 "other"
+    reads is a messy locus, and a caller weighting by depth of support
+    should be able to tell it from a clean 40/60.
+
+    Returns ``NA`` unless all three inputs are stated **and** *ref* was
+    counted independently. Where *ref* was derived as ``depth - alt`` it
+    already absorbs the other alleles, so the difference is
+    definitionally zero and reporting it would assert a clean locus
+    nobody checked.
+
+    Parameters
+    ----------
+    overlapping : pandas.Series
+        Total reads covering the position.
+    alt, ref : pandas.Series
+        Independently counted alt and reference support.
+
+    Returns
+    -------
+    pandas.Series
+        Nullable integer, clipped at zero — counts that do not add up
+        are a source's inconsistency, not a negative quantity.
+    """
+    total, a, r = _counts(overlapping), _counts(alt), _counts(ref)
+    usable = total.notna() & a.notna() & r.notna()
+    return (total - a - r).where(usable).clip(lower=0)
+
+
 def split_reads_by_vaf(depth, vaf):
     """``(n_alt_reads, n_ref_reads)`` from a depth and a variant fraction.
 
@@ -325,7 +422,7 @@ def split_reads_by_vaf(depth, vaf):
     return alt, ref.clip(lower=0)
 
 
-def attach_read_evidence(
+def attach_rna_evidence(
     df: pd.DataFrame,
     *,
     overlapping=None,
@@ -382,6 +479,11 @@ def attach_read_evidence(
         alt, ref, method = empty, empty, None
     out["n_rna_alt"] = alt
     out["n_rna_ref"] = ref
+    # No n_rna_other here by construction: ref came from depth - alt,
+    # which already absorbs any third allele. The column is omitted
+    # rather than written full of nulls — a source that counts ref
+    # independently gets a real one via other_allele_count.
+    out["rna_vaf"] = _vaf_from(vaf, alt, overlapping, out.index)
     out["rna_evidence_method"] = pd.Series(
         [method if method and pd.notna(a) else pd.NA for a in alt],
         index=out.index, dtype="object",
@@ -441,17 +543,231 @@ def attach_read_evidence(
     return out
 
 
-#: The evidence columns a reader emits when its source can answer.
-EVIDENCE_COLUMNS = (
+def attach_dna_evidence(
+    df: pd.DataFrame,
+    *,
+    depth=None,
+    vaf=None,
+    alt=None,
+    ref=None,
+    method=None,
+) -> pd.DataFrame:
+    """Write the DNA-evidence columns onto *df*, naming the derivation.
+
+    The DNA twin of :func:`attach_rna_evidence`, deliberately the same
+    shape: ``n_dna_alt`` / ``n_dna_ref`` / ``n_dna_overlapping`` /
+    ``dna_vaf`` / ``dna_evidence_subject`` / ``dna_evidence_method``.
+    A caller who has written a filter against RNA depth can write the
+    DNA one by changing three letters.
+
+    A source supplies either counts or a depth-and-fraction pair. Counts
+    are taken as measured; a depth x VAF split is arithmetic and is
+    labelled :data:`DNA_DEPTH_X_VAF` so it is never mistaken for one.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Frame to write onto. Not mutated; a copy is returned.
+    depth : pandas.Series, optional
+        Reads covering the variant position in the DNA alignment.
+    vaf : pandas.Series, optional
+        DNA variant allele fraction, used with *depth* to split alt from
+        reference when *alt* is not given directly.
+    alt, ref : pandas.Series, optional
+        Direct counts, when the source reports them rather than a
+        fraction. Take precedence over the *depth* x *vaf* split.
+    method : str, optional
+        Overrides the derivation name. Defaults to
+        :data:`DNA_ALIGNMENT` for direct counts and
+        :data:`DNA_DEPTH_X_VAF` for a split.
+
+    Returns
+    -------
+    pandas.DataFrame
+
+    Notes
+    -----
+    Nothing is invented. A source that reports no DNA at all — isovar,
+    and LENS, whose single ``vaf`` never names its assay — gets no DNA
+    columns rather than a column of nulls, so
+    :func:`available_evidence_columns` keeps meaning "what this source
+    could answer".
+    """
+    out = df.copy()
+    empty = pd.Series([pd.NA] * len(out), index=out.index, dtype="Int64")
+
+    if alt is not None:
+        counted_alt = _counts(alt)
+        counted_alt.index = out.index
+        if ref is not None:
+            counted_ref = _counts(ref)
+            counted_ref.index = out.index
+        elif depth is not None:
+            total = _counts(depth)
+            total.index = out.index
+            counted_ref = (total - counted_alt).clip(lower=0)
+        else:
+            counted_ref = empty
+        derivation = method or DNA_ALIGNMENT
+    elif depth is not None and vaf is not None:
+        counted_alt, counted_ref = split_reads_by_vaf(depth, vaf)
+        counted_alt.index, counted_ref.index = out.index, out.index
+        derivation = method or DNA_DEPTH_X_VAF
+    else:
+        counted_alt, counted_ref, derivation = empty, empty, None
+
+    if depth is not None:
+        overlapping = _counts(depth)
+        overlapping.index = out.index
+    else:
+        overlapping = empty
+
+    # Emit a column only where the source could answer it. A frame that
+    # carries `n_dna_alt` full of nulls says "measured nothing"; one that
+    # omits the column says "cannot measure this", and
+    # available_evidence_columns is only a useful signal if that
+    # distinction is kept at the column level as well as the value level.
+    if derivation is not None:
+        out["n_dna_alt"] = counted_alt
+        out["n_dna_ref"] = counted_ref
+        out["dna_evidence_method"] = pd.Series(
+            [derivation if pd.notna(a) else pd.NA for a in counted_alt],
+            index=out.index, dtype="object",
+        )
+        out["dna_evidence_subject"] = pd.Series(
+            [READS if pd.notna(a) else pd.NA for a in counted_alt],
+            index=out.index, dtype="object",
+        )
+    if depth is not None:
+        out["n_dna_overlapping"] = overlapping
+    if ref is not None:
+        out["n_dna_other"] = other_allele_count(
+            overlapping, counted_alt, counted_ref,
+        )
+    if vaf is not None or derivation is not None:
+        out["dna_vaf"] = _vaf_from(vaf, counted_alt, overlapping, out.index)
+    return out
+
+
+#: Tool name -> the prefix its own columns carry on a topiary frame.
+#:
+#: A canonical column such as ``rna_vaf`` means the same thing whichever
+#: reader produced it, because topiary derived it under a stated method.
+#: A tool's own columns do not have that guarantee: pVACseq's
+#: ``Tumor RNA VAF`` and LENS's ``vaf`` are both "a variant allele
+#: fraction" and are not the same quantity — LENS never says which assay
+#: its fraction is from. Landing both as a bare ``vaf`` would let a
+#: stacked frame silently answer with whichever tool happened to fill
+#: the column first.
+#:
+#: So a tool's own numbers keep the tool's name. ``lens_vaf`` and
+#: ``pvacseq_tumor_rna_vaf`` can coexist in one frame, disagree, and
+#: still be attributable; the unprefixed canonical columns are the ones
+#: to filter on.
+SOURCE_PREFIXES = MappingProxyType({
+    "isovar": "isovar_",
+    "lens": "lens_",
+    "pvacseq": "pvacseq_",
+})
+
+
+def source_column(source: str, name: str) -> str:
+    """The prefixed column name *source* uses for its own field *name*.
+
+    Parameters
+    ----------
+    source : str
+        A key of :data:`SOURCE_PREFIXES`.
+    name : str
+        The tool's own column name, already normalized to snake_case.
+
+    Returns
+    -------
+    str
+        e.g. ``source_column("lens", "vaf") == "lens_vaf"``.
+
+    Raises
+    ------
+    ValueError
+        If *source* is not a known tool. Guessing a prefix would let a
+        typo create a column nobody can find again.
+    """
+    if source not in SOURCE_PREFIXES:
+        raise ValueError(
+            f"source_column: unknown source {source!r}; expected one of "
+            f"{sorted(SOURCE_PREFIXES)}. Add it to SOURCE_PREFIXES "
+            f"rather than passing a prefix directly, so every reader "
+            f"spells the same tool the same way."
+        )
+    return f"{SOURCE_PREFIXES[source]}{name}"
+
+
+def source_columns(df: pd.DataFrame, source: str = None) -> tuple:
+    """The tool-specific columns present in *df*, in column order.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    source : str, optional
+        Restrict to one tool. ``None`` (default) returns the columns of
+        every known tool, which is what you want to see which tools a
+        stacked frame is carrying evidence from.
+
+    Returns
+    -------
+    tuple of str
+
+    Notes
+    -----
+    Answers the question "what did each tool actually say", which is the
+    one you ask when two sources disagree on a canonical column.
+    """
+    if source is not None and source not in SOURCE_PREFIXES:
+        raise ValueError(
+            f"source_columns: unknown source {source!r}; expected one "
+            f"of {sorted(SOURCE_PREFIXES)}."
+        )
+    prefixes = (
+        (SOURCE_PREFIXES[source],) if source is not None
+        else tuple(SOURCE_PREFIXES.values())
+    )
+    return tuple(c for c in df.columns if c.startswith(prefixes))
+
+
+#: Canonical RNA columns, in the order a reader writes them.
+RNA_EVIDENCE_COLUMNS = (
     "n_rna_alt",
     "n_rna_ref",
     "n_rna_overlapping",
+    "n_rna_other",
+    "rna_vaf",
     "rna_evidence_subject",
     "rna_evidence_method",
     "rna_alt_expression",
     "rna_alt_expression_method",
     "gene_expression",
-    "sequence_source",
+)
+
+#: Canonical DNA columns — the same shape as
+#: :data:`RNA_EVIDENCE_COLUMNS`, minus the expression pair, which has no
+#: DNA meaning: abundance is a transcript property.
+DNA_EVIDENCE_COLUMNS = (
+    "n_dna_alt",
+    "n_dna_ref",
+    "n_dna_overlapping",
+    "n_dna_other",
+    "dna_vaf",
+    "dna_evidence_subject",
+    "dna_evidence_method",
+)
+
+#: The evidence columns a reader emits when its source can answer.
+#:
+#: The canonical layer only. A tool's own numbers are prefixed and found
+#: with :func:`source_columns`; the unit-specific ``n_alt_reads`` /
+#: ``n_alt_fragments`` pair appears only where a source reports both.
+EVIDENCE_COLUMNS = (
+    RNA_EVIDENCE_COLUMNS + DNA_EVIDENCE_COLUMNS + ("sequence_source",)
 )
 
 
