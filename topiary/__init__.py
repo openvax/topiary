@@ -115,6 +115,7 @@ from .rna_evidence import (
     RNA_DEPTH_X_VAF,
     RNA_READS,
     SEQUENCE_SOURCES,
+    SOURCE_REPORTED,
     TPM_X_DNA_VAF,
     attach_read_evidence,
     attach_sequence_source,
@@ -129,7 +130,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.41.0"
+__version__ = "5.42.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -244,6 +245,7 @@ __all__ = [
     "RNA_DEPTH_X_VAF",
     "CDS_OVERLAP_READS",
     "TPM_X_DNA_VAF",
+    "SOURCE_REPORTED",
     "READ_COUNT_METHODS",
     "SEQUENCE_SOURCES",
     "attach_read_evidence",

@@ -115,3 +115,95 @@ def test_a_consumer_can_ask_how_a_number_was_obtained_on_either_frame(frames):
     for reader in ("lens", "pvacseq"):
         described = describe_read_evidence(frames[reader])
         assert all(isinstance(v, str) for v in described.values())
+
+
+# ---------------------------------------------------------------------------
+# One reader, one vocabulary — whichever flavour of its format it was given
+# ---------------------------------------------------------------------------
+#
+# The sharper bug behind #238, and the one I missed: read_pvacseq took two
+# branches. Its aggregated report supplies pVACseq's own `Allele Expr` and
+# `RNA Expr`, which were passed through under names the all_epitopes path
+# never emits — and that path never ran attach_read_evidence at all, so it
+# had no method columns.
+#
+# Both of us mis-verified this by checking one branch: I read the
+# all_epitopes fixture and concluded about the reader; the consumer grepped
+# for "express" against headers abbreviated "Expr" and concluded the
+# opposite. A function with two branches needs both exercised.
+
+AGGREGATED = "tests/data/pvacseq/mhc_i_aggregated.tsv"
+ALL_EPITOPES = "tests/data/pvacseq/mhc_i_all_epitopes.tsv"
+
+
+def _pvacseq(path):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return read_pvacseq(path).df
+
+
+@pytest.mark.parametrize("path", [AGGREGATED, ALL_EPITOPES],
+                         ids=["aggregated", "all-epitopes"])
+def test_both_pvacseq_flavours_name_expression_the_same(path):
+    df = _pvacseq(path)
+
+    assert "variant_allele_expression" in df.columns
+    assert "transcript_expression" in df.columns
+
+
+@pytest.mark.parametrize("path", [AGGREGATED, ALL_EPITOPES],
+                         ids=["aggregated", "all-epitopes"])
+def test_neither_flavour_uses_the_old_spellings(path):
+    """`allele_expression` and `rna_transcript_expression` existed on one
+    branch only, so a filter naming them worked on one pVACseq file and
+    silently matched nothing on the other."""
+    df = _pvacseq(path)
+
+    assert "allele_expression" not in df.columns
+    assert "rna_transcript_expression" not in df.columns
+
+
+@pytest.mark.parametrize("path", [AGGREGATED, ALL_EPITOPES],
+                         ids=["aggregated", "all-epitopes"])
+def test_both_flavours_label_their_derivations(path):
+    df = _pvacseq(path)
+
+    for column in ("read_count_method", "supporting_read_count_method",
+                   "variant_allele_expression_method"):
+        assert column in df.columns
+
+
+def test_a_source_supplied_estimate_says_so():
+    """pVACseq computed `Allele Expr` itself. Keeping it and calling it
+    ours would claim a derivation nobody can check; recomputing it would
+    discard the number the source stands behind."""
+    df = _pvacseq(AGGREGATED)
+
+    methods = set(df["variant_allele_expression_method"].dropna())
+    assert methods == {"source_reported"}
+
+
+def test_a_derived_estimate_says_that_instead():
+    df = _pvacseq(ALL_EPITOPES)
+
+    methods = set(df["variant_allele_expression_method"].dropna())
+    assert methods == {"tpm_x_dna_vaf"}
+
+
+def test_source_reported_is_not_measured():
+    """The source stands behind it but did not say how it got there."""
+    from topiary import provenance_for_method
+
+    assert provenance_for_method("source_reported") == "approximated"
+
+
+@pytest.mark.parametrize("path", [AGGREGATED, ALL_EPITOPES],
+                         ids=["aggregated", "all-epitopes"])
+def test_one_filter_spans_both_pvacseq_flavours(path):
+    df = _pvacseq(path)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        scores = evaluate_scores(df, parse("variant_allele_expression > 0"))
+
+    assert len(scores) == len(df)
