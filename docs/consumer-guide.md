@@ -92,9 +92,9 @@ Naming an absent column in an expression **raises** rather than evaluating to
 NaN:
 
 ```
-gene_expression > 1  on a pVACseq aggregated frame
-  ValueError: Column 'gene_expression' not found in DataFrame.
-              Did you mean: ['rna_alt_expression', 'transcript_expression', ...]
+transcript_expression > 1  on a pVACseq aggregated frame
+  ValueError: Column 'transcript_expression' not found in DataFrame.
+              Did you mean: ['gene_expression', 'rna_alt_expression', ...]
 ```
 
 That is the intended behaviour — a silent NaN would drop every row in a filter
@@ -102,13 +102,17 @@ and say nothing. The alternative, emitting all-null columns everywhere, is
 worse: a column that is present and empty asserts the question was asked and
 answered as nothing. Absent beats substituted here as everywhere else.
 
-Concretely, a pVACseq *aggregated* report has no gene-level abundance, so it has
-no `gene_expression`; a LENS file without a `tpm` column has none either.
+Concretely, a pVACseq *aggregated* report has gene-level `RNA Expr` but no
+separately stated transcript-level abundance, so it has no
+`transcript_expression`; a LENS file without a `tpm` column has no
+`gene_expression` either.
 
 **`n_rna_alt`, `rna_evidence_subject` and `rna_evidence_method` are present
-wherever a source reports any RNA evidence at all**, which is what makes a
+wherever a source can determine variant support**, which is what makes a
 threshold written against `n_rna_alt` portable — whatever unit that source
-counts in.
+counts in. Coverage without a usable fraction can still populate
+`n_rna_overlapping` and its subject while correctly omitting the unavailable
+alt count and derivation.
 
 **Read `rna_evidence_subject` before a number leaves the run.** Within one run
 the unit is consistent and rankings are unaffected. It matters for things that
@@ -330,13 +334,18 @@ surviving name is `rna_vaf`, and that is the wrong answer — `rna_vaf` is the
 canonical cross-source fraction, while `vaf` became `lens_vaf`, LENS's own
 fraction whose assay the file never states.
 
-**If you read columns with `row.get(...)` or `df[...]` rather than through the
-DSL, topiary cannot warn you** — a missed `.get()` returns `None` and becomes
-a silent zero. Check your column names against `RENAMED_COLUMNS` once at
-startup.
+**If you read reader-frame columns with `row.get(...)` or `df[...]` rather than
+through the DSL, topiary cannot warn you** — a missed `.get()` returns `None`
+and becomes a silent zero. Check your column names against `RENAMED_COLUMNS`
+once at startup. Serialized `ProteinFragment` JSON and TSV are the exception:
+their old unit-specific evidence names are migrated on load, including
+`field_provenance` keys.
 
-There are no compatibility aliases. Two live names for one quantity is the
-ambiguity the renames existed to remove.
+Reader frames have no compatibility aliases. Two output columns for one
+quantity is the ambiguity the renames existed to remove. `ProteinFragment`
+accepts its old unit-specific names when loading, constructing, and reading
+attributes so the 5.x API remains compatible, but serialization emits only the
+new names.
 
 ---
 
@@ -399,8 +408,8 @@ on every construction and repairs split allele buckets. What does not repair
 itself is a store whose split buckets held *different* values for what is now
 one key; that raises on load rather than silently answering, which is intended.
 
-**Both doors agree about a repeated key as of 5.48.0** (topiary#231). A key
-appearing twice is an error only when the rows disagree on a
+**Both doors agree about a repeated key as of 5.48.0** (topiary#231). An exact
+duplicate is stored once; a key appearing twice is an error only when the rows disagree on a
 `PREDICTION_VALUE_COLUMNS` entry:
 
 | | before | now |

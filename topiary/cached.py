@@ -278,6 +278,11 @@ class CachedPredictor:
         conflicts = conflicting_predictions(self._df)
         if not conflicts.empty:
             raise ValueError(_conflict_message("CachedPredictor", conflicts))
+        # One prediction stated twice is still one cache entry. concat
+        # already applies this rule; applying it here makes both public
+        # construction paths return the same cache, not merely agree
+        # that the input is acceptable.
+        self._df = self._df.drop_duplicates(ignore_index=True)
         self.prediction_method_name, self.predictor_version = \
             self._unique_version_pair(self._df)
         self._index, self._prefix_index = self._build_index(self._df)
@@ -378,8 +383,16 @@ class CachedPredictor:
         # concat's dtype result depend on which shard was read first.
         for column in ("score", "affinity", "percentile_rank", "value"):
             if column in out.columns:
-                out[column] = pd.to_numeric(out[column], errors="coerce")
-                out[column] = out[column].astype("float64")
+                numeric = pd.to_numeric(out[column], errors="coerce")
+                invalid = stated_values(out[column]) & numeric.isna()
+                if invalid.any():
+                    examples = out.loc[invalid, column].head(3).tolist()
+                    raise ValueError(
+                        f"CachedPredictor: column {column!r} has "
+                        f"{int(invalid.sum())} non-numeric value(s), for "
+                        f"example {examples}."
+                    )
+                out[column] = numeric.astype("float64")
         return out
 
     @staticmethod

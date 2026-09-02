@@ -128,19 +128,20 @@ def test_the_cache_doors_agree_about_a_repeated_key(case):
     left, right, expected = CACHE_CASES[case]
 
     def through_constructor():
-        CachedPredictor(pd.DataFrame(left + right))
+        return CachedPredictor(pd.DataFrame(left + right))
 
     def through_concat():
-        CachedPredictor.concat([
+        return CachedPredictor.concat([
             CachedPredictor(pd.DataFrame(left)),
             CachedPredictor(pd.DataFrame(right)),
         ])
 
     outcomes = {}
+    caches = {}
     for label, call in (("constructor", through_constructor),
                         ("concat", through_concat)):
         try:
-            call()
+            caches[label] = call()
             outcomes[label] = "accept"
         except ValueError:
             outcomes[label] = "raise"
@@ -150,6 +151,12 @@ def test_the_cache_doors_agree_about_a_repeated_key(case):
         f"concat {outcomes['concat']}s"
     )
     assert outcomes["constructor"] == expected
+    if expected == "accept":
+        pd.testing.assert_frame_equal(
+            caches["constructor"]._df,
+            caches["concat"]._df,
+            check_like=True,
+        )
 
 
 def test_every_cache_column_is_classified_as_key_value_or_context():
@@ -261,3 +268,23 @@ def test_absent_input_writes_no_column_on_either_side(twin):
             f"{twin.name} ({label}): wrote all-null columns for absent "
             f"inputs: {nulled}"
         )
+
+
+@pytest.mark.parametrize("twin", TWINS, ids=lambda t: t.name)
+def test_all_null_input_writes_no_column_on_either_side(twin):
+    """An all-null Series is the column-level form of absent input."""
+    values = pd.Series([None, None], index=FRAME.index)
+
+    for arg in twin.shared:
+        for fn, kwargs in twin.calls(arg, values):
+            out = fn(FRAME, **kwargs)
+            assert list(out.columns) == ["x"]
+
+
+@pytest.mark.parametrize("twin", TWINS, ids=lambda t: t.name)
+def test_coverage_without_a_fraction_has_the_same_subject(twin):
+    left = twin.left(FRAME, overlapping=[10, 20])
+    right = twin.right(FRAME, depth=[10, 20])
+
+    assert set(left["rna_evidence_subject"]) == {"reads"}
+    assert set(right["dna_evidence_subject"]) == {"reads"}

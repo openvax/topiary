@@ -55,6 +55,8 @@ class _IsovarResult:
     num_alt_reads = 58
     num_ref_fragments = 31
     num_ref_reads = 60
+    num_other_fragments = 2
+    num_other_reads = 4
 
 
 class _NoRNASupport:
@@ -106,6 +108,14 @@ def test_isovar_counts_are_measured_not_derived():
     assert fragment.rna_evidence_subject() == "fragments"
     assert not fragment.is_approximate("n_rna_alt_reads")
     assert fragment.is_usable_as_biology("n_rna_alt_reads")
+
+
+def test_isovar_carries_other_allele_counts_in_both_units():
+    fragment = fragment_from_isovar_result(_IsovarResult())
+
+    assert fragment.n_rna_other_fragments == 2
+    assert fragment.n_rna_other_reads == 4
+    assert fragment.n_rna_other == 2
 
 
 def test_the_mutated_span_lands_inside_the_sequence():
@@ -175,6 +185,16 @@ def test_a_reader_frame_becomes_fragments(reader, path):
     assert len(fragments) > 0
     assert all(isinstance(f, ProteinFragment) for f in fragments)
     assert all(f.sequence for f in fragments)
+
+
+def test_a_frame_carries_other_allele_support_into_a_fragment():
+    fragment = fragments_from_dataframe(pd.DataFrame([{
+        "peptide": "SIINFEKLA",
+        "n_rna_other": 3,
+        "rna_evidence_subject": "fragments",
+    }]))[0]
+
+    assert fragment.n_rna_other_fragments == 3
 
 
 def test_pvacseq_counts_are_marked_derived():

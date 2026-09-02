@@ -232,7 +232,9 @@ def attach_rna_evidence_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     Leaves the underlying ``n_*_reads`` / ``n_*_fragments`` columns
     alone: they say exactly what they hold, and a caller who needs one
-    unit specifically should name it.
+    unit specifically should name it. A row that would mix units across
+    its canonical columns is rejected because one subject label could
+    not describe it truthfully.
     """
     out = df.copy()
     subject = pd.Series([pd.NA] * len(out), index=out.index, dtype="object")
@@ -250,12 +252,34 @@ def attach_rna_evidence_columns(df: pd.DataFrame) -> pd.DataFrame:
         else:
             from_fragments = fragments.notna()
             values = fragments.where(from_fragments, reads)
+        if not values.notna().any():
+            continue
+        candidate_subject = from_fragments.map({True: FRAGMENTS, False: READS})
+        mixed = (
+            values.notna()
+            & subject.notna()
+            & candidate_subject.notna()
+            & subject.fillna("").ne(candidate_subject.fillna(""))
+        )
+        if mixed.any():
+            rows = list(out.index[mixed][:5])
+            raise ValueError(
+                f"Rows {rows} mix RNA evidence units across canonical "
+                f"n_rna_* columns. Use one unit per row or read the "
+                f"unit-specific columns directly."
+            )
         out[target] = values
         subject = subject.where(
             values.isna() | subject.notna(),
-            from_fragments.map({True: FRAGMENTS, False: READS}),
+            candidate_subject,
         )
-    out["rna_evidence_subject"] = subject
+    if subject.notna().any():
+        out["rna_evidence_subject"] = subject
+    elif (
+        "rna_evidence_subject" in out.columns
+        and not out["rna_evidence_subject"].notna().any()
+    ):
+        out = out.drop(columns=["rna_evidence_subject"])
     return out
 
 
@@ -476,9 +500,9 @@ def attach_rna_evidence(
     """Write the read-evidence columns onto *df*, naming each derivation.
 
     Every argument is a Series (or ``None`` when the source has no such
-    column). Nothing is invented: a quantity whose inputs are absent is
-    left ``NA``, and its method column is ``NA`` too, so "no support" and
-    "cannot answer" stay distinguishable.
+    column). Nothing is invented: a quantity no row can answer is omitted;
+    within a partially populated column, unanswered rows remain ``NA``.
+    Thus "no support" and "cannot answer" stay distinguishable.
 
     Parameters
     ----------
@@ -514,29 +538,37 @@ def attach_rna_evidence(
     out = df.copy()
     n_rows = len(out)
     empty = pd.Series([pd.NA] * n_rows, index=out.index, dtype="Int64")
+    has_count = pd.Series(False, index=out.index)
 
     # Emitted only where the source can answer, exactly as on the DNA
     # side. A source with no RNA at all gets no n_rna_* columns rather
     # than a set full of nulls claiming it looked and found nothing.
-    if overlapping is not None:
-        out["n_rna_overlapping"] = _counts(overlapping)
+    overlapping_counts = (
+        _counts(overlapping) if overlapping is not None else None
+    )
+    if overlapping_counts is not None and overlapping_counts.notna().any():
+        out["n_rna_overlapping"] = overlapping_counts
+        has_count |= overlapping_counts.notna()
     if overlapping is not None and vaf is not None:
         alt, ref = split_reads_by_vaf(overlapping, vaf)
         method = vaf_method
     else:
         alt, ref, method = empty, empty, None
-    if method is not None:
+    if method is not None and alt.notna().any():
         out["n_rna_alt"] = alt
         out["n_rna_ref"] = ref
         out["rna_evidence_method"] = pd.Series(
             [method if pd.notna(a) else pd.NA for a in alt],
             index=out.index, dtype="object",
         )
+        has_count |= alt.notna() | ref.notna()
     # No n_rna_other by construction: ref came from depth - alt, which
     # already absorbs any third allele. A source that counts ref
     # independently gets a real one via other_allele_count.
     if vaf is not None or method is not None:
-        out["rna_vaf"] = _vaf_from(vaf, alt, overlapping, out.index)
+        canonical_vaf = _vaf_from(vaf, alt, overlapping, out.index)
+        if canonical_vaf.notna().any():
+            out["rna_vaf"] = canonical_vaf
 
     if supporting is not None:
         if supporting_method not in READ_COUNT_METHODS:
@@ -554,6 +586,7 @@ def attach_rna_evidence(
         # assembled count lives on ProteinFragment where it is real.
         pass
 
+    reported = None
     if reported_rna_alt_expression is not None:
         # The source supplied the number. Keep it and say where it came
         # from, rather than overwriting it with our own estimate or
@@ -561,29 +594,35 @@ def attach_rna_evidence(
         reported = pd.to_numeric(
             reported_rna_alt_expression, errors="coerce"
         )
-        out["rna_alt_expression"] = reported
-        out["rna_alt_expression_method"] = pd.Series(
-            [SOURCE_REPORTED if pd.notna(v) else pd.NA for v in reported],
-            index=out.index, dtype="object",
-        )
-    elif expression is not None and dna_vaf is not None:
+        if reported.notna().any():
+            out["rna_alt_expression"] = reported
+            out["rna_alt_expression_method"] = pd.Series(
+                [SOURCE_REPORTED if pd.notna(v) else pd.NA for v in reported],
+                index=out.index, dtype="object",
+            )
+    if (
+        (reported is None or not reported.notna().any())
+        and expression is not None
+        and dna_vaf is not None
+    ):
         abundance = pd.to_numeric(expression, errors="coerce")
         fraction = _fractions(dna_vaf)
         estimate = (abundance * fraction).where(
             abundance.notna() & fraction.notna()
         )
-        out["rna_alt_expression"] = estimate
-        out["rna_alt_expression_method"] = pd.Series(
-            [TPM_X_DNA_VAF if pd.notna(v) else pd.NA for v in estimate],
-            index=out.index, dtype="object",
-        )
+        if estimate.notna().any():
+            out["rna_alt_expression"] = estimate
+            out["rna_alt_expression_method"] = pd.Series(
+                [TPM_X_DNA_VAF if pd.notna(v) else pd.NA for v in estimate],
+                index=out.index, dtype="object",
+            )
     # No else: a source with no abundance figure gets no expression
     # columns rather than two full of nulls, matching every other
     # evidence column. A null column claims the source looked and found
     # nothing; an absent one says it cannot answer.
-    if "n_rna_alt" in out.columns:
+    if has_count.any():
         out["rna_evidence_subject"] = pd.Series(
-            [READS if pd.notna(v) else pd.NA for v in out["n_rna_alt"]],
+            [READS if value else pd.NA for value in has_count],
             index=out.index, dtype="object",
         )
     return out
@@ -690,7 +729,7 @@ def attach_dna_evidence(
     # omits the column says "cannot measure this", and
     # available_evidence_columns is only a useful signal if that
     # distinction is kept at the column level as well as the value level.
-    if derivation is not None:
+    if derivation is not None and counted_alt.notna().any():
         out["n_dna_alt"] = counted_alt
         out["n_dna_ref"] = counted_ref
         out["dna_evidence_method"] = pd.Series(
@@ -703,20 +742,41 @@ def attach_dna_evidence(
         # counted, so an unstated one is left absent rather than
         # asserted. Hardcoding READS here would have made the column a
         # literal wearing a data column's clothes.
-        subject = given_subject or METHOD_SUBJECT.get(derivation)
-        if subject is not None:
-            out["dna_evidence_subject"] = pd.Series(
-                [subject if pd.notna(a) else pd.NA for a in counted_alt],
-                index=out.index, dtype="object",
-            )
-    if depth is not None:
+    if overlapping.notna().any():
         out["n_dna_overlapping"] = overlapping
     if ref is not None:
-        out["n_dna_other"] = other_allele_count(
+        other = other_allele_count(
             overlapping, counted_alt, counted_ref,
         )
+        if other.notna().any():
+            out["n_dna_other"] = other
     if vaf is not None or derivation is not None:
-        out["dna_vaf"] = _vaf_from(vaf, counted_alt, overlapping, out.index)
+        canonical_vaf = _vaf_from(vaf, counted_alt, overlapping, out.index)
+        if canonical_vaf.notna().any():
+            out["dna_vaf"] = canonical_vaf
+
+    has_count = counted_alt.notna() | counted_ref.notna() | overlapping.notna()
+    inferred_subject = (
+        READS if overlapping.notna().any()
+        else METHOD_SUBJECT.get(derivation)
+    )
+    if (
+        has_count.any()
+        and given_subject is not None
+        and inferred_subject is not None
+        and given_subject != inferred_subject
+    ):
+        raise ValueError(
+            f"attach_dna_evidence: subject {given_subject!r} contradicts "
+            f"the supplied read depth or {derivation!r}, which counts "
+            f"{inferred_subject}."
+        )
+    resolved_subject = inferred_subject or given_subject
+    if resolved_subject is not None and has_count.any():
+        out["dna_evidence_subject"] = pd.Series(
+            [resolved_subject if value else pd.NA for value in has_count],
+            index=out.index, dtype="object",
+        )
     return out
 
 
@@ -731,9 +791,10 @@ def attach_dna_evidence(
 #: file never states), and a ``.get()`` that misses returns ``None``
 #: rather than raising, so the failure is a silent zero.
 #:
-#: Kept rather than shipping compatibility aliases: two live names for
-#: one quantity is the ambiguity the renames existed to remove. This is
-#: a migration table, not a shim -- look a name up, change your code.
+#: Reader frames emit no compatibility aliases: two output columns for
+#: one quantity is the ambiguity the renames existed to remove. Serialized
+#: and direct ``ProteinFragment`` input accepts its old field names for 5.x
+#: compatibility, while always emitting the new names.
 RENAMED_COLUMNS = MappingProxyType({
     # LENS: its own numbers now carry its name.
     "vaf": "lens_vaf",
@@ -885,11 +946,12 @@ RNA_EVIDENCE_COLUMNS = (
     "rna_alt_expression",
     "rna_alt_expression_method",
     "gene_expression",
+    "transcript_expression",
 )
 
 #: Canonical DNA columns — the same shape as
-#: :data:`RNA_EVIDENCE_COLUMNS`, minus the expression pair, which has no
-#: DNA meaning: abundance is a transcript property.
+#: :data:`RNA_EVIDENCE_COLUMNS`, minus expression and abundance, which have
+#: no DNA meaning.
 DNA_EVIDENCE_COLUMNS = (
     "n_dna_alt",
     "n_dna_ref",
@@ -915,8 +977,9 @@ def available_evidence_columns(df: pd.DataFrame) -> tuple:
 
     Readers emit an evidence column only where the source can answer, so
     the set is the same *vocabulary* across readers rather than the same
-    *columns*: a pVACseq aggregated report has no gene-level abundance,
-    and a LENS file without a ``tpm`` column has none either.
+    *columns*: a pVACseq aggregated report has gene-level abundance but no
+    separately stated transcript abundance, and a LENS file without a
+    ``tpm`` column has neither.
 
     That matters because naming an absent column in an expression
     **raises** rather than evaluating to NaN — which is the right

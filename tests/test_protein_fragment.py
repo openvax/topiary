@@ -119,6 +119,17 @@ class TestSerialization:
             transcript_id="ENST00000288602",
             gene_expression=12.3,
             transcript_expression=8.1,
+            n_rna_overlapping_reads=40,
+            n_rna_alt_reads=12,
+            n_rna_ref_reads=25,
+            n_rna_other_reads=3,
+            n_rna_alt_reads_supporting_protein_sequence=9,
+            n_rna_overlapping_fragments=20,
+            n_rna_alt_fragments=6,
+            n_rna_ref_fragments=12,
+            n_rna_other_fragments=2,
+            n_rna_alt_fragments_supporting_protein_sequence=5,
+            field_provenance={"n_rna_other_fragments": "measured"},
             annotations={"vaf": 0.42, "ccf": 0.9, "caller": "mutect2"},
         )
 
@@ -131,16 +142,13 @@ class TestSerialization:
     def test_dict_roundtrip(self):
         f = self._rich()
         f2 = ProteinFragment.from_dict(f.to_dict())
-        assert f == f2
+        assert f2.to_dict() == f.to_dict()
         assert f2.target_intervals == [(10, 11)]  # restored as tuples
-        assert f2.annotations == f.annotations
 
     def test_json_roundtrip(self):
         f = self._rich()
         f2 = ProteinFragment.from_json(f.to_json())
-        assert f == f2
-        assert f2.sequence == f.sequence
-        assert f2.target_intervals == [(10, 11)]
+        assert f2.to_dict() == f.to_dict()
 
     def test_json_pretty(self):
         f = self._rich()
@@ -370,15 +378,12 @@ class TestTsvIo:
         ]
 
     def test_roundtrip(self, tmp_path):
-        frags = self._fragments()
+        frags = self._fragments() + [TestSerialization()._rich()]
         p = tmp_path / "antigens.tsv"
         write_fragments(frags, p)
         loaded = read_fragments(p)
         for a, b in zip(frags, loaded):
-            assert a == b
-            assert a.sequence == b.sequence
-            assert a.target_intervals == b.target_intervals
-            assert a.annotations == b.annotations
+            assert a.to_dict() == b.to_dict()
 
     def test_file_is_tsv(self, tmp_path):
         frags = self._fragments()
@@ -405,6 +410,25 @@ class TestTsvIo:
         assert loaded[0].sequence == "MAVS"
         assert loaded[0].annotations == {}
         assert loaded[0].target_intervals is None
+
+    def test_legacy_evidence_columns_are_migrated(self, tmp_path):
+        p = tmp_path / "legacy.tsv"
+        p.write_text(
+            "fragment_id\tsequence\tn_alt_reads\tn_other_fragments\t"
+            "field_provenance\n"
+            'legacy\tSIINFEKLA\t12\t3\t'
+            '{"n_alt_reads":"approximated",'
+            '"n_other_fragments":"measured"}\n'
+        )
+
+        fragment = read_fragments(p)[0]
+
+        assert fragment.n_rna_alt_reads == 12
+        assert fragment.n_rna_other_fragments == 3
+        assert fragment.field_provenance == {
+            "n_rna_alt_reads": "approximated",
+            "n_rna_other_fragments": "measured",
+        }
 
     def test_iter_fragments(self, tmp_path):
         frags = self._fragments()

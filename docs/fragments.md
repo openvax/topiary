@@ -109,9 +109,13 @@ Four paths, one shape. They differ only in which fields they can fill:
 
 ```python
 def rna_support(fragment):
-    if not fragment.is_usable_as_biology("n_alt_reads"):
+    subject = fragment.rna_evidence_subject()
+    if subject is None:
         return None
-    return fragment.n_alt_reads, fragment.is_approximate("n_alt_reads")
+    field = f"n_rna_alt_{subject}"
+    if not fragment.is_usable_as_biology(field):
+        return None
+    return fragment.n_rna_alt, fragment.is_approximate(field)
 ```
 
 That function reads all four without knowing which it has: isovar returns
@@ -154,19 +158,20 @@ read-level evidence:
 
 | Field | Meaning |
 |---|---|
-| `n_overlapping_reads` | Reads spanning the variant position |
-| `n_alt_reads` | Reads supporting the variant allele |
-| `n_ref_reads` | Reads supporting the reference allele |
-| `n_alt_reads_supporting_protein_sequence` | Reads supporting *this assembled protein sequence*, not merely the allele |
+| `n_rna_overlapping_reads` / `n_rna_overlapping_fragments` | Reads or fragments spanning the variant position |
+| `n_rna_alt_reads` / `n_rna_alt_fragments` | Reads or fragments supporting the variant allele |
+| `n_rna_ref_reads` / `n_rna_ref_fragments` | Reads or fragments supporting the reference allele |
+| `n_rna_other_reads` / `n_rna_other_fragments` | Reads or fragments supporting neither reference nor alt |
+| `n_rna_alt_reads_supporting_protein_sequence` / `n_rna_alt_fragments_supporting_protein_sequence` | Reads or fragments supporting *this assembled protein sequence*, not merely the allele |
 
 These are not derivable from a TPM, which is why they are fields rather than
 annotations.
 
 **`None` is unknown; it is not `0`.** A source with no read data leaves them
 `None`. A source that looked and found no support sets `0`. A consumer must be
-able to tell those apart, so ask `fragment.is_known("n_alt_reads")` rather than
-testing truthiness — and the distinction survives writing to and reading from a
-TSV.
+able to tell those apart, so ask
+`fragment.is_known("n_rna_alt_reads")` rather than testing truthiness — and the
+distinction survives writing to and reading from a TSV.
 
 Different sources populate different subsets, and some of them *estimate*. So a
 fragment can also say how real each populated field is:
@@ -178,8 +183,11 @@ ProteinFragment(
     fragment_id="...",
     sequence="...",
     variant="chr1:100:N>N",       # invented by the loader; not real alleles
-    n_alt_reads=12,               # reconstructed as depth x VAF, not counted
-    field_provenance={"variant": SYNTHESIZED, "n_alt_reads": APPROXIMATED},
+    n_rna_alt_reads=12,           # reconstructed as depth x VAF, not counted
+    field_provenance={
+        "variant": SYNTHESIZED,
+        "n_rna_alt_reads": APPROXIMATED,
+    },
 )
 ```
 
@@ -211,9 +219,13 @@ populated and how real those fields are:
 
 ```python
 def rna_support(fragment):
-    if not fragment.is_usable_as_biology("n_alt_reads"):
+    subject = fragment.rna_evidence_subject()
+    if subject is None:
         return None
-    return fragment.n_alt_reads
+    field = f"n_rna_alt_{subject}"
+    if not fragment.is_usable_as_biology(field):
+        return None
+    return fragment.n_rna_alt
 ```
 
 ## source_type vocabulary (recommended, not enforced)
@@ -325,7 +337,13 @@ write_fragments(fragments, "fragments.tsv")
 loaded = read_fragments("fragments.tsv")
 ```
 
-TSV format: one row per fragment. Scalar fields map to same-named columns. `target_intervals` and `annotations` are JSON-encoded in their own columns. Missing columns on read fall back to field defaults; unknown columns raise.
+TSV format: one row per fragment. Scalar fields map to same-named columns.
+`target_intervals`, `field_provenance`, and `annotations` are JSON-encoded in
+their own columns. Missing columns on read fall back to field defaults; unknown
+columns raise. Evidence names from 5.47 and earlier are migrated through
+`RENAMED_COLUMNS`, including direct constructor keywords, compatibility
+attribute reads, and keys inside `field_provenance`. New dictionaries and TSVs
+always emit only the assay-scoped names.
 
 For single-fragment / API use: `fragment.to_dict()`, `fragment.to_json()`, and the `from_dict` / `from_json` classmethods — stdlib only, no dependencies.
 
@@ -347,4 +365,7 @@ Prefix is sanitized to `[A-Za-z0-9._:-]`; runs of other characters collapse to `
 
 - **Coordinate remapping for indel / frameshift `wt_peptide`** — `wt_peptide` is only populated when the baseline is the same length as the mutant sequence (substitution-compatible). Length-changing edits yield `None` until remapping lands.
 - **Nearest-self compute** — the scope is reserved but no Topiary module produces the columns. Populate externally for now.
-- **Format-specific loaders** (`read_isovar_fragments`, `read_exacto_fragments`) — each ~50-100 lines on top of the core abstraction; separate PRs. `read_lens` is already shipped (5.1.0); pVACseq is loaded via `read_pvacseq` (5.16.0) at the *row* level — its output is already at peptide × allele granularity, so the fragment-window abstraction doesn't apply.
+- **Dedicated file loaders** (`read_isovar_fragments`,
+  `read_exacto_fragments`) — separate work. Existing in-memory results already
+  compose through `fragment_from_isovar_result` and
+  `fragments_from_dataframe(read_pvacseq(...).df)`.

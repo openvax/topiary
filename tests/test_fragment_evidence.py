@@ -184,12 +184,62 @@ def test_from_dict_accepts_every_field_the_dataclass_has():
     """It hardcoded its field list, so new fields were rejected on load."""
     full = _fragment(
         n_rna_overlapping_reads=40, n_rna_alt_reads=12, n_rna_ref_reads=28,
+        n_rna_other_reads=3,
         n_rna_alt_reads_supporting_protein_sequence=9,
-        field_provenance={"n_rna_alt_reads": APPROXIMATED},
+        n_rna_overlapping_fragments=20, n_rna_alt_fragments=6,
+        n_rna_ref_fragments=14, n_rna_other_fragments=2,
+        n_rna_alt_fragments_supporting_protein_sequence=5,
+        field_provenance={
+            "n_rna_alt_reads": APPROXIMATED,
+            "n_rna_other_fragments": MEASURED,
+        },
     )
 
-    assert ProteinFragment.from_dict(full.to_dict()) == full
-    assert ProteinFragment.from_dict(full.to_dict()).n_rna_alt_reads == 12
+    assert ProteinFragment.from_dict(full.to_dict()).to_dict() == full.to_dict()
+
+
+def test_from_dict_migrates_legacy_evidence_names_and_provenance():
+    fragment = ProteinFragment.from_dict({
+        "fragment_id": "legacy",
+        "sequence": "SIINFEKLA",
+        "n_alt_reads": 12,
+        "n_other_fragments": 3,
+        "field_provenance": {
+            "n_alt_reads": APPROXIMATED,
+            "n_other_fragments": MEASURED,
+        },
+    })
+
+    assert fragment.n_rna_alt_reads == 12
+    assert fragment.n_rna_other_fragments == 3
+    assert fragment.field_provenance == {
+        "n_rna_alt_reads": APPROXIMATED,
+        "n_rna_other_fragments": MEASURED,
+    }
+
+
+def test_legacy_constructor_and_attribute_names_remain_compatible():
+    fragment = ProteinFragment(
+        fragment_id="legacy",
+        sequence="SIINFEKLA",
+        n_alt_reads=12,
+        field_provenance={"n_alt_reads": APPROXIMATED},
+    )
+
+    assert fragment.n_alt_reads == 12
+    assert fragment.n_rna_alt_reads == 12
+    assert fragment.is_known("n_alt_reads")
+    assert fragment.is_approximate("n_alt_reads")
+    assert "n_alt_reads" not in fragment.to_dict()
+
+
+def test_conflicting_legacy_and_current_constructor_names_are_refused():
+    with pytest.raises(ValueError, match="Conflicting ProteinFragment fields"):
+        ProteinFragment(
+            fragment_id="conflict",
+            n_alt_reads=12,
+            n_rna_alt_reads=13,
+        )
 
 
 def test_the_degenerate_fragment_flows_through_unchanged(tmp_path):

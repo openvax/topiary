@@ -45,13 +45,18 @@ def _read(fn, path):
 
 def test_the_dna_columns_mirror_the_rna_columns_name_for_name():
     """The point of the symmetry: s/rna/dna/ names a real column."""
-    rna_shape = {c.replace("rna", "", 1) for c in RNA_EVIDENCE_COLUMNS}
+    expression_only = {
+        "rna_alt_expression", "rna_alt_expression_method",
+        "gene_expression", "transcript_expression",
+    }
+    rna_shape = {
+        c.replace("rna", "", 1) for c in RNA_EVIDENCE_COLUMNS
+        if c not in expression_only
+    }
     dna_shape = {c.replace("dna", "", 1) for c in DNA_EVIDENCE_COLUMNS}
-    # Expression is transcript-only and has no DNA meaning; everything
-    # else must exist on both sides.
-    expression_only = {"_alt_expression", "_alt_expression_method",
-                       "gene_expression"}
-    assert rna_shape - expression_only == dna_shape
+    # Expression and abundance have no DNA meaning; everything else must
+    # exist on both sides.
+    assert rna_shape == dna_shape
 
 
 def test_pvacseq_derives_dna_counts_from_depth_and_vaf():
@@ -127,10 +132,11 @@ def test_a_depth_without_a_fraction_yields_no_split_rather_than_zero():
     out = attach_dna_evidence(
         pd.DataFrame({"x": [1]}), depth=pd.Series([50]), vaf=pd.Series([None]),
     )
-    assert pd.isna(out["n_dna_alt"].iloc[0])
-    assert pd.isna(out["dna_evidence_method"].iloc[0])
+    assert "n_dna_alt" not in out.columns
+    assert "dna_evidence_method" not in out.columns
     # Depth is still known: the source did cover the locus.
     assert out["n_dna_overlapping"].iloc[0] == 50
+    assert out["dna_evidence_subject"].iloc[0] == "reads"
 
 
 def test_a_source_that_states_only_a_fraction_gets_only_the_fraction_column():
@@ -148,6 +154,39 @@ def test_a_source_that_states_only_a_fraction_gets_only_the_fraction_column():
 def test_no_dna_inputs_at_all_writes_no_dna_columns():
     out = attach_dna_evidence(pd.DataFrame({"x": [1]}))
     assert list(out.columns) == ["x"]
+
+
+def test_all_null_dna_inputs_are_omitted_like_absent_inputs():
+    out = attach_dna_evidence(
+        pd.DataFrame({"x": [1, 2]}),
+        depth=pd.Series([None, None]),
+        vaf=pd.Series([None, None]),
+        alt=pd.Series([None, None]),
+        ref=pd.Series([None, None]),
+    )
+
+    assert list(out.columns) == ["x"]
+
+
+def test_an_explicit_subject_cannot_contradict_a_known_derivation():
+    with pytest.raises(ValueError, match="contradicts"):
+        attach_dna_evidence(
+            pd.DataFrame({"x": [1]}),
+            depth=pd.Series([100]),
+            vaf=pd.Series([0.4]),
+            subject="fragments",
+        )
+
+
+def test_a_read_depth_cannot_be_mixed_with_direct_fragment_counts():
+    with pytest.raises(ValueError, match="contradicts"):
+        attach_dna_evidence(
+            pd.DataFrame({"x": [1]}),
+            depth=pd.Series([100]),
+            alt=pd.Series([40]),
+            ref=pd.Series([50]),
+            subject="fragments",
+        )
 
 
 def test_other_allele_column_is_omitted_not_nulled_when_ref_was_derived():

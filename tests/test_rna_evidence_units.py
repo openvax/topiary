@@ -131,6 +131,47 @@ def test_no_evidence_says_nothing_rather_than_zero():
     assert fragment.rna_evidence_subject() is None
 
 
+def test_other_only_evidence_still_reports_its_subject():
+    fragment = ProteinFragment(
+        fragment_id="f", sequence="SIINFEKLA", n_rna_other_reads=3,
+    )
+
+    assert fragment.rna_evidence_subject() == READS
+
+
+def test_mixed_units_are_refused_instead_of_mislabelled():
+    fragment = ProteinFragment(
+        fragment_id="f",
+        sequence="SIINFEKLA",
+        n_rna_alt_fragments=3,
+        n_rna_ref_reads=7,
+    )
+
+    with pytest.raises(ValueError, match="mixes RNA evidence units"):
+        fragment.rna_evidence_subject()
+
+    predictor = TopiaryPredictor(
+        models=RandomBindingPredictor, alleles=["A0201"],
+    )
+    with pytest.raises(ValueError, match="mix RNA evidence units"):
+        predictor.predict_from_fragments([fragment])
+
+
+def test_a_fragment_without_evidence_emits_no_evidence_subject():
+    predictor = TopiaryPredictor(
+        models=RandomBindingPredictor, alleles=["A0201"],
+    )
+    fragment = ProteinFragment(
+        fragment_id="f", sequence="SIINFEKLA",
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        frame = predictor.predict_from_fragments([fragment])
+
+    assert "rna_evidence_subject" not in frame.columns
+
+
 @pytest.mark.parametrize("accessor,fragments,reads", [
     ("n_rna_alt", 30, 58),
     ("n_rna_ref", 31, 60),

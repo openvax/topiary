@@ -98,6 +98,16 @@ class TestConstruction:
         with pytest.raises(ValueError, match="either .df. .* or .fallback."):
             CachedPredictor(df)
 
+    @pytest.mark.parametrize("column", [
+        "score", "affinity", "percentile_rank", "value",
+    ])
+    def test_malformed_numeric_value_is_rejected(self, column):
+        row = _row()
+        row[column] = "not-a-number"
+
+        with pytest.raises(ValueError, match=column):
+            CachedPredictor(_df([row]))
+
 
 class TestVersionInvariant:
     def test_mixed_versions_reject(self):

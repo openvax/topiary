@@ -343,7 +343,7 @@ from topiary.ranking import Column
 
 Column("cysteine_count")
 Column("hydrophobicity") >= -0.5
-Column("n_alt_reads").sqrt()
+Column("n_rna_alt").sqrt()
 
 # In a composite score
 score = (

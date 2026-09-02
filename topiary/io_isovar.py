@@ -118,6 +118,9 @@ def fragment_from_isovar_result(
         n_rna_ref_reads=_as_count(
             getattr(isovar_result, "num_ref_reads", None)
         ),
+        n_rna_other_reads=_as_count(
+            getattr(isovar_result, "num_other_reads", None)
+        ),
         n_rna_alt_reads_supporting_protein_sequence=_as_count(
             getattr(protein_sequence, "num_supporting_reads", None)
         ),
@@ -129,6 +132,9 @@ def fragment_from_isovar_result(
         ),
         n_rna_ref_fragments=_as_count(
             getattr(isovar_result, "num_ref_fragments", None)
+        ),
+        n_rna_other_fragments=_as_count(
+            getattr(isovar_result, "num_other_fragments", None)
         ),
         n_rna_alt_fragments_supporting_protein_sequence=_as_count(
             getattr(protein_sequence, "num_supporting_fragments", None)

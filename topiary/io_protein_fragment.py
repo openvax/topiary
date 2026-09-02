@@ -1,49 +1,29 @@
 """TSV IO for :class:`ProteinFragment` collections.
 
 Format: one row per fragment.  Scalar fields map to columns of the same
-name.  ``target_intervals`` and ``annotations`` are JSON-serialized into
-their own columns; empty annotations serialize as the empty object
-``{}``, absent target_intervals serialize as empty strings.
+name. ``target_intervals``, ``field_provenance``, and ``annotations`` are
+JSON-serialized into their own columns; empty mappings serialize as the
+empty object ``{}``, absent target_intervals serialize as empty strings.
 
-Missing columns on read fall back to field defaults.  Unknown columns
-are rejected with a clear error (catches typos; use ``annotations`` for
-tool-specific extensions).
+Missing columns on read fall back to field defaults. Evidence fields from
+5.47 and earlier are migrated to their assay-scoped names. Other unknown
+columns are rejected with a clear error (catches typos; use ``annotations``
+for tool-specific extensions).
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 from typing import Iterable, Iterator, List
 
 import pandas as pd
 
-from .protein_fragment import ProteinFragment
+from .protein_fragment import ProteinFragment, _migrate_fragment_dict
 from .ranking import is_stated
 
-_COLUMNS = [
-    "fragment_id",
-    "source_type",
-    "sequence",
-    "reference_sequence",
-    "germline_sequence",
-    "target_intervals",
-    "variant",
-    "effect",
-    "effect_type",
-    "gene",
-    "gene_id",
-    "transcript_id",
-    "transcript_name",
-    "gene_expression",
-    "transcript_expression",
-    "n_rna_overlapping_reads",
-    "n_rna_alt_reads",
-    "n_rna_ref_reads",
-    "n_rna_alt_reads_supporting_protein_sequence",
-    "field_provenance",
-    "annotations",
-]
+_COLUMNS = [field.name for field in dataclasses.fields(ProteinFragment)]
 
 _COLUMN_SET = set(_COLUMNS)
 
@@ -67,6 +47,7 @@ def _fragment_to_row(f: ProteinFragment) -> dict:
 
 def _row_to_fragment(row: dict) -> ProteinFragment:
     """Inverse of :func:`_fragment_to_row`."""
+    row = _migrate_fragment_dict(row, _COLUMN_SET)
     unknown = set(row.keys()) - _COLUMN_SET
     if unknown:
         raise ValueError(
@@ -84,65 +65,29 @@ def _row_to_fragment(row: dict) -> ProteinFragment:
             return None
         return v
 
-    ti_raw = _clean("target_intervals")
-    if ti_raw is None:
-        target_intervals = None
-    else:
-        target_intervals = [tuple(p) for p in json.loads(ti_raw)]
+    values = {}
+    for column in row:
+        value = _clean(column)
+        if column == "target_intervals":
+            values[column] = (
+                [tuple(pair) for pair in json.loads(value)]
+                if value is not None else None
+            )
+        elif column in ("annotations", "field_provenance"):
+            values[column] = json.loads(value) if value is not None else {}
+        elif column in ("gene_expression", "transcript_expression"):
+            values[column] = float(value) if value is not None else None
+        elif column.startswith("n_rna_"):
+            # Blank means unknown, not zero.
+            values[column] = int(float(value)) if value is not None else None
+        else:
+            values[column] = str(value) if value is not None else None
 
-    ann_raw = _clean("annotations")
-    annotations = json.loads(ann_raw) if ann_raw else {}
-
-    prov_raw = _clean("field_provenance")
-    field_provenance = json.loads(prov_raw) if prov_raw else {}
-
-    def _num(col):
-        v = _clean(col)
-        return float(v) if v is not None else None
-
-    def _count(col):
-        """An int, or None for a blank cell.
-
-        Blank means the source did not report a count, which is not the
-        same as reporting zero — so it must not become 0 on the way
-        through a file.
-        """
-        v = _clean(col)
-        return int(float(v)) if v is not None else None
-
-    def _str(col):
-        v = _clean(col)
-        return str(v) if v is not None else None
-
-    fragment_id = _str("fragment_id")
-    if fragment_id is None:
+    if not values.get("fragment_id"):
         raise ValueError("fragment TSV row is missing fragment_id")
-
-    return ProteinFragment(
-        fragment_id=fragment_id,
-        source_type=_str("source_type"),
-        sequence=_str("sequence") or "",
-        reference_sequence=_str("reference_sequence"),
-        germline_sequence=_str("germline_sequence"),
-        target_intervals=target_intervals,
-        variant=_str("variant"),
-        effect=_str("effect"),
-        effect_type=_str("effect_type"),
-        gene=_str("gene"),
-        gene_id=_str("gene_id"),
-        transcript_id=_str("transcript_id"),
-        transcript_name=_str("transcript_name"),
-        gene_expression=_num("gene_expression"),
-        transcript_expression=_num("transcript_expression"),
-        n_rna_overlapping_reads=_count("n_rna_overlapping_reads"),
-        n_rna_alt_reads=_count("n_rna_alt_reads"),
-        n_rna_ref_reads=_count("n_rna_ref_reads"),
-        n_rna_alt_reads_supporting_protein_sequence=_count(
-            "n_rna_alt_reads_supporting_protein_sequence"
-        ),
-        field_provenance=field_provenance,
-        annotations=annotations,
-    )
+    if values.get("sequence") is None:
+        values["sequence"] = ""
+    return ProteinFragment.from_dict(values)
 
 
 def write_fragments(fragments: Iterable[ProteinFragment], path, sep: str = "\t") -> None:

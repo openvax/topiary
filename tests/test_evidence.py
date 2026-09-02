@@ -199,6 +199,17 @@ def test_a_partially_answerable_source_gets_the_columns_it_can_fill():
     assert "rna_evidence_method" not in frame.columns
 
 
+def test_all_null_rna_inputs_are_omitted_like_absent_inputs():
+    frame = attach_rna_evidence(
+        pd.DataFrame({"x": [1, 2]}),
+        overlapping=pd.Series([None, None]),
+        vaf=pd.Series([None, None]),
+        reported_rna_alt_expression=pd.Series([None, None]),
+    )
+
+    assert list(frame.columns) == ["x"]
+
+
 # ---------------------------------------------------------------------------
 # describe_read_evidence
 # ---------------------------------------------------------------------------

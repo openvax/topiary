@@ -211,7 +211,10 @@ _AGG_ANNOTATIONS = {
     # Same names the all_epitopes path uses. A reader that speaks two
     # vocabularies depending on which flavour of its own format it was
     # given means no single filter works across two pVACseq files.
-    "RNA Expr":                "transcript_expression",
+    # pVACseq defines this as expression for the annotated gene, not the
+    # Best Transcript. Calling it transcript-level invents a resolution
+    # the source does not supply.
+    "RNA Expr":                "gene_expression",
     "RNA VAF":                 "pvacseq_tumor_rna_vaf",
     "RNA Depth":               "pvacseq_tumor_rna_depth",
     "DNA VAF":                 "pvacseq_tumor_dna_vaf",
@@ -477,8 +480,6 @@ def _parse_aggregated(df):
         out,
         overlapping=df["RNA Depth"] if "RNA Depth" in df else None,
         vaf=df["RNA VAF"] if "RNA VAF" in df else None,
-        expression=df["RNA Expr"] if "RNA Expr" in df else None,
-        dna_vaf=df["DNA VAF"] if "DNA VAF" in df else None,
         reported_rna_alt_expression=(
             df["Allele Expr"] if "Allele Expr" in df else None
         ),

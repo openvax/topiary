@@ -18,6 +18,7 @@ Still open, and fixed here:
 
 import warnings
 
+import pandas as pd
 import pytest
 
 from topiary import evaluate_scores, read_lens, read_pvacseq
@@ -154,7 +155,8 @@ def test_a_consumer_can_ask_how_a_number_was_obtained_on_either_frame(frames):
 # branches. Its aggregated report supplies pVACseq's own `Allele Expr` and
 # `RNA Expr`, which were passed through under names the all_epitopes path
 # never emits — and that path never ran attach_rna_evidence at all, so it
-# had no method columns.
+# had no method columns. `RNA Expr` is gene-level according to pVACseq's
+# schema; sharing vocabulary must not turn it into transcript-level data.
 #
 # Both of us mis-verified this by checking one branch: I read the
 # all_epitopes fixture and concluded about the reader; the consumer grepped
@@ -178,7 +180,22 @@ def test_both_pvacseq_flavours_name_expression_the_same(path):
     df = _pvacseq(path)
 
     assert "rna_alt_expression" in df.columns
-    assert "transcript_expression" in df.columns
+    assert "gene_expression" in df.columns
+
+
+def test_aggregated_rna_expr_is_gene_not_transcript_expression():
+    """pVACseq's schema defines RNA Expr as gene-level expression."""
+    df = _pvacseq(AGGREGATED)
+
+    assert "gene_expression" in df.columns
+    assert "transcript_expression" not in df.columns
+
+    raw = pd.read_csv(AGGREGATED, sep="\t")
+    pd.testing.assert_series_equal(
+        df["gene_expression"].reset_index(drop=True),
+        raw["RNA Expr"].reset_index(drop=True),
+        check_names=False,
+    )
 
 
 @pytest.mark.parametrize("path", [AGGREGATED, ALL_EPITOPES],
@@ -213,6 +230,19 @@ def test_a_source_supplied_estimate_says_so():
     assert methods == {"source_reported"}
 
 
+def test_aggregated_report_without_allele_expr_does_not_invent_one(
+    tmp_path,
+):
+    raw = pd.read_csv(AGGREGATED, sep="\t").drop(columns=["Allele Expr"])
+    path = tmp_path / "without-allele-expr.tsv"
+    raw.to_csv(path, sep="\t", index=False)
+
+    df = _pvacseq(path)
+
+    assert "rna_alt_expression" not in df.columns
+    assert "rna_alt_expression_method" not in df.columns
+
+
 def test_a_derived_estimate_says_that_instead():
     df = _pvacseq(ALL_EPITOPES)
 
@@ -245,7 +275,8 @@ def test_one_filter_spans_both_pvacseq_flavours(path):
 #
 # The consumer guide claimed the nine evidence columns were "identical across
 # readers". They are the same *vocabulary* — a reader emits one only where its
-# source can answer. A pVACseq aggregated report has no gene-level abundance.
+# source can answer. A pVACseq aggregated report has gene-level abundance but
+# no separately stated transcript-level abundance.
 #
 # This matters because naming an absent column raises rather than evaluating
 # to NaN, so a config written against one source can break on another.
@@ -263,14 +294,14 @@ def test_the_evidence_vocabulary_is_shared():
         assert "n_rna_alt" in available
 
 
-def test_an_aggregated_report_has_no_gene_level_abundance():
-    """The specific gap the guide got wrong."""
+def test_an_aggregated_report_has_no_transcript_level_abundance():
+    """Do not relabel pVACseq's gene-level RNA Expr as transcript-level."""
     from topiary import available_evidence_columns
 
     available = available_evidence_columns(_pvacseq(AGGREGATED))
 
-    assert "gene_expression" not in available
-    assert "gene_expression" in available_evidence_columns(
+    assert "transcript_expression" not in available
+    assert "transcript_expression" in available_evidence_columns(
         _pvacseq(ALL_EPITOPES)
     )
 
@@ -278,7 +309,9 @@ def test_an_aggregated_report_has_no_gene_level_abundance():
 def test_naming_an_absent_column_raises_rather_than_dropping_everything():
     """A silent NaN would drop every row in a filter and say nothing."""
     with pytest.raises(ValueError, match="not found"):
-        evaluate_scores(_pvacseq(AGGREGATED), parse("gene_expression > 1"))
+        evaluate_scores(
+            _pvacseq(AGGREGATED), parse("transcript_expression > 1")
+        )
 
 
 def test_absent_columns_are_absent_not_all_null():
@@ -286,7 +319,7 @@ def test_absent_columns_are_absent_not_all_null():
     answered as nothing."""
     df = _pvacseq(AGGREGATED)
 
-    assert "gene_expression" not in df.columns
+    assert "transcript_expression" not in df.columns
 
 
 def test_the_portable_columns_are_on_every_source():
