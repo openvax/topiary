@@ -305,6 +305,41 @@ Also public rather than reimplemented: `fragment_from_effect`,
 
 ---
 
+## Migrating renamed columns
+
+Every column renamed since 5.46.0 is in `RENAMED_COLUMNS`, and
+`renamed_column(name)` looks one up:
+
+```python
+from topiary import RENAMED_COLUMNS, renamed_column
+
+renamed_column("vaf")              # 'lens_vaf'
+renamed_column("tumor_rna_depth")  # 'pvacseq_tumor_rna_depth'
+renamed_column("gene_expression")  # None — not renamed
+```
+
+The DSL consults it before fuzzy matching, so a stale expression says what
+to do:
+
+```
+Column 'vaf' not found in DataFrame. It was renamed to 'lens_vaf'.
+```
+
+**Do not fuzzy-match these yourself.** `vaf` is the trap: the closest
+surviving name is `rna_vaf`, and that is the wrong answer — `rna_vaf` is the
+canonical cross-source fraction, while `vaf` became `lens_vaf`, LENS's own
+fraction whose assay the file never states.
+
+**If you read columns with `row.get(...)` or `df[...]` rather than through the
+DSL, topiary cannot warn you** — a missed `.get()` returns `None` and becomes
+a silent zero. Check your column names against `RENAMED_COLUMNS` once at
+startup.
+
+There are no compatibility aliases. Two live names for one quantity is the
+ambiguity the renames existed to remove.
+
+---
+
 ## Reader escape hatches
 
 ```python

@@ -303,3 +303,57 @@ def test_the_concat_overlap_error_names_the_key_it_actually_used():
         )
     for column in PREDICTION_KEY_COLUMNS:
         assert column in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# Migration: renamed columns are self-diagnosing
+# ---------------------------------------------------------------------------
+
+
+def test_every_recorded_rename_points_at_a_column_that_exists_somewhere():
+    """A migration table that names a nonexistent column is worse than none."""
+    from topiary import RENAMED_COLUMNS
+    import dataclasses
+    from topiary import ProteinFragment
+
+    known = set()
+    for path, reader in (
+        (LENS, read_lens), (PVAC_ALL, read_pvacseq),
+        ("tests/data/pvacseq/mhc_i_aggregated.tsv", read_pvacseq),
+    ):
+        known |= set(_read(reader, path).columns)
+    known |= {f.name for f in dataclasses.fields(ProteinFragment)}
+
+    missing = {old: new for old, new in RENAMED_COLUMNS.items()
+               if new not in known}
+    assert not missing, f"rename targets that exist nowhere: {missing}"
+
+
+def test_the_rename_map_beats_fuzzy_matching_on_the_case_that_matters():
+    """`vaf` fuzzy-matches to `rna_vaf`, which is a different quantity.
+
+    `rna_vaf` is the canonical cross-source fraction; `vaf` was LENS's
+    own, whose assay the file never states. Sending a consumer to the
+    wrong one silently changes what their filter means.
+    """
+    from topiary import apply_filter, renamed_column
+    from topiary.ranking import parse
+
+    assert renamed_column("vaf") == "lens_vaf"
+
+    df = _read(read_lens, LENS)
+    with pytest.raises(ValueError) as excinfo:
+        apply_filter(df, parse("vaf > 0.1"))
+    message = str(excinfo.value)
+    assert "lens_vaf" in message
+    assert "rna_vaf" not in message.replace("lens_vaf", "")
+
+
+def test_a_genuinely_unknown_column_still_gets_a_fuzzy_suggestion():
+    """The rename map must not swallow the ordinary typo path."""
+    from topiary import apply_filter
+    from topiary.ranking import parse
+
+    df = _read(read_lens, LENS)
+    with pytest.raises(ValueError, match="Did you mean|Available columns"):
+        apply_filter(df, parse("gene_expresion > 1"))

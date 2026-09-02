@@ -131,6 +131,21 @@ def _missing_column_error(col_names, available, label="Column"):
     # usable key.  The displayed list is stringified so it can be sorted.
     string_labels = sorted(c for c in available if isinstance(c, str))
 
+    def renamed_to(name):
+        """The recorded new name, when this column was renamed.
+
+        Consulted before fuzzy matching because fuzzy matching gets the
+        important case wrong: the closest surviving name to ``vaf`` is
+        ``rna_vaf``, a different quantity, while ``vaf`` actually became
+        ``lens_vaf``.
+        """
+        from ..evidence import renamed_column
+
+        if not isinstance(name, str):
+            return None
+        new_name = renamed_column(name)
+        return new_name if new_name in string_labels else None
+
     def suggest(name):
         if not isinstance(name, str):
             return []
@@ -138,6 +153,11 @@ def _missing_column_error(col_names, available, label="Column"):
 
     if len(names) == 1:
         msg = f"{label} {names[0]!r} not found in DataFrame."
+        new_name = renamed_to(names[0])
+        if new_name:
+            return ValueError(
+                msg + f" It was renamed to {new_name!r}."
+            )
         close = suggest(names[0])
         if close:
             return ValueError(msg + f" Did you mean: {close}?")
@@ -146,7 +166,12 @@ def _missing_column_error(col_names, available, label="Column"):
         )
 
     msg = f"{label}s {names!r} not found in DataFrame."
-    hints = [f"{n!r} -> {close}" for n in names if (close := suggest(n))]
+    hints = [
+        f"{n!r} -> renamed to {new_name!r}" if (new_name := renamed_to(n))
+        else f"{n!r} -> {close}"
+        for n in names
+        if renamed_to(n) or (close := suggest(n))
+    ]
     if hints:
         return ValueError(msg + f" Did you mean: {'; '.join(hints)}?")
     return ValueError(

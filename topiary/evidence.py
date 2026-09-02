@@ -667,6 +667,74 @@ def attach_dna_evidence(
     return out
 
 
+#: Columns renamed since 5.46.0, old name -> new name.
+#:
+#: Exported because a consumer that reads these names out of a frame --
+#: vaxrank does, with ``row.get(...)`` and ordered fallback tuples --
+#: cannot recover from a rename by pattern-matching. Two of these
+#: renames are actively hostile to guessing: ``vaf`` looks like it
+#: should become ``rna_vaf`` and does not (that is the canonical
+#: cross-source fraction; ``lens_vaf`` is LENS's own, whose assay the
+#: file never states), and a ``.get()`` that misses returns ``None``
+#: rather than raising, so the failure is a silent zero.
+#:
+#: Kept rather than shipping compatibility aliases: two live names for
+#: one quantity is the ambiguity the renames existed to remove. This is
+#: a migration table, not a shim -- look a name up, change your code.
+RENAMED_COLUMNS = MappingProxyType({
+    # LENS: its own numbers now carry its name.
+    "vaf": "lens_vaf",
+    "rna_reads_covering_genomic_origin":
+        "lens_rna_reads_covering_genomic_origin",
+    "rna_reads_covering_genomic_origin_with_peptide_cds":
+        "lens_rna_reads_covering_genomic_origin_with_peptide_cds",
+    "proportion_rna_reads_covering_genomic_origin_with_peptide_cds":
+        "lens_proportion_rna_reads_covering_genomic_origin_with_peptide_cds",
+    # pVACseq: same.
+    "tumor_dna_depth": "pvacseq_tumor_dna_depth",
+    "tumor_dna_vaf": "pvacseq_tumor_dna_vaf",
+    "tumor_rna_depth": "pvacseq_tumor_rna_depth",
+    "tumor_rna_vaf": "pvacseq_tumor_rna_vaf",
+    "normal_depth": "pvacseq_normal_depth",
+    "normal_vaf": "pvacseq_normal_vaf",
+    # Unit-specific counts, now scoped by assay.
+    "n_alt_reads": "n_rna_alt_reads",
+    "n_alt_fragments": "n_rna_alt_fragments",
+    "n_ref_reads": "n_rna_ref_reads",
+    "n_ref_fragments": "n_rna_ref_fragments",
+    "n_other_reads": "n_rna_other_reads",
+    "n_other_fragments": "n_rna_other_fragments",
+    "n_overlapping_reads": "n_rna_overlapping_reads",
+    "n_overlapping_fragments": "n_rna_overlapping_fragments",
+    "n_alt_reads_supporting_protein_sequence":
+        "n_rna_alt_reads_supporting_protein_sequence",
+    "n_alt_fragments_supporting_protein_sequence":
+        "n_rna_alt_fragments_supporting_protein_sequence",
+})
+
+
+def renamed_column(name: str):
+    """What *name* was renamed to, or ``None`` if it was not renamed.
+
+    Parameters
+    ----------
+    name : str
+        A column name from topiary 5.46.0 or earlier.
+
+    Returns
+    -------
+    str or None
+
+    Notes
+    -----
+    Prefer this to a fuzzy match. ``vaf`` is the case that proves the
+    point: the closest surviving name is ``rna_vaf``, and that is the
+    wrong answer -- it is the canonical cross-source fraction, while
+    ``vaf`` became ``lens_vaf``, LENS's own fraction of unstated assay.
+    """
+    return RENAMED_COLUMNS.get(name)
+
+
 #: Tool name -> the prefix its own columns carry on a topiary frame.
 #:
 #: A canonical column such as ``rna_vaf`` means the same thing whichever
