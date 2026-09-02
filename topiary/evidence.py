@@ -515,25 +515,28 @@ def attach_rna_evidence(
     n_rows = len(out)
     empty = pd.Series([pd.NA] * n_rows, index=out.index, dtype="Int64")
 
-    out["n_rna_overlapping"] = (
-        _counts(overlapping) if overlapping is not None else empty
-    )
+    # Emitted only where the source can answer, exactly as on the DNA
+    # side. A source with no RNA at all gets no n_rna_* columns rather
+    # than a set full of nulls claiming it looked and found nothing.
+    if overlapping is not None:
+        out["n_rna_overlapping"] = _counts(overlapping)
     if overlapping is not None and vaf is not None:
         alt, ref = split_reads_by_vaf(overlapping, vaf)
         method = vaf_method
     else:
         alt, ref, method = empty, empty, None
-    out["n_rna_alt"] = alt
-    out["n_rna_ref"] = ref
-    # No n_rna_other here by construction: ref came from depth - alt,
-    # which already absorbs any third allele. The column is omitted
-    # rather than written full of nulls — a source that counts ref
+    if method is not None:
+        out["n_rna_alt"] = alt
+        out["n_rna_ref"] = ref
+        out["rna_evidence_method"] = pd.Series(
+            [method if pd.notna(a) else pd.NA for a in alt],
+            index=out.index, dtype="object",
+        )
+    # No n_rna_other by construction: ref came from depth - alt, which
+    # already absorbs any third allele. A source that counts ref
     # independently gets a real one via other_allele_count.
-    out["rna_vaf"] = _vaf_from(vaf, alt, overlapping, out.index)
-    out["rna_evidence_method"] = pd.Series(
-        [method if method and pd.notna(a) else pd.NA for a in alt],
-        index=out.index, dtype="object",
-    )
+    if vaf is not None or method is not None:
+        out["rna_vaf"] = _vaf_from(vaf, alt, overlapping, out.index)
 
     if supporting is not None:
         if supporting_method not in READ_COUNT_METHODS:
@@ -578,11 +581,11 @@ def attach_rna_evidence(
     # columns rather than two full of nulls, matching every other
     # evidence column. A null column claims the source looked and found
     # nothing; an absent one says it cannot answer.
-    out["rna_evidence_subject"] = pd.Series(
-        [READS if pd.notna(v) else pd.NA for v in out["n_rna_alt"]]
-        if "n_rna_alt" in out.columns else [pd.NA] * n_rows,
-        index=out.index, dtype="object",
-    )
+    if "n_rna_alt" in out.columns:
+        out["rna_evidence_subject"] = pd.Series(
+            [READS if pd.notna(v) else pd.NA for v in out["n_rna_alt"]],
+            index=out.index, dtype="object",
+        )
     return out
 
 

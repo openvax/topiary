@@ -31,6 +31,46 @@ Before telling the user a change is "complete":
 - `./test.sh` — pytest (with coverage where configured)
 - `./deploy.sh [version]` — lint → test → optional version bump → build → twine upload → tag → push
 
+## Two doors, one answer
+
+**When two callables answer the same question, a test must drive both.**
+A test that exercises one door can never see a divergence; only a test
+that runs the pair through the same battery can.
+
+This has now happened four times in one release cycle:
+
+- `attach_rna_evidence` let pandas align a misaligned Series (all-null
+  column); `attach_dna_evidence` assigned positionally (misaligned
+  column). Silent, and in opposite directions.
+- The same pair applied omit-not-null on the DNA side two releases
+  before the RNA side.
+- pVACseq's aggregated and all-epitopes branches attached read evidence
+  under different vocabularies.
+- `CachedPredictor.concat` raises on any duplicate key while the
+  constructor accepts contradictory rows silently (topiary#231).
+
+Every one passed review and passed its own tests.
+
+So:
+
+- **Register the pair.** `tests/test_twin_conformance.py` holds a `TWINS`
+  table of callables that must agree, with a map between argument names
+  that differ legitimately (`overlapping` vs `depth`). Writing a function
+  that answers a question an existing function already answers — an
+  assay variant, a format branch, a second constructor — means adding a
+  row, not trusting the next reviewer.
+- **Assert on the pair, not the member.** "Both refuse it or neither
+  does" catches divergence even where neither behaviour is obviously
+  wrong on its own. The harness found a fifth divergence on its first
+  run.
+- **Prefer one implementation where the shapes allow it.** A shared
+  helper both must route through (`_aligned`) removes an axis
+  permanently. Where the call shapes genuinely differ — `concat` versus
+  a constructor — the conformance test is the only available guard.
+- **Renames are prose changes too.** A mechanical rename across a repo
+  will rewrite comments that make claims about the *old* name, inverting
+  them. Read the prose hunks of a rename diff; tests cannot see them.
+
 ## Test the whole, not the parts
 
 **Before saying a workflow is supported, run it.** Checking that the pieces

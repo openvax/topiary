@@ -166,20 +166,37 @@ def test_a_cds_overlap_count_keeps_its_own_name():
 # ---------------------------------------------------------------------------
 
 
-def test_a_frame_with_no_rna_columns_gets_absent_not_zero():
+def test_a_source_with_no_rna_gets_no_rna_columns():
+    """Absent, not zero -- and absent at the column level, not the value.
+
+    This pair used to assert the opposite ("same shape from every source;
+    only which fields are filled differs"), which is the policy the rest
+    of the package abandoned: `available_evidence_columns` is only a
+    useful signal if a present column means the source could answer.
+    A column of nulls says it looked and found nothing.
+
+    The DNA side had this from the start; the RNA side kept writing six
+    null columns until the twin-conformance harness compared them.
+    """
     frame = attach_rna_evidence(pd.DataFrame({"x": [1, 2, 3]}))
 
-    for column in ("n_rna_overlapping", "n_rna_alt", "n_rna_ref"):
-        assert frame[column].isna().all()
-    assert frame["rna_evidence_method"].isna().all()
+    assert list(frame.columns) == ["x"]
 
 
-def test_the_columns_exist_even_when_unpopulated():
-    """Same shape from every source; only which fields are filled differs."""
-    frame = attach_rna_evidence(pd.DataFrame({"x": [1]}))
+def test_a_partially_answerable_source_gets_the_columns_it_can_fill():
+    """Column presence is a frame-level claim, NA is a row-level one.
 
-    assert "n_rna_alt" in frame.columns
-    assert "rna_evidence_method" in frame.columns
+    A source that reports depth but no fraction can say how much
+    coverage there was and cannot say how it split, so it gets
+    `n_rna_overlapping` and no `n_rna_alt`.
+    """
+    frame = attach_rna_evidence(
+        pd.DataFrame({"x": [1]}), overlapping=pd.Series([50]),
+    )
+
+    assert frame["n_rna_overlapping"].iloc[0] == 50
+    assert "n_rna_alt" not in frame.columns
+    assert "rna_evidence_method" not in frame.columns
 
 
 # ---------------------------------------------------------------------------

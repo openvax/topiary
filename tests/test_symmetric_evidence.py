@@ -274,8 +274,9 @@ def test_the_canonical_vaf_prefers_the_number_the_source_stated():
 
 
 def test_the_canonical_vaf_is_absent_when_nothing_supports_it():
+    """Absent as a column, not present as a null."""
     out = attach_rna_evidence(pd.DataFrame({"x": [1]}))
-    assert pd.isna(out["rna_vaf"].iloc[0])
+    assert "rna_vaf" not in out.columns
 
 
 # ---------------------------------------------------------------------------
