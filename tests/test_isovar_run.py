@@ -155,8 +155,8 @@ def test_the_read_counts_come_through_as_measured(isovar):
     fragment = fragments_from_variants(["v"], alignment_file=object())[0]
 
     assert fragment.n_rna_alt == 30            # fragments preferred
-    assert fragment.n_alt_reads == 58          # reads also carried
-    assert not fragment.is_approximate("n_alt_reads")
+    assert fragment.n_rna_alt_reads == 58          # reads also carried
+    assert not fragment.is_approximate("n_rna_alt_reads")
 
 
 # ---------------------------------------------------------------------------
@@ -307,8 +307,8 @@ def test_a_reference_fragment_has_no_read_counts():
     """No RNA was consulted, and it says so rather than saying zero."""
     fragment = fragments_from_effects([_Effect()], padding_around_mutation=8)[0]
 
-    assert not fragment.is_known("n_alt_reads")
-    assert not fragment.is_usable_as_biology("n_alt_reads")
+    assert not fragment.is_known("n_rna_alt_reads")
+    assert not fragment.is_usable_as_biology("n_rna_alt_reads")
 
 
 def test_expression_is_attached_when_given():

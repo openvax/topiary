@@ -92,11 +92,11 @@ class ProteinFragment:
         Ensembl id.
     gene_expression, transcript_expression : float, optional
         Expression evidence carried forward into prediction rows.
-    n_overlapping_reads, n_alt_reads, n_ref_reads, n_other_reads, \
-n_alt_reads_supporting_protein_sequence : int, optional
+    n_rna_overlapping_reads, n_rna_alt_reads, n_rna_ref_reads, n_rna_other_reads, \
+n_rna_alt_reads_supporting_protein_sequence : int, optional
         RNA evidence counted in **reads**.
-    n_overlapping_fragments, n_alt_fragments, n_ref_fragments, n_other_fragments, \
-n_alt_fragments_supporting_protein_sequence : int, optional
+    n_rna_overlapping_fragments, n_rna_alt_fragments, n_rna_ref_fragments, n_rna_other_fragments, \
+n_rna_alt_fragments_supporting_protein_sequence : int, optional
         The same evidence counted in **fragments**. A paired-end
         fragment is one molecule read twice, so it is one piece of
         evidence and two reads — which is why both are carried rather
@@ -109,8 +109,8 @@ n_alt_fragments_supporting_protein_sequence : int, optional
         RNA read-level evidence.  Not derivable from the aggregate
         expression fields above, and separately useful: a consumer that
         weights a candidate by depth of support needs the counts, not a
-        TPM.  ``n_alt_reads_supporting_protein_sequence`` is deliberately
-        distinct from ``n_alt_reads`` — it counts reads supporting *this
+        TPM.  ``n_rna_alt_reads_supporting_protein_sequence`` is deliberately
+        distinct from ``n_rna_alt_reads`` — it counts reads supporting *this
         assembled protein sequence*, not merely the variant allele.
 
         ``None`` means **unknown**, and is not the same as ``0``.  A
@@ -166,17 +166,17 @@ n_alt_fragments_supporting_protein_sequence : int, optional
     gene_expression: Optional[float] = None
     transcript_expression: Optional[float] = None
 
-    n_overlapping_reads: Optional[int] = None
-    n_alt_reads: Optional[int] = None
-    n_ref_reads: Optional[int] = None
-    n_other_reads: Optional[int] = None
-    n_alt_reads_supporting_protein_sequence: Optional[int] = None
+    n_rna_overlapping_reads: Optional[int] = None
+    n_rna_alt_reads: Optional[int] = None
+    n_rna_ref_reads: Optional[int] = None
+    n_rna_other_reads: Optional[int] = None
+    n_rna_alt_reads_supporting_protein_sequence: Optional[int] = None
 
-    n_overlapping_fragments: Optional[int] = None
-    n_alt_fragments: Optional[int] = None
-    n_ref_fragments: Optional[int] = None
-    n_other_fragments: Optional[int] = None
-    n_alt_fragments_supporting_protein_sequence: Optional[int] = None
+    n_rna_overlapping_fragments: Optional[int] = None
+    n_rna_alt_fragments: Optional[int] = None
+    n_rna_ref_fragments: Optional[int] = None
+    n_rna_other_fragments: Optional[int] = None
+    n_rna_alt_fragments_supporting_protein_sequence: Optional[int] = None
 
     field_provenance: dict = field(default_factory=dict)
 
@@ -237,8 +237,8 @@ n_alt_fragments_supporting_protein_sequence : int, optional
     def is_known(self, name: str) -> bool:
         """Whether *name* carries a value at all.
 
-        The distinction this exists for: ``n_alt_reads == 0`` means the
-        source looked and found no support; ``n_alt_reads is None``
+        The distinction this exists for: ``n_rna_alt_reads == 0`` means the
+        source looked and found no support; ``n_rna_alt_reads is None``
         means the source cannot answer. Both are legitimate and they are
         not the same claim.
         """
@@ -263,8 +263,8 @@ n_alt_fragments_supporting_protein_sequence : int, optional
         Fragments when the source counted them, reads otherwise.
         :meth:`rna_evidence_subject` says which you got.
 
-        Prefer this to reading :attr:`n_alt_reads` or
-        :attr:`n_alt_fragments` directly. A paired-end fragment is one
+        Prefer this to reading :attr:`n_rna_alt_reads` or
+        :attr:`n_rna_alt_fragments` directly. A paired-end fragment is one
         molecule read twice, so it is *one* piece of evidence and *two*
         reads — fragments are the better count where a source has them,
         and reads are what you get where it does not.
@@ -315,13 +315,13 @@ n_alt_fragments_supporting_protein_sequence : int, optional
         return None
 
     _RNA_FIELDS = {
-        "alt": ("n_alt_fragments", "n_alt_reads"),
-        "ref": ("n_ref_fragments", "n_ref_reads"),
-        "other": ("n_other_fragments", "n_other_reads"),
-        "overlapping": ("n_overlapping_fragments", "n_overlapping_reads"),
+        "alt": ("n_rna_alt_fragments", "n_rna_alt_reads"),
+        "ref": ("n_rna_ref_fragments", "n_rna_ref_reads"),
+        "other": ("n_rna_other_fragments", "n_rna_other_reads"),
+        "overlapping": ("n_rna_overlapping_fragments", "n_rna_overlapping_reads"),
         "supporting": (
-            "n_alt_fragments_supporting_protein_sequence",
-            "n_alt_reads_supporting_protein_sequence",
+            "n_rna_alt_fragments_supporting_protein_sequence",
+            "n_rna_alt_reads_supporting_protein_sequence",
         ),
     }
 
@@ -440,11 +440,11 @@ n_alt_fragments_supporting_protein_sequence : int, optional
             transcript_name=d.get("transcript_name"),
             gene_expression=d.get("gene_expression"),
             transcript_expression=d.get("transcript_expression"),
-            n_overlapping_reads=d.get("n_overlapping_reads"),
-            n_alt_reads=d.get("n_alt_reads"),
-            n_ref_reads=d.get("n_ref_reads"),
-            n_alt_reads_supporting_protein_sequence=d.get(
-                "n_alt_reads_supporting_protein_sequence"
+            n_rna_overlapping_reads=d.get("n_rna_overlapping_reads"),
+            n_rna_alt_reads=d.get("n_rna_alt_reads"),
+            n_rna_ref_reads=d.get("n_rna_ref_reads"),
+            n_rna_alt_reads_supporting_protein_sequence=d.get(
+                "n_rna_alt_reads_supporting_protein_sequence"
             ),
             field_provenance=dict(d.get("field_provenance") or {}),
             annotations=dict(d.get("annotations") or {}),
@@ -672,8 +672,8 @@ SEMANTIC_CORE = (
     "fragment_id", "source_type", "sequence", "target_intervals",
     "variant", "gene", "gene_id", "transcript_id",
     "gene_expression", "transcript_expression",
-    "n_overlapping_reads", "n_alt_reads", "n_ref_reads",
-    "n_alt_reads_supporting_protein_sequence",
+    "n_rna_overlapping_reads", "n_rna_alt_reads", "n_rna_ref_reads",
+    "n_rna_alt_reads_supporting_protein_sequence",
 )
 
 _FRAGMENT_IDENTITY = ("source_sequence_name", "variant", "peptide")
@@ -685,9 +685,9 @@ _FRAGMENT_IDENTITY = ("source_sequence_name", "variant", "peptide")
 #: two meet, so the fragment never holds a fragment count under a name
 #: for reads.
 _FRAME_COUNTS = {
-    "n_rna_alt": ("n_alt_reads", "n_alt_fragments"),
-    "n_rna_ref": ("n_ref_reads", "n_ref_fragments"),
-    "n_rna_overlapping": ("n_overlapping_reads", "n_overlapping_fragments"),
+    "n_rna_alt": ("n_rna_alt_reads", "n_rna_alt_fragments"),
+    "n_rna_ref": ("n_rna_ref_reads", "n_rna_ref_fragments"),
+    "n_rna_overlapping": ("n_rna_overlapping_reads", "n_rna_overlapping_fragments"),
 }
 
 

@@ -109,28 +109,28 @@ def fragment_from_isovar_result(
     # field named for reads was the same mistake as the CDS-overlap
     # column: a real count of one thing under a name for another.
     counts = dict(
-        n_overlapping_reads=_as_count(
+        n_rna_overlapping_reads=_as_count(
             getattr(isovar_result, "num_total_reads", None)
         ),
-        n_alt_reads=_as_count(
+        n_rna_alt_reads=_as_count(
             getattr(isovar_result, "num_alt_reads", None)
         ),
-        n_ref_reads=_as_count(
+        n_rna_ref_reads=_as_count(
             getattr(isovar_result, "num_ref_reads", None)
         ),
-        n_alt_reads_supporting_protein_sequence=_as_count(
+        n_rna_alt_reads_supporting_protein_sequence=_as_count(
             getattr(protein_sequence, "num_supporting_reads", None)
         ),
-        n_overlapping_fragments=_as_count(
+        n_rna_overlapping_fragments=_as_count(
             getattr(isovar_result, "num_total_fragments", None)
         ),
-        n_alt_fragments=_as_count(
+        n_rna_alt_fragments=_as_count(
             getattr(isovar_result, "num_alt_fragments", None)
         ),
-        n_ref_fragments=_as_count(
+        n_rna_ref_fragments=_as_count(
             getattr(isovar_result, "num_ref_fragments", None)
         ),
-        n_alt_fragments_supporting_protein_sequence=_as_count(
+        n_rna_alt_fragments_supporting_protein_sequence=_as_count(
             getattr(protein_sequence, "num_supporting_fragments", None)
         ),
     )

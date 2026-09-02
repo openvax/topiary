@@ -37,10 +37,10 @@ _COLUMNS = [
     "transcript_name",
     "gene_expression",
     "transcript_expression",
-    "n_overlapping_reads",
-    "n_alt_reads",
-    "n_ref_reads",
-    "n_alt_reads_supporting_protein_sequence",
+    "n_rna_overlapping_reads",
+    "n_rna_alt_reads",
+    "n_rna_ref_reads",
+    "n_rna_alt_reads_supporting_protein_sequence",
     "field_provenance",
     "annotations",
 ]
@@ -134,11 +134,11 @@ def _row_to_fragment(row: dict) -> ProteinFragment:
         transcript_name=_str("transcript_name"),
         gene_expression=_num("gene_expression"),
         transcript_expression=_num("transcript_expression"),
-        n_overlapping_reads=_count("n_overlapping_reads"),
-        n_alt_reads=_count("n_alt_reads"),
-        n_ref_reads=_count("n_ref_reads"),
-        n_alt_reads_supporting_protein_sequence=_count(
-            "n_alt_reads_supporting_protein_sequence"
+        n_rna_overlapping_reads=_count("n_rna_overlapping_reads"),
+        n_rna_alt_reads=_count("n_rna_alt_reads"),
+        n_rna_ref_reads=_count("n_rna_ref_reads"),
+        n_rna_alt_reads_supporting_protein_sequence=_count(
+            "n_rna_alt_reads_supporting_protein_sequence"
         ),
         field_provenance=field_provenance,
         annotations=annotations,

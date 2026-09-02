@@ -1477,19 +1477,27 @@ class TopiaryPredictor(object):
                 lambda fid, a=attr: getattr(by_id[fid], a, None) if fid in by_id else None
             )
 
+        # Identity and provenance: always written, because downstream
+        # code below indexes them and because "which variant is this"
+        # has an answer even when it is None.
         for attr in (
             "source_type", "variant", "effect", "effect_type",
             "gene", "gene_id", "transcript_id", "transcript_name",
-            "gene_expression", "transcript_expression",
-            # RNA read evidence, for the same reason expression is here:
-            # a consumer filtering or weighting on it reads the
-            # prediction frame, not the fragment. Without these the
-            # frame carried rna_evidence_method and rna_evidence_subject —
-            # which arrive as annotations — describing a count that was
-            # not there, so the frame said how a number was obtained and
-            # what it counted while omitting the number.
         ):
             df[attr] = _map_attr(attr)
+
+        # Expression, for the same reason the read counts below are
+        # here: a consumer filtering or weighting on it reads the
+        # prediction frame, not the fragment. Written only where some
+        # fragment stated one — an all-null gene_expression column says
+        # the run measured no expression anywhere, which is not the same
+        # as expression never having been supplied, and it is the second
+        # that makes `gene_expression > 1` a filter that silently empties
+        # the frame instead of raising.
+        for attr in ("gene_expression", "transcript_expression"):
+            values = _map_attr(attr)
+            if values.notna().any():
+                df[attr] = values
 
         # RNA evidence, in whichever units the source reported. Each
         # column says what it holds; attach_rna_evidence_columns then
@@ -1497,10 +1505,12 @@ class TopiaryPredictor(object):
         # against, preferring fragments where both exist.
         from .evidence import attach_rna_evidence_columns
         for attr in (
-            "n_overlapping_reads", "n_alt_reads", "n_ref_reads",
-            "n_alt_reads_supporting_protein_sequence",
-            "n_overlapping_fragments", "n_alt_fragments", "n_ref_fragments",
-            "n_alt_fragments_supporting_protein_sequence",
+            "n_rna_overlapping_reads", "n_rna_alt_reads", "n_rna_ref_reads",
+            "n_rna_other_reads",
+            "n_rna_alt_reads_supporting_protein_sequence",
+            "n_rna_overlapping_fragments", "n_rna_alt_fragments", "n_rna_ref_fragments",
+            "n_rna_other_fragments",
+            "n_rna_alt_fragments_supporting_protein_sequence",
         ):
             values = _map_attr(attr)
             if values.notna().any():

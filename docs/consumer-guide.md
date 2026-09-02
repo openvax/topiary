@@ -32,7 +32,7 @@ unchanged against LENS, pVACseq, or a predictor's own output.
 Columns come in three layers. **Filter against layer 1.**
 
 1. **Canonical cross-source** — same meaning from every reader.
-2. **Canonical unit-specific** — `n_alt_reads` / `n_alt_fragments`, present
+2. **Canonical unit-specific** — `n_rna_alt_reads` / `n_rna_alt_fragments`, present
    only where a source reports both units and they differ.
 3. **Source-prefixed originals** — `lens_vaf`, `pvacseq_tumor_dna_vaf`:
    exactly the number the tool printed, never reinterpreted. Find them with
@@ -70,6 +70,14 @@ would assert a clean locus nobody checked.
 pVACseq aggregated report states a DNA VAF but no DNA depth, so it gets
 `dna_vaf` and no `n_dna_*` at all — a column full of nulls would make
 `available_evidence_columns()` report a capability the source lacks.
+
+This holds on every path as of 5.48.0. LENS emits no `rna_alt_expression`
+(it has no DNA VAF to scale abundance by, and its `vaf` never names its
+assay), and a prediction run where nobody supplied expression emits no
+`gene_expression`. **This changes filter behaviour:** `gene_expression > 1`
+against such a frame now raises instead of evaluating to NaN and silently
+emptying your candidate list. Check with `available_evidence_columns(df)`
+before naming a column in a config that runs against more than one source.
 
 **Check which are present before naming one in a config that has to run against
 more than one source:**
@@ -188,8 +196,8 @@ isovar reports both units. Both are carried, each under a name that says what it
 holds:
 
 ```python
-fragment.n_alt_reads        # 58
-fragment.n_alt_fragments    # 30
+fragment.n_rna_alt_reads        # 58
+fragment.n_rna_alt_fragments    # 30
 fragment.n_rna_alt          # 30 — fragments preferred
 fragment.rna_evidence_subject()      # "fragments"
 ```
@@ -202,10 +210,10 @@ needs library information no source carries.
 ### Knowing which fields are real
 
 ```python
-fragment.is_known("n_alt_reads")             # populated at all?
-fragment.provenance_of("n_alt_reads")        # measured | approximated | synthesized
-fragment.is_approximate("n_alt_reads")
-fragment.is_usable_as_biology("n_alt_reads") # False for absent *and* synthesized
+fragment.is_known("n_rna_alt_reads")             # populated at all?
+fragment.provenance_of("n_rna_alt_reads")        # measured | approximated | synthesized
+fragment.is_approximate("n_rna_alt_reads")
+fragment.is_usable_as_biology("n_rna_alt_reads") # False for absent *and* synthesized
 ```
 
 `None` means the source could not answer. It is not zero, and the distinction
@@ -332,6 +340,9 @@ Floors worth knowing:
 | `rna_vaf` / `dna_vaf` canonical fractions | 5.47.0 |
 | Source prefixes: `vaf` → `lens_vaf`, `tumor_dna_vaf` → `pvacseq_tumor_dna_vaf` | 5.47.0 |
 | `PREDICTION_KEY_COLUMNS` public | 5.47.0 |
+| `dna_evidence_subject` derived, not asserted | 5.48.0 |
+| Unit columns assay-scoped: `n_alt_reads` → `n_rna_alt_reads` | 5.48.0 |
+| All-null evidence columns omitted on every path | 5.48.0 |
 | `topiary.rna_evidence` module renamed to `topiary.evidence` | 5.47.0 |
 
 ### Removed in 5.45.0, with no compatibility shim
@@ -341,7 +352,7 @@ Floors worth knowing:
 supporting-count columns on reader frames.
 
 All of it existed to work around one mistake: topiary carried isovar's
-*fragment* counts in fields named `n_alt_reads`, then built an API to explain
+*fragment* counts in fields named `n_rna_alt_reads`, then built an API to explain
 why reads were unavailable. isovar exposes `num_alt_reads` beside
 `num_alt_fragments`; they were never unavailable. Carrying both under honest
 names left nothing for those five to do.

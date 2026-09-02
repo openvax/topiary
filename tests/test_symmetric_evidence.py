@@ -197,12 +197,12 @@ def test_counts_that_do_not_add_up_clip_at_zero_rather_than_go_negative():
 def test_a_fragment_reports_other_allele_support_in_its_preferred_unit():
     both = ProteinFragment(
         fragment_id="f", sequence="MKTVRQ",
-        n_other_fragments=10, n_other_reads=19,
+        n_rna_other_fragments=10, n_rna_other_reads=19,
     )
     assert both.n_rna_other == 10
 
     reads_only = ProteinFragment(
-        fragment_id="f", sequence="MKTVRQ", n_other_reads=4,
+        fragment_id="f", sequence="MKTVRQ", n_rna_other_reads=4,
     )
     assert reads_only.n_rna_other == 4
 

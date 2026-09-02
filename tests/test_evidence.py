@@ -158,7 +158,7 @@ def test_a_cds_overlap_count_keeps_its_own_name():
         df = read_lens(LENS).df
 
     assert "lens_rna_reads_covering_genomic_origin_with_peptide_cds" in df.columns
-    assert "n_alt_reads_supporting_protein_sequence" not in df.columns
+    assert "n_rna_alt_reads_supporting_protein_sequence" not in df.columns
 
 
 # ---------------------------------------------------------------------------

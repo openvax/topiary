@@ -5,8 +5,9 @@ the frame. Filed with three problems; two of them were fixed by 5.37.0
 before the issue was read, and this closes the third.
 
 Fixed in 5.37.0, asserted here so they stay fixed:
-  - both frames carry `rna_alt_expression` (there was never an
-    `allele_expression`, so no two names for one quantity)
+  - where a reader emits the variant-allele estimate it is named
+    `rna_alt_expression` (there was never an `allele_expression`, so no
+    two names for one quantity)
   - both label the derivation, on the expression *and* the read axes
 
 Still open, and fixed here:
@@ -85,8 +86,24 @@ def test_the_raw_string_is_still_kept_separately(frames):
 
 
 @pytest.mark.parametrize("reader", ["lens", "pvacseq"])
-def test_both_readers_name_the_variant_allele_estimate_the_same(frames, reader):
-    assert "rna_alt_expression" in frames[reader].columns
+def test_the_variant_allele_estimate_has_one_name_wherever_it_appears(frames, reader):
+    """Shared *vocabulary*, not shared columns.
+
+    This asserted presence on both readers, and LENS's column was 100%
+    null -- the assertion passed on a column that never held a number.
+    LENS cannot produce the estimate: it needs a DNA VAF to scale
+    abundance by, and LENS's single `vaf` never names its assay, so
+    using it would assert the opposite one. The column is therefore
+    absent rather than null, and the shared name is what has to hold
+    wherever the quantity does exist.
+    """
+    df = frames[reader]
+    if "rna_alt_expression" in df.columns:
+        assert df["rna_alt_expression"].notna().any(), (
+            "a present estimate column must hold at least one estimate"
+        )
+    else:
+        assert reader == "lens"
 
 
 @pytest.mark.parametrize("reader", ["lens", "pvacseq"])
@@ -101,11 +118,24 @@ def test_neither_reader_uses_the_other_spelling(frames, reader):
     "rna_alt_expression_method",
     "rna_evidence_method",
 ])
-def test_both_readers_label_every_derivation(frames, reader, column):
+def test_every_derivation_that_exists_is_labelled(frames, reader, column):
     """The reason for labelling one applies identically to the other: the
     estimate assumes both alleles are transcribed equally, so a variant on
-    a silenced allele looks expressed. A bare number cannot say that."""
-    assert column in frames[reader].columns
+    a silenced allele looks expressed. A bare number cannot say that.
+
+    The pairing is what matters -- a quantity present without its method
+    is the failure. A quantity the source cannot produce takes its method
+    column with it.
+    """
+    df = frames[reader]
+    quantity = column.replace("_method", "")
+    quantity = {"rna_evidence": "n_rna_alt"}.get(quantity, quantity)
+    if quantity in df.columns and df[quantity].notna().any():
+        assert column in df.columns, f"{quantity} present but {column} is not"
+    else:
+        assert column not in df.columns, (
+            f"{column} describes a derivation of {quantity}, which is absent"
+        )
 
 
 def test_a_consumer_can_ask_how_a_number_was_obtained_on_either_frame(frames):

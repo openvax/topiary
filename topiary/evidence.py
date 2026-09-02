@@ -35,7 +35,7 @@ Three layers of column, and which to reach for:
 1. **Canonical cross-source** — ``n_rna_alt``, ``rna_vaf``, ``n_dna_alt``,
    ``dna_vaf`` and friends. Same meaning from every reader. Write
    filters against these.
-2. **Canonical unit-specific** — ``n_alt_reads`` / ``n_alt_fragments``.
+2. **Canonical unit-specific** — ``n_rna_alt_reads`` / ``n_rna_alt_fragments``.
    Same meaning everywhere, present only where a source reports both
    units and they genuinely differ.
 3. **Source-prefixed originals** — ``lens_vaf``, ``pvacseq_tumor_dna_depth``.
@@ -170,12 +170,12 @@ def provenance_for_method(method):
 #: A count needs a subject as well as a derivation. isovar counts
 #: **fragments**; a depth x VAF estimate is inherently about **reads**,
 #: because depth is a read depth. Five fragments and five reads are
-#: different bars, and ``n_alt_reads`` alone cannot say which was
+#: different bars, and ``n_rna_alt_reads`` alone cannot say which was
 #: cleared.
 #:
 #: Within one run the unit is internally consistent, so a ranking does
 #: not change. The harm is in things that travel: a documented
-#: ``n_alt_reads > 5`` threshold, a config copied between projects, a
+#: ``n_rna_alt_reads > 5`` threshold, a config copied between projects, a
 #: number in a paper.
 #:
 #: Perfect cross-path comparability is not available and is not the
@@ -211,13 +211,13 @@ METHOD_SUBJECT = MappingProxyType({
 #: ``rna_evidence_subject`` says which it took, so a threshold is
 #: written once and a number that travels can still name its unit.
 RNA_EVIDENCE_PREFERENCE = MappingProxyType({
-    "n_rna_alt": ("n_alt_fragments", "n_alt_reads"),
-    "n_rna_ref": ("n_ref_fragments", "n_ref_reads"),
-    "n_rna_other": ("n_other_fragments", "n_other_reads"),
-    "n_rna_overlapping": ("n_overlapping_fragments", "n_overlapping_reads"),
+    "n_rna_alt": ("n_rna_alt_fragments", "n_rna_alt_reads"),
+    "n_rna_ref": ("n_rna_ref_fragments", "n_rna_ref_reads"),
+    "n_rna_other": ("n_rna_other_fragments", "n_rna_other_reads"),
+    "n_rna_overlapping": ("n_rna_overlapping_fragments", "n_rna_overlapping_reads"),
     "n_rna_supporting_protein_sequence": (
-        "n_alt_fragments_supporting_protein_sequence",
-        "n_alt_reads_supporting_protein_sequence",
+        "n_rna_alt_fragments_supporting_protein_sequence",
+        "n_rna_alt_reads_supporting_protein_sequence",
     ),
 })
 
@@ -395,7 +395,7 @@ def other_allele_count(overlapping, alt, ref):
 
 
 def split_reads_by_vaf(depth, vaf):
-    """``(n_alt_reads, n_ref_reads)`` from a depth and a variant fraction.
+    """``(n_rna_alt_reads, n_rna_ref_reads)`` from a depth and a variant fraction.
 
     Both are ``NA`` wherever either input is absent — an estimate needs
     both halves, and inventing one of them is how a missing value becomes
@@ -528,13 +528,10 @@ def attach_rna_evidence(
             [TPM_X_DNA_VAF if pd.notna(v) else pd.NA for v in estimate],
             index=out.index, dtype="object",
         )
-    else:
-        out["rna_alt_expression"] = pd.Series(
-            [np.nan] * n_rows, index=out.index, dtype="float64"
-        )
-        out["rna_alt_expression_method"] = pd.Series(
-            [pd.NA] * n_rows, index=out.index, dtype="object"
-        )
+    # No else: a source with no abundance figure gets no expression
+    # columns rather than two full of nulls, matching every other
+    # evidence column. A null column claims the source looked and found
+    # nothing; an absent one says it cannot answer.
     out["rna_evidence_subject"] = pd.Series(
         [READS if pd.notna(v) else pd.NA for v in out["n_rna_alt"]]
         if "n_rna_alt" in out.columns else [pd.NA] * n_rows,
@@ -785,8 +782,8 @@ DNA_EVIDENCE_COLUMNS = (
 #: The evidence columns a reader emits when its source can answer.
 #:
 #: The canonical layer only. A tool's own numbers are prefixed and found
-#: with :func:`source_columns`; the unit-specific ``n_alt_reads`` /
-#: ``n_alt_fragments`` pair appears only where a source reports both.
+#: with :func:`source_columns`; the unit-specific ``n_rna_alt_reads`` /
+#: ``n_rna_alt_fragments`` pair appears only where a source reports both.
 EVIDENCE_COLUMNS = (
     RNA_EVIDENCE_COLUMNS + DNA_EVIDENCE_COLUMNS + ("sequence_source",)
 )
