@@ -357,3 +357,40 @@ def test_a_genuinely_unknown_column_still_gets_a_fuzzy_suggestion():
     df = _read(read_lens, LENS)
     with pytest.raises(ValueError, match="Did you mean|Available columns"):
         apply_filter(df, parse("gene_expresion > 1"))
+
+
+def test_both_attach_functions_refuse_a_misaligned_series_identically():
+    """They used to disagree silently, in opposite directions.
+
+    A Series whose index did not match the frame was aligned by pandas on
+    the RNA side (all-null column) and assigned positionally on the DNA
+    side (misaligned column). Both lose data without saying so.
+    """
+    from topiary.evidence import attach_rna_evidence
+
+    df = pd.DataFrame({"x": [1, 2]}, index=[10, 11])
+    misaligned = pd.Series([100, 200])  # RangeIndex, not [10, 11]
+
+    for fn, kwargs in (
+        (attach_rna_evidence, {"overlapping": misaligned}),
+        (attach_dna_evidence, {"depth": misaligned}),
+    ):
+        with pytest.raises(ValueError, match="index does not match"):
+            fn(df, **kwargs)
+
+
+def test_a_bare_sequence_is_positional_on_both_sides():
+    """No index to honour, so position is the only reading -- and the
+    twins must agree on it."""
+    from topiary.evidence import attach_rna_evidence
+
+    df = pd.DataFrame({"x": [1, 2]}, index=[10, 11])
+    rna = attach_rna_evidence(df, overlapping=[100, 200], vaf=[0.4, 0.5])
+    dna = attach_dna_evidence(df, depth=[100, 200], vaf=[0.4, 0.5])
+    assert rna["n_rna_alt"].tolist() == dna["n_dna_alt"].tolist() == [40, 100]
+
+
+def test_a_wrong_length_sequence_is_refused():
+    df = pd.DataFrame({"x": [1, 2]})
+    with pytest.raises(ValueError, match="3 values for 2 rows"):
+        attach_dna_evidence(df, depth=[1, 2, 3])

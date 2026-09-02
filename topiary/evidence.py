@@ -336,6 +336,42 @@ def _fractions(values) -> pd.Series:
     return numeric.where((numeric >= 0) & (numeric <= 1))
 
 
+def _aligned(values, index, argument):
+    """*values* as a Series on *index*, or a clear error saying why not.
+
+    The two attach functions used to disagree here, silently and in
+    opposite directions: a Series whose index did not match the frame
+    was aligned by pandas on the RNA side (yielding an all-null column)
+    and assigned positionally on the DNA side (yielding a misaligned
+    one). Both lose data without saying so, and twins that answer the
+    same question differently are worse than either answer.
+
+    So: an already-aligned Series passes through, a bare sequence is
+    positional because it has no index to honour, and a Series carrying
+    a different index raises rather than guessing which of the two
+    silent behaviours the caller wanted.
+    """
+    if values is None:
+        return None
+    if isinstance(values, pd.Series):
+        if values.index.equals(index):
+            return values
+        raise ValueError(
+            f"{argument}: index does not match the frame's "
+            f"({len(values)} vs {len(index)} rows"
+            + (", same length but different labels"
+               if len(values) == len(index) else "")
+            + "). Pass a Series sharing the frame's index, or "
+            f"{argument}.to_numpy() to align by position."
+        )
+    values = list(values)
+    if len(values) != len(index):
+        raise ValueError(
+            f"{argument}: got {len(values)} values for {len(index)} rows."
+        )
+    return pd.Series(values, index=index)
+
+
 def _vaf_from(stated, alt, depth, index):
     """The canonical variant allele fraction for one assay.
 
@@ -465,6 +501,13 @@ def attach_rna_evidence(
     -------
     pandas.DataFrame
     """
+    overlapping = _aligned(overlapping, df.index, "overlapping")
+    vaf = _aligned(vaf, df.index, "vaf")
+    expression = _aligned(expression, df.index, "expression")
+    dna_vaf = _aligned(dna_vaf, df.index, "dna_vaf")
+    reported_rna_alt_expression = _aligned(
+        reported_rna_alt_expression, df.index, "reported_rna_alt_expression",
+    )
     out = df.copy()
     n_rows = len(out)
     empty = pd.Series([pd.NA] * n_rows, index=out.index, dtype="Int64")
@@ -597,6 +640,10 @@ def attach_dna_evidence(
     :func:`available_evidence_columns` keeps meaning "what this source
     could answer".
     """
+    depth = _aligned(depth, df.index, "depth")
+    vaf = _aligned(vaf, df.index, "vaf")
+    alt = _aligned(alt, df.index, "alt")
+    ref = _aligned(ref, df.index, "ref")
     if subject is not None and subject not in (READS, FRAGMENTS):
         raise ValueError(
             f"attach_dna_evidence: subject must be {READS!r} or "
