@@ -1,5 +1,36 @@
 # Changelog
 
+## 5.48.0
+
+**Made evidence units and absence explicit across every path.** RNA
+unit-specific fields now name their assay (`n_rna_alt_reads`,
+`n_rna_alt_fragments`, and the ref / other / overlapping / supporting
+families). Reader and prediction frames emit a canonical evidence column only
+when at least one row states a value. A row that would mix reads and fragments
+under one `rna_evidence_subject` is refused rather than mislabeled, and a DNA
+read depth cannot be called fragments.
+
+Old `ProteinFragment` names remain accepted throughout the 5.x API: direct
+construction, attribute access, JSON, TSV, and `field_provenance`. New output
+uses only the assay-scoped names. Every dataclass field now survives JSON and
+TSV round-trips, and other-allele counts survive the isovar, DataFrame, and
+prediction adapters.
+
+**Made the cache's constructor and concat paths conform.** Exact duplicate
+predictions are stored once, context-only differences remain, contradictory
+values raise through either door, and malformed numeric strings are rejected
+before coercion can hide them as null.
+
+**Corrected pVACseq aggregated expression semantics.** pVACseq defines
+`RNA Expr` as gene-level expression, so it now maps to `gene_expression`
+rather than inventing transcript resolution. A missing source `Allele Expr` is
+left absent instead of being reconstructed with DNA VAF; pVACseq defines its
+reported quantity using RNA VAF.
+
+`RENAMED_COLUMNS`, `renamed_column`, the three cache-column classifications,
+and `conflicting_predictions` are public so consumers can share Topiary's
+decisions rather than reimplementing them.
+
 ## 5.46.0
 
 **Fixed: the consumer guide overpromised.** It said the nine evidence

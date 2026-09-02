@@ -72,7 +72,7 @@ prefix: `pvacseq_tumor_dna_depth`, `pvacseq_tumor_dna_vaf`,
 `pvacseq_tumor_rna_depth`, `pvacseq_tumor_rna_vaf`,
 `pvacseq_normal_depth`, and `pvacseq_normal_vaf`. The aggregated flavor also
 exposes `mane_select`, `canonical`, `transcript_support_level`, `aa_change`,
-`pvacseq_tier`, and `pvacseq_evaluation`; all_epitopes adds `gene_expression`,
+`pvacseq_tier`, and `pvacseq_evaluation`; all_epitopes additionally exposes
 `hgvsc`, `hgvsp`, and `variant_type`.
 
 ## Loading + composing

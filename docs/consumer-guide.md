@@ -53,6 +53,7 @@ one only where its source can answer:
 | `rna_alt_expression` | Abundance attributed to the variant allele |
 | `rna_alt_expression_method` | How that was obtained |
 | `gene_expression` | Gene-level abundance |
+| `transcript_expression` | Transcript-level abundance, where separately stated |
 | `sequence_source` | How the protein sequence came to exist |
 
 **DNA support is the same shape**, so a filter written against RNA depth
