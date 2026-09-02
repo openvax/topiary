@@ -387,8 +387,8 @@ Floors worth knowing:
 supporting-count columns on reader frames.
 
 All of it existed to work around one mistake: topiary carried isovar's
-*fragment* counts in fields named `n_rna_alt_reads`, then built an API to explain
-why reads were unavailable. isovar exposes `num_alt_reads` beside
+*fragment* counts in fields then named `n_alt_reads`, then built an API to
+explain why reads were unavailable. isovar exposes `num_alt_reads` beside
 `num_alt_fragments`; they were never unavailable. Carrying both under honest
 names left nothing for those five to do.
 

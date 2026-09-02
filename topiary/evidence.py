@@ -170,12 +170,12 @@ def provenance_for_method(method):
 #: A count needs a subject as well as a derivation. isovar counts
 #: **fragments**; a depth x VAF estimate is inherently about **reads**,
 #: because depth is a read depth. Five fragments and five reads are
-#: different bars, and ``n_rna_alt_reads`` alone cannot say which was
-#: cleared.
+#: different bars, and ``n_rna_alt`` — which carries whichever unit the
+#: source reported — cannot say which was cleared without this.
 #:
 #: Within one run the unit is internally consistent, so a ranking does
 #: not change. The harm is in things that travel: a documented
-#: ``n_rna_alt_reads > 5`` threshold, a config copied between projects, a
+#: ``n_rna_alt > 5`` threshold, a config copied between projects, a
 #: number in a paper.
 #:
 #: Perfect cross-path comparability is not available and is not the
@@ -431,7 +431,10 @@ def other_allele_count(overlapping, alt, ref):
 
 
 def split_reads_by_vaf(depth, vaf):
-    """``(n_rna_alt_reads, n_rna_ref_reads)`` from a depth and a variant fraction.
+    """``(alt, ref)`` counts from a depth and a variant fraction.
+
+    Assay-agnostic: both :func:`attach_rna_evidence` and
+    :func:`attach_dna_evidence` split their depth with this.
 
     Both are ``NA`` wherever either input is absent — an estimate needs
     both halves, and inventing one of them is how a missing value becomes
