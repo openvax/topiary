@@ -1,6 +1,8 @@
 """Tests targeting coverage gaps found in the audit."""
 
 import os
+import subprocess
+import sys
 import tempfile
 
 import pandas as pd
@@ -91,18 +93,19 @@ def test_model_name_string_mixed_case():
 
 
 def test_model_name_string_mhcflurry():
-    """MHCflurry class can be resolved by string name.
+    """MHCflurry resolves in a fresh process without an eager import."""
+    code = """
+import sys
+from topiary.predictor import _build_model_lookup, _resolve_model_name
 
-    Skips when mhctools does not expose MHCflurry via getmembers (e.g. CI
-    environments without the mhcflurry package or its model downloads).
-    """
-    from topiary.predictor import _build_model_lookup, _resolve_model_name
-    lookup = _build_model_lookup()
-    if "mhcflurry" not in lookup:
-        pytest.skip("MHCflurry not discoverable in this mhctools install")
-    from mhctools import MHCflurry
-    cls = _resolve_model_name("mhcflurry")
-    assert cls is MHCflurry
+assert "mhctools.mhcflurry" not in sys.modules
+assert "mhcflurry" in _build_model_lookup()
+assert "mhctools.mhcflurry" not in sys.modules
+cls = _resolve_model_name("mhcflurry")
+from mhctools import MHCflurry
+assert cls is MHCflurry
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_model_name_string_list():

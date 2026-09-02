@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.48.1
+
+**Fixed lazy mhctools model-name discovery.** String model names now resolve
+through mhctools' public predictor registry, so lazily exported predictors such
+as `mhcflurry` work in a fresh process without first being imported by some
+unrelated caller. The regression test no longer skips when MHCflurry has not
+already been loaded, and the frameshift overlap grid now parameterizes only
+cases that contain a peptide window rather than reporting inapplicable cases as
+skips.
+
 ## 5.48.0
 
 **Made evidence units and absence explicit across every path.** RNA
