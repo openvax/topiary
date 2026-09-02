@@ -232,14 +232,24 @@ class TestFrameShiftTargetInterval:
 
 
 # ---------------------------------------------------------------------------
-# Per-peptide overlaps_target: every 9-mer inside the shifted tail should
-# be marked as novel; 9-mers entirely upstream of the shift should not.
+# Per-peptide overlaps_target: every peptide touching the shifted tail should
+# be marked as novel; peptides entirely upstream of the shift should not.
 # ---------------------------------------------------------------------------
 
 
+_FRAMESHIFT_WINDOW_CASES = [
+    (shift_at, shifted_tail, padding, peptide_length)
+    for shift_at, shifted_tail, padding in _FRAMESHIFT_GRID
+    for peptide_length in (8, 9, 10, 11)
+    if min(shift_at, padding) + len(shifted_tail) >= peptide_length
+]
+
+
 class TestFrameShiftPerPeptideOverlap:
-    @pytest.mark.parametrize("shift_at,shifted_tail,padding", _FRAMESHIFT_GRID)
-    @pytest.mark.parametrize("peptide_length", [8, 9, 10, 11])
+    @pytest.mark.parametrize(
+        "shift_at,shifted_tail,padding,peptide_length",
+        _FRAMESHIFT_WINDOW_CASES,
+    )
     def test_every_peptide_touching_shift_is_novel(
         self, shift_at, shifted_tail, padding, peptide_length,
     ):
@@ -249,12 +259,6 @@ class TestFrameShiftPerPeptideOverlap:
         frag = fragment_from_effect(effect, padding_around_mutation=padding)
         seq_start = max(0, shift_at - padding)
         rel_shift = shift_at - seq_start
-
-        if len(frag.sequence) < peptide_length:
-            pytest.skip(
-                f"subsequence ({len(frag.sequence)} aa) smaller than "
-                f"peptide_length ({peptide_length}); no windows to enumerate"
-            )
 
         seen_novel, seen_reference = False, False
         for offset in range(0, len(frag.sequence) - peptide_length + 1):

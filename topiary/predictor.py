@@ -125,14 +125,25 @@ def _model_metadata_versions(models):
 
 
 def _build_model_lookup():
-    """Build a lowercase name → mhctools predictor class mapping."""
-    import inspect
-    import mhctools
+    """Build a normalized name → mhctools predictor factory mapping.
+
+    Use mhctools' public CLI registry rather than module introspection.  Some
+    heavyweight predictors are PEP 562 lazy exports, so they do not appear in
+    ``inspect.getmembers(mhctools)`` until another caller has already loaded
+    them.  The registry keeps those predictors lazy while still naming them.
+    """
+    from mhctools.cli import mhc_predictors
+
+    def normalized(name):
+        return name.lower().replace("-", "").replace("_", "").replace(" ", "")
 
     lookup = {}
-    for attr_name, obj in inspect.getmembers(mhctools):
-        if inspect.isclass(obj) and hasattr(obj, "predict_peptides_dataframe"):
-            lookup[attr_name.lower()] = obj
+    for registry_name, factory in mhc_predictors.items():
+        names = (registry_name, getattr(factory, "__name__", ""))
+        for name in names:
+            if name:
+                lookup[name.lower()] = factory
+                lookup[normalized(name)] = factory
     return lookup
 
 
@@ -150,14 +161,30 @@ def _resolve_model_name(name):
         _MODEL_LOOKUP = _build_model_lookup()
 
     key = name.lower().replace("-", "").replace("_", "").replace(" ", "")
-    cls = _MODEL_LOOKUP.get(key)
-    if cls is None:
-        cls = _MODEL_LOOKUP.get(name.lower())
-    if cls is None:
+    factory = _MODEL_LOOKUP.get(key)
+    if factory is None:
+        factory = _MODEL_LOOKUP.get(name.lower())
+    if factory is None:
         available = sorted(_MODEL_LOOKUP.keys())
         raise ValueError(
             f"Unknown model name {name!r}. Available: {available}"
         )
+
+    # mhctools represents heavyweight entries with lazy callable factories.
+    # Resolve only the selected factory through the corresponding public root
+    # export; building the lookup must not import every optional ML runtime.
+    if isinstance(factory, type):
+        cls = factory
+    else:
+        import mhctools
+
+        export_name = getattr(factory, "__name__", "")
+        cls = getattr(mhctools, export_name, None)
+    if not isinstance(cls, type) or not (
+        hasattr(cls, "predict_dataframe")
+        or hasattr(cls, "predict_peptides_dataframe")
+    ):
+        raise ValueError(f"mhctools model {name!r} is not a peptide predictor")
     return cls
 
 
@@ -686,7 +713,7 @@ class TopiaryPredictor(object):
         """
         Parameters
         ----------
-        models : class, instance, or list
+        models : class, instance, str, or list
             Predictor model(s). Can be:
 
             - A model class or list of classes (requires ``alleles``)::
@@ -696,6 +723,13 @@ class TopiaryPredictor(object):
             - A model instance or list of instances::
 
                   TopiaryPredictor(models=NetMHCpan(alleles=["A0201"]))
+
+            - A case-insensitive mhctools registry name or list of names::
+
+                  TopiaryPredictor(
+                      models=["netmhcpan41", "mhcflurry"],
+                      alleles=["A0201"],
+                  )
 
         alleles : list of str, optional
             HLA alleles. When provided, model classes in ``models`` are
