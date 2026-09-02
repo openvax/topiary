@@ -83,7 +83,10 @@ from .sequence_helpers import (
 )
 from .cached import (
     CachedPredictor,
+    PREDICTION_CONTEXT_COLUMNS,
     PREDICTION_KEY_COLUMNS,
+    PREDICTION_VALUE_COLUMNS,
+    conflicting_predictions,
     mhcflurry_composite_version,
 )
 from .io_isovar import (
@@ -136,10 +139,12 @@ from .evidence import (
     DNA_EVIDENCE_COLUMNS,
     EVIDENCE_COLUMNS,
     RNA_EVIDENCE_COLUMNS,
+    RENAMED_COLUMNS,
     SOURCE_PREFIXES,
     attach_rna_evidence_columns,
     available_evidence_columns,
     other_allele_count,
+    renamed_column,
     source_column,
     source_columns,
     split_reads_by_vaf,
@@ -151,7 +156,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.47.0"
+__version__ = "5.48.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -283,10 +288,15 @@ __all__ = [
     "provenance_for_method",
     "attach_dna_evidence",
     "other_allele_count",
+    "renamed_column",
+    "RENAMED_COLUMNS",
     "source_column",
     "source_columns",
     "SOURCE_PREFIXES",
     "PREDICTION_KEY_COLUMNS",
+    "PREDICTION_VALUE_COLUMNS",
+    "PREDICTION_CONTEXT_COLUMNS",
+    "conflicting_predictions",
     "RNA_EVIDENCE_COLUMNS",
     "DNA_EVIDENCE_COLUMNS",
     "DNA_ALIGNMENT",

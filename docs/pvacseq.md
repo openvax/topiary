@@ -59,7 +59,21 @@ Loader-derived columns aligned with `TopiaryPredictor` output so downstream code
 
 ### Annotation passthroughs
 
-Expression and depth columns from pVACseq pass through under snake-case names so DSL expressions like `Column("rna_vaf") >= 0.1` work directly. Aggregated flavor exposes `rna_transcript_expression`, `rna_vaf`, `allele_expression`, `rna_depth`, `dna_vaf`, `mane_select`, `canonical`, `transcript_support_level`, `aa_change`, `pvacseq_tier`, `pvacseq_evaluation`, etc. all_epitopes adds `gene_expression`, `transcript_expression`, `tumor_dna_depth`/`vaf`, `tumor_rna_depth`/`vaf`, `normal_depth`/`vaf`, `hgvsc`, `hgvsp`, `variant_type`.
+Expression and evidence are available under canonical cross-source names, so
+DSL expressions such as `Column("rna_vaf") >= 0.1` work directly. These include
+`gene_expression`, `rna_vaf`, `dna_vaf`, `rna_alt_expression`, and, where the
+source supplies enough information, `n_rna_*` / `n_dna_*` counts with their
+method and subject columns. all_epitopes also supplies the separately stated
+`transcript_expression`; aggregated `RNA Expr` is gene-level in pVACseq's
+schema and is not relabeled as transcript-level.
+
+pVACseq's original values remain separately attributable under a `pvacseq_`
+prefix: `pvacseq_tumor_dna_depth`, `pvacseq_tumor_dna_vaf`,
+`pvacseq_tumor_rna_depth`, `pvacseq_tumor_rna_vaf`,
+`pvacseq_normal_depth`, and `pvacseq_normal_vaf`. The aggregated flavor also
+exposes `mane_select`, `canonical`, `transcript_support_level`, `aa_change`,
+`pvacseq_tier`, and `pvacseq_evaluation`; all_epitopes additionally exposes
+`hgvsc`, `hgvsp`, and `variant_type`.
 
 ## Loading + composing
 

@@ -10,7 +10,7 @@ with `rna_evidence_subject` recording which. One threshold spans every
 source, and a number that travels can still name its unit.
 
 This replaces an earlier design that stored isovar's *fragment* counts in
-fields named `n_alt_reads` and offered `count_in(name, subject)` to ask for a
+fields named `n_rna_alt_reads` and offered `count_in(name, subject)` to ask for a
 unit. That was built on a false premise: isovar exposes `num_alt_reads`
 alongside `num_alt_fragments`, so "the source cannot give you reads" was
 never true. Carrying both is simpler and does not need the accessor.
@@ -84,23 +84,23 @@ def _reader_frame(reader, path):
 
 def test_isovar_reports_reads_and_fragments(isovar_fragment):
     """It exposes both, so topiary carries both rather than choosing."""
-    assert isovar_fragment.n_alt_reads == 58
-    assert isovar_fragment.n_alt_fragments == 30
-    assert isovar_fragment.n_ref_reads == 60
-    assert isovar_fragment.n_ref_fragments == 31
+    assert isovar_fragment.n_rna_alt_reads == 58
+    assert isovar_fragment.n_rna_alt_fragments == 30
+    assert isovar_fragment.n_rna_ref_reads == 60
+    assert isovar_fragment.n_rna_ref_fragments == 31
 
 
 def test_a_field_holds_what_its_name_says(isovar_fragment):
     """The earlier bug: a fragment count in a field named for reads."""
-    assert isovar_fragment.n_alt_reads > isovar_fragment.n_alt_fragments
+    assert isovar_fragment.n_rna_alt_reads > isovar_fragment.n_rna_alt_fragments
 
 
 def test_a_depth_source_reports_reads_only():
     fragment = ProteinFragment(
-        fragment_id="f", sequence="SIINFEKLA", n_alt_reads=429,
+        fragment_id="f", sequence="SIINFEKLA", n_rna_alt_reads=429,
     )
 
-    assert fragment.n_alt_fragments is None
+    assert fragment.n_rna_alt_fragments is None
     assert fragment.n_rna_alt == 429
 
 
@@ -117,7 +117,7 @@ def test_fragments_are_preferred_when_present(isovar_fragment):
 
 def test_reads_are_used_when_that_is_all_there_is():
     fragment = ProteinFragment(
-        fragment_id="f", sequence="SIINFEKLA", n_alt_reads=429,
+        fragment_id="f", sequence="SIINFEKLA", n_rna_alt_reads=429,
     )
 
     assert fragment.n_rna_alt == 429
@@ -129,6 +129,47 @@ def test_no_evidence_says_nothing_rather_than_zero():
 
     assert fragment.n_rna_alt is None
     assert fragment.rna_evidence_subject() is None
+
+
+def test_other_only_evidence_still_reports_its_subject():
+    fragment = ProteinFragment(
+        fragment_id="f", sequence="SIINFEKLA", n_rna_other_reads=3,
+    )
+
+    assert fragment.rna_evidence_subject() == READS
+
+
+def test_mixed_units_are_refused_instead_of_mislabelled():
+    fragment = ProteinFragment(
+        fragment_id="f",
+        sequence="SIINFEKLA",
+        n_rna_alt_fragments=3,
+        n_rna_ref_reads=7,
+    )
+
+    with pytest.raises(ValueError, match="mixes RNA evidence units"):
+        fragment.rna_evidence_subject()
+
+    predictor = TopiaryPredictor(
+        models=RandomBindingPredictor, alleles=["A0201"],
+    )
+    with pytest.raises(ValueError, match="mix RNA evidence units"):
+        predictor.predict_from_fragments([fragment])
+
+
+def test_a_fragment_without_evidence_emits_no_evidence_subject():
+    predictor = TopiaryPredictor(
+        models=RandomBindingPredictor, alleles=["A0201"],
+    )
+    fragment = ProteinFragment(
+        fragment_id="f", sequence="SIINFEKLA",
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        frame = predictor.predict_from_fragments([fragment])
+
+    assert "rna_evidence_subject" not in frame.columns
 
 
 @pytest.mark.parametrize("accessor,fragments,reads", [
@@ -197,8 +238,8 @@ def test_each_frame_states_its_own_unit(isovar_frame):
 
 def test_the_underlying_columns_are_still_there(isovar_frame):
     """A caller who needs one unit specifically names it."""
-    assert "n_alt_reads" in isovar_frame.columns
-    assert "n_alt_fragments" in isovar_frame.columns
+    assert "n_rna_alt_reads" in isovar_frame.columns
+    assert "n_rna_alt_fragments" in isovar_frame.columns
 
 
 # ---------------------------------------------------------------------------

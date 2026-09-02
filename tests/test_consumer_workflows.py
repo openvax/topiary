@@ -222,9 +222,9 @@ class _IsovarResult:
 def test_one_consumer_function_reads_every_source():
     """The multi-source premise, exercised rather than described."""
     def support(fragment):
-        if not fragment.is_usable_as_biology("n_alt_reads"):
+        if not fragment.is_usable_as_biology("n_rna_alt_reads"):
             return None
-        return fragment.is_approximate("n_alt_reads")
+        return fragment.is_approximate("n_rna_alt_reads")
 
     sources = {
         "isovar": fragment_from_isovar_result(_IsovarResult()),

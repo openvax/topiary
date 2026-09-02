@@ -13,6 +13,7 @@ and format-specific loaders live in sibling modules.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import hashlib
 import json
 import re
@@ -39,6 +40,65 @@ PROVENANCE_VALUES = frozenset({MEASURED, APPROXIMATED, SYNTHESIZED})
 
 #: Provenance values a consumer must not interpret as biology.
 _NOT_BIOLOGY = frozenset({SYNTHESIZED})
+
+
+def _fragment_field_renames(known_fields: set) -> dict:
+    """Legacy-to-current renames that belong to ProteinFragment."""
+    from .evidence import RENAMED_COLUMNS
+
+    return {
+        old: new for old, new in RENAMED_COLUMNS.items()
+        if new in known_fields
+    }
+
+
+def _migrate_fragment_dict(values: dict, known_fields: set) -> dict:
+    """Return *values* with legacy ProteinFragment field names migrated.
+
+    The public rename table also contains reader-frame columns. Only
+    renames whose destination is a ProteinFragment field apply here.
+    Provenance keys travel with their values so a legacy serialized
+    fragment remains internally consistent after migration.
+    """
+    migrated = dict(values)
+
+    def _missing(value):
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return not value.strip()
+        return isinstance(value, float) and value != value
+
+    def _move(mapping, old, new):
+        old_value = mapping.pop(old)
+        if new not in mapping or _missing(mapping[new]):
+            mapping[new] = old_value
+        elif not _missing(old_value) and mapping[new] != old_value:
+            raise ValueError(
+                f"Conflicting ProteinFragment fields {old!r} and "
+                f"{new!r}: {old_value!r} != {mapping[new]!r}."
+            )
+
+    fragment_renames = _fragment_field_renames(known_fields)
+    for old, new in fragment_renames.items():
+        if old in migrated:
+            _move(migrated, old, new)
+
+    provenance = migrated.get("field_provenance")
+    if isinstance(provenance, dict):
+        provenance = dict(provenance)
+        for old, new in fragment_renames.items():
+            if old in provenance:
+                _move(provenance, old, new)
+        migrated["field_provenance"] = provenance
+    return migrated
+
+
+def _current_fragment_field(name: str) -> str:
+    """Canonical field name for a current or legacy fragment field."""
+    known = {field.name for field in dataclasses.fields(ProteinFragment)}
+    renamed = _fragment_field_renames(known).get(name, name)
+    return renamed if renamed in known else name
 
 
 @dataclass(frozen=True, eq=False)
@@ -92,11 +152,11 @@ class ProteinFragment:
         Ensembl id.
     gene_expression, transcript_expression : float, optional
         Expression evidence carried forward into prediction rows.
-    n_overlapping_reads, n_alt_reads, n_ref_reads, n_other_reads, \
-n_alt_reads_supporting_protein_sequence : int, optional
+    n_rna_overlapping_reads, n_rna_alt_reads, n_rna_ref_reads, n_rna_other_reads, \
+n_rna_alt_reads_supporting_protein_sequence : int, optional
         RNA evidence counted in **reads**.
-    n_overlapping_fragments, n_alt_fragments, n_ref_fragments, n_other_fragments, \
-n_alt_fragments_supporting_protein_sequence : int, optional
+    n_rna_overlapping_fragments, n_rna_alt_fragments, n_rna_ref_fragments, n_rna_other_fragments, \
+n_rna_alt_fragments_supporting_protein_sequence : int, optional
         The same evidence counted in **fragments**. A paired-end
         fragment is one molecule read twice, so it is one piece of
         evidence and two reads — which is why both are carried rather
@@ -109,8 +169,8 @@ n_alt_fragments_supporting_protein_sequence : int, optional
         RNA read-level evidence.  Not derivable from the aggregate
         expression fields above, and separately useful: a consumer that
         weights a candidate by depth of support needs the counts, not a
-        TPM.  ``n_alt_reads_supporting_protein_sequence`` is deliberately
-        distinct from ``n_alt_reads`` — it counts reads supporting *this
+        TPM.  ``n_rna_alt_reads_supporting_protein_sequence`` is deliberately
+        distinct from ``n_rna_alt_reads`` — it counts reads supporting *this
         assembled protein sequence*, not merely the variant allele.
 
         ``None`` means **unknown**, and is not the same as ``0``.  A
@@ -166,17 +226,17 @@ n_alt_fragments_supporting_protein_sequence : int, optional
     gene_expression: Optional[float] = None
     transcript_expression: Optional[float] = None
 
-    n_overlapping_reads: Optional[int] = None
-    n_alt_reads: Optional[int] = None
-    n_ref_reads: Optional[int] = None
-    n_other_reads: Optional[int] = None
-    n_alt_reads_supporting_protein_sequence: Optional[int] = None
+    n_rna_overlapping_reads: Optional[int] = None
+    n_rna_alt_reads: Optional[int] = None
+    n_rna_ref_reads: Optional[int] = None
+    n_rna_other_reads: Optional[int] = None
+    n_rna_alt_reads_supporting_protein_sequence: Optional[int] = None
 
-    n_overlapping_fragments: Optional[int] = None
-    n_alt_fragments: Optional[int] = None
-    n_ref_fragments: Optional[int] = None
-    n_other_fragments: Optional[int] = None
-    n_alt_fragments_supporting_protein_sequence: Optional[int] = None
+    n_rna_overlapping_fragments: Optional[int] = None
+    n_rna_alt_fragments: Optional[int] = None
+    n_rna_ref_fragments: Optional[int] = None
+    n_rna_other_fragments: Optional[int] = None
+    n_rna_alt_fragments_supporting_protein_sequence: Optional[int] = None
 
     field_provenance: dict = field(default_factory=dict)
 
@@ -205,6 +265,12 @@ n_alt_fragments_supporting_protein_sequence : int, optional
         silently stop protecting the field it was written to protect,
         which is worse than not writing it.
         """
+        known = {f.name for f in dataclasses.fields(self)}
+        migrated = _migrate_fragment_dict(
+            {"field_provenance": self.field_provenance}, known,
+        )["field_provenance"]
+        if migrated != self.field_provenance:
+            object.__setattr__(self, "field_provenance", migrated)
         if not self.field_provenance:
             return
         if not isinstance(self.field_provenance, dict):
@@ -212,7 +278,6 @@ n_alt_fragments_supporting_protein_sequence : int, optional
                 f"field_provenance must be a dict of field name -> "
                 f"provenance, got {type(self.field_provenance).__name__}"
             )
-        known = {f.name for f in dataclasses.fields(self)}
         for name, value in self.field_provenance.items():
             if name not in known:
                 raise ValueError(
@@ -232,16 +297,17 @@ n_alt_fragments_supporting_protein_sequence : int, optional
 
     def provenance_of(self, name: str) -> Optional[str]:
         """How real *name*'s value is, or ``None`` if unqualified."""
-        return self.field_provenance.get(name)
+        return self.field_provenance.get(_current_fragment_field(name))
 
     def is_known(self, name: str) -> bool:
         """Whether *name* carries a value at all.
 
-        The distinction this exists for: ``n_alt_reads == 0`` means the
-        source looked and found no support; ``n_alt_reads is None``
+        The distinction this exists for: ``n_rna_alt_reads == 0`` means the
+        source looked and found no support; ``n_rna_alt_reads is None``
         means the source cannot answer. Both are legitimate and they are
         not the same claim.
         """
+        name = _current_fragment_field(name)
         if name not in {f.name for f in dataclasses.fields(self)}:
             raise ValueError(
                 f"{name!r} is not a ProteinFragment field."
@@ -263,8 +329,8 @@ n_alt_fragments_supporting_protein_sequence : int, optional
         Fragments when the source counted them, reads otherwise.
         :meth:`rna_evidence_subject` says which you got.
 
-        Prefer this to reading :attr:`n_alt_reads` or
-        :attr:`n_alt_fragments` directly. A paired-end fragment is one
+        Prefer this to reading :attr:`n_rna_alt_reads` or
+        :attr:`n_rna_alt_fragments` directly. A paired-end fragment is one
         molecule read twice, so it is *one* piece of evidence and *two*
         reads — fragments are the better count where a source has them,
         and reads are what you get where it does not.
@@ -306,22 +372,31 @@ n_alt_fragments_supporting_protein_sequence : int, optional
 
         ``"fragments"``, ``"reads"``, or ``None`` when this fragment
         carries no RNA evidence at all. Report it alongside a count that
-        travels — five fragments and five reads are different bars.
+        travels — five fragments and five reads are different bars. Raises
+        when different canonical quantities would use different units;
+        use the unit-specific fields for such a fragment.
         """
-        for name in ("alt", "overlapping", "ref", "supporting"):
+        subjects = set()
+        for name in ("alt", "overlapping", "ref", "other", "supporting"):
             value, subject = self._rna_evidence(name)
             if value is not None:
-                return subject
-        return None
+                subjects.add(subject)
+        if len(subjects) > 1:
+            raise ValueError(
+                f"ProteinFragment {self.fragment_id!r} mixes RNA evidence "
+                f"units {sorted(subjects)}. Use the unit-specific fields "
+                f"instead of treating its n_rna_* values as one unit."
+            )
+        return next(iter(subjects), None)
 
     _RNA_FIELDS = {
-        "alt": ("n_alt_fragments", "n_alt_reads"),
-        "ref": ("n_ref_fragments", "n_ref_reads"),
-        "other": ("n_other_fragments", "n_other_reads"),
-        "overlapping": ("n_overlapping_fragments", "n_overlapping_reads"),
+        "alt": ("n_rna_alt_fragments", "n_rna_alt_reads"),
+        "ref": ("n_rna_ref_fragments", "n_rna_ref_reads"),
+        "other": ("n_rna_other_fragments", "n_rna_other_reads"),
+        "overlapping": ("n_rna_overlapping_fragments", "n_rna_overlapping_reads"),
         "supporting": (
-            "n_alt_fragments_supporting_protein_sequence",
-            "n_alt_reads_supporting_protein_sequence",
+            "n_rna_alt_fragments_supporting_protein_sequence",
+            "n_rna_alt_reads_supporting_protein_sequence",
         ),
     }
 
@@ -409,46 +484,31 @@ n_alt_fragments_supporting_protein_sequence : int, optional
         """Construct from a plain dict (e.g. parsed JSON or a row-dict).
 
         Missing optional fields fall back to ``None`` / empty
-        annotations.  Unknown keys are rejected to catch typos — pass
-        them through ``annotations`` instead.
+        annotations. Evidence names from 5.47 and earlier are migrated,
+        including keys inside ``field_provenance``. Other unknown keys
+        are rejected to catch typos — pass them through ``annotations``
+        instead.
         """
         # Derived, not restated: a hand-maintained copy of the field
         # list silently rejects every field added after it was written.
         known = {f.name for f in dataclasses.fields(cls)}
+        d = _migrate_fragment_dict(d, known)
         unknown = set(d.keys()) - known
         if unknown:
             raise ValueError(
                 f"Unknown ProteinFragment field(s): {sorted(unknown)}. "
                 f"Move them to the annotations dict."
             )
-        ti = d.get("target_intervals")
+        values = dict(d)
+        ti = values.get("target_intervals")
         if ti is not None:
             ti = [tuple(pair) for pair in ti]
-        return cls(
-            fragment_id=d["fragment_id"],
-            source_type=d.get("source_type"),
-            sequence=d.get("sequence", ""),
-            reference_sequence=d.get("reference_sequence"),
-            germline_sequence=d.get("germline_sequence"),
-            target_intervals=ti,
-            variant=d.get("variant"),
-            effect=d.get("effect"),
-            effect_type=d.get("effect_type"),
-            gene=d.get("gene"),
-            gene_id=d.get("gene_id"),
-            transcript_id=d.get("transcript_id"),
-            transcript_name=d.get("transcript_name"),
-            gene_expression=d.get("gene_expression"),
-            transcript_expression=d.get("transcript_expression"),
-            n_overlapping_reads=d.get("n_overlapping_reads"),
-            n_alt_reads=d.get("n_alt_reads"),
-            n_ref_reads=d.get("n_ref_reads"),
-            n_alt_reads_supporting_protein_sequence=d.get(
-                "n_alt_reads_supporting_protein_sequence"
-            ),
-            field_provenance=dict(d.get("field_provenance") or {}),
-            annotations=dict(d.get("annotations") or {}),
+        values["target_intervals"] = ti
+        values["field_provenance"] = dict(
+            values.get("field_provenance") or {}
         )
+        values["annotations"] = dict(values.get("annotations") or {})
+        return cls(**values)
 
     def to_json(self, **kwargs) -> str:
         """JSON string. Extra kwargs are forwarded to :func:`json.dumps`
@@ -599,6 +659,43 @@ n_alt_fragments_supporting_protein_sequence : int, optional
         )
 
 
+# Keep the 5.x Python surface source-compatible while emitting only the
+# assay-scoped names. Serialized input uses the same migration helper; this
+# wrapper covers direct construction, and read-only properties cover callers
+# that still inspect the 5.47 attribute names. They are intentionally absent
+# from dataclasses.fields() and to_dict(), so new output has one name per fact.
+_PROTEIN_FRAGMENT_INIT = ProteinFragment.__init__
+
+
+@functools.wraps(_PROTEIN_FRAGMENT_INIT)
+def _compatible_protein_fragment_init(self, *args, **kwargs):
+    known = {field.name for field in dataclasses.fields(ProteinFragment)}
+    kwargs = _migrate_fragment_dict(kwargs, known)
+    _PROTEIN_FRAGMENT_INIT(self, *args, **kwargs)
+
+
+ProteinFragment.__init__ = _compatible_protein_fragment_init
+
+_FRAGMENT_FIELD_RENAMES = _fragment_field_renames({
+    field.name for field in dataclasses.fields(ProteinFragment)
+})
+
+
+def _legacy_fragment_property(current_name):
+    return property(
+        lambda self: getattr(self, current_name),
+        doc=f"Compatibility alias for :attr:`{current_name}`.",
+    )
+
+
+for _old_name, _current_name in _FRAGMENT_FIELD_RENAMES.items():
+    setattr(
+        ProteinFragment,
+        _old_name,
+        _legacy_fragment_property(_current_name),
+    )
+
+
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -672,8 +769,11 @@ SEMANTIC_CORE = (
     "fragment_id", "source_type", "sequence", "target_intervals",
     "variant", "gene", "gene_id", "transcript_id",
     "gene_expression", "transcript_expression",
-    "n_overlapping_reads", "n_alt_reads", "n_ref_reads",
-    "n_alt_reads_supporting_protein_sequence",
+    "n_rna_overlapping_reads", "n_rna_alt_reads", "n_rna_ref_reads",
+    "n_rna_other_reads", "n_rna_alt_reads_supporting_protein_sequence",
+    "n_rna_overlapping_fragments", "n_rna_alt_fragments",
+    "n_rna_ref_fragments", "n_rna_other_fragments",
+    "n_rna_alt_fragments_supporting_protein_sequence",
 )
 
 _FRAGMENT_IDENTITY = ("source_sequence_name", "variant", "peptide")
@@ -685,9 +785,10 @@ _FRAGMENT_IDENTITY = ("source_sequence_name", "variant", "peptide")
 #: two meet, so the fragment never holds a fragment count under a name
 #: for reads.
 _FRAME_COUNTS = {
-    "n_rna_alt": ("n_alt_reads", "n_alt_fragments"),
-    "n_rna_ref": ("n_ref_reads", "n_ref_fragments"),
-    "n_rna_overlapping": ("n_overlapping_reads", "n_overlapping_fragments"),
+    "n_rna_alt": ("n_rna_alt_reads", "n_rna_alt_fragments"),
+    "n_rna_ref": ("n_rna_ref_reads", "n_rna_ref_fragments"),
+    "n_rna_overlapping": ("n_rna_overlapping_reads", "n_rna_overlapping_fragments"),
+    "n_rna_other": ("n_rna_other_reads", "n_rna_other_fragments"),
 }
 
 

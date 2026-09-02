@@ -45,13 +45,18 @@ def _read(fn, path):
 
 def test_the_dna_columns_mirror_the_rna_columns_name_for_name():
     """The point of the symmetry: s/rna/dna/ names a real column."""
-    rna_shape = {c.replace("rna", "", 1) for c in RNA_EVIDENCE_COLUMNS}
+    expression_only = {
+        "rna_alt_expression", "rna_alt_expression_method",
+        "gene_expression", "transcript_expression",
+    }
+    rna_shape = {
+        c.replace("rna", "", 1) for c in RNA_EVIDENCE_COLUMNS
+        if c not in expression_only
+    }
     dna_shape = {c.replace("dna", "", 1) for c in DNA_EVIDENCE_COLUMNS}
-    # Expression is transcript-only and has no DNA meaning; everything
-    # else must exist on both sides.
-    expression_only = {"_alt_expression", "_alt_expression_method",
-                       "gene_expression"}
-    assert rna_shape - expression_only == dna_shape
+    # Expression and abundance have no DNA meaning; everything else must
+    # exist on both sides.
+    assert rna_shape == dna_shape
 
 
 def test_pvacseq_derives_dna_counts_from_depth_and_vaf():
@@ -68,14 +73,70 @@ def test_pvacseq_derives_dna_counts_from_depth_and_vaf():
     assert row["dna_evidence_subject"] == "reads"
 
 
+def test_the_dna_subject_is_inferred_not_asserted():
+    """It was hardcoded to READS, which made it a literal, not data.
+
+    A depth x VAF split really is about reads, because depth is a read
+    depth — that one is inferable. A direct count's unit is known only
+    to whoever counted it.
+    """
+    split = attach_dna_evidence(
+        pd.DataFrame({"x": [1]}), depth=pd.Series([100]), vaf=pd.Series([0.4]),
+    )
+    assert split["dna_evidence_subject"].iloc[0] == "reads"
+
+    counted = attach_dna_evidence(
+        pd.DataFrame({"x": [1]}), alt=pd.Series([40]), ref=pd.Series([60]),
+    )
+    assert "dna_evidence_subject" not in counted.columns
+
+    stated = attach_dna_evidence(
+        pd.DataFrame({"x": [1]}), alt=pd.Series([40]), ref=pd.Series([60]),
+        subject="fragments",
+    )
+    assert stated["dna_evidence_subject"].iloc[0] == "fragments"
+
+
+def test_a_nonsense_dna_subject_is_refused():
+    with pytest.raises(ValueError, match="subject must be"):
+        attach_dna_evidence(
+            pd.DataFrame({"x": [1]}), alt=pd.Series([40]), subject="molecules",
+        )
+
+
+def test_dna_counts_come_from_the_dna_columns_not_the_rna_ones():
+    """The fixture cannot prove this: its DNA and RNA depths are equal.
+
+    tests/data/pvacseq/mhc_i_all_epitopes.tsv has Tumor DNA Depth ==
+    Tumor RNA Depth on every row, so a reader wired to the wrong column
+    passes every assertion made against it. Build the case the fixture
+    cannot: distinct depths, distinct fractions, and check each assay
+    landed on its own numbers.
+    """
+    df = pd.DataFrame({"x": [1]})
+    out = attach_rna_evidence(
+        df, overlapping=pd.Series([200]), vaf=pd.Series([0.5]),
+    )
+    out = attach_dna_evidence(
+        out, depth=pd.Series([100]), vaf=pd.Series([0.25]),
+    )
+    assert out["n_rna_overlapping"].iloc[0] == 200
+    assert out["n_dna_overlapping"].iloc[0] == 100
+    assert out["n_rna_alt"].iloc[0] == 100
+    assert out["n_dna_alt"].iloc[0] == 25
+    assert out["rna_vaf"].iloc[0] == pytest.approx(0.5)
+    assert out["dna_vaf"].iloc[0] == pytest.approx(0.25)
+
+
 def test_a_depth_without_a_fraction_yields_no_split_rather_than_zero():
     out = attach_dna_evidence(
         pd.DataFrame({"x": [1]}), depth=pd.Series([50]), vaf=pd.Series([None]),
     )
-    assert pd.isna(out["n_dna_alt"].iloc[0])
-    assert pd.isna(out["dna_evidence_method"].iloc[0])
+    assert "n_dna_alt" not in out.columns
+    assert "dna_evidence_method" not in out.columns
     # Depth is still known: the source did cover the locus.
     assert out["n_dna_overlapping"].iloc[0] == 50
+    assert out["dna_evidence_subject"].iloc[0] == "reads"
 
 
 def test_a_source_that_states_only_a_fraction_gets_only_the_fraction_column():
@@ -93,6 +154,39 @@ def test_a_source_that_states_only_a_fraction_gets_only_the_fraction_column():
 def test_no_dna_inputs_at_all_writes_no_dna_columns():
     out = attach_dna_evidence(pd.DataFrame({"x": [1]}))
     assert list(out.columns) == ["x"]
+
+
+def test_all_null_dna_inputs_are_omitted_like_absent_inputs():
+    out = attach_dna_evidence(
+        pd.DataFrame({"x": [1, 2]}),
+        depth=pd.Series([None, None]),
+        vaf=pd.Series([None, None]),
+        alt=pd.Series([None, None]),
+        ref=pd.Series([None, None]),
+    )
+
+    assert list(out.columns) == ["x"]
+
+
+def test_an_explicit_subject_cannot_contradict_a_known_derivation():
+    with pytest.raises(ValueError, match="contradicts"):
+        attach_dna_evidence(
+            pd.DataFrame({"x": [1]}),
+            depth=pd.Series([100]),
+            vaf=pd.Series([0.4]),
+            subject="fragments",
+        )
+
+
+def test_a_read_depth_cannot_be_mixed_with_direct_fragment_counts():
+    with pytest.raises(ValueError, match="contradicts"):
+        attach_dna_evidence(
+            pd.DataFrame({"x": [1]}),
+            depth=pd.Series([100]),
+            alt=pd.Series([40]),
+            ref=pd.Series([50]),
+            subject="fragments",
+        )
 
 
 def test_other_allele_column_is_omitted_not_nulled_when_ref_was_derived():
@@ -142,12 +236,12 @@ def test_counts_that_do_not_add_up_clip_at_zero_rather_than_go_negative():
 def test_a_fragment_reports_other_allele_support_in_its_preferred_unit():
     both = ProteinFragment(
         fragment_id="f", sequence="MKTVRQ",
-        n_other_fragments=10, n_other_reads=19,
+        n_rna_other_fragments=10, n_rna_other_reads=19,
     )
     assert both.n_rna_other == 10
 
     reads_only = ProteinFragment(
-        fragment_id="f", sequence="MKTVRQ", n_other_reads=4,
+        fragment_id="f", sequence="MKTVRQ", n_rna_other_reads=4,
     )
     assert reads_only.n_rna_other == 4
 
@@ -219,8 +313,9 @@ def test_the_canonical_vaf_prefers_the_number_the_source_stated():
 
 
 def test_the_canonical_vaf_is_absent_when_nothing_supports_it():
+    """Absent as a column, not present as a null."""
     out = attach_rna_evidence(pd.DataFrame({"x": [1]}))
-    assert pd.isna(out["rna_vaf"].iloc[0])
+    assert "rna_vaf" not in out.columns
 
 
 # ---------------------------------------------------------------------------
@@ -233,18 +328,117 @@ def test_the_cache_key_is_public_and_names_the_genotype_column():
     assert "sample_name" not in PREDICTION_KEY_COLUMNS
 
 
-def test_the_concat_overlap_error_names_the_key_it_actually_used():
-    """It used to name a stale 4-tuple, so the message misled."""
+def test_the_concat_conflict_error_names_the_key_it_actually_used():
+    """It used to name a stale 4-tuple, so the message misled.
+
+    Uses rows that genuinely disagree: since topiary#231, two *identical*
+    rows are no longer an error, so the earlier version of this test
+    asserted on a raise that should not happen.
+    """
     from topiary import CachedPredictor
 
-    row = pd.DataFrame([dict(
-        peptide="SIINFEKLA", peptide_length=9, allele="HLA-A*02:01",
-        kind="pMHC_affinity", value=0.5, score=0.5, percentile_rank=1.0,
-        prediction_method_name="netmhcpan", predictor_version="4.1",
-    )])
+    def row(score):
+        return pd.DataFrame([dict(
+            peptide="SIINFEKLA", peptide_length=9, allele="HLA-A*02:01",
+            kind="pMHC_affinity", value=score, score=score,
+            percentile_rank=1.0, prediction_method_name="netmhcpan",
+            predictor_version="4.1",
+        )])
+
     with pytest.raises(ValueError) as excinfo:
         CachedPredictor.concat(
-            [CachedPredictor(row), CachedPredictor(row)],
+            [CachedPredictor(row(0.1)), CachedPredictor(row(0.9))],
         )
     for column in PREDICTION_KEY_COLUMNS:
         assert column in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# Migration: renamed columns are self-diagnosing
+# ---------------------------------------------------------------------------
+
+
+def test_every_recorded_rename_points_at_a_column_that_exists_somewhere():
+    """A migration table that names a nonexistent column is worse than none."""
+    from topiary import RENAMED_COLUMNS
+    import dataclasses
+    from topiary import ProteinFragment
+
+    known = set()
+    for path, reader in (
+        (LENS, read_lens), (PVAC_ALL, read_pvacseq),
+        ("tests/data/pvacseq/mhc_i_aggregated.tsv", read_pvacseq),
+    ):
+        known |= set(_read(reader, path).columns)
+    known |= {f.name for f in dataclasses.fields(ProteinFragment)}
+
+    missing = {old: new for old, new in RENAMED_COLUMNS.items()
+               if new not in known}
+    assert not missing, f"rename targets that exist nowhere: {missing}"
+
+
+def test_the_rename_map_beats_fuzzy_matching_on_the_case_that_matters():
+    """`vaf` fuzzy-matches to `rna_vaf`, which is a different quantity.
+
+    `rna_vaf` is the canonical cross-source fraction; `vaf` was LENS's
+    own, whose assay the file never states. Sending a consumer to the
+    wrong one silently changes what their filter means.
+    """
+    from topiary import apply_filter, renamed_column
+    from topiary.ranking import parse
+
+    assert renamed_column("vaf") == "lens_vaf"
+
+    df = _read(read_lens, LENS)
+    with pytest.raises(ValueError) as excinfo:
+        apply_filter(df, parse("vaf > 0.1"))
+    message = str(excinfo.value)
+    assert "lens_vaf" in message
+    assert "rna_vaf" not in message.replace("lens_vaf", "")
+
+
+def test_a_genuinely_unknown_column_still_gets_a_fuzzy_suggestion():
+    """The rename map must not swallow the ordinary typo path."""
+    from topiary import apply_filter
+    from topiary.ranking import parse
+
+    df = _read(read_lens, LENS)
+    with pytest.raises(ValueError, match="Did you mean|Available columns"):
+        apply_filter(df, parse("gene_expresion > 1"))
+
+
+def test_both_attach_functions_refuse_a_misaligned_series_identically():
+    """They used to disagree silently, in opposite directions.
+
+    A Series whose index did not match the frame was aligned by pandas on
+    the RNA side (all-null column) and assigned positionally on the DNA
+    side (misaligned column). Both lose data without saying so.
+    """
+    from topiary.evidence import attach_rna_evidence
+
+    df = pd.DataFrame({"x": [1, 2]}, index=[10, 11])
+    misaligned = pd.Series([100, 200])  # RangeIndex, not [10, 11]
+
+    for fn, kwargs in (
+        (attach_rna_evidence, {"overlapping": misaligned}),
+        (attach_dna_evidence, {"depth": misaligned}),
+    ):
+        with pytest.raises(ValueError, match="index does not match"):
+            fn(df, **kwargs)
+
+
+def test_a_bare_sequence_is_positional_on_both_sides():
+    """No index to honour, so position is the only reading -- and the
+    twins must agree on it."""
+    from topiary.evidence import attach_rna_evidence
+
+    df = pd.DataFrame({"x": [1, 2]}, index=[10, 11])
+    rna = attach_rna_evidence(df, overlapping=[100, 200], vaf=[0.4, 0.5])
+    dna = attach_dna_evidence(df, depth=[100, 200], vaf=[0.4, 0.5])
+    assert rna["n_rna_alt"].tolist() == dna["n_dna_alt"].tolist() == [40, 100]
+
+
+def test_a_wrong_length_sequence_is_refused():
+    df = pd.DataFrame({"x": [1, 2]})
+    with pytest.raises(ValueError, match="3 values for 2 rows"):
+        attach_dna_evidence(df, depth=[1, 2, 3])

@@ -55,6 +55,8 @@ class _IsovarResult:
     num_alt_reads = 58
     num_ref_fragments = 31
     num_ref_reads = 60
+    num_other_fragments = 2
+    num_other_reads = 4
 
 
 class _NoRNASupport:
@@ -100,12 +102,20 @@ def test_isovar_counts_are_measured_not_derived():
     these, every other source estimates or counts something adjacent."""
     fragment = fragment_from_isovar_result(_IsovarResult())
 
-    assert fragment.n_alt_fragments == 30
-    assert fragment.n_alt_reads == 58
+    assert fragment.n_rna_alt_fragments == 30
+    assert fragment.n_rna_alt_reads == 58
     assert fragment.n_rna_alt == 30        # fragments preferred
     assert fragment.rna_evidence_subject() == "fragments"
-    assert not fragment.is_approximate("n_alt_reads")
-    assert fragment.is_usable_as_biology("n_alt_reads")
+    assert not fragment.is_approximate("n_rna_alt_reads")
+    assert fragment.is_usable_as_biology("n_rna_alt_reads")
+
+
+def test_isovar_carries_other_allele_counts_in_both_units():
+    fragment = fragment_from_isovar_result(_IsovarResult())
+
+    assert fragment.n_rna_other_fragments == 2
+    assert fragment.n_rna_other_reads == 4
+    assert fragment.n_rna_other == 2
 
 
 def test_the_mutated_span_lands_inside_the_sequence():
@@ -177,11 +187,21 @@ def test_a_reader_frame_becomes_fragments(reader, path):
     assert all(f.sequence for f in fragments)
 
 
+def test_a_frame_carries_other_allele_support_into_a_fragment():
+    fragment = fragments_from_dataframe(pd.DataFrame([{
+        "peptide": "SIINFEKLA",
+        "n_rna_other": 3,
+        "rna_evidence_subject": "fragments",
+    }]))[0]
+
+    assert fragment.n_rna_other_fragments == 3
+
+
 def test_pvacseq_counts_are_marked_derived():
     fragment = fragments_from_dataframe(_frame(read_pvacseq, PVACSEQ))[0]
 
-    assert fragment.n_alt_reads > 0
-    assert fragment.is_approximate("n_alt_reads")
+    assert fragment.n_rna_alt_reads > 0
+    assert fragment.is_approximate("n_rna_alt_reads")
     assert fragment.annotations["rna_evidence_method"] == RNA_DEPTH_X_VAF
 
 
@@ -193,7 +213,7 @@ def test_a_lens_cds_overlap_count_keeps_its_own_name():
     frame = _frame(read_lens, LENS)
 
     assert "lens_rna_reads_covering_genomic_origin_with_peptide_cds" in frame.columns
-    assert "n_alt_reads_supporting_protein_sequence" not in frame.columns
+    assert "n_rna_alt_reads_supporting_protein_sequence" not in frame.columns
 
 
 def test_a_reader_frame_records_its_sequence_source():
@@ -235,9 +255,9 @@ def test_every_path_produces_the_same_core():
 def test_a_consumer_reads_every_source_through_one_path():
     """No branching on where the data came from — the whole premise."""
     def rna_support(fragment):
-        if not fragment.is_usable_as_biology("n_alt_reads"):
+        if not fragment.is_usable_as_biology("n_rna_alt_reads"):
             return None
-        return (fragment.n_alt_reads, fragment.is_approximate("n_alt_reads"))
+        return (fragment.n_rna_alt_reads, fragment.is_approximate("n_rna_alt_reads"))
 
     isovar = rna_support(fragment_from_isovar_result(_IsovarResult()))
     pvacseq = rna_support(
@@ -259,8 +279,8 @@ def test_only_isovar_reports_counted_reads():
         "pvacseq": fragments_from_dataframe(_frame(read_pvacseq, PVACSEQ))[0],
     }
 
-    assert counted["isovar"].provenance_of("n_alt_reads") == "measured"
-    assert counted["pvacseq"].provenance_of("n_alt_reads") == "approximated"
+    assert counted["isovar"].provenance_of("n_rna_alt_reads") == "measured"
+    assert counted["pvacseq"].provenance_of("n_rna_alt_reads") == "approximated"
 
 
 def test_the_method_to_provenance_map_is_single_valued():

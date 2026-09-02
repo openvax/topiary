@@ -38,29 +38,29 @@ def _fragment(**kwargs):
 
 def test_read_counts_are_carried():
     f = _fragment(
-        n_overlapping_reads=40, n_alt_reads=12, n_ref_reads=28,
-        n_alt_reads_supporting_protein_sequence=9,
+        n_rna_overlapping_reads=40, n_rna_alt_reads=12, n_rna_ref_reads=28,
+        n_rna_alt_reads_supporting_protein_sequence=9,
     )
 
-    assert f.n_overlapping_reads == 40
-    assert f.n_alt_reads == 12
-    assert f.n_ref_reads == 28
-    assert f.n_alt_reads_supporting_protein_sequence == 9
+    assert f.n_rna_overlapping_reads == 40
+    assert f.n_rna_alt_reads == 12
+    assert f.n_rna_ref_reads == 28
+    assert f.n_rna_alt_reads_supporting_protein_sequence == 9
 
 
 def test_reads_supporting_the_protein_sequence_are_separate_from_alt_reads():
     """Reads supporting *this assembled sequence*, not merely the allele."""
-    f = _fragment(n_alt_reads=12, n_alt_reads_supporting_protein_sequence=9)
+    f = _fragment(n_rna_alt_reads=12, n_rna_alt_reads_supporting_protein_sequence=9)
 
-    assert f.n_alt_reads != f.n_alt_reads_supporting_protein_sequence
+    assert f.n_rna_alt_reads != f.n_rna_alt_reads_supporting_protein_sequence
 
 
 def test_read_counts_default_to_unknown():
     """A source with no read data says nothing rather than saying zero."""
     f = _fragment()
 
-    assert f.n_alt_reads is None
-    assert not f.is_known("n_alt_reads")
+    assert f.n_rna_alt_reads is None
+    assert not f.is_known("n_rna_alt_reads")
 
 
 # ---------------------------------------------------------------------------
@@ -70,28 +70,28 @@ def test_read_counts_default_to_unknown():
 
 def test_zero_and_unknown_are_different():
     """"No RNA support" and "this source cannot answer" are not one claim."""
-    looked = _fragment(n_alt_reads=0)
-    cannot_answer = _fragment(n_alt_reads=None)
+    looked = _fragment(n_rna_alt_reads=0)
+    cannot_answer = _fragment(n_rna_alt_reads=None)
 
-    assert looked.n_alt_reads == 0
-    assert looked.is_known("n_alt_reads")
-    assert cannot_answer.n_alt_reads is None
-    assert not cannot_answer.is_known("n_alt_reads")
+    assert looked.n_rna_alt_reads == 0
+    assert looked.is_known("n_rna_alt_reads")
+    assert cannot_answer.n_rna_alt_reads is None
+    assert not cannot_answer.is_known("n_rna_alt_reads")
 
 
 def test_zero_survives_a_file_round_trip_as_zero(tmp_path):
     """The distinction has to survive serialization, or it is decorative."""
     path = tmp_path / "frags.tsv"
     write_fragments(
-        [_fragment(fragment_id="zero", n_alt_reads=0),
-         _fragment(fragment_id="unknown", n_alt_reads=None)],
+        [_fragment(fragment_id="zero", n_rna_alt_reads=0),
+         _fragment(fragment_id="unknown", n_rna_alt_reads=None)],
         path,
     )
 
     back = {f.fragment_id: f for f in read_fragments(path)}
 
-    assert back["zero"].n_alt_reads == 0
-    assert back["unknown"].n_alt_reads is None
+    assert back["zero"].n_rna_alt_reads == 0
+    assert back["unknown"].n_rna_alt_reads is None
 
 
 def test_is_known_rejects_a_field_that_does_not_exist():
@@ -105,18 +105,18 @@ def test_is_known_rejects_a_field_that_does_not_exist():
 
 
 def test_an_unqualified_field_has_no_provenance():
-    f = _fragment(n_alt_reads=12)
+    f = _fragment(n_rna_alt_reads=12)
 
-    assert f.provenance_of("n_alt_reads") is None
-    assert f.is_usable_as_biology("n_alt_reads")
+    assert f.provenance_of("n_rna_alt_reads") is None
+    assert f.is_usable_as_biology("n_rna_alt_reads")
 
 
 def test_an_approximated_count_is_marked():
     """LENS and pVACseq estimate read counts differently; both estimate."""
-    f = _fragment(n_alt_reads=12, field_provenance={"n_alt_reads": APPROXIMATED})
+    f = _fragment(n_rna_alt_reads=12, field_provenance={"n_rna_alt_reads": APPROXIMATED})
 
-    assert f.is_approximate("n_alt_reads")
-    assert f.is_usable_as_biology("n_alt_reads")   # an estimate is still data
+    assert f.is_approximate("n_rna_alt_reads")
+    assert f.is_usable_as_biology("n_rna_alt_reads")   # an estimate is still data
 
 
 def test_a_synthesized_field_must_not_be_read_as_biology():
@@ -130,29 +130,29 @@ def test_a_synthesized_field_must_not_be_read_as_biology():
 
 
 def test_a_measured_field_is_usable():
-    f = _fragment(n_alt_reads=12, field_provenance={"n_alt_reads": MEASURED})
+    f = _fragment(n_rna_alt_reads=12, field_provenance={"n_rna_alt_reads": MEASURED})
 
-    assert f.is_usable_as_biology("n_alt_reads")
-    assert not f.is_approximate("n_alt_reads")
+    assert f.is_usable_as_biology("n_rna_alt_reads")
+    assert not f.is_approximate("n_rna_alt_reads")
 
 
 def test_an_absent_field_is_not_usable_as_biology():
-    assert not _fragment().is_usable_as_biology("n_alt_reads")
+    assert not _fragment().is_usable_as_biology("n_rna_alt_reads")
 
 
 def test_provenance_survives_a_file_round_trip(tmp_path):
     path = tmp_path / "frags.tsv"
     write_fragments(
-        [_fragment(variant="chr1:100:N>N", n_alt_reads=12,
+        [_fragment(variant="chr1:100:N>N", n_rna_alt_reads=12,
                    field_provenance={"variant": SYNTHESIZED,
-                                     "n_alt_reads": APPROXIMATED})],
+                                     "n_rna_alt_reads": APPROXIMATED})],
         path,
     )
 
     back = list(read_fragments(path))[0]
 
     assert not back.is_usable_as_biology("variant")
-    assert back.is_approximate("n_alt_reads")
+    assert back.is_approximate("n_rna_alt_reads")
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ def test_an_unknown_field_name_is_refused():
 
 def test_an_unknown_provenance_value_is_refused():
     with pytest.raises(ValueError, match="use one of"):
-        _fragment(field_provenance={"n_alt_reads": "probably fine"})
+        _fragment(field_provenance={"n_rna_alt_reads": "probably fine"})
 
 
 def test_the_vocabulary_is_exactly_three_values():
@@ -183,13 +183,63 @@ def test_the_vocabulary_is_exactly_three_values():
 def test_from_dict_accepts_every_field_the_dataclass_has():
     """It hardcoded its field list, so new fields were rejected on load."""
     full = _fragment(
-        n_overlapping_reads=40, n_alt_reads=12, n_ref_reads=28,
-        n_alt_reads_supporting_protein_sequence=9,
+        n_rna_overlapping_reads=40, n_rna_alt_reads=12, n_rna_ref_reads=28,
+        n_rna_other_reads=3,
+        n_rna_alt_reads_supporting_protein_sequence=9,
+        n_rna_overlapping_fragments=20, n_rna_alt_fragments=6,
+        n_rna_ref_fragments=14, n_rna_other_fragments=2,
+        n_rna_alt_fragments_supporting_protein_sequence=5,
+        field_provenance={
+            "n_rna_alt_reads": APPROXIMATED,
+            "n_rna_other_fragments": MEASURED,
+        },
+    )
+
+    assert ProteinFragment.from_dict(full.to_dict()).to_dict() == full.to_dict()
+
+
+def test_from_dict_migrates_legacy_evidence_names_and_provenance():
+    fragment = ProteinFragment.from_dict({
+        "fragment_id": "legacy",
+        "sequence": "SIINFEKLA",
+        "n_alt_reads": 12,
+        "n_other_fragments": 3,
+        "field_provenance": {
+            "n_alt_reads": APPROXIMATED,
+            "n_other_fragments": MEASURED,
+        },
+    })
+
+    assert fragment.n_rna_alt_reads == 12
+    assert fragment.n_rna_other_fragments == 3
+    assert fragment.field_provenance == {
+        "n_rna_alt_reads": APPROXIMATED,
+        "n_rna_other_fragments": MEASURED,
+    }
+
+
+def test_legacy_constructor_and_attribute_names_remain_compatible():
+    fragment = ProteinFragment(
+        fragment_id="legacy",
+        sequence="SIINFEKLA",
+        n_alt_reads=12,
         field_provenance={"n_alt_reads": APPROXIMATED},
     )
 
-    assert ProteinFragment.from_dict(full.to_dict()) == full
-    assert ProteinFragment.from_dict(full.to_dict()).n_alt_reads == 12
+    assert fragment.n_alt_reads == 12
+    assert fragment.n_rna_alt_reads == 12
+    assert fragment.is_known("n_alt_reads")
+    assert fragment.is_approximate("n_alt_reads")
+    assert "n_alt_reads" not in fragment.to_dict()
+
+
+def test_conflicting_legacy_and_current_constructor_names_are_refused():
+    with pytest.raises(ValueError, match="Conflicting ProteinFragment fields"):
+        ProteinFragment(
+            fragment_id="conflict",
+            n_alt_reads=12,
+            n_rna_alt_reads=13,
+        )
 
 
 def test_the_degenerate_fragment_flows_through_unchanged(tmp_path):
@@ -216,8 +266,8 @@ def test_the_degenerate_fragment_flows_through_unchanged(tmp_path):
     assert back.reference_sequence is None
     # Every evidence field says "unknown", and says it the same way a
     # richly populated fragment would.
-    for name in ("n_alt_reads", "n_ref_reads", "n_overlapping_reads",
-                 "n_alt_reads_supporting_protein_sequence",
+    for name in ("n_rna_alt_reads", "n_rna_ref_reads", "n_rna_overlapping_reads",
+                 "n_rna_alt_reads_supporting_protein_sequence",
                  "gene_expression", "transcript_expression"):
         assert not back.is_known(name)
         assert not back.is_usable_as_biology(name)
@@ -225,17 +275,17 @@ def test_the_degenerate_fragment_flows_through_unchanged(tmp_path):
 
 def test_a_consumer_need_not_branch_on_source_type():
     """The whole point: one code path reads every source."""
-    isovar_like = _fragment(fragment_id="a", n_alt_reads=12)
+    isovar_like = _fragment(fragment_id="a", n_rna_alt_reads=12)
     lens_like = _fragment(
-        fragment_id="b", n_alt_reads=8,
-        field_provenance={"n_alt_reads": APPROXIMATED},
+        fragment_id="b", n_rna_alt_reads=8,
+        field_provenance={"n_rna_alt_reads": APPROXIMATED},
     )
     varcode_like = _fragment(fragment_id="c")
 
     def support(fragment):
-        if not fragment.is_usable_as_biology("n_alt_reads"):
+        if not fragment.is_usable_as_biology("n_rna_alt_reads"):
             return None
-        return fragment.n_alt_reads
+        return fragment.n_rna_alt_reads
 
     assert [support(f) for f in (isovar_like, lens_like, varcode_like)] == [
         12, 8, None,

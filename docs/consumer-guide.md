@@ -32,7 +32,7 @@ unchanged against LENS, pVACseq, or a predictor's own output.
 Columns come in three layers. **Filter against layer 1.**
 
 1. **Canonical cross-source** — same meaning from every reader.
-2. **Canonical unit-specific** — `n_alt_reads` / `n_alt_fragments`, present
+2. **Canonical unit-specific** — `n_rna_alt_reads` / `n_rna_alt_fragments`, present
    only where a source reports both units and they differ.
 3. **Source-prefixed originals** — `lens_vaf`, `pvacseq_tumor_dna_vaf`:
    exactly the number the tool printed, never reinterpreted. Find them with
@@ -53,6 +53,7 @@ one only where its source can answer:
 | `rna_alt_expression` | Abundance attributed to the variant allele |
 | `rna_alt_expression_method` | How that was obtained |
 | `gene_expression` | Gene-level abundance |
+| `transcript_expression` | Transcript-level abundance, where separately stated |
 | `sequence_source` | How the protein sequence came to exist |
 
 **DNA support is the same shape**, so a filter written against RNA depth
@@ -71,6 +72,14 @@ pVACseq aggregated report states a DNA VAF but no DNA depth, so it gets
 `dna_vaf` and no `n_dna_*` at all — a column full of nulls would make
 `available_evidence_columns()` report a capability the source lacks.
 
+This holds on every path as of 5.48.0. LENS emits no `rna_alt_expression`
+(it has no DNA VAF to scale abundance by, and its `vaf` never names its
+assay), and a prediction run where nobody supplied expression emits no
+`gene_expression`. **This changes filter behaviour:** `gene_expression > 1`
+against such a frame now raises instead of evaluating to NaN and silently
+emptying your candidate list. Check with `available_evidence_columns(df)`
+before naming a column in a config that runs against more than one source.
+
 **Check which are present before naming one in a config that has to run against
 more than one source:**
 
@@ -84,9 +93,9 @@ Naming an absent column in an expression **raises** rather than evaluating to
 NaN:
 
 ```
-gene_expression > 1  on a pVACseq aggregated frame
-  ValueError: Column 'gene_expression' not found in DataFrame.
-              Did you mean: ['rna_alt_expression', 'transcript_expression', ...]
+transcript_expression > 1  on a pVACseq aggregated frame
+  ValueError: Column 'transcript_expression' not found in DataFrame.
+              Did you mean: ['gene_expression', 'rna_alt_expression', ...]
 ```
 
 That is the intended behaviour — a silent NaN would drop every row in a filter
@@ -94,13 +103,17 @@ and say nothing. The alternative, emitting all-null columns everywhere, is
 worse: a column that is present and empty asserts the question was asked and
 answered as nothing. Absent beats substituted here as everywhere else.
 
-Concretely, a pVACseq *aggregated* report has no gene-level abundance, so it has
-no `gene_expression`; a LENS file without a `tpm` column has none either.
+Concretely, a pVACseq *aggregated* report has gene-level `RNA Expr` but no
+separately stated transcript-level abundance, so it has no
+`transcript_expression`; a LENS file without a `tpm` column has no
+`gene_expression` either.
 
 **`n_rna_alt`, `rna_evidence_subject` and `rna_evidence_method` are present
-wherever a source reports any RNA evidence at all**, which is what makes a
+wherever a source can determine variant support**, which is what makes a
 threshold written against `n_rna_alt` portable — whatever unit that source
-counts in.
+counts in. Coverage without a usable fraction can still populate
+`n_rna_overlapping` and its subject while correctly omitting the unavailable
+alt count and derivation.
 
 **Read `rna_evidence_subject` before a number leaves the run.** Within one run
 the unit is consistent and rankings are unaffected. It matters for things that
@@ -188,8 +201,8 @@ isovar reports both units. Both are carried, each under a name that says what it
 holds:
 
 ```python
-fragment.n_alt_reads        # 58
-fragment.n_alt_fragments    # 30
+fragment.n_rna_alt_reads        # 58
+fragment.n_rna_alt_fragments    # 30
 fragment.n_rna_alt          # 30 — fragments preferred
 fragment.rna_evidence_subject()      # "fragments"
 ```
@@ -202,10 +215,10 @@ needs library information no source carries.
 ### Knowing which fields are real
 
 ```python
-fragment.is_known("n_alt_reads")             # populated at all?
-fragment.provenance_of("n_alt_reads")        # measured | approximated | synthesized
-fragment.is_approximate("n_alt_reads")
-fragment.is_usable_as_biology("n_alt_reads") # False for absent *and* synthesized
+fragment.is_known("n_rna_alt_reads")             # populated at all?
+fragment.provenance_of("n_rna_alt_reads")        # measured | approximated | synthesized
+fragment.is_approximate("n_rna_alt_reads")
+fragment.is_usable_as_biology("n_rna_alt_reads") # False for absent *and* synthesized
 ```
 
 `None` means the source could not answer. It is not zero, and the distinction
@@ -297,6 +310,46 @@ Also public rather than reimplemented: `fragment_from_effect`,
 
 ---
 
+## Migrating renamed columns
+
+Every column renamed since 5.46.0 is in `RENAMED_COLUMNS`, and
+`renamed_column(name)` looks one up:
+
+```python
+from topiary import RENAMED_COLUMNS, renamed_column
+
+renamed_column("vaf")              # 'lens_vaf'
+renamed_column("tumor_rna_depth")  # 'pvacseq_tumor_rna_depth'
+renamed_column("gene_expression")  # None — not renamed
+```
+
+The DSL consults it before fuzzy matching, so a stale expression says what
+to do:
+
+```
+Column 'vaf' not found in DataFrame. It was renamed to 'lens_vaf'.
+```
+
+**Do not fuzzy-match these yourself.** `vaf` is the trap: the closest
+surviving name is `rna_vaf`, and that is the wrong answer — `rna_vaf` is the
+canonical cross-source fraction, while `vaf` became `lens_vaf`, LENS's own
+fraction whose assay the file never states.
+
+**If you read reader-frame columns with `row.get(...)` or `df[...]` rather than
+through the DSL, topiary cannot warn you** — a missed `.get()` returns `None`
+and becomes a silent zero. Check your column names against `RENAMED_COLUMNS`
+once at startup. Serialized `ProteinFragment` JSON and TSV are the exception:
+their old unit-specific evidence names are migrated on load, including
+`field_provenance` keys.
+
+Reader frames have no compatibility aliases. Two output columns for one
+quantity is the ambiguity the renames existed to remove. `ProteinFragment`
+accepts its old unit-specific names when loading, constructing, and reading
+attributes so the 5.x API remains compatible, but serialization emits only the
+new names.
+
+---
+
 ## Reader escape hatches
 
 ```python
@@ -332,6 +385,9 @@ Floors worth knowing:
 | `rna_vaf` / `dna_vaf` canonical fractions | 5.47.0 |
 | Source prefixes: `vaf` → `lens_vaf`, `tumor_dna_vaf` → `pvacseq_tumor_dna_vaf` | 5.47.0 |
 | `PREDICTION_KEY_COLUMNS` public | 5.47.0 |
+| `dna_evidence_subject` derived, not asserted | 5.48.0 |
+| Unit columns assay-scoped: `n_alt_reads` → `n_rna_alt_reads` | 5.48.0 |
+| All-null evidence columns omitted on every path | 5.48.0 |
 | `topiary.rna_evidence` module renamed to `topiary.evidence` | 5.47.0 |
 
 ### Removed in 5.45.0, with no compatibility shim
@@ -341,8 +397,8 @@ Floors worth knowing:
 supporting-count columns on reader frames.
 
 All of it existed to work around one mistake: topiary carried isovar's
-*fragment* counts in fields named `n_alt_reads`, then built an API to explain
-why reads were unavailable. isovar exposes `num_alt_reads` beside
+*fragment* counts in fields then named `n_alt_reads`, then built an API to
+explain why reads were unavailable. isovar exposes `num_alt_reads` beside
 `num_alt_fragments`; they were never unavailable. Carrying both under honest
 names left nothing for those five to do.
 
@@ -352,5 +408,19 @@ A `CachedPredictor` store written before 5.36.0 loads fine — `_normalize` runs
 on every construction and repairs split allele buckets. What does not repair
 itself is a store whose split buckets held *different* values for what is now
 one key; that raises on load rather than silently answering, which is intended.
+
+**Both doors agree about a repeated key as of 5.48.0** (topiary#231). An exact
+duplicate is stored once; a key appearing twice is an error only when the rows disagree on a
+`PREDICTION_VALUE_COLUMNS` entry:
+
+| | before | now |
+|---|---|---|
+| shards sharing an identical row | `concat` raised, constructor accepted | both accept |
+| rows differing only in `sample_name` | `concat` raised, constructor accepted | both accept |
+| same key, different `affinity` | `concat` raised, **constructor accepted silently** | both raise |
+
+The last row was the real hazard: a lookup returned whichever row came last.
+`conflicting_predictions(df)` is the single check both use, and returns the
+offending rows so you can see them.
 `allele_set` joined the cache key in 5.36.0, so two genotypes deconvolving to
 the same best allele are two entries rather than one silently picked.

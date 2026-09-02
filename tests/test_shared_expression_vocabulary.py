@@ -5,8 +5,9 @@ the frame. Filed with three problems; two of them were fixed by 5.37.0
 before the issue was read, and this closes the third.
 
 Fixed in 5.37.0, asserted here so they stay fixed:
-  - both frames carry `rna_alt_expression` (there was never an
-    `allele_expression`, so no two names for one quantity)
+  - where a reader emits the variant-allele estimate it is named
+    `rna_alt_expression` (there was never an `allele_expression`, so no
+    two names for one quantity)
   - both label the derivation, on the expression *and* the read axes
 
 Still open, and fixed here:
@@ -17,6 +18,7 @@ Still open, and fixed here:
 
 import warnings
 
+import pandas as pd
 import pytest
 
 from topiary import evaluate_scores, read_lens, read_pvacseq
@@ -85,8 +87,24 @@ def test_the_raw_string_is_still_kept_separately(frames):
 
 
 @pytest.mark.parametrize("reader", ["lens", "pvacseq"])
-def test_both_readers_name_the_variant_allele_estimate_the_same(frames, reader):
-    assert "rna_alt_expression" in frames[reader].columns
+def test_the_variant_allele_estimate_has_one_name_wherever_it_appears(frames, reader):
+    """Shared *vocabulary*, not shared columns.
+
+    This asserted presence on both readers, and LENS's column was 100%
+    null -- the assertion passed on a column that never held a number.
+    LENS cannot produce the estimate: it needs a DNA VAF to scale
+    abundance by, and LENS's single `vaf` never names its assay, so
+    using it would assert the opposite one. The column is therefore
+    absent rather than null, and the shared name is what has to hold
+    wherever the quantity does exist.
+    """
+    df = frames[reader]
+    if "rna_alt_expression" in df.columns:
+        assert df["rna_alt_expression"].notna().any(), (
+            "a present estimate column must hold at least one estimate"
+        )
+    else:
+        assert reader == "lens"
 
 
 @pytest.mark.parametrize("reader", ["lens", "pvacseq"])
@@ -101,11 +119,24 @@ def test_neither_reader_uses_the_other_spelling(frames, reader):
     "rna_alt_expression_method",
     "rna_evidence_method",
 ])
-def test_both_readers_label_every_derivation(frames, reader, column):
+def test_every_derivation_that_exists_is_labelled(frames, reader, column):
     """The reason for labelling one applies identically to the other: the
     estimate assumes both alleles are transcribed equally, so a variant on
-    a silenced allele looks expressed. A bare number cannot say that."""
-    assert column in frames[reader].columns
+    a silenced allele looks expressed. A bare number cannot say that.
+
+    The pairing is what matters -- a quantity present without its method
+    is the failure. A quantity the source cannot produce takes its method
+    column with it.
+    """
+    df = frames[reader]
+    quantity = column.replace("_method", "")
+    quantity = {"rna_evidence": "n_rna_alt"}.get(quantity, quantity)
+    if quantity in df.columns and df[quantity].notna().any():
+        assert column in df.columns, f"{quantity} present but {column} is not"
+    else:
+        assert column not in df.columns, (
+            f"{column} describes a derivation of {quantity}, which is absent"
+        )
 
 
 def test_a_consumer_can_ask_how_a_number_was_obtained_on_either_frame(frames):
@@ -124,7 +155,8 @@ def test_a_consumer_can_ask_how_a_number_was_obtained_on_either_frame(frames):
 # branches. Its aggregated report supplies pVACseq's own `Allele Expr` and
 # `RNA Expr`, which were passed through under names the all_epitopes path
 # never emits — and that path never ran attach_rna_evidence at all, so it
-# had no method columns.
+# had no method columns. `RNA Expr` is gene-level according to pVACseq's
+# schema; sharing vocabulary must not turn it into transcript-level data.
 #
 # Both of us mis-verified this by checking one branch: I read the
 # all_epitopes fixture and concluded about the reader; the consumer grepped
@@ -148,7 +180,22 @@ def test_both_pvacseq_flavours_name_expression_the_same(path):
     df = _pvacseq(path)
 
     assert "rna_alt_expression" in df.columns
-    assert "transcript_expression" in df.columns
+    assert "gene_expression" in df.columns
+
+
+def test_aggregated_rna_expr_is_gene_not_transcript_expression():
+    """pVACseq's schema defines RNA Expr as gene-level expression."""
+    df = _pvacseq(AGGREGATED)
+
+    assert "gene_expression" in df.columns
+    assert "transcript_expression" not in df.columns
+
+    raw = pd.read_csv(AGGREGATED, sep="\t")
+    pd.testing.assert_series_equal(
+        df["gene_expression"].reset_index(drop=True),
+        raw["RNA Expr"].reset_index(drop=True),
+        check_names=False,
+    )
 
 
 @pytest.mark.parametrize("path", [AGGREGATED, ALL_EPITOPES],
@@ -183,6 +230,19 @@ def test_a_source_supplied_estimate_says_so():
     assert methods == {"source_reported"}
 
 
+def test_aggregated_report_without_allele_expr_does_not_invent_one(
+    tmp_path,
+):
+    raw = pd.read_csv(AGGREGATED, sep="\t").drop(columns=["Allele Expr"])
+    path = tmp_path / "without-allele-expr.tsv"
+    raw.to_csv(path, sep="\t", index=False)
+
+    df = _pvacseq(path)
+
+    assert "rna_alt_expression" not in df.columns
+    assert "rna_alt_expression_method" not in df.columns
+
+
 def test_a_derived_estimate_says_that_instead():
     df = _pvacseq(ALL_EPITOPES)
 
@@ -215,7 +275,8 @@ def test_one_filter_spans_both_pvacseq_flavours(path):
 #
 # The consumer guide claimed the nine evidence columns were "identical across
 # readers". They are the same *vocabulary* — a reader emits one only where its
-# source can answer. A pVACseq aggregated report has no gene-level abundance.
+# source can answer. A pVACseq aggregated report has gene-level abundance but
+# no separately stated transcript-level abundance.
 #
 # This matters because naming an absent column raises rather than evaluating
 # to NaN, so a config written against one source can break on another.
@@ -233,14 +294,14 @@ def test_the_evidence_vocabulary_is_shared():
         assert "n_rna_alt" in available
 
 
-def test_an_aggregated_report_has_no_gene_level_abundance():
-    """The specific gap the guide got wrong."""
+def test_an_aggregated_report_has_no_transcript_level_abundance():
+    """Do not relabel pVACseq's gene-level RNA Expr as transcript-level."""
     from topiary import available_evidence_columns
 
     available = available_evidence_columns(_pvacseq(AGGREGATED))
 
-    assert "gene_expression" not in available
-    assert "gene_expression" in available_evidence_columns(
+    assert "transcript_expression" not in available
+    assert "transcript_expression" in available_evidence_columns(
         _pvacseq(ALL_EPITOPES)
     )
 
@@ -248,7 +309,9 @@ def test_an_aggregated_report_has_no_gene_level_abundance():
 def test_naming_an_absent_column_raises_rather_than_dropping_everything():
     """A silent NaN would drop every row in a filter and say nothing."""
     with pytest.raises(ValueError, match="not found"):
-        evaluate_scores(_pvacseq(AGGREGATED), parse("gene_expression > 1"))
+        evaluate_scores(
+            _pvacseq(AGGREGATED), parse("transcript_expression > 1")
+        )
 
 
 def test_absent_columns_are_absent_not_all_null():
@@ -256,7 +319,7 @@ def test_absent_columns_are_absent_not_all_null():
     answered as nothing."""
     df = _pvacseq(AGGREGATED)
 
-    assert "gene_expression" not in df.columns
+    assert "transcript_expression" not in df.columns
 
 
 def test_the_portable_columns_are_on_every_source():
