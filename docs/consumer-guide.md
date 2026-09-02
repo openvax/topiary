@@ -398,5 +398,19 @@ A `CachedPredictor` store written before 5.36.0 loads fine — `_normalize` runs
 on every construction and repairs split allele buckets. What does not repair
 itself is a store whose split buckets held *different* values for what is now
 one key; that raises on load rather than silently answering, which is intended.
+
+**Both doors agree about a repeated key as of 5.48.0** (topiary#231). A key
+appearing twice is an error only when the rows disagree on a
+`PREDICTION_VALUE_COLUMNS` entry:
+
+| | before | now |
+|---|---|---|
+| shards sharing an identical row | `concat` raised, constructor accepted | both accept |
+| rows differing only in `sample_name` | `concat` raised, constructor accepted | both accept |
+| same key, different `affinity` | `concat` raised, **constructor accepted silently** | both raise |
+
+The last row was the real hazard: a lookup returned whichever row came last.
+`conflicting_predictions(df)` is the single check both use, and returns the
+offending rows so you can see them.
 `allele_set` joined the cache key in 5.36.0, so two genotypes deconvolving to
 the same best allele are two entries rather than one silently picked.

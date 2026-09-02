@@ -813,7 +813,10 @@ class TestConcat:
         b = CachedPredictor.from_dataframe(
             _df([_row(peptide="SIINFEKLA", affinity=999.0)]),
         )
-        with pytest.raises(ValueError, match="overlapping"):
+        # Wording changed with topiary#231: concat now names the
+        # disagreement rather than the mere overlap, because an overlap
+        # that agrees is no longer an error.
+        with pytest.raises(ValueError, match="more than one answer"):
             CachedPredictor.concat([a, b])
 
     def test_concat_overlap_last_wins(self):
@@ -885,6 +888,26 @@ class TestFromDirectory:
         with pytest.raises(ValueError, match="no files matching"):
             CachedPredictor.from_directory(tmp_path, pattern="*.parquet")
 
+    def test_from_directory_accepts_shards_that_share_a_row(self, tmp_path):
+        """topiary#231: this used to fail on a perfectly consistent cache.
+
+        Sharding a table so that one row lands in two files is ordinary;
+        concat raised on any repeated key without looking at whether the
+        rows agreed, so from_directory refused to load it.
+        """
+        shared = _row(peptide="SIINFEKLA", affinity=100.0)
+        CachedPredictor.from_dataframe(_df([shared])).save(tmp_path / "a.tsv")
+        CachedPredictor.from_dataframe(
+            _df([shared, _row(peptide="SIINFEKLV", affinity=200.0)]),
+        ).save(tmp_path / "b.tsv")
+
+        merged = CachedPredictor.from_directory(tmp_path, pattern="*.tsv")
+
+        peptides = sorted(merged._df["peptide"].tolist())
+        assert peptides == ["SIINFEKLA", "SIINFEKLV"], (
+            "the shared row should appear once, not be rejected or doubled"
+        )
+
     def test_from_directory_propagates_on_overlap(self, tmp_path):
         shard_a = CachedPredictor.from_dataframe(
             _df([_row(peptide="SIINFEKLA", affinity=100.0)]),
@@ -894,8 +917,10 @@ class TestFromDirectory:
         )
         shard_a.save(tmp_path / "a.tsv")
         shard_b.save(tmp_path / "b.tsv")
-        # Default policy raises
-        with pytest.raises(ValueError, match="overlapping"):
+        # Default policy raises -- these shards genuinely disagree (100
+        # vs 999). Shards sharing an *identical* row no longer raise;
+        # see test_from_directory_accepts_shards_that_share_a_row.
+        with pytest.raises(ValueError, match="more than one answer"):
             CachedPredictor.from_directory(tmp_path, pattern="*.tsv")
         # last-wins policy succeeds
         merged = CachedPredictor.from_directory(

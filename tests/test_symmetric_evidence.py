@@ -289,18 +289,26 @@ def test_the_cache_key_is_public_and_names_the_genotype_column():
     assert "sample_name" not in PREDICTION_KEY_COLUMNS
 
 
-def test_the_concat_overlap_error_names_the_key_it_actually_used():
-    """It used to name a stale 4-tuple, so the message misled."""
+def test_the_concat_conflict_error_names_the_key_it_actually_used():
+    """It used to name a stale 4-tuple, so the message misled.
+
+    Uses rows that genuinely disagree: since topiary#231, two *identical*
+    rows are no longer an error, so the earlier version of this test
+    asserted on a raise that should not happen.
+    """
     from topiary import CachedPredictor
 
-    row = pd.DataFrame([dict(
-        peptide="SIINFEKLA", peptide_length=9, allele="HLA-A*02:01",
-        kind="pMHC_affinity", value=0.5, score=0.5, percentile_rank=1.0,
-        prediction_method_name="netmhcpan", predictor_version="4.1",
-    )])
+    def row(score):
+        return pd.DataFrame([dict(
+            peptide="SIINFEKLA", peptide_length=9, allele="HLA-A*02:01",
+            kind="pMHC_affinity", value=score, score=score,
+            percentile_rank=1.0, prediction_method_name="netmhcpan",
+            predictor_version="4.1",
+        )])
+
     with pytest.raises(ValueError) as excinfo:
         CachedPredictor.concat(
-            [CachedPredictor(row), CachedPredictor(row)],
+            [CachedPredictor(row(0.1)), CachedPredictor(row(0.9))],
         )
     for column in PREDICTION_KEY_COLUMNS:
         assert column in str(excinfo.value)

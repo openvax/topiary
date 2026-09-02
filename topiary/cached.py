@@ -100,11 +100,108 @@ _CACHE_COLUMNS = (
 #:
 #: The reasoning for each column, and for the three deliberately left
 #: out, is in the comment block above.
+#: Columns carrying what was predicted, as opposed to which row it was.
+#:
+#: Two rows sharing a :data:`PREDICTION_KEY_COLUMNS` key must agree on
+#: every one of these or the cache has two answers for one question.
+#: Comparing a subset is how the first attempt at this failed: it left
+#: ``affinity`` out, so caches disagreeing only about affinity merged
+#: silently.
+PREDICTION_VALUE_COLUMNS = (
+    "score", "affinity", "percentile_rank", "value",
+    "prediction_method_name", "predictor_version",
+)
+
+#: Columns saying where a peptide was found, not what was predicted.
+#:
+#: Two rows may differ here and still be the same prediction -- one
+#: peptide can occur in two proteins, or two samples. They are excluded
+#: from the key for that reason, and excluded from the value comparison
+#: for the same one: rows differing only here are not in conflict, and
+#: dropping one of them loses provenance the caller put there. The first
+#: attempt at this dropped them.
+PREDICTION_CONTEXT_COLUMNS = (
+    "source_sequence_name", "peptide_offset", "sample_name",
+)
+
+
 PREDICTION_KEY_COLUMNS = (
     "peptide", "allele", "peptide_length", "kind",
     "n_flank", "c_flank", "allele_set",
 )
 
+
+
+def conflicting_predictions(df: pd.DataFrame) -> pd.DataFrame:
+    """Rows sharing a prediction key but disagreeing about the prediction.
+
+    The one place that decides whether a duplicate key is a problem, so
+    the two doors into a cache cannot answer it differently. They used
+    to: :meth:`CachedPredictor.concat` raised on *any* repeated key,
+    including rows that agreed on everything, which broke
+    :meth:`CachedPredictor.from_directory` whenever two shards happened
+    to share a row; the constructor checked nothing at all and let a key
+    with two different scores through, after which a lookup returned
+    whichever row came last.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Cache rows.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The offending rows, empty when there are none. Returned rather
+        than a bool so the caller can name them in an error.
+
+    Notes
+    -----
+    Agreement is judged on :data:`PREDICTION_VALUE_COLUMNS` only.
+    Rows differing solely in :data:`PREDICTION_CONTEXT_COLUMNS` -- one
+    peptide found in two proteins, or two samples -- are the same
+    prediction reported twice, not a conflict.
+
+    Missing values compare equal to each other, so two rows that both
+    leave ``affinity`` unstated agree about it. ``NaN != NaN`` would
+    otherwise report every such pair as a conflict.
+    """
+    if df.empty:
+        return df
+
+    key = [c for c in PREDICTION_KEY_COLUMNS if c in df.columns]
+    value = [c for c in PREDICTION_VALUE_COLUMNS if c in df.columns]
+    if not key:
+        return df.iloc[:0]
+
+    # Collapse rows that agree on key *and* value, then any key still
+    # repeated is one the source gave two different answers for.
+    # drop_duplicates and duplicated both treat NA as equal to NA, which
+    # is the comparison we want and the one `==` will not give.
+    distinct = df.drop_duplicates(subset=key + value)
+    return distinct[distinct.duplicated(subset=key, keep=False)]
+
+
+def _conflict_message(where: str, conflicts: pd.DataFrame) -> str:
+    """One wording for both doors, naming the key and what differed."""
+    key = [c for c in PREDICTION_KEY_COLUMNS if c in conflicts.columns]
+    value = [c for c in PREDICTION_VALUE_COLUMNS if c in conflicts.columns]
+    groups = conflicts.groupby(key, dropna=False, sort=False)
+    disagreed = sorted({
+        column
+        for _, group in groups
+        for column in value
+        if group[column].drop_duplicates().shape[0] > 1
+    })
+    sample = conflicts[key].drop_duplicates().head(3).to_dict("records")
+    return (
+        f"{where}: {groups.ngroups} prediction key(s) with more than one "
+        f"answer. Disagreed on: {disagreed}. Sample key(s): {sample}. "
+        f"A cache key with two values has no defined lookup result -- "
+        f"drop or reconcile the losing rows before loading. Rows that "
+        f"differ only in {list(PREDICTION_CONTEXT_COLUMNS)} are not "
+        f"conflicts and are kept."
+    )
 
 
 class CachedPredictor:
@@ -174,6 +271,13 @@ class CachedPredictor:
             return
 
         self._df = self._normalize(df)
+        # The same check concat makes, from the same function, so the two
+        # doors into a cache cannot disagree about what a repeated key
+        # means. A key with two different answers has no defined lookup
+        # result; this used to return whichever row came last.
+        conflicts = conflicting_predictions(self._df)
+        if not conflicts.empty:
+            raise ValueError(_conflict_message("CachedPredictor", conflicts))
         self.prediction_method_name, self.predictor_version = \
             self._unique_version_pair(self._df)
         self._index, self._prefix_index = self._build_index(self._df)
@@ -266,6 +370,16 @@ class CachedPredictor:
         # compares the same shape on both sides of a round-trip.
         out["prediction_method_name"] = out["prediction_method_name"].astype(str)
         out["predictor_version"] = out["predictor_version"].astype(str)
+
+        # The numeric value columns are float64 whatever they hold. Left
+        # to pandas they come out object when every entry is absent and
+        # float64 otherwise, so a cache's dtypes depended on its
+        # contents: two shards of one table could disagree, which made
+        # concat's dtype result depend on which shard was read first.
+        for column in ("score", "affinity", "percentile_rank", "value"):
+            if column in out.columns:
+                out[column] = pd.to_numeric(out[column], errors="coerce")
+                out[column] = out[column].astype("float64")
         return out
 
     @staticmethod
@@ -1040,16 +1154,40 @@ class CachedPredictor:
 
         # Mixed (name, version) across shards fails the core invariant
         # when we hand the combined df to the constructor below.
-        combined = pd.concat(
-            [c._df for c in caches], ignore_index=True,
+        #
+        # Empty shards are dropped first: pandas warns that it will stop
+        # ignoring them when deciding result dtypes, and an empty frame
+        # has no rows to contribute either way. Dtypes of what remains
+        # are settled by _normalize in the constructor below.
+        frames = [c._df for c in caches if not c._df.empty]
+        combined = (
+            pd.concat(frames, ignore_index=True) if frames
+            else caches[0]._df.iloc[:0].copy()
         )
         key_cols = list(PREDICTION_KEY_COLUMNS)
 
-        dup_mask = combined.duplicated(subset=key_cols, keep=False)
-        if dup_mask.any():
-            combined = cls._resolve_overlaps(
-                combined, key_cols, dup_mask, on_overlap,
-            )
+        # A repeated key is only a problem when the rows disagree, which
+        # is the constructor's rule too, from the same function. concat
+        # used to raise on any repeat: two shards sharing one identical
+        # row made from_directory fail on a cache that was perfectly
+        # consistent.
+        if on_overlap == "raise":
+            conflicts = conflicting_predictions(combined)
+            if not conflicts.empty:
+                raise ValueError(
+                    _conflict_message("CachedPredictor.concat", conflicts)
+                    + " Pass on_overlap='last' / 'first' / callable to "
+                    "resolve them instead."
+                )
+            # Identical rows carry no information twice over; rows that
+            # differ only in context do, so only exact duplicates go.
+            combined = combined.drop_duplicates(ignore_index=True)
+        else:
+            dup_mask = combined.duplicated(subset=key_cols, keep=False)
+            if dup_mask.any():
+                combined = cls._resolve_overlaps(
+                    combined, key_cols, dup_mask, on_overlap,
+                )
 
         return cls(
             combined,

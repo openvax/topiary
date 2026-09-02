@@ -73,6 +73,109 @@ TWINS = (
 FRAME = pd.DataFrame({"x": [1, 2]}, index=[10, 11])
 
 
+# ---------------------------------------------------------------------------
+# The cache's two doors (topiary#231)
+#
+# Not expressible as a Twin: they take different arguments (a frame vs a
+# list of caches) and one is a classmethod. The pairing is still the
+# point, so they get their own battery over the same inputs.
+# ---------------------------------------------------------------------------
+
+
+def _cache_row(**overrides):
+    row = dict(
+        peptide="SIINFEKLA", allele="HLA-A*02:01", peptide_length=9,
+        kind="pMHC_affinity", score=0.5, affinity=100.0,
+        percentile_rank=1.0, value=100.0,
+        prediction_method_name="netmhcpan", predictor_version="4.1",
+    )
+    row.update(overrides)
+    return row
+
+
+CACHE_CASES = {
+    "identical rows": ([_cache_row()], [_cache_row()], "accept"),
+    "differ only in context": (
+        [_cache_row(sample_name="a")], [_cache_row(sample_name="b")], "accept",
+    ),
+    "both leave affinity unstated": (
+        [_cache_row(affinity=None)], [_cache_row(affinity=None)], "accept",
+    ),
+    "disagree on affinity": (
+        [_cache_row(affinity=100.0)], [_cache_row(affinity=250.0)], "raise",
+    ),
+    "disagree on score": (
+        [_cache_row(score=0.5)], [_cache_row(score=0.9)], "raise",
+    ),
+    "one states affinity, one does not": (
+        [_cache_row(affinity=None)], [_cache_row(affinity=250.0)], "raise",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(CACHE_CASES), ids=lambda c: c)
+def test_the_cache_doors_agree_about_a_repeated_key(case):
+    """topiary#231: concat raised on any repeat, the constructor on none.
+
+    `concat` rejecting two shards that share one identical row broke
+    `from_directory` on a perfectly consistent cache; the constructor
+    accepting a key with two different scores meant a lookup returned
+    whichever row came last. Neither is defensible, and they were
+    opposite.
+    """
+    from topiary import CachedPredictor
+
+    left, right, expected = CACHE_CASES[case]
+
+    def through_constructor():
+        CachedPredictor(pd.DataFrame(left + right))
+
+    def through_concat():
+        CachedPredictor.concat([
+            CachedPredictor(pd.DataFrame(left)),
+            CachedPredictor(pd.DataFrame(right)),
+        ])
+
+    outcomes = {}
+    for label, call in (("constructor", through_constructor),
+                        ("concat", through_concat)):
+        try:
+            call()
+            outcomes[label] = "accept"
+        except ValueError:
+            outcomes[label] = "raise"
+
+    assert outcomes["constructor"] == outcomes["concat"], (
+        f"{case}: constructor {outcomes['constructor']}s, "
+        f"concat {outcomes['concat']}s"
+    )
+    assert outcomes["constructor"] == expected
+
+
+def test_every_cache_column_is_classified_as_key_value_or_context():
+    """The gap that sank the first attempt at #231.
+
+    It compared a hand-listed subset of value columns, left `affinity`
+    out, and merged caches that disagreed about affinity in silence. A
+    partition assertion turns adding a cache column into a decision
+    about which group it belongs to.
+    """
+    from topiary.cached import (
+        _CACHE_COLUMNS,
+        PREDICTION_CONTEXT_COLUMNS,
+        PREDICTION_KEY_COLUMNS,
+        PREDICTION_VALUE_COLUMNS,
+    )
+
+    groups = (
+        set(PREDICTION_KEY_COLUMNS)
+        | set(PREDICTION_VALUE_COLUMNS)
+        | set(PREDICTION_CONTEXT_COLUMNS)
+    )
+    assert not set(_CACHE_COLUMNS) - groups, "unclassified cache column(s)"
+    assert not groups - set(_CACHE_COLUMNS), "classified non-cache column(s)"
+
+
 def _ids(twin):
     return [f"{twin.name}:{arg}" for arg in twin.shared]
 

@@ -83,7 +83,10 @@ from .sequence_helpers import (
 )
 from .cached import (
     CachedPredictor,
+    PREDICTION_CONTEXT_COLUMNS,
     PREDICTION_KEY_COLUMNS,
+    PREDICTION_VALUE_COLUMNS,
+    conflicting_predictions,
     mhcflurry_composite_version,
 )
 from .io_isovar import (
@@ -291,6 +294,9 @@ __all__ = [
     "source_columns",
     "SOURCE_PREFIXES",
     "PREDICTION_KEY_COLUMNS",
+    "PREDICTION_VALUE_COLUMNS",
+    "PREDICTION_CONTEXT_COLUMNS",
+    "conflicting_predictions",
     "RNA_EVIDENCE_COLUMNS",
     "DNA_EVIDENCE_COLUMNS",
     "DNA_ALIGNMENT",
