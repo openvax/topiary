@@ -1,7 +1,7 @@
 # Consumer guide
 
-What topiary offers a downstream consumer, as of **5.45.0**, and what changed
-across 5.28.2–5.45.0.
+What topiary offers a downstream consumer, as of **5.49.0**, and what changed
+across 5.28.2–5.49.0.
 
 Written for vaxrank, but nothing here is vaxrank-specific.
 
@@ -165,9 +165,25 @@ merged = stack_results([per_sample_result(name) for name in samples])
 merged.df[["sample_name", "n_rna_alt", "n_rna_overlapping", "rna_vaf"]]
 ```
 
-**There is no built-in cross-sample aggregate yet** — summing counts across
-samples is currently a `groupby` you write yourself. Tracked in
-[#247](https://github.com/openvax/topiary/issues/247).
+Build a separate pooled view with the same canonical count names:
+
+```python
+pooled = aggregate_evidence_across_samples(merged.df)
+pooled[["n_samples", "n_rna_alt", "n_rna_overlapping", "rna_vaf"]]
+```
+
+The original frame is unchanged, so both the per-sample and pooled answers stay
+available. Repeated prediction rows within one sample count once. Counts are
+summed only when every represented sample states them; an unmeasured sample is
+not silently converted to zero. VAF is recomputed as pooled alternate count /
+pooled overlapping count, never averaged across samples.
+
+Pooling also requires the samples to agree on evidence subject and method. A
+read count cannot be added to a fragment count, and a measured count cannot be
+flattened together with a derived estimate. Expression remains per-sample
+because it has no generally valid cross-sample sum. `n_samples` records how many
+samples actually contain rows for each candidate; a candidate absent from a
+sample is not treated as a zero-observation row.
 
 ---
 

@@ -19,6 +19,8 @@ import pytest
 
 from topiary import (
     EvalContext,
+    TopiaryResult,
+    aggregate_evidence_across_samples,
     apply_filter,
     apply_sort,
     describe_read_evidence,
@@ -30,6 +32,7 @@ from topiary import (
     read_pvacseq,
     resolve_default_methods,
     resolve_default_versions,
+    stack_results,
 )
 from topiary.ranking import parse
 
@@ -42,6 +45,46 @@ def _long(reader, path):
         warnings.simplefilter("ignore", UserWarning)
         result = reader(path)
         return result.to_long().df if result.metadata.form == "wide" else result.df
+
+
+# ---------------------------------------------------------------------------
+# Per-sample results, stacked and pooled without losing either view
+# ---------------------------------------------------------------------------
+
+
+def test_stacked_sample_evidence_can_be_pooled_as_a_separate_view():
+    def result(sample_name, alt, overlapping):
+        return TopiaryResult(pd.DataFrame([{
+            "fragment_id": "fragment-1",
+            "peptide": "SIINFEKL",
+            "peptide_offset": 3,
+            "allele": "HLA-A*02:01",
+            "sample_name": sample_name,
+            "kind": "pMHC_affinity",
+            "prediction_method_name": "netmhcpan",
+            "predictor_version": "4.1",
+            "value": 50.0,
+            "n_rna_alt": alt,
+            "n_rna_overlapping": overlapping,
+            "rna_vaf": alt / overlapping,
+            "rna_evidence_subject": "reads",
+            "rna_evidence_method": "rna_alignment",
+        }]))
+
+    stacked = stack_results([
+        result("tumor_pre", 40, 100),
+        result("tumor_post", 20, 80),
+    ])
+
+    pooled = aggregate_evidence_across_samples(stacked.df)
+
+    assert list(stacked.df["sample_name"]) == ["tumor_pre", "tumor_post"]
+    assert list(stacked.df["n_rna_alt"]) == [40, 20]
+    assert len(pooled) == 1
+    assert pooled.loc[0, "n_samples"] == 2
+    assert pooled.loc[0, "n_rna_alt"] == 60
+    assert pooled.loc[0, "n_rna_overlapping"] == 180
+    assert pooled.loc[0, "rna_vaf"] == pytest.approx(60 / 180)
 
 
 # ---------------------------------------------------------------------------

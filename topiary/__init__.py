@@ -129,6 +129,7 @@ from .evidence import (
     READ_SUBJECTS,
     SOURCE_REPORTED,
     TPM_X_DNA_VAF,
+    aggregate_evidence_across_samples,
     attach_dna_evidence,
     attach_rna_evidence,
     attach_sequence_source,
@@ -156,7 +157,7 @@ from .result import (
 )
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.48.1"
+__version__ = "5.49.0"
 
 __all__ = [
     "TopiaryPredictor",
@@ -277,6 +278,7 @@ __all__ = [
     "FRAGMENTS",
     "READS",
     "READ_SUBJECTS",
+    "aggregate_evidence_across_samples",
     "attach_rna_evidence_columns",
     "available_evidence_columns",
     "EVIDENCE_COLUMNS",

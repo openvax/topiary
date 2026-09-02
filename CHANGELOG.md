@@ -1,5 +1,19 @@
 # Changelog
 
+## 5.49.0
+
+**Added strict cross-sample aggregation for canonical evidence.**
+`aggregate_evidence_across_samples` returns a separate pooled DataFrame while
+leaving each sample's evidence intact. Repeated prediction rows count once,
+complete canonical counts sum, and RNA/DNA VAFs are recomputed from pooled
+alternate and overlapping counts rather than averaged.
+
+Partial measurements stay absent instead of becoming zero. Samples must name
+the same evidence subject and derivation method before their counts can be
+combined, so reads cannot be mixed with fragments and measured counts cannot
+be flattened together with estimates. Expression remains per-sample, and the
+pooled result reports `n_samples` for each represented candidate identity.
+
 ## 5.48.1
 
 **Fixed lazy mhctools model-name discovery.** String model names now resolve
