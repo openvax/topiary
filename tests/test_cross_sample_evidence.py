@@ -20,9 +20,9 @@ GROUP_KEYS = ["fragment_id", "peptide", "peptide_offset", "allele"]
 class CustomGroupingNode(DSLNode):
     """A consumer-written node that groups ``ctx.df`` itself.
 
-    Built-in nodes read ``ctx.evaluation_df``, so they were already
-    aligned with ``ctx.group_index``. This stands in for a node outside
-    Topiary, which reaches for the plain ``ctx.df`` the DSL documents.
+    Built-in nodes group the same frame, so this checks that a node
+    defined outside Topiary lands on the identity keys
+    ``ctx.group_index`` carries.
     """
 
     def eval(self, ctx):

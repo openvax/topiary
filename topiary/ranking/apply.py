@@ -154,7 +154,7 @@ def _keep_allele_free_evidence(ctx, node, mask):
     peptide_keys = _peptide_keys(ctx.group_keys)
     if "allele" not in ctx.group_keys or not peptide_keys:
         return mask
-    if "kind" not in ctx.evaluation_df.columns:
+    if "kind" not in ctx.df.columns:
         return mask
     node_kinds = _collect_kinds(node)
     if not node_kinds:
@@ -163,7 +163,7 @@ def _keep_allele_free_evidence(ctx, node, mask):
     # Groups holding at least one row of a kind this filter reads.
     read = np.zeros(len(ctx.group_index), dtype=bool)
     codes = ctx.row_group_codes()
-    read[codes[ctx.evaluation_df["kind"].isin(node_kinds).to_numpy()]] = True
+    read[codes[ctx.df["kind"].isin(node_kinds).to_numpy()]] = True
 
     candidates = _peptide_level_groups(ctx) & ~read & ~mask
     if not candidates.any():

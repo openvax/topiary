@@ -1,5 +1,20 @@
 # Changelog
 
+## 5.51.0
+
+**One name for the frame nodes group: `EvalContext.df`.** 5.50.0 left `df` and
+`evaluation_df` returning the identical object, which is one public name too
+many for a context that already exposes three frame-shaped attributes.
+`evaluation_df` is gone; read `ctx.df`.
+
+`evaluation_df` was added in 5.49.1 and never documented or exported, so it is
+removed outright rather than kept as an alias. Anything reading it becomes
+`ctx.df` with no other change — same object, same contents.
+
+The DSL docs now show how to write your own node, including the rule this
+pair of releases existed to fix: group `ctx.df`, not the frame you handed to
+`EvalContext`, and reindex onto `ctx.group_index`.
+
 ## 5.50.0
 
 **`EvalContext.df` now returns the frame nodes are grouped against.** Custom
