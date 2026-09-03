@@ -1253,11 +1253,8 @@ def aggregate_evidence_across_samples(
     ]
     evidence_columns = [*count_columns, *metadata_columns]
     context = EvalContext(df, group_keys=keys)
-    normalized_df = df.assign(**{
-        key: context.key_frame[key] for key in keys
-    })
     per_sample = _single_sample_evidence_rows(
-        normalized_df,
+        context.df,
         keys,
         evidence_columns,
         count_columns,

@@ -11,9 +11,24 @@ from topiary import (
     aggregate_evidence_across_samples,
     evaluate_scores,
 )
+from topiary.ranking.nodes import DSLNode
 
 
 GROUP_KEYS = ["fragment_id", "peptide", "peptide_offset", "allele"]
+
+
+class CustomGroupingNode(DSLNode):
+    """A consumer-written node that groups ``ctx.df`` itself.
+
+    Built-in nodes read ``ctx.evaluation_df``, so they were already
+    aligned with ``ctx.group_index``. This stands in for a node outside
+    Topiary, which reaches for the plain ``ctx.df`` the DSL documents.
+    """
+
+    def eval(self, ctx):
+        return ctx.df.groupby(
+            ctx.group_keys, sort=False, dropna=False, observed=True,
+        )["n_rna_alt"].first().reindex(ctx.group_index)
 
 
 def _row(sample_name, **overrides):
@@ -251,24 +266,66 @@ def test_one_tuple_valued_group_key_remains_one_identity_value():
     assert pooled.loc[0, "n_rna_alt"] == 40
 
 
+# Both spellings mean "not stated", so row order must not decide the
+# pooled identity. Real nulls happen to survive a raw ``groupby`` as the
+# same key ``group_index`` carries, so a null-first pair passes even
+# without normalization; put the *text* spelling first and a node that
+# groups the raw frame keys its result to a group that does not exist.
 @pytest.mark.parametrize("dtype", [object, "string", "category"])
-def test_equivalent_missing_identity_spellings_pool_as_one_group(dtype):
+@pytest.mark.parametrize("spellings", [
+    (None, "nan"),
+    ("nan", None),
+    ("NaN", "none"),
+    ("null", "<NA>"),
+])
+def test_equivalent_missing_identity_spellings_pool_as_one_group(
+    dtype, spellings,
+):
+    first, second = spellings
     df = pd.DataFrame([
-        _row("pre", allele=None),
-        _row("post", allele="nan", n_rna_alt=21),
+        _row("pre", allele=first),
+        _row("post", allele=second, n_rna_alt=21),
+    ])
+    df["allele"] = df["allele"].astype(dtype)
+    original = df.copy(deep=True)
+
+    context = EvalContext(df, group_keys=GROUP_KEYS)
+    scores = evaluate_scores(df, Column("n_rna_alt"), context=context)
+    custom_scores = evaluate_scores(
+        df, CustomGroupingNode(), context=context,
+    )
+    pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
+
+    assert len(context.group_index) == 1
+    assert scores.tolist() == [20, 20]
+    assert custom_scores.tolist() == [20, 20]
+    pd.testing.assert_frame_equal(df, original)
+    assert len(pooled) == 1
+    assert pd.isna(pooled.loc[0, "allele"])
+    assert pooled.loc[0, "n_samples"] == 2
+    assert pooled.loc[0, "n_rna_alt"] == 41
+
+
+# "NA" is not a spelling of missing (only "<na>" is), so this frame has
+# two real groups. A custom node grouping the raw frame keys one result
+# to the literal "none" and reads NaN for the normalized null group.
+@pytest.mark.parametrize("dtype", [object, "string", "category"])
+def test_custom_nodes_align_when_one_identity_spelling_is_null(dtype):
+    df = pd.DataFrame([
+        _row("pre", allele="NA"),
+        _row("post", allele="none", n_rna_alt=21),
     ])
     df["allele"] = df["allele"].astype(dtype)
 
     context = EvalContext(df, group_keys=GROUP_KEYS)
     scores = evaluate_scores(df, Column("n_rna_alt"), context=context)
-    pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
+    custom_scores = evaluate_scores(
+        df, CustomGroupingNode(), context=context,
+    )
 
-    assert len(context.group_index) == 1
-    assert scores.tolist() == [20, 20]
-    assert len(pooled) == 1
-    assert pd.isna(pooled.loc[0, "allele"])
-    assert pooled.loc[0, "n_samples"] == 2
-    assert pooled.loc[0, "n_rna_alt"] == 41
+    assert len(context.group_index) == 2
+    assert scores.tolist() == [20, 21]
+    assert custom_scores.tolist() == [20, 21]
 
 
 def test_evidence_column_used_as_group_key_appears_once():

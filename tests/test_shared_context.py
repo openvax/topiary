@@ -184,6 +184,36 @@ def test_an_equal_but_distinct_frame_is_still_refused():
         evaluate_scores(df.copy(), Affinity.value, context=ctx)
 
 
+def test_is_built_on_answers_the_question_the_check_asks():
+    """The public way to make the check apply_* makes internally."""
+    df = _frame()
+    ctx = EvalContext(df)
+
+    assert ctx.is_built_on(df)
+    assert not ctx.is_built_on(df.copy())
+    assert not ctx.is_built_on(apply_filter(df, Affinity.value <= 300))
+
+
+def test_is_built_on_is_not_the_same_as_comparing_against_df():
+    """``ctx.df`` normalizes, so identity against it is the wrong check."""
+    df = _frame()
+    df.loc[0, "allele"] = None
+    df.loc[1, "allele"] = "nan"
+    ctx = EvalContext(df, group_keys=["peptide", "allele"])
+
+    assert ctx.df is not df
+    assert ctx.is_built_on(df)
+
+
+def test_a_context_needing_no_normalization_still_answers_correctly():
+    """``ctx.df`` may be the caller's own object; the check must not care."""
+    df = _frame()
+    ctx = EvalContext(df)
+
+    assert ctx.df is df
+    assert ctx.is_built_on(df)
+
+
 def test_context_and_options_together_are_refused():
     df = _frame()
     ctx = EvalContext(df)

@@ -131,7 +131,7 @@ ordered = apply_sort(df, [Affinity.value], context=ctx)
 
 `context=` replaces the four options above rather than combining with them — passing both raises, so there is no question of which one won.
 
-**A context belongs to one frame.** `apply_filter` and `apply_sort` both return *new* frames, so a context cannot be threaded down a filter → sort → score pipeline; each step needs its own. Reuse applies to several operations on one unchanged frame. Passing a context built on a different frame raises rather than mapping rows to another frame's groups, and the check is identity rather than equality — a copy has its own row order to account for.
+**A context belongs to one frame.** `apply_filter` and `apply_sort` both return *new* frames, so a context cannot be threaded down a filter → sort → score pipeline; each step needs its own. Reuse applies to several operations on one unchanged frame. Passing a context built on a different frame raises rather than mapping rows to another frame's groups, and the check is identity rather than equality — a copy has its own row order to account for. `ctx.is_built_on(df)` makes that check yourself; don't compare against `ctx.df`, which is the normalized frame and a different object whenever a key needed normalizing.
 
 `apply_filter` evaluates with `filter_context=True` (unqualified same-kind references auto-aggregate) while `apply_sort` deliberately does not. Handing one context to both is still fine: `apply_filter` derives the variant it needs, inheriting the grouping rather than recomputing it, and leaves your context's own flag alone. To vary an option yourself:
 
