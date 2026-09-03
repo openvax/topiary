@@ -129,6 +129,17 @@ def test_invalid_counts_are_rejected(value):
         aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
 
 
+@pytest.mark.parametrize("value", [-1, 1.5, float("inf"), True, "many"])
+def test_invalid_stated_counts_are_rejected_even_when_pool_is_incomplete(value):
+    df = pd.DataFrame([
+        _row("pre", n_rna_alt=value),
+        _row("post", n_rna_alt=pd.NA),
+    ])
+
+    with pytest.raises(ValueError, match="n_rna_alt"):
+        aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
+
+
 @pytest.mark.parametrize("sample_name", [None, "", " ", "nan"])
 def test_every_row_needs_a_real_sample_name(sample_name):
     df = pd.DataFrame([_row(sample_name)])
@@ -178,4 +189,18 @@ def test_one_tuple_valued_group_key_remains_one_identity_value():
     pooled = aggregate_evidence_across_samples(df, group_keys=["variant"])
 
     assert pooled.loc[0, "variant"] == variant
+    assert pooled.loc[0, "n_rna_alt"] == 40
+
+
+def test_equivalent_missing_identity_spellings_pool_as_one_group():
+    df = pd.DataFrame([
+        _row("pre", allele=None),
+        _row("post", allele="nan"),
+    ])
+
+    pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
+
+    assert len(pooled) == 1
+    assert pd.isna(pooled.loc[0, "allele"])
+    assert pooled.loc[0, "n_samples"] == 2
     assert pooled.loc[0, "n_rna_alt"] == 40

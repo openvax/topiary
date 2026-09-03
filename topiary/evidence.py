@@ -1019,19 +1019,21 @@ def _single_sample_evidence_rows(df, group_keys, evidence_columns):
 def _sum_complete_counts(group, column, identity):
     """Sum a count only when every represented sample states it."""
     values = group[column]
-    if not stated_values(values).all():
-        return pd.NA
-    if values.map(lambda value: isinstance(value, (bool, np.bool_))).any():
+    stated = stated_values(values)
+    stated_counts = values[stated]
+    if stated_counts.map(
+        lambda value: isinstance(value, (bool, np.bool_))
+    ).any():
         raise ValueError(
             f"Evidence count {column!r} must be a non-negative integer for "
             f"{identity}; boolean values are not counts."
         )
     try:
-        numeric = pd.to_numeric(values, errors="raise").astype(float)
+        numeric = pd.to_numeric(stated_counts, errors="raise").astype(float)
     except (TypeError, ValueError):
         raise ValueError(
             f"Evidence count {column!r} must be numeric for {identity}: "
-            f"{values.tolist()!r}."
+            f"{stated_counts.tolist()!r}."
         ) from None
     if (
         not np.isfinite(numeric).all()
@@ -1040,8 +1042,10 @@ def _sum_complete_counts(group, column, identity):
     ):
         raise ValueError(
             f"Evidence count {column!r} must contain non-negative finite "
-            f"integers for {identity}: {values.tolist()!r}."
+            f"integers for {identity}: {stated_counts.tolist()!r}."
         )
+    if not stated.all():
+        return pd.NA
     return int(numeric.sum())
 
 
@@ -1140,8 +1144,10 @@ def aggregate_evidence_across_samples(
             key for key in EvalContext(df).group_keys
             if key != "sample_name"
         ]
+        context = EvalContext(df, group_keys=keys)
     else:
-        keys = EvalContext(df, group_keys=group_keys).group_keys
+        context = EvalContext(df, group_keys=group_keys)
+        keys = context.group_keys
     if "sample_name" in keys:
         raise ValueError(
             "group_keys must exclude 'sample_name'; this function pools "
@@ -1168,7 +1174,14 @@ def aggregate_evidence_across_samples(
         if column in df.columns
     ]
     evidence_columns = [*count_columns, *metadata_columns]
-    per_sample = _single_sample_evidence_rows(df, keys, evidence_columns)
+    normalized_df = df.assign(**{
+        key: context.key_frame[key] for key in keys
+    })
+    per_sample = _single_sample_evidence_rows(
+        normalized_df,
+        keys,
+        evidence_columns,
+    )
 
     rows = []
     for key, group in _groupby(per_sample, keys):
