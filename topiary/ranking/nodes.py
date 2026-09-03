@@ -2895,10 +2895,7 @@ class Count(DSLNode):
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         peptide_col = self.scope + "peptide" if self.scope else "peptide"
-        if (
-            ctx.df.empty
-            or peptide_col not in ctx.df.columns
-        ):
+        if ctx.df.empty or peptide_col not in ctx.df.columns:
             return ctx.empty_series()
         peptides = ctx.df.groupby(
             ctx.group_keys, sort=False, dropna=False
@@ -2943,10 +2940,7 @@ class PeptideProperty(DSLNode):
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         peptide_col = self.scope + "peptide" if self.scope else "peptide"
-        if (
-            ctx.df.empty
-            or peptide_col not in ctx.df.columns
-        ):
+        if ctx.df.empty or peptide_col not in ctx.df.columns:
             return ctx.empty_series()
         peptides = ctx.df.groupby(
             ctx.group_keys, sort=False, dropna=False
