@@ -53,7 +53,7 @@ import pandas as pd
 
 from types import MappingProxyType
 
-from .ranking import is_stated, stated_values
+from .ranking import EvalContext, is_stated, stated_values
 
 #: Counted directly from an RNA alignment.
 #:
@@ -940,6 +940,7 @@ RNA_EVIDENCE_COLUMNS = (
     "n_rna_ref",
     "n_rna_overlapping",
     "n_rna_other",
+    "n_rna_supporting_protein_sequence",
     "rna_vaf",
     "rna_evidence_subject",
     "rna_evidence_method",
@@ -950,8 +951,8 @@ RNA_EVIDENCE_COLUMNS = (
 )
 
 #: Canonical DNA columns — the same shape as
-#: :data:`RNA_EVIDENCE_COLUMNS`, minus expression and abundance, which have
-#: no DNA meaning.
+#: :data:`RNA_EVIDENCE_COLUMNS`, minus expression, abundance, and assembled
+#: protein-sequence support, which have no DNA meaning.
 DNA_EVIDENCE_COLUMNS = (
     "n_dna_alt",
     "n_dna_ref",
@@ -970,6 +971,308 @@ DNA_EVIDENCE_COLUMNS = (
 EVIDENCE_COLUMNS = (
     RNA_EVIDENCE_COLUMNS + DNA_EVIDENCE_COLUMNS + ("sequence_source",)
 )
+
+
+_COUNT_EVIDENCE_COLUMNS = (
+    "n_rna_alt",
+    "n_rna_ref",
+    "n_rna_overlapping",
+    "n_rna_other",
+    "n_rna_supporting_protein_sequence",
+    "n_dna_alt",
+    "n_dna_ref",
+    "n_dna_overlapping",
+    "n_dna_other",
+)
+
+
+def _groupby(df, columns):
+    """Group by one or more columns without pandas' length-one warning."""
+    grouper = columns[0] if len(columns) == 1 else columns
+    return df.groupby(grouper, sort=False, dropna=False, observed=True)
+
+
+def _identity(columns, key):
+    """Return a readable identity mapping for one groupby key."""
+    values = (key,) if len(columns) == 1 else key
+    return dict(zip(columns, values))
+
+
+def _validated_stated_counts(values, column, identity):
+    """Validate and coerce every stated count, returning its stated mask."""
+    stated = stated_values(values)
+    stated_counts = values[stated]
+    if stated_counts.map(
+        lambda value: isinstance(value, (bool, np.bool_))
+    ).any():
+        raise ValueError(
+            f"Evidence count {column!r} must be a non-negative integer for "
+            f"{identity}; boolean values are not counts."
+        )
+    try:
+        numeric = pd.to_numeric(stated_counts, errors="raise")
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"Evidence count {column!r} must be numeric for {identity}: "
+            f"{stated_counts.tolist()!r}."
+        ) from None
+    if (
+        np.iscomplexobj(numeric.to_numpy())
+        or not np.isfinite(numeric).all()
+        or (numeric < 0).any()
+        or (numeric % 1 != 0).any()
+    ):
+        raise ValueError(
+            f"Evidence count {column!r} must contain non-negative finite "
+            f"integers for {identity}: {stated_counts.tolist()!r}."
+        )
+    return stated, numeric
+
+
+def _single_sample_evidence_rows(
+    df,
+    group_keys,
+    evidence_columns,
+    count_columns,
+):
+    """Collapse repeated prediction rows to one evidence row per sample."""
+    identity_columns = [*group_keys, "sample_name"]
+    rows = []
+    for key, group in _groupby(df, identity_columns):
+        identity = _identity(identity_columns, key)
+        row = dict(identity)
+        for column in count_columns:
+            _validated_stated_counts(group[column], column, identity)
+        for column in evidence_columns:
+            stated_mask = stated_values(group[column])
+            stated = group.loc[stated_mask, column]
+            distinct = stated.drop_duplicates()
+            if len(distinct) > 1:
+                raise ValueError(
+                    f"Contradictory {column!r} values within one sample for "
+                    f"{identity}: {distinct.tolist()!r}."
+                )
+            row[column] = distinct.iloc[0] if len(distinct) else pd.NA
+        rows.append(row)
+    return pd.DataFrame(rows, columns=[*identity_columns, *evidence_columns])
+
+
+def _sum_complete_counts(group, column, identity):
+    """Sum a count only when every represented sample states it."""
+    stated, numeric = _validated_stated_counts(
+        group[column],
+        column,
+        identity,
+    )
+    if not stated.all():
+        return pd.NA
+    return sum(int(value) for value in numeric)
+
+
+def _common_assay_metadata(group, assay, identity, pooled_counts):
+    """Return metadata shared by every sample contributing assay counts."""
+    if not pooled_counts:
+        return {}
+    result = {}
+    suffixes = ["subject"]
+    if any(
+        column != f"n_{assay}_overlapping"
+        for column in pooled_counts
+    ):
+        suffixes.append("method")
+    for suffix in suffixes:
+        column = f"{assay}_evidence_{suffix}"
+        if column not in group.columns or not stated_values(group[column]).all():
+            raise ValueError(
+                f"Cannot pool {assay.upper()} evidence for {identity}: every "
+                f"represented sample must state {column!r}."
+            )
+        distinct = group[column].drop_duplicates()
+        if len(distinct) != 1:
+            raise ValueError(
+                f"Cannot pool {assay.upper()} evidence for {identity}: samples "
+                f"use different {column!r} values {distinct.tolist()!r}."
+            )
+        result[column] = distinct.iloc[0]
+    return result
+
+
+def aggregate_evidence_across_samples(
+    df: pd.DataFrame,
+    *,
+    group_keys=None,
+) -> pd.DataFrame:
+    """Pool canonical read counts across samples without losing attribution.
+
+    Repeated prediction rows for the same candidate and sample are collapsed
+    before summing, so evidence copied onto several prediction kinds or methods
+    is counted once. A canonical count is emitted only when every represented
+    sample states it. RNA and DNA VAFs are recomputed as pooled alternate count
+    divided by pooled overlapping count; per-sample VAFs are never averaged.
+
+    Assay counts can be pooled only when every represented sample names the
+    same evidence subject. Allele-support counts must also share a derivation
+    method; coverage-only depths need no method because no allele split was
+    derived. Mixing reads with fragments, or measured counts with arithmetic
+    estimates, raises instead of flattening unlike quantities into one number.
+    Expression is intentionally not pooled: unlike read counts, it has no
+    generally valid cross-sample sum.
+
+    The returned DataFrame is separate from *df*, whose per-sample values stay
+    unchanged and available for sample-specific reporting and thresholds.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Long-form prediction rows with a stated ``sample_name`` and at least
+        one canonical RNA or DNA count column.
+    group_keys : sequence of str, optional
+        Candidate identity excluding ``sample_name``. By default Topiary's
+        normal prediction identity is inferred, including ``allele_set`` when
+        populated but deliberately excluding the sample dimension. Canonical
+        counts and VAFs are measurements to aggregate, not valid identity
+        keys.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per candidate identity. ``n_samples`` is the number of samples
+        represented by rows for that identity. Complete canonical counts keep
+        their original names, and computable VAFs are pooled from those counts.
+
+    Raises
+    ------
+    ValueError
+        If samples are unnamed, evidence conflicts within a sample, a count is
+        invalid, or pooled values would mix evidence subjects or methods.
+
+    Notes
+    -----
+    A candidate absent from a sample has no row to aggregate. ``n_samples``
+    makes that visible; completeness is evaluated across the samples actually
+    represented for each candidate.
+    """
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(
+            "aggregate_evidence_across_samples expects a pandas.DataFrame, "
+            f"got {type(df).__name__}."
+        )
+    if df.empty:
+        raise ValueError("Cannot aggregate evidence from an empty DataFrame.")
+    if "sample_name" not in df.columns:
+        raise ValueError(
+            "Cross-sample aggregation requires a 'sample_name' column."
+        )
+    if not stated_values(df["sample_name"]).all():
+        raise ValueError(
+            "Cross-sample aggregation requires every row to state "
+            "'sample_name'."
+        )
+
+    if group_keys is None:
+        keys = [
+            key for key in EvalContext(df).group_keys
+            if key != "sample_name"
+        ]
+        context = EvalContext(df, group_keys=keys)
+    else:
+        context = EvalContext(df, group_keys=group_keys)
+        keys = context.group_keys
+    if "sample_name" in keys:
+        raise ValueError(
+            "group_keys must exclude 'sample_name'; this function pools "
+            "across that dimension."
+        )
+    if "n_samples" in keys:
+        raise ValueError("group_keys cannot contain the output column 'n_samples'.")
+    aggregate_value_keys = [
+        key for key in keys
+        if key in (*_COUNT_EVIDENCE_COLUMNS, "rna_vaf", "dna_vaf")
+    ]
+    if aggregate_value_keys:
+        raise ValueError(
+            "group_keys must identify candidates, not canonical counts or "
+            f"VAFs; remove {aggregate_value_keys!r}."
+        )
+
+    count_columns = [
+        column
+        for column in _COUNT_EVIDENCE_COLUMNS
+        if column in df.columns
+    ]
+    if not count_columns:
+        raise ValueError(
+            "Cross-sample aggregation requires at least one canonical count "
+            f"column from {list(_COUNT_EVIDENCE_COLUMNS)!r}."
+        )
+    metadata_columns = [
+        column
+        for assay in ("rna", "dna")
+        for column in (
+            f"{assay}_evidence_subject",
+            f"{assay}_evidence_method",
+        )
+        if column in df.columns and column not in keys
+    ]
+    evidence_columns = [*count_columns, *metadata_columns]
+    normalized_df = df.assign(**{
+        key: context.key_frame[key] for key in keys
+    })
+    per_sample = _single_sample_evidence_rows(
+        normalized_df,
+        keys,
+        evidence_columns,
+        count_columns,
+    )
+
+    rows = []
+    for key, group in _groupby(per_sample, keys):
+        identity = _identity(keys, key)
+        row = {**identity, "n_samples": len(group)}
+        for column in count_columns:
+            row[column] = _sum_complete_counts(group, column, identity)
+        for assay in ("rna", "dna"):
+            assay_counts = [
+                column for column in count_columns
+                if column.startswith(f"n_{assay}_") and is_stated(row[column])
+            ]
+            row.update(
+                _common_assay_metadata(group, assay, identity, assay_counts)
+            )
+            alt = row.get(f"n_{assay}_alt", pd.NA)
+            overlapping = row.get(f"n_{assay}_overlapping", pd.NA)
+            vaf_column = f"{assay}_vaf"
+            required_count_columns = {
+                f"n_{assay}_alt",
+                f"n_{assay}_overlapping",
+            }
+            if (
+                required_count_columns.issubset(count_columns)
+                and is_stated(alt)
+                and is_stated(overlapping)
+                and overlapping > 0
+            ):
+                row[vaf_column] = alt / overlapping
+        rows.append(row)
+
+    result = pd.DataFrame(rows)
+    for column in count_columns:
+        if column in result and stated_values(result[column]).any():
+            result[column] = result[column].astype("Int64")
+        elif column in result:
+            result = result.drop(columns=column)
+    for column in ("rna_vaf", "dna_vaf"):
+        if column in result and not stated_values(result[column]).any():
+            result = result.drop(columns=column)
+    ordered = [
+        *keys,
+        "n_samples",
+        *(
+            column for column in EVIDENCE_COLUMNS
+            if column in result.columns and column not in keys
+        ),
+    ]
+    return result.loc[:, ordered]
 
 
 def available_evidence_columns(df: pd.DataFrame) -> tuple:

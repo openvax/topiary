@@ -60,6 +60,24 @@ internally. Fresh `TopiaryPredictor` DataFrame outputs may also be passed to
 `combine_predictions`; they are first wrapped as `TopiaryResult` objects and
 then validated with the same rules.
 
+### Cross-sample evidence
+
+`topiary.aggregate_evidence_across_samples(df, group_keys=None)` returns one
+pooled row per prediction identity while leaving the input's per-sample rows
+unchanged. It collapses repeated prediction rows within a sample before
+summing canonical RNA and DNA counts, recomputes VAF from pooled alternate and
+overlapping counts, and reports the number of represented samples as
+`n_samples`.
+
+A count is omitted unless every represented sample states it. Poolable counts
+must share an evidence subject across samples; allele-support counts must also
+share a derivation method. Coverage-only depths need no invented method.
+Incompatible units or methods raise rather than being mixed. Expression is not
+aggregated. By default the standard Topiary candidate identity is inferred, or
+callers can supply explicit `group_keys`. These exclude `sample_name` and the
+canonical counts/VAFs, which are aggregation values rather than candidate
+identity.
+
 ## CachedPredictor
 
 Drop-in replacement for a live predictor that serves scores from a
