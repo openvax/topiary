@@ -318,7 +318,7 @@ Apply with `apply_filter(df, node)` and `apply_sort(df, [nodes])`.
 
 ### Context options
 
-`apply_filter`, `apply_sort` and `evaluate_scores` share four keyword-only
+`apply_filter`, `apply_sort` and `evaluate_scores` share five keyword-only
 options, all forwarded to `EvalContext`:
 
 | Option | Meaning |
@@ -332,8 +332,25 @@ options, all forwarded to `EvalContext`:
 See [Group identity](ranking.md#group-identity) for when to pass `group_keys`.
 
 All three also accept `context=`, a prebuilt `EvalContext` used in place
-of the four options above — see [Sharing a
+of the five options above — see [Sharing a
 context](ranking.md#sharing-a-context).
+
+### EvalContext attributes
+
+What a node reads off the `ctx` handed to its `eval()` — see [Writing your
+own node](ranking.md#writing-your-own-node):
+
+| Attribute | Meaning |
+|-----------|---------|
+| `ctx.df` | The prediction rows to group. Identity keys are normalized, so a `groupby(ctx.group_keys)` over it cannot produce a key `group_index` lacks |
+| `ctx.group_keys` | The identity columns, in order |
+| `ctx.group_index` | Unique group keys — a flat `Index` for one key, a `MultiIndex` for several. Every `eval()` returns a Series indexed by this |
+| `ctx.key_frame` | Just the group-key columns of `ctx.df` |
+| `ctx.row_group_codes()` | Each row's position in `group_index`, for mapping a per-group result back onto rows |
+| `ctx.row_group_tuples()` | Each row's group key, aligned to `ctx.df.index` |
+| `ctx.empty_series(fill)` | A `group_index`-shaped Series, for a node with nothing to say |
+| `ctx.is_built_on(df)` | Whether this context was built on `df` itself — the identity check `apply_*` make before accepting a `context=` |
+| `ctx.derive(**opts)` | A context on the same frame with options changed, reusing the grouping |
 
 ## String parsing
 
