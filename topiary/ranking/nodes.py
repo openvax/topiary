@@ -1003,7 +1003,7 @@ class EvalContext:
         "df", "group_keys", "default_methods", "default_versions",
         "filter_context", "kind_support", "alleles",
         "_group_index", "_key_frame", "_group_tuples_cache",
-        "_group_codes_cache", "_method_override",
+        "_group_codes_cache", "_evaluation_df", "_method_override",
     )
 
     def __init__(
@@ -1034,6 +1034,7 @@ class EvalContext:
         self._key_frame = None
         self._group_tuples_cache = None
         self._group_codes_cache = None
+        self._evaluation_df = None
         # Internal: when Comparison auto-aggregates across methods, it
         # binds Field(method=None, kind=K) references to a specific
         # method per iteration by setting (kind_value, method_name) here.
@@ -1091,6 +1092,7 @@ class EvalContext:
             derived._group_index = self._group_index
             derived._group_tuples_cache = self._group_tuples_cache
             derived._group_codes_cache = self._group_codes_cache
+            derived._evaluation_df = self._evaluation_df
         return derived
 
     @property
@@ -1113,12 +1115,17 @@ class EvalContext:
         """
         if self._key_frame is None:
             frame = self.df[self.group_keys]
-            object_keys = [
-                k for k in self.group_keys if frame[k].dtype == object
+            text_keys = [
+                k for k in self.group_keys
+                if frame[k].dtype == object
+                or isinstance(frame[k].dtype, pd.CategoricalDtype)
+                or pd.api.types.is_string_dtype(frame[k].dtype)
             ]
             replacements = {}
-            for key in object_keys:
-                column = frame[key]
+            for key in text_keys:
+                # Object form lets every pandas string/categorical backend
+                # carry the same np.nan sentinel used by ordinary columns.
+                column = frame[key].astype(object)
                 # Null, or the *text* of a null. Not blank: a blank cell
                 # is a stated-but-empty value and stays its own group.
                 missing = column.isna() | column.astype(str).str.strip(
@@ -1129,6 +1136,25 @@ class EvalContext:
                 frame = frame.assign(**replacements)
             self._key_frame = frame
         return self._key_frame
+
+    @property
+    def evaluation_df(self) -> pd.DataFrame:
+        """Prediction rows with group keys matching :attr:`key_frame`.
+
+        Nodes group this frame so their pandas groupby keys cannot diverge
+        from ``group_index`` or ``row_group_codes`` after missing-value
+        normalization. The caller's DataFrame remains unchanged.
+        """
+        if self._evaluation_df is None:
+            replacements = {
+                key: self.key_frame[key]
+                for key in self.group_keys
+                if not self.key_frame[key].equals(self.df[key])
+            }
+            self._evaluation_df = (
+                self.df.assign(**replacements) if replacements else self.df
+            )
+        return self._evaluation_df
 
     @property
     def group_index(self) -> pd.Index:
@@ -1556,11 +1582,11 @@ class Column(DSLNode):
         self.col_name = col_name
 
     def eval(self, ctx: EvalContext) -> pd.Series:
-        if ctx.df.empty:
+        if ctx.evaluation_df.empty:
             return ctx.empty_series()
-        if self.col_name not in ctx.df.columns:
-            raise _missing_column_error(self.col_name, ctx.df.columns)
-        vals = ctx.df.groupby(
+        if self.col_name not in ctx.evaluation_df.columns:
+            raise _missing_column_error(self.col_name, ctx.evaluation_df.columns)
+        vals = ctx.evaluation_df.groupby(
             ctx.group_keys, sort=False, dropna=False
         )[self.col_name].first()
         vals = vals.reindex(ctx.group_index)
@@ -1642,7 +1668,7 @@ class Includes(DSLNode):
         return Includes(self.col_name, self.value, negate=not self.negate)
 
     def eval(self, ctx: EvalContext) -> pd.Series:
-        df = ctx.df
+        df = ctx.evaluation_df
         if df.empty:
             return ctx.empty_series().astype("boolean")
         if self.col_name not in df.columns:
@@ -1708,7 +1734,7 @@ class IsIn(DSLNode):
         return []
 
     def eval(self, ctx: EvalContext) -> pd.Series:
-        df = ctx.df
+        df = ctx.evaluation_df
         if df.empty:
             # Mirror Column.eval's empty path so the result aligns with
             # ctx.group_index regardless of whether the context happens
@@ -1751,7 +1777,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
     ambiguity. Centralizes the filter logic shared between
     :class:`Field` and :class:`BestAlleleField`.
     """
-    df = ctx.df
+    df = ctx.evaluation_df
     if df.empty or "kind" not in df.columns:
         return None
 
@@ -2815,9 +2841,9 @@ class Len(DSLNode):
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         col = self.scope + "peptide_length"
-        if ctx.df.empty or col not in ctx.df.columns:
+        if ctx.evaluation_df.empty or col not in ctx.evaluation_df.columns:
             return ctx.empty_series()
-        vals = ctx.df.groupby(
+        vals = ctx.evaluation_df.groupby(
             ctx.group_keys, sort=False, dropna=False
         )[col].first()
         return vals.reindex(ctx.group_index).astype(float)
@@ -2841,9 +2867,12 @@ class Count(DSLNode):
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         peptide_col = self.scope + "peptide" if self.scope else "peptide"
-        if ctx.df.empty or peptide_col not in ctx.df.columns:
+        if (
+            ctx.evaluation_df.empty
+            or peptide_col not in ctx.evaluation_df.columns
+        ):
             return ctx.empty_series()
-        peptides = ctx.df.groupby(
+        peptides = ctx.evaluation_df.groupby(
             ctx.group_keys, sort=False, dropna=False
         )[peptide_col].first()
         peptides = peptides.reindex(ctx.group_index)
@@ -2886,9 +2915,12 @@ class PeptideProperty(DSLNode):
 
     def eval(self, ctx: EvalContext) -> pd.Series:
         peptide_col = self.scope + "peptide" if self.scope else "peptide"
-        if ctx.df.empty or peptide_col not in ctx.df.columns:
+        if (
+            ctx.evaluation_df.empty
+            or peptide_col not in ctx.evaluation_df.columns
+        ):
             return ctx.empty_series()
-        peptides = ctx.df.groupby(
+        peptides = ctx.evaluation_df.groupby(
             ctx.group_keys, sort=False, dropna=False
         )[peptide_col].first()
         peptides = peptides.reindex(ctx.group_index)
@@ -3435,7 +3467,7 @@ class Comparison(DSLNode):
             return None
         kind_val = next(iter(kinds))
 
-        df = ctx.df
+        df = ctx.evaluation_df
         if df.empty or "kind" not in df.columns:
             return None
         kind_rows = df[df["kind"] == kind_val]

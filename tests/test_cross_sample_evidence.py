@@ -1,9 +1,16 @@
 """Cross-sample aggregation of canonical evidence columns."""
 
+from fractions import Fraction
+
 import pandas as pd
 import pytest
 
-from topiary import aggregate_evidence_across_samples
+from topiary import (
+    Column,
+    EvalContext,
+    aggregate_evidence_across_samples,
+    evaluate_scores,
+)
 
 
 GROUP_KEYS = ["fragment_id", "peptide", "peptide_offset", "allele"]
@@ -147,7 +154,17 @@ def test_boolean_counts_cannot_hide_as_duplicate_integers(values):
 
 @pytest.mark.parametrize(
     "value",
-    [-1, 1.5, float("inf"), True, 1 + 2j, "many"],
+    [
+        -1,
+        1.5,
+        Fraction(3, 2),
+        Fraction(10 ** 400, 1),
+        float("inf"),
+        True,
+        1 + 2j,
+        "many",
+        "1e999",
+    ],
 )
 def test_invalid_counts_are_rejected(value):
     df = pd.DataFrame([_row("pre", n_rna_alt=value)])
@@ -158,7 +175,17 @@ def test_invalid_counts_are_rejected(value):
 
 @pytest.mark.parametrize(
     "value",
-    [-1, 1.5, float("inf"), True, 1 + 2j, "many"],
+    [
+        -1,
+        1.5,
+        Fraction(3, 2),
+        Fraction(10 ** 400, 1),
+        float("inf"),
+        True,
+        1 + 2j,
+        "many",
+        "1e999",
+    ],
 )
 def test_invalid_stated_counts_are_rejected_even_when_pool_is_incomplete(value):
     df = pd.DataFrame([
@@ -224,18 +251,24 @@ def test_one_tuple_valued_group_key_remains_one_identity_value():
     assert pooled.loc[0, "n_rna_alt"] == 40
 
 
-def test_equivalent_missing_identity_spellings_pool_as_one_group():
+@pytest.mark.parametrize("dtype", [object, "string", "category"])
+def test_equivalent_missing_identity_spellings_pool_as_one_group(dtype):
     df = pd.DataFrame([
         _row("pre", allele=None),
-        _row("post", allele="nan"),
+        _row("post", allele="nan", n_rna_alt=21),
     ])
+    df["allele"] = df["allele"].astype(dtype)
 
+    context = EvalContext(df, group_keys=GROUP_KEYS)
+    scores = evaluate_scores(df, Column("n_rna_alt"), context=context)
     pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
 
+    assert len(context.group_index) == 1
+    assert scores.tolist() == [20, 20]
     assert len(pooled) == 1
     assert pd.isna(pooled.loc[0, "allele"])
     assert pooled.loc[0, "n_samples"] == 2
-    assert pooled.loc[0, "n_rna_alt"] == 40
+    assert pooled.loc[0, "n_rna_alt"] == 41
 
 
 def test_evidence_column_used_as_group_key_appears_once():
@@ -278,3 +311,50 @@ def test_large_integer_counts_are_summed_exactly():
     pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
 
     assert pooled.loc[0, "n_rna_alt"] == 2 * count
+
+
+def test_large_integral_float_counts_keep_their_exact_value():
+    count = float(2 ** 60)
+    df = pd.DataFrame([
+        _row("pre", n_rna_alt=count),
+        _row("post", n_rna_alt=count),
+    ])
+
+    pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
+
+    assert pooled.loc[0, "n_rna_alt"] == 2 * int(count)
+
+
+def test_integral_fraction_counts_are_accepted():
+    count = Fraction(2, 1)
+    df = pd.DataFrame([
+        _row("pre", n_rna_alt=count),
+        _row("post", n_rna_alt=count),
+    ])
+
+    pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
+
+    assert pooled.loc[0, "n_rna_alt"] == 4
+
+
+def test_pooled_counts_must_fit_the_canonical_int64_dtype():
+    count = 2 ** 62
+    df = pd.DataFrame([
+        _row("pre", n_rna_alt=count),
+        _row("post", n_rna_alt=count),
+    ])
+
+    with pytest.raises(ValueError, match="exceeds the supported maximum"):
+        aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
+
+
+def test_arrow_backed_counts_are_accepted():
+    pytest.importorskip("pyarrow")
+    df = pd.DataFrame([
+        _row("pre", n_rna_alt=20),
+        _row("post", n_rna_alt=21),
+    ]).convert_dtypes(dtype_backend="pyarrow")
+
+    pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
+
+    assert pooled.loc[0, "n_rna_alt"] == 41

@@ -48,6 +48,10 @@ same as answering zero.
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+import math
+from numbers import Integral, Real
+
 import numpy as np
 import pandas as pd
 
@@ -985,6 +989,8 @@ _COUNT_EVIDENCE_COLUMNS = (
     "n_dna_other",
 )
 
+_MAX_EVIDENCE_COUNT = int(np.iinfo(np.int64).max)
+
 
 def _groupby(df, columns):
     """Group by one or more columns without pandas' length-one warning."""
@@ -1009,23 +1015,50 @@ def _validated_stated_counts(values, column, identity):
             f"Evidence count {column!r} must be a non-negative integer for "
             f"{identity}; boolean values are not counts."
         )
-    try:
-        numeric = pd.to_numeric(stated_counts, errors="raise")
-    except (TypeError, ValueError):
-        raise ValueError(
-            f"Evidence count {column!r} must be numeric for {identity}: "
-            f"{stated_counts.tolist()!r}."
-        ) from None
-    if (
-        np.iscomplexobj(numeric.to_numpy())
-        or not np.isfinite(numeric).all()
-        or (numeric < 0).any()
-        or (numeric % 1 != 0).any()
-    ):
-        raise ValueError(
-            f"Evidence count {column!r} must contain non-negative finite "
-            f"integers for {identity}: {stated_counts.tolist()!r}."
-        )
+    numeric = []
+    for value in stated_counts:
+        if isinstance(value, Integral):
+            count = int(value)
+        elif isinstance(value, Real):
+            if (
+                value < 0
+                or value > _MAX_EVIDENCE_COUNT
+                or not math.isfinite(value)
+                or value != int(value)
+            ):
+                count = None
+            else:
+                count = int(value)
+        elif isinstance(value, (str, Decimal)):
+            try:
+                exact = value if isinstance(value, Decimal) else Decimal(
+                    value.strip()
+                )
+            except (InvalidOperation, TypeError, ValueError):
+                raise ValueError(
+                    f"Evidence count {column!r} must be numeric for "
+                    f"{identity}: {stated_counts.tolist()!r}."
+                ) from None
+            count = (
+                int(exact)
+                if exact.is_finite()
+                and exact >= 0
+                and exact <= _MAX_EVIDENCE_COUNT
+                and exact == exact.to_integral_value()
+                else None
+            )
+        else:
+            raise ValueError(
+                f"Evidence count {column!r} must be numeric for {identity}: "
+                f"{stated_counts.tolist()!r}."
+            )
+        if count is None or count < 0 or count > _MAX_EVIDENCE_COUNT:
+            raise ValueError(
+                f"Evidence count {column!r} must contain non-negative finite "
+                f"integers no greater than {_MAX_EVIDENCE_COUNT} for "
+                f"{identity}: {stated_counts.tolist()!r}."
+            )
+        numeric.append(count)
     return stated, numeric
 
 
@@ -1066,7 +1099,13 @@ def _sum_complete_counts(group, column, identity):
     )
     if not stated.all():
         return pd.NA
-    return sum(int(value) for value in numeric)
+    total = sum(numeric)
+    if total > _MAX_EVIDENCE_COUNT:
+        raise ValueError(
+            f"Pooled evidence count {column!r} exceeds the supported maximum "
+            f"of {_MAX_EVIDENCE_COUNT} for {identity}."
+        )
+    return total
 
 
 def _common_assay_metadata(group, assay, identity, pooled_counts):
@@ -1174,10 +1213,8 @@ def aggregate_evidence_across_samples(
             key for key in EvalContext(df).group_keys
             if key != "sample_name"
         ]
-        context = EvalContext(df, group_keys=keys)
     else:
-        context = EvalContext(df, group_keys=group_keys)
-        keys = context.group_keys
+        keys = EvalContext(df, group_keys=group_keys).group_keys
     if "sample_name" in keys:
         raise ValueError(
             "group_keys must exclude 'sample_name'; this function pools "
@@ -1215,6 +1252,7 @@ def aggregate_evidence_across_samples(
         if column in df.columns and column not in keys
     ]
     evidence_columns = [*count_columns, *metadata_columns]
+    context = EvalContext(df, group_keys=keys)
     normalized_df = df.assign(**{
         key: context.key_frame[key] for key in keys
     })
