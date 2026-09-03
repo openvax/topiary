@@ -17,9 +17,12 @@ nodes see one set of keys. The caller's DataFrame is still never mutated:
 normalization lands on a copy, and only when a spelling actually needs it.
 
 Reading `ctx.df` is unchanged for everything that treats it as the context's
-prediction rows. Code that relied on `ctx.df is the_frame_i_passed_in` should
-compare against its own reference instead; `EvalContext` keeps the caller's
-frame privately and validates identity on it.
+prediction rows. What does change is identity: `ctx.df` is now a different
+object from the frame you passed whenever a key needed normalizing, so
+`ctx.df is my_frame` is no longer the way to ask whether a context belongs to
+a frame. New `ctx.is_built_on(my_frame)` answers that — the same check
+`apply_filter`, `apply_sort` and `evaluate_scores` make before accepting a
+`context=`.
 
 ## 5.49.1
 

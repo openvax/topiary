@@ -1141,12 +1141,27 @@ class EvalContext:
     def df(self) -> pd.DataFrame:
         """Prediction rows whose group keys match :attr:`group_index`.
 
-        This is the frame exposed to :class:`DSLNode` implementations.
-        Missing identity spellings are normalized on a copy when needed,
-        keeping both built-in and third-party nodes aligned with the
-        context's group index. The caller's DataFrame is never mutated.
+        This is the frame every node groups — the built-in ones and
+        your own alike. Missing identity spellings are normalized on a
+        copy when a key needs it, so no node can group by a key
+        ``group_index`` lacks. The DataFrame you passed to this context
+        is never mutated, and is not necessarily this object: to ask
+        whether a context belongs to a frame, use :meth:`is_built_on`.
         """
         return self.evaluation_df
+
+    def is_built_on(self, df) -> bool:
+        """Whether this context was built on ``df`` itself.
+
+        Identity, not equality: a copy has its own row order to account
+        for, so it needs its own context. This is the check
+        :func:`~topiary.ranking.apply_filter` and friends make before
+        accepting a ``context=``, and the one to make yourself before
+        reusing a context you did not build. Comparing against
+        :attr:`df` will not do it — that is the normalized frame, which
+        is a different object whenever a key needed normalizing.
+        """
+        return self._source_df is df
 
     @property
     def evaluation_df(self) -> pd.DataFrame:
