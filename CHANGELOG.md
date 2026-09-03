@@ -5,11 +5,13 @@
 **Hardened cross-sample evidence aggregation after review.** Equivalent
 missing identity spellings now collapse through the same `EvalContext`
 normalization used by filtering, sorting, and scoring, including pandas string
-and categorical columns. Canonical counts are validated before duplicate rows
-are collapsed, so booleans and malformed values cannot disappear based on row
-order or an incomplete sample. Exact large numeric values and Arrow-backed
-columns are supported up to the canonical nullable-Int64 limit; larger
-individual or pooled counts raise a documented validation error.
+and categorical columns. The public `EvalContext.df` view uses those same keys,
+so third-party DSL nodes remain aligned with the context's group index.
+Canonical counts are validated before duplicate rows are collapsed, so booleans
+and malformed values cannot disappear based on row order or an incomplete
+sample. Exact large numeric values and Arrow-backed columns are supported up to
+the canonical nullable-Int64 limit; larger individual or pooled counts raise a
+documented validation error.
 
 ## 5.49.0
 

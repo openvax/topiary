@@ -11,9 +11,19 @@ from topiary import (
     aggregate_evidence_across_samples,
     evaluate_scores,
 )
+from topiary.ranking.nodes import DSLNode
 
 
 GROUP_KEYS = ["fragment_id", "peptide", "peptide_offset", "allele"]
+
+
+class _ThirdPartyGroupingNode(DSLNode):
+    """Exercise the documented custom-node contract through ``ctx.df``."""
+
+    def eval(self, ctx):
+        return ctx.df.groupby(
+            ctx.group_keys, sort=False, dropna=False, observed=True,
+        )["n_rna_alt"].first().reindex(ctx.group_index)
 
 
 def _row(sample_name, **overrides):
@@ -258,13 +268,19 @@ def test_equivalent_missing_identity_spellings_pool_as_one_group(dtype):
         _row("post", allele="nan", n_rna_alt=21),
     ])
     df["allele"] = df["allele"].astype(dtype)
+    original = df.copy(deep=True)
 
     context = EvalContext(df, group_keys=GROUP_KEYS)
     scores = evaluate_scores(df, Column("n_rna_alt"), context=context)
+    third_party_scores = evaluate_scores(
+        df, _ThirdPartyGroupingNode(), context=context,
+    )
     pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
 
     assert len(context.group_index) == 1
     assert scores.tolist() == [20, 20]
+    assert third_party_scores.tolist() == [20, 20]
+    pd.testing.assert_frame_equal(df, original)
     assert len(pooled) == 1
     assert pd.isna(pooled.loc[0, "allele"])
     assert pooled.loc[0, "n_samples"] == 2
