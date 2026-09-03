@@ -99,6 +99,27 @@ With a single group key, `ctx.group_index` is a flat `Index` of bare values (mat
 
 To map a per-group result back onto rows, use `ctx.row_group_codes()`, which gives each row the position of its group in `group_index`. Looking group keys up by value is unreliable when a key is null: `NaN` never equals itself.
 
+### Writing your own node
+
+A node is any object with an `eval(ctx)` returning a Series indexed by `ctx.group_index`. Subclass `DSLNode` to get the operators, so your node composes with the built-in ones:
+
+```python
+from topiary.ranking import DSLNode
+
+class MeanRnaAlt(DSLNode):
+    def eval(self, ctx):
+        return ctx.df.groupby(ctx.group_keys, dropna=False, observed=True)[
+            "n_rna_alt"
+        ].mean().reindex(ctx.group_index)
+
+apply_sort(df, [MeanRnaAlt()])
+combined = (Affinity <= 500) & (MeanRnaAlt() >= 5)
+```
+
+**Group `ctx.df`, not the frame you passed to `EvalContext`.** They are usually the same object, but when an identity column spells a missing value more than one way — an `allele` that is `None` in one row and the string `"nan"` in another — `ctx.df` carries the collapsed keys that `ctx.group_index` was built from and your original does not. Grouping the original produces keys the index has no slot for, and `reindex` turns every one of them into `NaN`. `ctx.df` normalizes on a copy; your frame is never mutated.
+
+Reindexing onto `ctx.group_index` is what makes the result alignable, so do it even when the groupby looks like it already returned the right rows: a group your rows never name still needs a slot, and `alleles=` below can add groups that hold no rows at all.
+
 ### Declaring alleles
 
 Group keys come from the rows, so a peptide whose evidence is allele-free — an antigen-processing prediction with nothing in its `allele` column — has no per-allele group for a consumer to read. `alleles=` declares the genotype so `peptide_view` has somewhere to broadcast into.
