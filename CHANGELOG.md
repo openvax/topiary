@@ -1,5 +1,26 @@
 # Changelog
 
+## 5.50.0
+
+**`EvalContext.df` now returns the frame nodes are grouped against.** Custom
+DSL nodes are documented to group `ctx.df` by `ctx.group_keys` and reindex onto
+`ctx.group_index`. That only holds if the frame carries the same identity keys
+the group index was built from, and it did not: `ctx.df` handed back the
+caller's raw frame, where a missing allele spelled `"nan"` is a different
+groupby key than one spelled `None`. A node outside Topiary keyed its results
+to groups that do not exist and its values silently became `NaN`, or — when a
+text spelling came first — the wrong row won. Built-in nodes were unaffected;
+they already read the normalized frame.
+
+`ctx.df` now returns that same normalized frame, so built-in and third-party
+nodes see one set of keys. The caller's DataFrame is still never mutated:
+normalization lands on a copy, and only when a spelling actually needs it.
+
+Reading `ctx.df` is unchanged for everything that treats it as the context's
+prediction rows. Code that relied on `ctx.df is the_frame_i_passed_in` should
+compare against its own reference instead; `EvalContext` keeps the caller's
+frame privately and validates identity on it.
+
 ## 5.49.1
 
 **Hardened cross-sample evidence aggregation after review.** Equivalent

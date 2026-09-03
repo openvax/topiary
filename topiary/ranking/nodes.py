@@ -1000,7 +1000,7 @@ class EvalContext:
     """
 
     __slots__ = (
-        "df", "group_keys", "default_methods", "default_versions",
+        "_source_df", "group_keys", "default_methods", "default_versions",
         "filter_context", "kind_support", "alleles",
         "_group_index", "_key_frame", "_group_tuples_cache",
         "_group_codes_cache", "_evaluation_df", "_method_override",
@@ -1010,7 +1010,7 @@ class EvalContext:
         self, df, group_keys=None, default_methods=None, filter_context=False,
         kind_support=None, alleles=None, default_versions=None,
     ):
-        self.df = df
+        self._source_df = df
         if group_keys is None:
             self.group_keys = _pick_group_keys(df)
         else:
@@ -1064,7 +1064,7 @@ class EvalContext:
             raise TypeError(
                 f"Unknown EvalContext option(s): {sorted(unknown)}"
             )
-        df = overrides.get("df", self.df)
+        df = overrides.get("df", self._source_df)
         group_keys = overrides.get("group_keys", self.group_keys)
         alleles = overrides.get("alleles", self.alleles)
         derived = EvalContext(
@@ -1083,7 +1083,7 @@ class EvalContext:
             alleles=alleles,
         )
         reshaped = (
-            df is not self.df
+            df is not self._source_df
             or list(group_keys) != list(self.group_keys)
             or list(alleles or ()) != list(self.alleles or ())
         )
@@ -1114,7 +1114,7 @@ class EvalContext:
         frames use it as a group of its own.
         """
         if self._key_frame is None:
-            frame = self.df[self.group_keys]
+            frame = self._source_df[self.group_keys]
             text_keys = [
                 k for k in self.group_keys
                 if frame[k].dtype == object
@@ -1138,6 +1138,17 @@ class EvalContext:
         return self._key_frame
 
     @property
+    def df(self) -> pd.DataFrame:
+        """Prediction rows whose group keys match :attr:`group_index`.
+
+        This is the frame exposed to :class:`DSLNode` implementations.
+        Missing identity spellings are normalized on a copy when needed,
+        keeping both built-in and third-party nodes aligned with the
+        context's group index. The caller's DataFrame is never mutated.
+        """
+        return self.evaluation_df
+
+    @property
     def evaluation_df(self) -> pd.DataFrame:
         """Prediction rows with group keys matching :attr:`key_frame`.
 
@@ -1149,10 +1160,11 @@ class EvalContext:
             replacements = {
                 key: self.key_frame[key]
                 for key in self.group_keys
-                if not self.key_frame[key].equals(self.df[key])
+                if not self.key_frame[key].equals(self._source_df[key])
             }
             self._evaluation_df = (
-                self.df.assign(**replacements) if replacements else self.df
+                self._source_df.assign(**replacements)
+                if replacements else self._source_df
             )
         return self._evaluation_df
 
@@ -1336,6 +1348,13 @@ class DSLNode:
     ``ctx.group_index``.  Arithmetic and comparison/boolean operators
     produce composite nodes — the tree is built lazily and evaluated on
     demand.
+
+    Read prediction rows from :attr:`EvalContext.df` and group them by
+    ``ctx.group_keys``.  Those are the keys ``ctx.group_index`` was built
+    from, so a result grouped that way reindexes onto it cleanly.
+    Grouping some other frame — the one you passed to ``EvalContext``,
+    say — can key results to groups the index does not carry, and every
+    such value reads back as ``NaN``.
     """
 
     # -- subclass contract --

@@ -265,7 +265,7 @@ def _resolve_context(df, context, *, filter_context, group_keys,
             f"not both; got context= with {', '.join(sorted(conflicting))}. "
             f"Use context.derive({conflicting[0]}=...) to change one."
         )
-    if context.df is not df:
+    if context._source_df is not df:
         raise ValueError(
             "context was built on a different DataFrame. A context caches "
             "its grouping against one frame, so reusing it on another "
