@@ -940,6 +940,7 @@ RNA_EVIDENCE_COLUMNS = (
     "n_rna_ref",
     "n_rna_overlapping",
     "n_rna_other",
+    "n_rna_supporting_protein_sequence",
     "rna_vaf",
     "rna_evidence_subject",
     "rna_evidence_method",
@@ -950,8 +951,8 @@ RNA_EVIDENCE_COLUMNS = (
 )
 
 #: Canonical DNA columns — the same shape as
-#: :data:`RNA_EVIDENCE_COLUMNS`, minus expression and abundance, which have
-#: no DNA meaning.
+#: :data:`RNA_EVIDENCE_COLUMNS`, minus expression, abundance, and assembled
+#: protein-sequence support, which have no DNA meaning.
 DNA_EVIDENCE_COLUMNS = (
     "n_dna_alt",
     "n_dna_ref",
@@ -977,6 +978,7 @@ _COUNT_EVIDENCE_COLUMNS = (
     "n_rna_ref",
     "n_rna_overlapping",
     "n_rna_other",
+    "n_rna_supporting_protein_sequence",
     "n_dna_alt",
     "n_dna_ref",
     "n_dna_overlapping",
@@ -1072,7 +1074,13 @@ def _common_assay_metadata(group, assay, identity, pooled_counts):
     if not pooled_counts:
         return {}
     result = {}
-    for suffix in ("subject", "method"):
+    suffixes = ["subject"]
+    if any(
+        column != f"n_{assay}_overlapping"
+        for column in pooled_counts
+    ):
+        suffixes.append("method")
+    for suffix in suffixes:
         column = f"{assay}_evidence_{suffix}"
         if column not in group.columns or not stated_values(group[column]).all():
             raise ValueError(
@@ -1103,10 +1111,12 @@ def aggregate_evidence_across_samples(
     divided by pooled overlapping count; per-sample VAFs are never averaged.
 
     Assay counts can be pooled only when every represented sample names the
-    same evidence subject and derivation method. Mixing reads with fragments,
-    or measured counts with arithmetic estimates, raises instead of flattening
-    unlike quantities into one number. Expression is intentionally not pooled:
-    unlike read counts, it has no generally valid cross-sample sum.
+    same evidence subject. Allele-support counts must also share a derivation
+    method; coverage-only depths need no method because no allele split was
+    derived. Mixing reads with fragments, or measured counts with arithmetic
+    estimates, raises instead of flattening unlike quantities into one number.
+    Expression is intentionally not pooled: unlike read counts, it has no
+    generally valid cross-sample sum.
 
     The returned DataFrame is separate from *df*, whose per-sample values stay
     unchanged and available for sample-specific reporting and thresholds.

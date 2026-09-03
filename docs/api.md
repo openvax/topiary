@@ -70,11 +70,12 @@ overlapping counts, and reports the number of represented samples as
 `n_samples`.
 
 A count is omitted unless every represented sample states it. Poolable counts
-must also share an evidence subject and derivation method across samples;
-incompatible units or methods raise rather than being mixed. Expression is not
-aggregated. By default the standard Topiary prediction identity is inferred,
-or callers can supply explicit `group_keys`. These exclude `sample_name` and
-the canonical counts/VAFs, which are aggregation values rather than candidate
+must share an evidence subject across samples; allele-support counts must also
+share a derivation method. Coverage-only depths need no invented method.
+Incompatible units or methods raise rather than being mixed. Expression is not
+aggregated. By default the standard Topiary candidate identity is inferred, or
+callers can supply explicit `group_keys`. These exclude `sample_name` and the
+canonical counts/VAFs, which are aggregation values rather than candidate
 identity.
 
 ## CachedPredictor

@@ -9,10 +9,14 @@ complete canonical counts sum, and RNA/DNA VAFs are recomputed from pooled
 alternate and overlapping counts rather than averaged.
 
 Partial measurements stay absent instead of becoming zero. Samples must name
-the same evidence subject and derivation method before their counts can be
-combined, so reads cannot be mixed with fragments and measured counts cannot
-be flattened together with estimates. Expression remains per-sample, and the
-pooled result reports `n_samples` for each represented candidate identity.
+the same evidence subject before counts can be combined. Allele-support counts
+must also share a derivation method, so measured counts cannot be flattened
+together with estimates; coverage-only depths need no invented method.
+Expression remains per-sample, and the pooled result reports `n_samples` for
+each represented candidate identity.
+
+The test runner now probes pytest plugins and launches pytest with the same
+Python interpreter, avoiding false xdist detection across environments.
 
 ## 5.48.1
 

@@ -48,14 +48,15 @@ def test_the_dna_columns_mirror_the_rna_columns_name_for_name():
     expression_only = {
         "rna_alt_expression", "rna_alt_expression_method",
         "gene_expression", "transcript_expression",
+        "n_rna_supporting_protein_sequence",
     }
     rna_shape = {
         c.replace("rna", "", 1) for c in RNA_EVIDENCE_COLUMNS
         if c not in expression_only
     }
     dna_shape = {c.replace("dna", "", 1) for c in DNA_EVIDENCE_COLUMNS}
-    # Expression and abundance have no DNA meaning; everything else must
-    # exist on both sides.
+    # Expression, abundance, and assembled-protein support have no DNA
+    # meaning; everything else must exist on both sides.
     assert rna_shape == dna_shape
 
 

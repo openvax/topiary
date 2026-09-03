@@ -178,12 +178,13 @@ summed only when every represented sample states them; an unmeasured sample is
 not silently converted to zero. VAF is recomputed as pooled alternate count /
 pooled overlapping count, never averaged across samples.
 
-Pooling also requires the samples to agree on evidence subject and method. A
-read count cannot be added to a fragment count, and a measured count cannot be
-flattened together with a derived estimate. Expression remains per-sample
-because it has no generally valid cross-sample sum. `n_samples` records how many
-samples actually contain rows for each candidate; a candidate absent from a
-sample is not treated as a zero-observation row.
+Pooling also requires the samples to agree on evidence subject. Allele-support
+counts must agree on method as well: a read count cannot be added to a fragment
+count, and a measured count cannot be flattened together with a derived
+estimate. Coverage-only depths need no invented allele-derivation method.
+Expression remains per-sample because it has no generally valid cross-sample
+sum. `n_samples` records how many samples actually contain rows for each
+candidate; a candidate absent from a sample is not treated as a zero row.
 
 ---
 

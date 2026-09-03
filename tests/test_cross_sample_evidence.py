@@ -82,6 +82,17 @@ def test_counts_are_summed_once_per_sample_and_vafs_are_recomputed():
     assert "rna_alt_expression" not in pooled.columns
 
 
+def test_native_protein_sequence_support_is_pooled():
+    df = pd.DataFrame([
+        _row("pre", n_rna_supporting_protein_sequence=7),
+        _row("post", n_rna_supporting_protein_sequence=5),
+    ])
+
+    pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
+
+    assert pooled.loc[0, "n_rna_supporting_protein_sequence"] == 12
+
+
 def test_partial_counts_stay_absent_instead_of_becoming_zero():
     df = pd.DataFrame([
         _row("pre"),
@@ -196,6 +207,8 @@ def test_group_keys_are_validated_and_must_exclude_sample_name():
         )
     with pytest.raises(ValueError, match="missing_key"):
         aggregate_evidence_across_samples(df, group_keys=["missing_key"])
+    with pytest.raises(ValueError, match="not canonical counts or VAFs"):
+        aggregate_evidence_across_samples(df, group_keys=["n_rna_alt"])
 
 
 def test_one_tuple_valued_group_key_remains_one_identity_value():
