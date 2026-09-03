@@ -121,7 +121,23 @@ def test_repeated_prediction_rows_must_agree_within_a_sample():
         aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
 
 
-@pytest.mark.parametrize("value", [-1, 1.5, float("inf"), True, "many"])
+@pytest.mark.parametrize(
+    "values",
+    [(1, True), (True, 1), (0, False), (False, 0)],
+)
+def test_boolean_counts_cannot_hide_as_duplicate_integers(values):
+    df = pd.DataFrame([
+        _row("pre", n_rna_alt=value) for value in values
+    ])
+
+    with pytest.raises(ValueError, match="boolean values are not counts"):
+        aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [-1, 1.5, float("inf"), True, 1 + 2j, "many"],
+)
 def test_invalid_counts_are_rejected(value):
     df = pd.DataFrame([_row("pre", n_rna_alt=value)])
 
@@ -129,7 +145,10 @@ def test_invalid_counts_are_rejected(value):
         aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
 
 
-@pytest.mark.parametrize("value", [-1, 1.5, float("inf"), True, "many"])
+@pytest.mark.parametrize(
+    "value",
+    [-1, 1.5, float("inf"), True, 1 + 2j, "many"],
+)
 def test_invalid_stated_counts_are_rejected_even_when_pool_is_incomplete(value):
     df = pd.DataFrame([
         _row("pre", n_rna_alt=value),
@@ -204,3 +223,45 @@ def test_equivalent_missing_identity_spellings_pool_as_one_group():
     assert pd.isna(pooled.loc[0, "allele"])
     assert pooled.loc[0, "n_samples"] == 2
     assert pooled.loc[0, "n_rna_alt"] == 40
+
+
+def test_evidence_column_used_as_group_key_appears_once():
+    df = pd.DataFrame([
+        _row("pre", sequence_source="rna"),
+        _row("post", sequence_source="rna"),
+    ])
+
+    pooled = aggregate_evidence_across_samples(
+        df,
+        group_keys=[*GROUP_KEYS, "sequence_source"],
+    )
+
+    assert pooled.columns.is_unique
+    assert pooled.loc[0, "sequence_source"] == "rna"
+    assert pooled.loc[0, "n_rna_alt"] == 40
+
+
+@pytest.mark.parametrize(
+    "column",
+    ["n_rna_alt", "n_rna_overlapping", "rna_vaf", "dna_vaf"],
+)
+def test_aggregate_values_cannot_be_used_as_group_keys(column):
+    df = pd.DataFrame([_row("pre"), _row("post")])
+
+    with pytest.raises(ValueError, match="not canonical counts or VAFs"):
+        aggregate_evidence_across_samples(
+            df,
+            group_keys=[*GROUP_KEYS, column],
+        )
+
+
+def test_large_integer_counts_are_summed_exactly():
+    count = 2 ** 60 + 1
+    df = pd.DataFrame([
+        _row("pre", n_rna_alt=count),
+        _row("post", n_rna_alt=count),
+    ])
+
+    pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
+
+    assert pooled.loc[0, "n_rna_alt"] == 2 * count

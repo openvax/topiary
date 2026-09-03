@@ -996,15 +996,54 @@ def _identity(columns, key):
     return dict(zip(columns, values))
 
 
-def _single_sample_evidence_rows(df, group_keys, evidence_columns):
+def _validated_stated_counts(values, column, identity):
+    """Validate and coerce every stated count, returning its stated mask."""
+    stated = stated_values(values)
+    stated_counts = values[stated]
+    if stated_counts.map(
+        lambda value: isinstance(value, (bool, np.bool_))
+    ).any():
+        raise ValueError(
+            f"Evidence count {column!r} must be a non-negative integer for "
+            f"{identity}; boolean values are not counts."
+        )
+    try:
+        numeric = pd.to_numeric(stated_counts, errors="raise")
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"Evidence count {column!r} must be numeric for {identity}: "
+            f"{stated_counts.tolist()!r}."
+        ) from None
+    if (
+        np.iscomplexobj(numeric.to_numpy())
+        or not np.isfinite(numeric).all()
+        or (numeric < 0).any()
+        or (numeric % 1 != 0).any()
+    ):
+        raise ValueError(
+            f"Evidence count {column!r} must contain non-negative finite "
+            f"integers for {identity}: {stated_counts.tolist()!r}."
+        )
+    return stated, numeric
+
+
+def _single_sample_evidence_rows(
+    df,
+    group_keys,
+    evidence_columns,
+    count_columns,
+):
     """Collapse repeated prediction rows to one evidence row per sample."""
     identity_columns = [*group_keys, "sample_name"]
     rows = []
     for key, group in _groupby(df, identity_columns):
         identity = _identity(identity_columns, key)
         row = dict(identity)
+        for column in count_columns:
+            _validated_stated_counts(group[column], column, identity)
         for column in evidence_columns:
-            stated = group.loc[stated_values(group[column]), column]
+            stated_mask = stated_values(group[column])
+            stated = group.loc[stated_mask, column]
             distinct = stated.drop_duplicates()
             if len(distinct) > 1:
                 raise ValueError(
@@ -1018,35 +1057,14 @@ def _single_sample_evidence_rows(df, group_keys, evidence_columns):
 
 def _sum_complete_counts(group, column, identity):
     """Sum a count only when every represented sample states it."""
-    values = group[column]
-    stated = stated_values(values)
-    stated_counts = values[stated]
-    if stated_counts.map(
-        lambda value: isinstance(value, (bool, np.bool_))
-    ).any():
-        raise ValueError(
-            f"Evidence count {column!r} must be a non-negative integer for "
-            f"{identity}; boolean values are not counts."
-        )
-    try:
-        numeric = pd.to_numeric(stated_counts, errors="raise").astype(float)
-    except (TypeError, ValueError):
-        raise ValueError(
-            f"Evidence count {column!r} must be numeric for {identity}: "
-            f"{stated_counts.tolist()!r}."
-        ) from None
-    if (
-        not np.isfinite(numeric).all()
-        or (numeric < 0).any()
-        or (numeric % 1 != 0).any()
-    ):
-        raise ValueError(
-            f"Evidence count {column!r} must contain non-negative finite "
-            f"integers for {identity}: {stated_counts.tolist()!r}."
-        )
+    stated, numeric = _validated_stated_counts(
+        group[column],
+        column,
+        identity,
+    )
     if not stated.all():
         return pd.NA
-    return int(numeric.sum())
+    return sum(int(value) for value in numeric)
 
 
 def _common_assay_metadata(group, assay, identity, pooled_counts):
@@ -1101,7 +1119,9 @@ def aggregate_evidence_across_samples(
     group_keys : sequence of str, optional
         Candidate identity excluding ``sample_name``. By default Topiary's
         normal prediction identity is inferred, including ``allele_set`` when
-        populated but deliberately excluding the sample dimension.
+        populated but deliberately excluding the sample dimension. Canonical
+        counts and VAFs are measurements to aggregate, not valid identity
+        keys.
 
     Returns
     -------
@@ -1155,9 +1175,20 @@ def aggregate_evidence_across_samples(
         )
     if "n_samples" in keys:
         raise ValueError("group_keys cannot contain the output column 'n_samples'.")
+    aggregate_value_keys = [
+        key for key in keys
+        if key in (*_COUNT_EVIDENCE_COLUMNS, "rna_vaf", "dna_vaf")
+    ]
+    if aggregate_value_keys:
+        raise ValueError(
+            "group_keys must identify candidates, not canonical counts or "
+            f"VAFs; remove {aggregate_value_keys!r}."
+        )
 
     count_columns = [
-        column for column in _COUNT_EVIDENCE_COLUMNS if column in df.columns
+        column
+        for column in _COUNT_EVIDENCE_COLUMNS
+        if column in df.columns
     ]
     if not count_columns:
         raise ValueError(
@@ -1171,7 +1202,7 @@ def aggregate_evidence_across_samples(
             f"{assay}_evidence_subject",
             f"{assay}_evidence_method",
         )
-        if column in df.columns
+        if column in df.columns and column not in keys
     ]
     evidence_columns = [*count_columns, *metadata_columns]
     normalized_df = df.assign(**{
@@ -1181,6 +1212,7 @@ def aggregate_evidence_across_samples(
         normalized_df,
         keys,
         evidence_columns,
+        count_columns,
     )
 
     rows = []
@@ -1199,8 +1231,18 @@ def aggregate_evidence_across_samples(
             )
             alt = row.get(f"n_{assay}_alt", pd.NA)
             overlapping = row.get(f"n_{assay}_overlapping", pd.NA)
-            if is_stated(alt) and is_stated(overlapping) and overlapping > 0:
-                row[f"{assay}_vaf"] = alt / overlapping
+            vaf_column = f"{assay}_vaf"
+            required_count_columns = {
+                f"n_{assay}_alt",
+                f"n_{assay}_overlapping",
+            }
+            if (
+                required_count_columns.issubset(count_columns)
+                and is_stated(alt)
+                and is_stated(overlapping)
+                and overlapping > 0
+            ):
+                row[vaf_column] = alt / overlapping
         rows.append(row)
 
     result = pd.DataFrame(rows)
@@ -1215,7 +1257,10 @@ def aggregate_evidence_across_samples(
     ordered = [
         *keys,
         "n_samples",
-        *(column for column in EVIDENCE_COLUMNS if column in result.columns),
+        *(
+            column for column in EVIDENCE_COLUMNS
+            if column in result.columns and column not in keys
+        ),
     ]
     return result.loc[:, ordered]
 
