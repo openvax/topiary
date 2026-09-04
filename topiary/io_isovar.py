@@ -18,32 +18,16 @@ from typing import Optional
 
 from .protein_fragment import ProteinFragment
 from .evidence import ISOVAR_ASSEMBLY, RNA_ALIGNMENT
-
-_MIN_ISOVAR = (1, 7, 2)
-_MIN_ISOVAR_TEXT = "1.7.2"
+from .optional_dependencies import require_optional_dependency
 
 
 def _check_isovar():
-    """Import isovar or explain how to get it, the way pirlygenes is."""
-    try:
-        import isovar
-    except ImportError:
-        raise ImportError(
-            f"isovar is required to build fragments from RNA-assembled "
-            f"protein sequences. Install with: "
-            f"pip install 'isovar>={_MIN_ISOVAR_TEXT}'"
-        ) from None
-    version = getattr(isovar, "__version__", "0.0.0")
-    parts = []
-    for piece in str(version).split(".")[:3]:
-        digits = "".join(c for c in piece if c.isdigit())
-        parts.append(int(digits) if digits else 0)
-    if tuple(parts + [0, 0, 0][: 3 - len(parts)]) < _MIN_ISOVAR:
-        raise ImportError(
-            f"isovar>={_MIN_ISOVAR_TEXT} required; found {version}. "
-            f"Upgrade with: pip install -U 'isovar>={_MIN_ISOVAR_TEXT}'"
-        )
-    return isovar
+    """Load the Isovar API used to assemble variants from RNA reads."""
+    return require_optional_dependency(
+        "isovar",
+        feature="assembling protein fragments from RNA alignments",
+        required_callables=("run_isovar",),
+    )
 
 
 def fragment_from_isovar_result(
@@ -402,8 +386,13 @@ def fragments_from_variants(
     isovar = _check_isovar()
     creator = isovar_kwargs.pop("protein_sequence_creator", None)
     if creator is None:
-        from isovar.protein_sequence_creator import ProteinSequenceCreator
-        creator = ProteinSequenceCreator(
+        creator_module = require_optional_dependency(
+            "isovar.protein_sequence_creator",
+            feature="assembling protein fragments from RNA alignments",
+            extra="isovar",
+            required_callables=("ProteinSequenceCreator",),
+        )
+        creator = creator_module.ProteinSequenceCreator(
             protein_sequence_length=protein_sequence_length,
             # Without assembly a single read or fragment must span the
             # whole window, so a longer context quietly yields fewer

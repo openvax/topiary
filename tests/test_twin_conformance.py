@@ -22,13 +22,19 @@ variant, a format branch, a second constructor -- add the pair to
 """
 
 from dataclasses import dataclass, field
+from importlib.metadata import requires
+from types import SimpleNamespace
 from typing import Callable, Dict, Tuple
 
 import pandas as pd
 import pytest
+from packaging.requirements import Requirement
 
 from topiary.evidence import attach_dna_evidence, attach_rna_evidence
 from topiary import read_pvacseq
+from topiary.io_isovar import _check_isovar
+from topiary.sources import _check_pirlygenes
+import topiary.optional_dependencies as optional_dependencies
 
 
 @dataclass(frozen=True)
@@ -89,6 +95,153 @@ PVACSEQ_PRESENTATION_TWINS = (
         "tests/data/pvacseq/mhc_i_all_epitopes_presentation.tsv",
     ),
 )
+
+
+# ---------------------------------------------------------------------------
+# Optional integrations
+#
+# Isovar and PirlyGenes are independent doors, but both must distinguish an
+# absent optional package from a broken installed package in the same way.
+# ---------------------------------------------------------------------------
+
+OPTIONAL_DEPENDENCY_TWINS = (
+    (
+        "isovar",
+        "run_isovar",
+        _check_isovar,
+        "assembling protein fragments from RNA alignments",
+        ">=1.7.2",
+    ),
+    (
+        "pirlygenes",
+        "pan_cancer_expression",
+        lambda: _check_pirlygenes("pan_cancer_expression"),
+        "cancer-testis antigen and tissue-expression gene lists",
+        ">=5.1.0",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("dependency", "required_api", "check", "feature", "specifier"),
+    OPTIONAL_DEPENDENCY_TWINS,
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_optional_dependency_metadata_has_one_floor(
+    dependency, required_api, check, feature, specifier,
+):
+    del required_api, check, feature
+    declared = [
+        Requirement(text) for text in (requires("topiary") or ())
+        if Requirement(text).name == dependency
+    ]
+
+    assert len(declared) == 1
+    assert str(declared[0].specifier) == specifier
+    assert declared[0].marker.evaluate({"extra": dependency})
+    other = "pirlygenes" if dependency == "isovar" else "isovar"
+    assert not declared[0].marker.evaluate({"extra": other})
+
+
+@pytest.mark.parametrize(
+    ("dependency", "required_api", "check", "feature", "specifier"),
+    OPTIONAL_DEPENDENCY_TWINS,
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_optional_dependency_missing_errors_match(
+    monkeypatch, dependency, required_api, check, feature, specifier,
+):
+    del required_api, specifier
+    original = ModuleNotFoundError(
+        f"No module named '{dependency}'", name=dependency,
+    )
+
+    def missing(module_name):
+        del module_name
+        raise original
+
+    monkeypatch.setattr(optional_dependencies, "import_module", missing)
+
+    with pytest.raises(ImportError) as raised:
+        check()
+
+    message = str(raised.value)
+    assert feature in message
+    assert f"pip install 'topiary[{dependency}]'" in message
+    assert "installed but" not in message
+    assert raised.value.__cause__ is original
+
+
+@pytest.mark.parametrize(
+    ("dependency", "required_api", "check", "feature", "specifier"),
+    OPTIONAL_DEPENDENCY_TWINS,
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_optional_dependency_broken_import_errors_match(
+    monkeypatch, dependency, required_api, check, feature, specifier,
+):
+    del required_api, specifier
+    original = ModuleNotFoundError(
+        "No module named 'broken_transitive_dependency'",
+        name="broken_transitive_dependency",
+    )
+
+    def broken(module_name):
+        del module_name
+        raise original
+
+    monkeypatch.setattr(optional_dependencies, "import_module", broken)
+
+    with pytest.raises(ImportError) as raised:
+        check()
+
+    message = str(raised.value)
+    assert feature in message
+    assert "installed but could not be imported" in message
+    assert "broken_transitive_dependency" in message
+    assert f"pip install --upgrade 'topiary[{dependency}]'" in message
+    assert raised.value.__cause__ is original
+
+
+@pytest.mark.parametrize(
+    ("dependency", "required_api", "check", "feature", "specifier"),
+    OPTIONAL_DEPENDENCY_TWINS,
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_optional_dependency_capability_errors_match(
+    monkeypatch, dependency, required_api, check, feature, specifier,
+):
+    del feature, specifier
+    monkeypatch.setattr(
+        optional_dependencies,
+        "import_module",
+        lambda module_name: SimpleNamespace(__name__=module_name),
+    )
+
+    with pytest.raises(ImportError) as raised:
+        check()
+
+    message = str(raised.value)
+    assert "installed but does not provide the API" in message
+    assert required_api in message
+    assert f"pip install --upgrade 'topiary[{dependency}]'" in message
+
+
+@pytest.mark.parametrize(
+    ("dependency", "required_api", "check", "feature", "specifier"),
+    OPTIONAL_DEPENDENCY_TWINS,
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_optional_dependency_capabilities_load_through_both_doors(
+    monkeypatch, dependency, required_api, check, feature, specifier,
+):
+    del dependency, feature, specifier
+    module = SimpleNamespace(**{required_api: lambda: None})
+    monkeypatch.setattr(
+        optional_dependencies, "import_module", lambda module_name: module,
+    )
+
+    assert check() is module
 
 
 @pytest.mark.parametrize(

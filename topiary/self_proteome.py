@@ -48,6 +48,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections import defaultdict
+from importlib.metadata import PackageNotFoundError, version as package_version
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
@@ -744,9 +745,9 @@ def _cta_label(species, cta_source, cta_set):
     if cta_source is None and species == "human":
         # Using pirlygenes default.
         try:
-            import pirlygenes
-            return f"non_cta+cta-pirlygenes-{pirlygenes.__version__}"
-        except (ImportError, AttributeError):
+            version = package_version("pirlygenes")
+            return f"non_cta+cta-pirlygenes-{version}"
+        except PackageNotFoundError:
             return "non_cta+cta-pirlygenes"
     if isinstance(cta_source, str):
         return f"non_cta+cta-{cta_source}"

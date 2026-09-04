@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.52.1
+
+**Optional dependencies use package metadata (#262).** Isovar and PirlyGenes
+remain lazy, opt-in integrations, now installable as `topiary[isovar]` and
+`topiary[pirlygenes]`. Their minimum versions live once in standard package
+metadata instead of duplicated tuple/string globals and hand-written version
+parsers. Runtime checks validate the exact API Topiary needs and distinguish a
+missing package from an installed package whose import or transitive dependency
+is broken, preserving the original exception as the cause.
+
 ## 5.52.0
 
 **Fixed pVACtools prediction data loss (#259).** `read_pvacseq` now emits native

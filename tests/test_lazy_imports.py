@@ -25,6 +25,22 @@ def test_import_topiary_does_not_import_varcode():
     )
 
 
+def test_import_topiary_does_not_import_optional_dependencies():
+    _run_import_check(
+        """
+        import sys
+        import topiary
+
+        for package in ("isovar", "pirlygenes"):
+            if any(
+                k == package or k.startswith(package + ".")
+                for k in sys.modules
+            ):
+                raise SystemExit(f"import topiary imported {package}")
+        """
+    )
+
+
 def test_cli_variant_helpers_delegate_to_varcode():
     _run_import_check(
         """
