@@ -13,6 +13,8 @@
 import logging
 from collections import Counter
 from collections.abc import Iterable, Mapping
+from functools import lru_cache
+from types import MappingProxyType
 
 import numpy as np
 import pandas as pd
@@ -124,6 +126,7 @@ def _model_metadata_versions(models):
     return versions
 
 
+@lru_cache(maxsize=1)
 def _build_model_lookup():
     """Build a normalized name → mhctools predictor factory mapping.
 
@@ -144,10 +147,7 @@ def _build_model_lookup():
             if name:
                 lookup[name.lower()] = factory
                 lookup[normalized(name)] = factory
-    return lookup
-
-
-_MODEL_LOOKUP = None
+    return MappingProxyType(lookup)
 
 
 def _resolve_model_name(name):
@@ -156,16 +156,14 @@ def _resolve_model_name(name):
     Supports case-insensitive matching against mhctools class names,
     e.g. ``"netmhcpan41"`` → ``NetMHCpan41``, ``"mhcflurry"`` → ``MHCflurry``.
     """
-    global _MODEL_LOOKUP
-    if _MODEL_LOOKUP is None:
-        _MODEL_LOOKUP = _build_model_lookup()
+    model_lookup = _build_model_lookup()
 
     key = name.lower().replace("-", "").replace("_", "").replace(" ", "")
-    factory = _MODEL_LOOKUP.get(key)
+    factory = model_lookup.get(key)
     if factory is None:
-        factory = _MODEL_LOOKUP.get(name.lower())
+        factory = model_lookup.get(name.lower())
     if factory is None:
-        available = sorted(_MODEL_LOOKUP.keys())
+        available = sorted(model_lookup.keys())
         raise ValueError(
             f"Unknown model name {name!r}. Available: {available}"
         )
