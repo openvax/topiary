@@ -5,9 +5,9 @@ Wide form: one row per (peptide, allele, source), prediction columns become
 ``{model_key}_{kind}_{field}`` (e.g. ``netmhcpan_affinity_value``), where
 *model_key* is the method name, or ``{method}_{version}`` where one
 method is present at several versions and the bare name could not hold
-both. Wildtype predictions use ``wt_value``, ``wt_score``, and ``wt_rank``
-field suffixes. ``attrs["topiary_model_keys"]`` records which model key is
-which.
+both. Wildtype predictions use ``wt_value``, ``wt_score``, ``wt_rank``,
+``wt_method``, and ``wt_version`` field suffixes.
+``attrs["topiary_model_keys"]`` records which model key is which.
 """
 
 import functools
@@ -37,6 +37,8 @@ LONG_TO_WIDE_FIELD = {
     "wt_value": "wt_value",
     "wt_score": "wt_score",
     "wt_percentile_rank": "wt_rank",
+    "wt_prediction_method_name": "wt_method",
+    "wt_predictor_version": "wt_version",
 }
 
 # Wide field suffix → long column name.
@@ -79,9 +81,9 @@ def _parse_wide_column(col_name):
     Returns None if the column does not match the
     ``{model_key}_{kind}_{field}`` pattern where kind is a known
     prediction kind and field is one of value/score/rank or their
-    wt_value/wt_score/wt_rank companions. The model key is returned whole:
-    whether it encodes a version is not decidable from the name, and
-    ``from_wide`` resolves it from
+    wt_value/wt_score/wt_rank/wt_method/wt_version companions. The model key
+    is returned whole: whether it encodes a version is not decidable from the
+    name, and ``from_wide`` resolves it from
     ``attrs["topiary_model_keys"]`` instead.
     """
     # WT fields contain an underscore, so match the longest suffix rather
@@ -140,7 +142,8 @@ def to_wide(df):
     pandas.DataFrame
         Wide-form DataFrame where prediction columns become
         ``{model_key}_{kind}_{field}`` columns. Wildtype fields use
-        ``wt_value``, ``wt_score``, and ``wt_rank`` as their field suffixes.
+        ``wt_value``, ``wt_score``, ``wt_rank``, ``wt_method``, and
+        ``wt_version`` as their field suffixes.
     """
     if hasattr(df, "wide_df") and hasattr(df, "metadata") and hasattr(df, "df"):
         return df.wide_df
@@ -271,6 +274,13 @@ def to_wide(df):
         aggfunc="first",
     ).reset_index()
     wide_values.columns.name = None
+    # ``_wide_val`` becomes object-typed when numeric predictions and string
+    # WT metadata share the melt. Restore the declared numeric prediction
+    # fields after pivoting so callers can rank/filter without another cast.
+    for column in wide_values.columns:
+        parsed = _parse_wide_column(column)
+        if parsed is not None and parsed[2] not in {"wt_method", "wt_version"}:
+            wide_values[column] = pd.to_numeric(wide_values[column], errors="coerce")
     # An annotation column carried through from the long frame can be
     # named exactly like a column about to be generated. pandas would
     # rename *both* sides to _x / _y, silently: the canonical name would
@@ -396,15 +406,19 @@ def from_wide(df, metadata=None):
             else:
                 chunk[long_col] = np.nan
 
-        has_wt_prediction = any(
-            field.startswith("wt_") for field in field_map
-        )
-        chunk["wt_prediction_method_name"] = (
-            method_name if has_wt_prediction else np.nan
-        )
-        chunk["wt_predictor_version"] = (
-            version if has_wt_prediction else np.nan
-        )
+        # Old wide frames have only numeric WT fields. Preserve their
+        # established interpretation that WT was produced by the MT model,
+        # while allowing new frames to state distinct WT method/version
+        # metadata explicitly and round-trip it without loss.
+        has_wt_prediction = any(field.startswith("wt_") for field in field_map)
+        if "wt_method" not in field_map:
+            chunk["wt_prediction_method_name"] = (
+                method_name if has_wt_prediction else np.nan
+            )
+        if "wt_version" not in field_map:
+            chunk["wt_predictor_version"] = (
+                version if has_wt_prediction else np.nan
+            )
 
         long_rows.append(chunk)
 

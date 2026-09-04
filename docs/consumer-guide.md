@@ -400,7 +400,10 @@ LENS splits `<tool>_<version>.<metric>` at the final underscore before the
 version, so tool names such as `foo_2` remain intact in
 `foo_2_1.0.MT_Presentation_Score` and may be used directly in an override key.
 Inferred WT metrics normalize to the corresponding `_wt_value`, `_wt_score`,
-or `_wt_rank` wide column rather than being relabeled as MT.
+or `_wt_rank` wide column rather than being relabeled as MT. Wide-form
+round-trips also preserve distinct WT predictor metadata in `_wt_method` and
+`_wt_version` columns; older frames without those columns continue to infer
+that metadata from the MT model.
 
 ---
 

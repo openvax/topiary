@@ -35,10 +35,11 @@ ambiguous, the source column remains available under its original name and the
 reader warns instead of silently dropping it.
 
 WT prediction fields now participate in long/wide conversion. They use
-`{model}_{kind}_wt_value`, `_wt_score`, and `_wt_rank` in wide form, so sibling
-prediction rows stay one source row and round-trip without turning WT metadata
-into grouping keys. LENS tool names may contain underscore-digit segments;
-the final underscore before the version is the delimiter. Calis
+`{model}_{kind}_wt_value`, `_wt_score`, `_wt_rank`, `_wt_method`, and
+`_wt_version` in wide form, so sibling prediction rows stay one source row and
+round-trip without turning WT metadata into grouping keys or assuming the WT
+predictor metadata matches MT. LENS tool names may contain underscore-digit
+segments; the final underscore before the version is the delimiter. Calis
 immunogenicity metadata now records its mhctools semantics: allele-independent,
 class I.
 

@@ -252,8 +252,8 @@ class TestToWide:
         df["wt_score"] = [0.2, 0.25]
         df["wt_percentile_rank"] = [7.0, 4.0]
         df["wt_affinity"] = [900.0, np.nan]
-        df["wt_prediction_method_name"] = "netmhcpan"
-        df["wt_predictor_version"] = "4.1b"
+        df["wt_prediction_method_name"] = ["wt-affinity", "wt-presentation"]
+        df["wt_predictor_version"] = ["1.0", "2.0"]
 
         wide = to_wide(df)
 
@@ -261,6 +261,11 @@ class TestToWide:
         assert wide.loc[0, "netmhcpan_affinity_wt_value"] == 900.0
         assert wide.loc[0, "netmhcpan_presentation_wt_score"] == 0.25
         assert wide.loc[0, "netmhcpan_presentation_wt_rank"] == 4.0
+        assert wide.loc[0, "netmhcpan_affinity_wt_method"] == "wt-affinity"
+        assert wide.loc[0, "netmhcpan_presentation_wt_version"] == "2.0"
+        assert pd.api.types.is_numeric_dtype(
+            wide["netmhcpan_presentation_wt_score"]
+        )
 
         roundtrip = from_wide(wide).set_index("kind")
         assert roundtrip.loc["pMHC_affinity", "wt_value"] == 900.0
@@ -269,11 +274,11 @@ class TestToWide:
             roundtrip.loc[
                 "pMHC_presentation", "wt_prediction_method_name"
             ]
-            == "netmhcpan"
+            == "wt-presentation"
         )
         assert roundtrip.loc[
             "pMHC_presentation", "wt_predictor_version"
-        ] == "4.1b"
+        ] == "2.0"
 
     def test_multi_underscore_kind(self):
         df = pd.DataFrame([dict(
@@ -395,6 +400,19 @@ class TestToWide:
 
 
 class TestFromWide:
+    def test_legacy_wt_fields_inherit_mt_model_metadata(self):
+        wide = pd.DataFrame({
+            "peptide": ["SIINFEKL"],
+            "netmhcpan_affinity_value": [120.0],
+            "netmhcpan_affinity_wt_value": [900.0],
+        })
+        wide.attrs["topiary_models"] = {"netmhcpan": "4.1b"}
+
+        long = from_wide(wide)
+
+        assert long.loc[0, "wt_prediction_method_name"] == "netmhcpan"
+        assert long.loc[0, "wt_predictor_version"] == "4.1b"
+
     def test_roundtrip_single_model(self):
         orig = _long_df_single_model()
         wide = to_wide(orig)
