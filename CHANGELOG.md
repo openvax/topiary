@@ -1,5 +1,16 @@
 # Changelog
 
+## 5.52.2
+
+**Central amino-acid data API (#263).** `AMINO_ACIDS`,
+`AMINO_ACID_INDEX`, `UNKNOWN_AMINO_ACID_INDEX`, `encode_amino_acids()`, and
+`blosum62_matrix()` now provide one documented home for Topiary's compact
+encoding and canonical NCBI BLOSUM62 scores. The public constants are immutable,
+and each matrix call returns an independent read-only array. `SelfProteome`
+uses that API without a mutable matrix cache or any change to established
+nearest-self results. The historical non-standard-residue distance behavior is
+documented accurately and tracked for correction in #268.
+
 ## 5.52.1
 
 **Optional dependencies use package metadata (#262).** Isovar and PirlyGenes

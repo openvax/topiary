@@ -9,3 +9,6 @@ include LICENSE
 include requirements.txt
 recursive-include docs *.md
 recursive-include topiary/data *
+# Keep the authoritative matrix fixture beside the regression test in sdists
+# and wheels, which currently ship the test package.
+include tests/data/BLOSUM62.ncbi

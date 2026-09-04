@@ -157,11 +157,23 @@ from .result import (
 )
 from .prediction_columns import PredictionMetric, parse_prediction_metric
 from .wide import detect_form, from_wide, to_wide
+from .amino_acids import (
+    AMINO_ACIDS,
+    AMINO_ACID_INDEX,
+    UNKNOWN_AMINO_ACID_INDEX,
+    blosum62_matrix,
+    encode_amino_acids,
+)
 
-__version__ = "5.52.1"
+__version__ = "5.52.2"
 
 __all__ = [
     "TopiaryPredictor",
+    "AMINO_ACIDS",
+    "AMINO_ACID_INDEX",
+    "UNKNOWN_AMINO_ACID_INDEX",
+    "blosum62_matrix",
+    "encode_amino_acids",
     "PredictionMetric",
     "from_predictions",
     "fragment_from_effect",
