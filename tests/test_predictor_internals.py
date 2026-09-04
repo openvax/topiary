@@ -1,12 +1,59 @@
 """Direct unit tests for TopiaryPredictor private methods."""
 
+from types import MappingProxyType
+
 import numpy as np
 import pandas as pd
 import pytest
 from mhctools import RandomBindingPredictor
 
 from topiary import TopiaryPredictor
-from topiary.predictor import _attach_expression_data
+from topiary.predictor import (
+    _attach_expression_data,
+    _build_model_lookup,
+    _resolve_model_name,
+)
+
+
+def test_model_lookup_cache_is_immutable_and_reused():
+    _build_model_lookup.cache_clear()
+
+    first = _build_model_lookup()
+    second = _build_model_lookup()
+
+    assert first is second
+    assert isinstance(first, MappingProxyType)
+    with pytest.raises(TypeError):
+        first["new-model"] = object()
+
+
+def test_model_lookup_cache_has_explicit_invalidation(monkeypatch):
+    import mhctools.cli
+
+    class FirstPredictor:
+        def predict_dataframe(self):
+            pass
+
+    class SecondPredictor:
+        def predict_dataframe(self):
+            pass
+
+    monkeypatch.setattr(mhctools.cli, "mhc_predictors", {
+        "changing-model": FirstPredictor,
+    })
+    _build_model_lookup.cache_clear()
+    try:
+        assert _resolve_model_name("changing-model") is FirstPredictor
+
+        monkeypatch.setattr(mhctools.cli, "mhc_predictors", {
+            "changing-model": SecondPredictor,
+        })
+        assert _resolve_model_name("changing-model") is FirstPredictor
+
+        _build_model_lookup.cache_clear()
+        assert _resolve_model_name("changing-model") is SecondPredictor
+    finally:
+        _build_model_lookup.cache_clear()
 
 
 # ---------------------------------------------------------------------------

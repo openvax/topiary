@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.52.3
+
+**Function-owned model registry cache (#264).** Model-name resolution now uses
+a bounded `lru_cache` on its immutable registry builder. This removes the last
+mutable lazy-cache global and its `global` mutation, while providing an
+explicit `cache_clear()` boundary for tests and registry refreshes. The
+independent BLOSUM cache was removed in 5.52.2 as part of #263.
+
 ## 5.52.2
 
 **Central amino-acid data API (#263).** `AMINO_ACIDS`,
