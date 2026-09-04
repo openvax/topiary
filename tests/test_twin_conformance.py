@@ -21,6 +21,7 @@ variant, a format branch, a second constructor -- add the pair to
 ``TWINS`` rather than trusting review to notice the next divergence.
 """
 
+import dataclasses
 from dataclasses import dataclass, field
 from importlib.metadata import requires
 from types import SimpleNamespace
@@ -30,8 +31,12 @@ import pandas as pd
 import pytest
 from packaging.requirements import Requirement
 
-from topiary.evidence import attach_dna_evidence, attach_rna_evidence
-from topiary import read_pvacseq
+from topiary.evidence import (
+    RENAMED_COLUMNS,
+    attach_dna_evidence,
+    attach_rna_evidence,
+)
+from topiary import APPROXIMATED, MEASURED, ProteinFragment, read_pvacseq
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
 import topiary.optional_dependencies as optional_dependencies
@@ -120,6 +125,92 @@ OPTIONAL_DEPENDENCY_TWINS = (
         ">=5.1.0",
     ),
 )
+
+
+# ---------------------------------------------------------------------------
+# ProteinFragment construction
+#
+# Direct construction and serialized input are two doors onto the same field
+# migration contract. Drive every applicable rename through both so adding a
+# constructor path cannot make old files and old Python calls mean different
+# things again.
+# ---------------------------------------------------------------------------
+
+_FRAGMENT_FIELD_NAMES = {
+    fragment_field.name for fragment_field in dataclasses.fields(ProteinFragment)
+}
+FRAGMENT_FIELD_RENAMES = tuple(sorted(
+    (old, new) for old, new in RENAMED_COLUMNS.items()
+    if new in _FRAGMENT_FIELD_NAMES
+))
+
+
+def _construct_fragment_directly(values):
+    return ProteinFragment(fragment_id="direct", sequence="SIINFEKLA", **values)
+
+
+def _construct_fragment_from_dict(values):
+    return ProteinFragment.from_dict({
+        "fragment_id": "direct",
+        "sequence": "SIINFEKLA",
+        **values,
+    })
+
+
+FRAGMENT_CONSTRUCTION_DOORS = (
+    ("direct", _construct_fragment_directly),
+    ("from_dict", _construct_fragment_from_dict),
+)
+
+
+@pytest.mark.parametrize(("old", "new"), FRAGMENT_FIELD_RENAMES)
+@pytest.mark.parametrize(
+    "style", ("legacy", "current", "matching", "empty-current"),
+)
+def test_fragment_construction_doors_agree_on_renames(old, new, style):
+    if style == "legacy":
+        values = {old: 12, "field_provenance": {old: APPROXIMATED}}
+    elif style == "current":
+        values = {new: 12, "field_provenance": {new: APPROXIMATED}}
+    elif style == "matching":
+        values = {
+            old: 12,
+            new: 12,
+            "field_provenance": {old: APPROXIMATED, new: APPROXIMATED},
+        }
+    else:
+        values = {
+            old: 12,
+            new: None,
+            "field_provenance": {old: APPROXIMATED},
+        }
+
+    fragments = [door(values) for _, door in FRAGMENT_CONSTRUCTION_DOORS]
+    assert fragments[0].to_dict() == fragments[1].to_dict()
+    for fragment in fragments:
+        assert getattr(fragment, old) == getattr(fragment, new) == 12
+        assert fragment.provenance_of(old) == APPROXIMATED
+        assert old not in fragment.to_dict()
+
+
+@pytest.mark.parametrize(("old", "new"), FRAGMENT_FIELD_RENAMES)
+@pytest.mark.parametrize("conflict", ("value", "provenance"))
+def test_fragment_construction_doors_agree_on_conflicts(old, new, conflict):
+    values = {old: 12, new: 13}
+    if conflict == "provenance":
+        values = {
+            old: 12,
+            "field_provenance": {old: MEASURED, new: APPROXIMATED},
+        }
+
+    errors = []
+    for _, door in FRAGMENT_CONSTRUCTION_DOORS:
+        with pytest.raises(ValueError) as raised:
+            door(values)
+        errors.append(str(raised.value))
+
+    assert errors[0] == errors[1]
+    assert "Conflicting ProteinFragment fields" in errors[0]
 
 
 @pytest.mark.parametrize(

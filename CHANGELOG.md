@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.52.4
+
+**Normal ProteinFragment construction (#265).** `ProteinFragment` now defines
+its compatibility-aware constructor and legacy read-only properties in the
+class itself. The import-time `__init__` replacement and post-definition class
+mutation are gone. Direct construction and serialized input still accept the
+5.x legacy evidence names, while current-name-only output, positional behavior,
+frozen dataclass semantics, and independent mapping defaults are preserved.
+
 ## 5.52.3
 
 **Function-owned model registry cache (#264).** Model-name resolution now uses

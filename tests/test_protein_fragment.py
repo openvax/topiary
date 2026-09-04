@@ -1,5 +1,7 @@
 """Tests for topiary.protein_fragment (ProteinFragment + helpers)."""
 
+import dataclasses
+import inspect
 import json
 import tempfile
 from pathlib import Path
@@ -95,6 +97,57 @@ class TestIdentity:
         # on fragment_id.
         f = self._sample(annotations={"vaf": 0.5})
         hash(f)  # does not raise
+
+    def test_constructor_signature_tracks_the_dataclass_fields(self):
+        signature = inspect.signature(ProteinFragment)
+        parameters = list(signature.parameters.values())
+        fragment_fields = list(dataclasses.fields(ProteinFragment))
+
+        assert [parameter.name for parameter in parameters] == [
+            fragment_field.name for fragment_field in fragment_fields
+        ]
+        assert all(
+            parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+            for parameter in parameters
+        )
+        assert signature.return_annotation is None
+        assert not hasattr(ProteinFragment.__init__, "__wrapped__")
+        assert ProteinFragment.__dataclass_params__.init is True
+
+        implementation = inspect.signature(ProteinFragment.__init__)
+        legacy = list(implementation.parameters.values())[-1]
+        assert legacy.name == "legacy_fields"
+        assert legacy.kind is inspect.Parameter.VAR_KEYWORD
+
+        for parameter, fragment_field in zip(parameters, fragment_fields):
+            if fragment_field.default is not dataclasses.MISSING:
+                assert parameter.default == fragment_field.default
+            elif fragment_field.default_factory is not dataclasses.MISSING:
+                assert repr(parameter.default) == "<factory>"
+            else:
+                assert parameter.default is inspect.Parameter.empty
+
+    def test_positional_construction_is_preserved(self):
+        fragment = ProteinFragment("id", "variant:snv", "SIINFEKLA")
+
+        assert fragment.fragment_id == "id"
+        assert fragment.source_type == "variant:snv"
+        assert fragment.sequence == "SIINFEKLA"
+
+    def test_default_mappings_are_independent(self):
+        first = ProteinFragment("first")
+        second = ProteinFragment("second")
+
+        assert first.field_provenance == second.field_provenance == {}
+        assert first.annotations == second.annotations == {}
+        assert first.field_provenance is not second.field_provenance
+        assert first.annotations is not second.annotations
+
+    def test_frozen_assignment_is_preserved(self):
+        fragment = ProteinFragment("frozen")
+
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            fragment.sequence = "CHANGED"
 
 
 # ---------------------------------------------------------------------------
