@@ -28,6 +28,7 @@ from topiary import (
     attach_rna_evidence,
     describe_read_evidence,
     evaluate_scores,
+    fragment_from_effect,
     fragment_from_isovar_result,
     fragments_from_dataframe,
     peptide_view,
@@ -319,6 +320,19 @@ class _IsovarResult:
     num_ref_reads = 60
 
 
+class _Effect:
+    mutant_protein_sequence = "MKTVRQERLK"
+    original_protein_sequence = "MKTVAQERLK"
+    aa_mutation_start_offset = 4
+    aa_mutation_end_offset = 5
+    gene_name = "BRAF"
+    gene_id = "ENSG1"
+    transcript_id = "ENST1"
+    transcript_name = "BRAF-204"
+    short_description = "p.A5R"
+    variant = type("Variant", (), {"short_description": "chr7:1A>T"})()
+
+
 def test_one_consumer_function_reads_every_source():
     """The multi-source premise, exercised rather than described."""
     def support(fragment):
@@ -328,12 +342,14 @@ def test_one_consumer_function_reads_every_source():
 
     sources = {
         "isovar": fragment_from_isovar_result(_IsovarResult()),
+        "varcode": fragment_from_effect(_Effect(), padding_around_mutation=2),
         "lens": fragments_from_dataframe(_long(read_lens, LENS))[0],
         "pvacseq": fragments_from_dataframe(_long(read_pvacseq, PVACSEQ))[0],
     }
     answers = {name: support(f) for name, f in sources.items()}
 
     assert answers["isovar"] is False        # counted
+    assert answers["varcode"] is None        # no RNA evidence
     assert answers["pvacseq"] is True        # derived
     assert "lens" in answers                 # whatever LENS has, one call
 

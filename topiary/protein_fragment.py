@@ -13,8 +13,8 @@ and format-specific loaders live in sibling modules.
 from __future__ import annotations
 
 import dataclasses
-import functools
 import hashlib
+import inspect
 import json
 import re
 from dataclasses import dataclass, field
@@ -40,6 +40,18 @@ PROVENANCE_VALUES = frozenset({MEASURED, APPROXIMATED, SYNTHESIZED})
 
 #: Provenance values a consumer must not interpret as biology.
 _NOT_BIOLOGY = frozenset({SYNTHESIZED})
+
+
+class _DefaultFactory:
+    """Signature sentinel for fields whose default comes from a factory."""
+
+    __slots__ = ()
+
+    def __repr__(self):
+        return "<factory>"
+
+
+_DEFAULT_FACTORY = _DefaultFactory()
 
 
 def _fragment_field_renames(known_fields: set) -> dict:
@@ -242,6 +254,82 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
 
     annotations: dict = field(default_factory=dict)
 
+    def __init__(
+        self,
+        fragment_id: str,
+        source_type: Optional[str] = None,
+        sequence: str = "",
+        reference_sequence: Optional[str] = None,
+        germline_sequence: Optional[str] = None,
+        target_intervals: Optional[list] = None,
+        variant: Optional[str] = None,
+        effect: Optional[str] = None,
+        effect_type: Optional[str] = None,
+        gene: Optional[str] = None,
+        gene_id: Optional[str] = None,
+        transcript_id: Optional[str] = None,
+        transcript_name: Optional[str] = None,
+        gene_expression: Optional[float] = None,
+        transcript_expression: Optional[float] = None,
+        n_rna_overlapping_reads: Optional[int] = None,
+        n_rna_alt_reads: Optional[int] = None,
+        n_rna_ref_reads: Optional[int] = None,
+        n_rna_other_reads: Optional[int] = None,
+        n_rna_alt_reads_supporting_protein_sequence: Optional[int] = None,
+        n_rna_overlapping_fragments: Optional[int] = None,
+        n_rna_alt_fragments: Optional[int] = None,
+        n_rna_ref_fragments: Optional[int] = None,
+        n_rna_other_fragments: Optional[int] = None,
+        n_rna_alt_fragments_supporting_protein_sequence: Optional[int] = None,
+        field_provenance: dict = _DEFAULT_FACTORY,
+        annotations: dict = _DEFAULT_FACTORY,
+        **legacy_fields,
+    ) -> None:
+        """Initialize a fragment, accepting legacy evidence names as keywords.
+
+        Current fields retain their dataclass order and positional behavior.
+        Evidence names from Topiary 5.47 and earlier are accepted only as
+        additional keywords and migrate through the same implementation used
+        by serialized input.
+        """
+        arguments = locals()
+        # Bind exactly the fields advertised by this constructor. A subclass
+        # may declare additional dataclass fields without making the inherited
+        # base initializer look for arguments it never accepted.
+        fragment_fields = dataclasses.fields(ProteinFragment)
+        values = {}
+        for fragment_field in fragment_fields:
+            value = arguments[fragment_field.name]
+            if value is _DEFAULT_FACTORY:
+                value = fragment_field.default_factory()
+            values[fragment_field.name] = value
+
+        values.update(legacy_fields)
+        known = {fragment_field.name for fragment_field in fragment_fields}
+        values = _migrate_fragment_dict(values, known)
+        unknown = set(values) - known
+        if unknown:
+            name = sorted(unknown)[0]
+            raise TypeError(
+                "ProteinFragment.__init__() got an unexpected keyword "
+                f"argument {name!r}"
+            )
+
+        for fragment_field in fragment_fields:
+            object.__setattr__(
+                self, fragment_field.name, values[fragment_field.name],
+            )
+        self.__post_init__()
+
+    # Legacy keywords are a 5.x compatibility input, not fields in the
+    # current data model. Keep the public class signature identical to the
+    # dataclass field surface while leaving the implementation's
+    # ``**legacy_fields`` visible on ``ProteinFragment.__init__`` itself.
+    __signature__ = inspect.signature(__init__).replace(
+        parameters=tuple(inspect.signature(__init__).parameters.values())[1:-1],
+        return_annotation=None,
+    )
+
     # ------------------------------------------------------------------
     # Identity: fragment_id is the canonical key.  Using all-field eq
     # would trip over unhashable list/dict members; keying on
@@ -290,6 +378,62 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
                     f"field_provenance[{name!r}] is {value!r}; use one of "
                     f"{sorted(PROVENANCE_VALUES)}."
                 )
+
+    # ------------------------------------------------------------------
+    # Topiary 5.47 evidence-name compatibility. These are ordinary,
+    # read-only class properties so compatibility is visible to
+    # introspection and does not mutate the class after its definition.
+    # ------------------------------------------------------------------
+
+    @property
+    def n_alt_reads(self):
+        """Compatibility alias for :attr:`n_rna_alt_reads`."""
+        return self.n_rna_alt_reads
+
+    @property
+    def n_alt_fragments(self):
+        """Compatibility alias for :attr:`n_rna_alt_fragments`."""
+        return self.n_rna_alt_fragments
+
+    @property
+    def n_ref_reads(self):
+        """Compatibility alias for :attr:`n_rna_ref_reads`."""
+        return self.n_rna_ref_reads
+
+    @property
+    def n_ref_fragments(self):
+        """Compatibility alias for :attr:`n_rna_ref_fragments`."""
+        return self.n_rna_ref_fragments
+
+    @property
+    def n_other_reads(self):
+        """Compatibility alias for :attr:`n_rna_other_reads`."""
+        return self.n_rna_other_reads
+
+    @property
+    def n_other_fragments(self):
+        """Compatibility alias for :attr:`n_rna_other_fragments`."""
+        return self.n_rna_other_fragments
+
+    @property
+    def n_overlapping_reads(self):
+        """Compatibility alias for :attr:`n_rna_overlapping_reads`."""
+        return self.n_rna_overlapping_reads
+
+    @property
+    def n_overlapping_fragments(self):
+        """Compatibility alias for :attr:`n_rna_overlapping_fragments`."""
+        return self.n_rna_overlapping_fragments
+
+    @property
+    def n_alt_reads_supporting_protein_sequence(self):
+        """Compatibility alias for the corresponding RNA read count."""
+        return self.n_rna_alt_reads_supporting_protein_sequence
+
+    @property
+    def n_alt_fragments_supporting_protein_sequence(self):
+        """Compatibility alias for the corresponding RNA fragment count."""
+        return self.n_rna_alt_fragments_supporting_protein_sequence
 
     # ------------------------------------------------------------------
     # Knownness
@@ -657,44 +801,6 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
             transcript_expression=extra_kwargs.pop("transcript_expression", None),
             annotations=extra_kwargs.pop("annotations", {}) or {},
         )
-
-
-# Keep the 5.x Python surface source-compatible while emitting only the
-# assay-scoped names. Serialized input uses the same migration helper; this
-# wrapper covers direct construction, and read-only properties cover callers
-# that still inspect the 5.47 attribute names. They are intentionally absent
-# from dataclasses.fields() and to_dict(), so new output has one name per fact.
-_PROTEIN_FRAGMENT_INIT = ProteinFragment.__init__
-
-
-@functools.wraps(_PROTEIN_FRAGMENT_INIT)
-def _compatible_protein_fragment_init(self, *args, **kwargs):
-    known = {field.name for field in dataclasses.fields(ProteinFragment)}
-    kwargs = _migrate_fragment_dict(kwargs, known)
-    _PROTEIN_FRAGMENT_INIT(self, *args, **kwargs)
-
-
-ProteinFragment.__init__ = _compatible_protein_fragment_init
-
-_FRAGMENT_FIELD_RENAMES = _fragment_field_renames({
-    field.name for field in dataclasses.fields(ProteinFragment)
-})
-
-
-def _legacy_fragment_property(current_name):
-    return property(
-        lambda self: getattr(self, current_name),
-        doc=f"Compatibility alias for :attr:`{current_name}`.",
-    )
-
-
-for _old_name, _current_name in _FRAGMENT_FIELD_RENAMES.items():
-    setattr(
-        ProteinFragment,
-        _old_name,
-        _legacy_fragment_property(_current_name),
-    )
-
 
 # =============================================================================
 # Helpers
