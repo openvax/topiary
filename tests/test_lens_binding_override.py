@@ -14,6 +14,7 @@ version differently, which is the brittleness #206 removed.
 import pathlib
 import warnings
 
+import pandas as pd
 import pytest
 
 from topiary import read_lens
@@ -90,15 +91,24 @@ def test_underscore_digit_tool_name_matches_override_key(tmp_path):
     assert result.df["foo_2_affinity_score"].eq(0.42).all()
 
 
-def test_lens_preserves_wt_predictions_it_cannot_represent(tmp_path):
-    """A WT value must not be silently relabeled as a mutant value."""
+def test_lens_normalizes_wt_prediction_without_relabeling_it_as_mt(tmp_path):
     column = "calis_EL_1.0.WT_Score"
 
-    with pytest.warns(UserWarning, match="look like"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
         result = read_lens(_file_with(column, tmp_path))
 
-    assert column in result.df.columns
+    assert "calis_presentation_wt_score" in result.df.columns
     assert "calis_presentation_score" not in result.df.columns
+    rows = result.long_df
+    row = rows[
+        rows["prediction_method_name"].eq("calis")
+        & rows["kind"].eq("pMHC_presentation")
+    ].iloc[0]
+    assert row["wt_score"] == pytest.approx(0.42)
+    assert row["wt_prediction_method_name"] == "calis"
+    assert row["wt_predictor_version"] == "1.0"
+    assert pd.isna(row["score"])
 
 
 # ---------------------------------------------------------------------------

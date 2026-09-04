@@ -18,8 +18,9 @@ pVACtools/mhctools model vocabulary, treats `EL` as presentation, `BA` /
 MT/WT score and percentile modifiers for affinity, processing, presentation,
 and immunogenicity. Explicit metric text wins over a model suffix. Both the
 pVACseq and LENS readers use this function; new unambiguous LENS prediction
-columns normalize automatically, while ambiguous and WT-specific LENS columns
-remain visible under their source names and warn instead of being guessed.
+columns normalize automatically, including WT-specific metrics now that wide
+form represents them. Ambiguous columns remain visible under their source
+names and warn instead of being guessed.
 
 Affinity-only inputs are unchanged. `melt_pvacseq_algorithms` continues to
 melt only the binding columns and no longer risks cloning presentation rows

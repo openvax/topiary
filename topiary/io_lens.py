@@ -136,16 +136,16 @@ def _parse_binding_column(
     key = (tool.lower(), metric.lower())
     if key not in table:
         inferred = parse_prediction_metric(tool, metric)
-        # LENS is wide on the mutant peptide. Its existing schema has no
-        # place to attach a WT-specific prediction, so keep such a future
-        # column visible and unmapped rather than relabeling it as mutant.
-        if inferred is None or inferred.sequence == "wt":
+        if inferred is None:
             return tool.lower(), version, None, None
+        long_field = inferred.field
+        if inferred.sequence == "wt":
+            long_field = f"wt_{long_field}"
         return (
             inferred.prediction_method_name,
             version,
             _kind_short_name(inferred.kind),
-            LONG_TO_WIDE_FIELD[inferred.field],
+            LONG_TO_WIDE_FIELD[long_field],
         )
     spec = table[key]
     if spec is None:
