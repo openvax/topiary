@@ -68,6 +68,28 @@ def test_shared_prediction_vocabulary_maps_new_lens_columns(
     assert result.df[expected].eq(0.42).all()
 
 
+def test_underscore_digit_tool_name_is_not_split_as_version(tmp_path):
+    column = "foo_2_1.0.MT_Presentation_Score"
+
+    result = read_lens(_file_with(column, tmp_path))
+
+    assert "foo_2_presentation_score" in result.df.columns
+    assert result.df["foo_2_presentation_score"].eq(0.42).all()
+    assert result.models["foo_2"] == "1.0"
+
+
+def test_underscore_digit_tool_name_matches_override_key(tmp_path):
+    column = "foo_2_1.0.opaque_metric"
+
+    result = read_lens(
+        _file_with(column, tmp_path),
+        binding_metrics={("foo_2", "opaque_metric"): ("affinity", "score")},
+    )
+
+    assert "foo_2_affinity_score" in result.df.columns
+    assert result.df["foo_2_affinity_score"].eq(0.42).all()
+
+
 def test_lens_preserves_wt_predictions_it_cannot_represent(tmp_path):
     """A WT value must not be silently relabeled as a mutant value."""
     column = "calis_EL_1.0.WT_Score"

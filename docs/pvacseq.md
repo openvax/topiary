@@ -65,10 +65,12 @@ algorithms:
 | BigMHC immunogenicity score and rank | `BigMHC_IM {MT,WT} [Immunogenicity] {Score,Percentile}` | `bigmhc_im` |
 | PRIME immunogenicity score and rank | `PRIME {MT,WT} Immunogenicity {Score,Percentile}` | `prime` |
 
-For score-only algorithm rows, `score` is also the row's `value`, while
-`affinity` remains null outside affinity rows. Aggregate TSV rows carry only a
-presentation percentile, so their presentation `score` and `value` are
-honestly null.
+For native non-affinity rows, a stated `score` is also the row's primary
+`value`, matching Topiary's predictor output. A melted affinity algorithm that
+states only a score keeps `value` and `affinity` null; Topiary does not borrow
+the aggregate pVACseq median and attribute it to that algorithm. Aggregate TSV
+presentation rows carry only a percentile, so their presentation `score` and
+`value` are honestly null.
 
 ### Prediction-column vocabulary
 
@@ -82,13 +84,22 @@ An explicit quantity in the metric wins over the model suffix. For example,
 `MHCflurryEL Processing WT Percentile` is processing—not presentation—and is
 stored in `wt_percentile_rank`. Affinity, processing, presentation, and
 immunogenicity can all carry MT or WT percentile ranks. Known pVACtools and
-mhctools model names may use a bare `MT Score`; an unknown model must state its
-quantity rather than being guessed.
+mhctools model names may use a bare `MT Score`. For an unknown model, an
+unqualified percentile inherits the kind only when that model has exactly one
+explicit companion kind—for example, an `MT Percentile` beside an `MT IC50
+Score` is an affinity rank. If there is no unique answer, the reader warns and
+preserves the column under its original source name instead of guessing or
+dropping it.
 
 The same classifier is public as
 `parse_prediction_metric(model_name, metric_name)` and is also the fallback
 for new LENS predictor columns. This keeps the two readers from developing
 different interpretations of the same header.
+
+Calis immunogenicity rows are marked class I and allele-independent, following
+mhctools' `AlleleFreePredictor` contract. The pVACtools report may repeat the
+same Calis score beside several allele rows, but the allele is not an input to
+that model.
 
 ### Derived columns (vaxrank-friendly)
 

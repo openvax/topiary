@@ -407,10 +407,74 @@ class TestLoadAllEpitopes:
         }
         assert expected <= set(r.df.columns)
 
+    def test_unknown_affinity_percentile_inherits_companion_kind(
+        self, tmp_path,
+    ):
+        df = pd.read_csv(MHC_I_ALL, sep="\t")
+        df["BrandNew MT IC50 Score"] = 123.0
+        df["BrandNew WT IC50 Score"] = 456.0
+        df["BrandNew MT Percentile"] = 1.2
+        df["BrandNew WT Percentile"] = 3.4
+        path = tmp_path / "unknown-affinity.tsv"
+        df.to_csv(path, sep="\t", index=False)
+
+        loaded = read_pvacseq(path)
+        assert loaded.df["pvacseq_brand_new_pct_mt"].eq(1.2).all()
+        assert loaded.df["pvacseq_brand_new_pct_wt"].eq(3.4).all()
+
+        row = melt_pvacseq_algorithms(loaded).df
+        row = row[row["prediction_method_name"] == "brand_new"].iloc[0]
+        assert row["value"] == pytest.approx(123.0)
+        assert row["percentile_rank"] == pytest.approx(1.2)
+        assert row["wt_value"] == pytest.approx(456.0)
+        assert row["wt_percentile_rank"] == pytest.approx(3.4)
+
+    @pytest.mark.parametrize("column", [
+        "BrandNew MT Score",
+        "BrandNew Score WT",
+    ])
+    def test_ambiguous_prediction_column_is_preserved_and_reported(
+        self, tmp_path, column,
+    ):
+        df = pd.read_csv(MHC_I_ALL, sep="\t")
+        df[column] = 0.42
+        path = tmp_path / "ambiguous-score.tsv"
+        df.to_csv(path, sep="\t", index=False)
+
+        with pytest.warns(UserWarning, match=column):
+            loaded = read_pvacseq(path)
+
+        assert loaded.df[column].eq(0.42).all()
+
     def test_na_per_algorithm_value_passes_as_nan(self):
         # Fixture row 1 has "NA" in NetMHCpan columns.
         r = read_pvacseq(MHC_I_ALL)
         assert pd.isna(r.df["pvacseq_netmhcpan_ic50_mt"].iloc[1])
+
+    def test_presentation_fixture_stays_one_wide_row(self):
+        wide = read_pvacseq(MHC_I_ALL_PRESENTATION).wide_df
+
+        assert len(wide) == 1
+        assert wide.loc[0, "mhcflurry_presentation_wt_score"] == pytest.approx(
+            0.11,
+        )
+        assert wide.loc[0, "bigmhc_im_immunogenicity_wt_rank"] == pytest.approx(
+            12.0,
+        )
+
+    def test_calis_support_is_allele_independent(self, tmp_path):
+        df = pd.read_csv(MHC_I_ALL, sep="\t")
+        df["Calis MT Score"] = 0.6
+        df["Calis WT Score"] = -0.1
+        path = tmp_path / "calis.tsv"
+        df.to_csv(path, sep="\t", index=False)
+
+        result = read_pvacseq(path)
+
+        assert result.extra["kind_support"]["calis"]["immunogenicity"] == {
+            "mhc_dependence": "none",
+            "mhc_class": "I",
+        }
 
     def test_annotation_columns_renamed(self):
         r = read_pvacseq(MHC_I_ALL)
@@ -659,6 +723,30 @@ class TestMeltAlgorithms:
         netmhcpan_rows = melted.df[melted.df["prediction_method_name"] == "netmhcpan"]
         first = netmhcpan_rows.iloc[0]
         assert math.isclose(first["value"], 20.16, abs_tol=0.01)
+
+    def test_score_only_affinity_does_not_inherit_aggregate_value(
+        self, tmp_path,
+    ):
+        df = pd.read_csv(MHC_I_ALL, sep="\t")
+        algorithm_columns = [
+            column for column in df.columns
+            if column.startswith(("NetMHCpan ", "MHCflurry "))
+        ]
+        df = df.drop(columns=algorithm_columns)
+        df["Random MT Score"] = 0.8
+        df["Random WT Score"] = 0.2
+        path = tmp_path / "score-only-affinity.tsv"
+        df.to_csv(path, sep="\t", index=False)
+
+        row = melt_pvacseq_algorithms(read_pvacseq(path)).df
+        row = row[row["prediction_method_name"] == "random"].iloc[0]
+
+        assert row["score"] == pytest.approx(0.8)
+        assert row["wt_score"] == pytest.approx(0.2)
+        assert pd.isna(row["value"])
+        assert pd.isna(row["affinity"])
+        assert pd.isna(row["wt_value"])
+        assert pd.isna(row["wt_affinity"])
 
     def test_kind_support_extends_with_algorithm_models(self):
         r = read_pvacseq(MHC_I_ALL)

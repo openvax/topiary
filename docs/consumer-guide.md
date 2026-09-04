@@ -376,6 +376,10 @@ affinity, `IM` means immunogenicity, and explicit quantity words such as
 modifiers are recognized for affinity, processing, presentation, and
 immunogenicity. Consumers that inspect external headers directly can call
 `parse_prediction_metric(model_name, metric_name)` to apply the same rule.
+For an otherwise unknown pVACtools predictor, an unqualified percentile can
+inherit the kind of its sole explicit companion, such as an IC50 column.
+Columns that remain ambiguous are warned about and preserved under their
+original names rather than discarded.
 
 `binding_metrics` remains the escape hatch for a LENS column whose meaning
 cannot be inferred safely:
@@ -391,6 +395,10 @@ Merged over the built-in table, keyed on `(tool, metric)` — the pair the
 unmapped-column warning prints, and version-free so one entry covers a tool
 however a file spells its release. `None` as a value declares a column a
 non-prediction, silencing the warning without remapping it.
+
+LENS splits `<tool>_<version>.<metric>` at the final underscore before the
+version, so tool names such as `foo_2` remain intact in
+`foo_2_1.0.MT_Presentation_Score` and may be used directly in an override key.
 
 ---
 

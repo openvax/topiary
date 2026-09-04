@@ -89,12 +89,14 @@ _BINDING_METRICS = {
     ("netmhcstabpan", "perc_rank_stab"):  ("stability",          "rank"),
 }
 
-#: ``<tool>_<version>.<metric>`` — the shape of a LENS binding column.
+#: ``<tool>_<version>.<metric>`` — the shape of a LENS binding column. The
+#: final underscore before a digit-led version is the delimiter, so tool names
+#: such as ``foo_2`` remain intact in ``foo_2_1.0.<metric>``.
 #: A column matching this that the table doesn't cover is a predictor
 #: topiary hasn't met, which is worth saying out loud rather than
 #: leaving as an absence.
 _BINDING_COLUMN = re.compile(
-    r"^([A-Za-z][A-Za-z0-9_.-]*?)_(\d[\w.]*)\.(.+)$"
+    r"^([A-Za-z][A-Za-z0-9_.-]*)_(\d[A-Za-z0-9.-]*)\.(.+)$"
 )
 
 #: The tool half of ``_BINDING_COLUMN``, for checking that an override

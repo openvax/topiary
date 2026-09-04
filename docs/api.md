@@ -36,6 +36,11 @@ derived from the stored views rather than acting as separate result state. Use
 `result.to_long()` / `result.to_wide()` when you want a new `TopiaryResult`
 whose active `df` is that form.
 
+Wide prediction columns use `{model}_{kind}_{value|score|rank}`. Wildtype
+companions use `{model}_{kind}_wt_{value|score|rank}` and round-trip with their
+MT prediction row; WT method and version fields do not create additional wide
+rows.
+
 Topiary has two result-merging operations:
 
 | Operation | Meaning | Use when |

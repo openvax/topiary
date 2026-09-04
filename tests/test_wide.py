@@ -105,6 +105,11 @@ class TestParseWideColumn:
             "mhcflurry", "affinity", "rank"
         )
 
+    def test_wt_affinity_rank(self):
+        assert _parse_wide_column("mhcflurry_affinity_wt_rank") == (
+            "mhcflurry", "affinity", "wt_rank"
+        )
+
     def test_presentation(self):
         assert _parse_wide_column("mhcflurry_presentation_score") == (
             "mhcflurry", "presentation", "score"
@@ -240,6 +245,35 @@ class TestToWide:
         row = wide.iloc[0]
         assert row["netmhcpan_affinity_value"] == 120.0
         assert row["mhcflurry_affinity_value"] == 85.0
+
+    def test_wt_predictions_are_pivoted_not_grouped(self):
+        df = _long_df_multi_kind()
+        df["wt_value"] = [900.0, 0.25]
+        df["wt_score"] = [0.2, 0.25]
+        df["wt_percentile_rank"] = [7.0, 4.0]
+        df["wt_affinity"] = [900.0, np.nan]
+        df["wt_prediction_method_name"] = "netmhcpan"
+        df["wt_predictor_version"] = "4.1b"
+
+        wide = to_wide(df)
+
+        assert len(wide) == 1
+        assert wide.loc[0, "netmhcpan_affinity_wt_value"] == 900.0
+        assert wide.loc[0, "netmhcpan_presentation_wt_score"] == 0.25
+        assert wide.loc[0, "netmhcpan_presentation_wt_rank"] == 4.0
+
+        roundtrip = from_wide(wide).set_index("kind")
+        assert roundtrip.loc["pMHC_affinity", "wt_value"] == 900.0
+        assert roundtrip.loc["pMHC_presentation", "wt_score"] == 0.25
+        assert (
+            roundtrip.loc[
+                "pMHC_presentation", "wt_prediction_method_name"
+            ]
+            == "netmhcpan"
+        )
+        assert roundtrip.loc[
+            "pMHC_presentation", "wt_predictor_version"
+        ] == "4.1b"
 
     def test_multi_underscore_kind(self):
         df = pd.DataFrame([dict(

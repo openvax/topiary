@@ -23,7 +23,23 @@ remain visible under their source names and warn instead of being guessed.
 
 Affinity-only inputs are unchanged. `melt_pvacseq_algorithms` continues to
 melt only the binding columns and no longer risks cloning presentation rows
-into false affinity rows when a current pVACtools report contains both.
+into false affinity rows when a current pVACtools report contains both. A
+score-only affinity predictor now leaves its unstated `value` / `affinity`
+fields null instead of inheriting the aggregate pVACseq median.
+
+Percentile columns from an otherwise unknown predictor inherit the kind of
+their sole explicit companion (for example, `BrandNew MT Percentile` beside
+`BrandNew MT IC50 Score` remains an affinity rank). If the kind is still
+ambiguous, the source column remains available under its original name and the
+reader warns instead of silently dropping it.
+
+WT prediction fields now participate in long/wide conversion. They use
+`{model}_{kind}_wt_value`, `_wt_score`, and `_wt_rank` in wide form, so sibling
+prediction rows stay one source row and round-trip without turning WT metadata
+into grouping keys. LENS tool names may contain underscore-digit segments;
+the final underscore before the version is the delimiter. Calis
+immunogenicity metadata now records its mhctools semantics: allele-independent,
+class I.
 
 ## 5.51.0
 
