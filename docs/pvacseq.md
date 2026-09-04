@@ -15,8 +15,8 @@ pVACseq emits two TSV flavors per MHC class:
 
 | File | Granularity | Per-algorithm scores |
 |------|-------------|----------------------|
-| `*.all_epitopes.tsv` | one row per (peptide, allele, length) candidate | each scoring algorithm's MT/WT IC50 + percentile broken out |
-| `*.all_epitopes.aggregated.tsv` | one row per variant; pVACseq picks the Best Peptide × Allele by Median IC50 | aggregated Median only |
+| `*.all_epitopes.tsv` | one row per (peptide, allele, length) candidate | each algorithm's MT/WT affinity, processing, presentation, and immunogenicity measurements |
+| `*.all_epitopes.aggregated.tsv` | one row per variant; pVACseq picks the Best Peptide × Allele | aggregate affinity and any reported presentation ranks |
 
 `read_pvacseq()` auto-detects which flavor you have from the column headers — same call site works for both:
 
@@ -31,7 +31,12 @@ Returns a [`TopiaryResult`](api.md) with `r.df` (long-form DataFrame), `r.source
 
 ## Schema mapping
 
-The loader produces Topiary's standard long-form schema. Median MT scores become the primary `value` / `percentile_rank`; WT companions populate the `wt_*` schema so the [`wt` scope](ranking.md#wt-wildtype-comparison) works without further setup.
+The loader produces Topiary's standard long-form schema. Affinity,
+presentation, processing, and immunogenicity measurements become separate
+rows. WT companions populate the `wt_*` schema so the [`wt`
+scope](ranking.md#wt-wildtype-comparison) works without further setup.
+
+Affinity rows use the following mapping:
 
 | Topiary column | Aggregated TSV source | all_epitopes TSV source |
 |----------------|------------------------|--------------------------|
@@ -42,9 +47,59 @@ The loader produces Topiary's standard long-form schema. Median MT scores become
 | `wt_value`, `wt_affinity`, `wt_score` | `IC50 WT` | `Median WT IC50 Score` (or `Corresponding WT IC50 Score`) |
 | `wt_percentile_rank` | `%ile WT` | `Median WT Percentile` (or `Corresponding WT Percentile`) |
 | `wt_peptide` | reconstructed from `Best Peptide` + `Pos` + `AA Change` for missense; NaN otherwise | `WT Epitope Seq` (always present) |
-| `kind` | `"pMHC_affinity"` (synthesized) | same |
+| `kind` | `"pMHC_affinity"` | same |
 | `prediction_method_name` | `"pvacseq"` (synthesized) | same |
 | `predictor_version` | `pd.NA` (pVACseq doesn't surface a method version per row) | same |
+
+Presentation rows preserve both pVACtools' summary and its underlying EL
+algorithms:
+
+| Topiary row | pVACtools source | Method name |
+|-------------|------------------|-------------|
+| Aggregate presentation rank | `Pres %ile MT/WT` (aggregated) or `Median/Best MT Presentation Percentile` and its WT companion (`all_epitopes`) | `pvacseq` |
+| MHCflurry presentation score and rank | `MHCflurryEL Presentation {MT,WT} {Score,Percentile}` | `mhcflurry` |
+| NetMHCpan presentation score and rank | `NetMHCpanEL {MT,WT} Presentation Score` or plain `NetMHCpanEL {MT,WT} Score`, plus `{MT,WT} Percentile` | `netmhcpan` |
+| NetMHCIIpan presentation score and rank | equivalent `NetMHCIIpanEL` columns | `netmhciipan` |
+| BigMHC presentation score and rank | explicit presentation columns or plain `BigMHC_EL {MT,WT} Score`, plus percentiles | `bigmhc_el` |
+| MHCflurry processing score and rank | `MHCflurryEL Processing {MT,WT} {Score,Percentile}` | `mhcflurry` |
+| BigMHC immunogenicity score and rank | `BigMHC_IM {MT,WT} [Immunogenicity] {Score,Percentile}` | `bigmhc_im` |
+| PRIME immunogenicity score and rank | `PRIME {MT,WT} Immunogenicity {Score,Percentile}` | `prime` |
+
+For native non-affinity rows, a stated `score` is also the row's primary
+`value`, matching Topiary's predictor output. A melted affinity algorithm that
+states only a score keeps `value` and `affinity` null; Topiary does not borrow
+the aggregate pVACseq median and attribute it to that algorithm. Aggregate TSV
+presentation rows carry only a percentile, so their presentation `score` and
+`value` are honestly null.
+
+### Prediction-column vocabulary
+
+The parser does not depend on one exact header spelling. It treats model
+suffixes `EL` as presentation, `BA` / `Aff` / `Affinity` as affinity, and `IM`
+as immunogenicity. Separators and capitalization are interchangeable, so
+`NetMHCpanEL`, `NetMHCpan_EL`, and `netmhcpan-el` carry the same meaning.
+`MT` and `WT` can appear on either side of `Score`, `Value`, or `Percentile`.
+
+An explicit quantity in the metric wins over the model suffix. For example,
+`MHCflurryEL Processing WT Percentile` is processing—not presentation—and is
+stored in `wt_percentile_rank`. Affinity, processing, presentation, and
+immunogenicity can all carry MT or WT percentile ranks. Known pVACtools and
+mhctools model names may use a bare `MT Score`. For an unknown model, an
+unqualified percentile inherits the kind only when that model has exactly one
+explicit companion kind—for example, an `MT Percentile` beside an `MT IC50
+Score` is an affinity rank. If there is no unique answer, the reader warns and
+preserves the column under its original source name instead of guessing or
+dropping it.
+
+The same classifier is public as
+`parse_prediction_metric(model_name, metric_name)` and is also the fallback
+for new LENS predictor columns. This keeps the two readers from developing
+different interpretations of the same header.
+
+Calis immunogenicity rows are marked class I and allele-independent, following
+mhctools' `AlleleFreePredictor` contract. The pVACtools report may repeat the
+same Calis score beside several allele rows, but the allele is not an input to
+that model.
 
 ### Derived columns (vaxrank-friendly)
 
@@ -136,14 +191,31 @@ from topiary import parse
 parse('affinity.value <= 500 & mhc_class == "I" & contains_mutant_residues == 1')
 ```
 
-## Per-algorithm scores: melt or pass through
+## Presentation scores are native rows
 
-The `all_epitopes` flavor carries each underlying algorithm's MT/WT IC50 + percentile side-by-side as columns:
+Presentation scores need no conversion after loading:
+
+```python
+from topiary import Presentation, apply_filter, read_pvacseq
+
+r = read_pvacseq("HCC1395.MHC_I.all_epitopes.tsv")
+presented = apply_filter(
+    r.df,
+    Presentation["mhcflurry"].rank <= 2,
+)
+```
+
+Unqualified `Presentation.score` is ambiguous when several algorithms are
+present. Qualify the method as above, or pass
+`default_methods=resolve_default_methods(r.df)` to the ranking operation.
+
+## Affinity algorithm scores: melt or pass through
+
+The `all_epitopes` flavor also carries each binding algorithm's MT/WT IC50 + percentile side-by-side as columns:
 
 ```
 NetMHCpan MT IC50 Score, NetMHCpan WT IC50 Score, NetMHCpan MT Percentile, NetMHCpan WT Percentile,
-MHCflurry MT IC50 Score, MHCflurry WT IC50 Score, MHCflurry MT Percentile, MHCflurry WT Percentile,
-BigMHC_EL MT IC50 Score, ...
+MHCflurry MT IC50 Score, MHCflurry WT IC50 Score, MHCflurry MT Percentile, MHCflurry WT Percentile, ...
 ```
 
 `read_pvacseq()` snake-cases these into `pvacseq_<algo>_<field>_<mtwt>` annotation columns, reachable via `Column("...")`:
@@ -175,7 +247,11 @@ strong_in_mhcflurry = apply_filter(
 )
 ```
 
-Melt extends `Metadata.extra["kind_support"]` to register each algorithm under the same MHC class as `"pvacseq"`. On the aggregated flavor (no per-algorithm columns to melt) `melt_pvacseq_algorithms` is a no-op.
+Melt extends `Metadata.extra["kind_support"]` to register each affinity
+algorithm under the same MHC class as `"pvacseq"`. Existing processing,
+presentation, and immunogenicity rows remain unchanged. On the aggregated
+flavor (no per-algorithm binding columns to melt)
+`melt_pvacseq_algorithms` is a no-op.
 
 ## WT peptide reconstruction
 
@@ -236,8 +312,10 @@ r.form                          # "long"
 r.sources                       # ["pvacseq-aggregated:HCC1395.MHC_I.all_epitopes.aggregated.tsv"]
 r.extra["pvacseq_format"]       # "aggregated"
 r.extra["kind_support"]
-# {"pvacseq": {"pMHC_affinity": {"mhc_dependence": "single_allele",
-#                                "mhc_class": "I"}}}
+# {"pvacseq": {
+#     "pMHC_affinity": {"mhc_dependence": "single_allele", "mhc_class": "I"},
+#     "pMHC_presentation": {"mhc_dependence": "single_allele", "mhc_class": "I"},
+# }}
 ```
 
 `kind_support` has the same shape as `TopiaryPredictor.kind_support`, so the result drops into call sites that expect that metadata:
@@ -252,7 +330,10 @@ apply_filter(r.df, my_filter, kind_support=r.extra["kind_support"])
 
 - **Sidecar `metrics.json` is not used.** pVACtools writes a sibling `.metrics.json` per output file with finer-grained data (per-algorithm scores on aggregated rows, the WT peptide sequence for non-missense, the underlying tool versions). `read_pvacseq()` works from the TSV alone — load the JSON yourself if you need that depth.
 - **Flanking-only peptides survive in the candidate set.** pVACseq's `Best Peptide` can be a window that doesn't actually span the mutation (the mutation lies in the protein context but outside the predicted window). `contains_mutant_residues` flags these as `False`; filter with `Column("contains_mutant_residues").eq(True)` if your workflow rejects them.
-- **Per-algorithm scoring kind is collapsed to `pMHC_affinity`.** pVACseq mixes IC50-based predictors with presentation-score predictors; the loader treats all `pvacseq_<algo>_ic50_*` columns as affinity rows. If you need presentation-score semantics for an EL-only algorithm, re-predict with [`CachedPredictor`](cached.md) configured to that kind.
+- **Aggregate presentation has a rank but no score.** The aggregate TSV only
+  supplies `Pres %ile MT/WT`; Topiary does not invent a presentation score.
+  Use `Presentation.rank` for that flavor. The unaggregated file supplies the
+  individual algorithms' scores as well.
 - **No CLI flag.** The library API is the supported entry point; the existing `topiary` CLI is variant-pipeline-focused and doesn't surface `--pvacseq-input`. Pipelines that want CLI integration should wrap `read_pvacseq()` in their own script.
 
 ## See also

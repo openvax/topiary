@@ -369,14 +369,41 @@ new names.
 
 ## Reader escape hatches
 
+Topiary automatically recognizes common prediction vocabulary in new pVACtools
+and LENS columns: `EL` means presentation, `BA` / `Aff` / `Affinity` mean
+affinity, `IM` means immunogenicity, and explicit quantity words such as
+`Processing` take precedence over a model suffix. MT/WT score and percentile
+modifiers are recognized for affinity, processing, presentation, and
+immunogenicity. Consumers that inspect external headers directly can call
+`parse_prediction_metric(model_name, metric_name)` to apply the same rule.
+For an otherwise unknown pVACtools predictor, an unqualified percentile can
+inherit the kind of its sole explicit companion, such as an IC50 column.
+Columns that remain ambiguous are warned about and preserved under their
+original names rather than discarded.
+
+`binding_metrics` remains the escape hatch for a LENS column whose meaning
+cannot be inferred safely:
+
 ```python
-read_lens(path, binding_metrics={("newtool", "ic50_nm"): ("affinity", "value")})
+read_lens(
+    path,
+    binding_metrics={("newtool", "opaque_metric"): ("affinity", "value")},
+)
 ```
 
 Merged over the built-in table, keyed on `(tool, metric)` — the pair the
 unmapped-column warning prints, and version-free so one entry covers a tool
 however a file spells its release. `None` as a value declares a column a
 non-prediction, silencing the warning without remapping it.
+
+LENS splits `<tool>_<version>.<metric>` at the final underscore before the
+version, so tool names such as `foo_2` remain intact in
+`foo_2_1.0.MT_Presentation_Score` and may be used directly in an override key.
+Inferred WT metrics normalize to the corresponding `_wt_value`, `_wt_score`,
+or `_wt_rank` wide column rather than being relabeled as MT. Wide-form
+round-trips also preserve distinct WT predictor metadata in `_wt_method` and
+`_wt_version` columns; older frames without those columns continue to infer
+that metadata from the MT model.
 
 ---
 

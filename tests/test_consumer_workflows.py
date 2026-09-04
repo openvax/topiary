@@ -19,6 +19,7 @@ import pytest
 
 from topiary import (
     EvalContext,
+    Presentation,
     TopiaryResult,
     aggregate_evidence_across_samples,
     apply_filter,
@@ -40,6 +41,9 @@ from topiary.ranking import parse
 
 LENS = "tests/data/lens/sample_v1_4.tsv"
 PVACSEQ = "tests/data/pvacseq/mhc_i_all_epitopes.tsv"
+PVACSEQ_PRESENTATION = (
+    "tests/data/pvacseq/mhc_i_all_epitopes_presentation.tsv"
+)
 
 
 def _long(reader, path):
@@ -212,6 +216,20 @@ def test_an_unresolved_multi_method_frame_still_refuses():
 
     with pytest.raises(ValueError, match="Ambiguous"):
         evaluate_scores(df, parse("affinity.value"))
+
+
+def test_a_pvacseq_presentation_report_can_be_resolved_and_scored():
+    """The pVACseq -> Topiary -> Vaxrank-shaped scoring path is live."""
+    df = _long(read_pvacseq, PVACSEQ_PRESENTATION)
+    methods = resolve_default_methods(df)
+    scores = evaluate_scores(
+        df,
+        Presentation.score,
+        default_methods=methods,
+    )
+
+    assert methods["pMHC_presentation"] == "mhcflurry"
+    assert scores.tolist() == pytest.approx([0.91] * len(df))
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,48 @@
 # Changelog
 
+## 5.52.0
+
+**Fixed pVACtools prediction data loss (#259).** `read_pvacseq` now emits native
+rows for presentation, processing, and immunogenicity measurements in
+`all_epitopes` reports, in addition to the established affinity rows. This
+includes both explicit headers and pVACtools' plain `NetMHCpanEL MT Score` /
+`BigMHC_EL MT Score` forms. Aggregate presentation and immunogenicity
+percentiles remain explicitly attributed to `pvacseq`. MT and WT scores and
+percentiles survive, and `kind_support` describes every emitted method/kind
+pair.
+
+**One shared external prediction vocabulary.** The public
+`parse_prediction_metric(model_name, metric_name)` classifier recognizes the
+pVACtools/mhctools model vocabulary, treats `EL` as presentation, `BA` /
+`Aff` / `Affinity` as affinity, and `IM` as immunogenicity, and understands
+MT/WT score and percentile modifiers for affinity, processing, presentation,
+and immunogenicity. Explicit metric text wins over a model suffix. Both the
+pVACseq and LENS readers use this function; new unambiguous LENS prediction
+columns normalize automatically, including WT-specific metrics now that wide
+form represents them. Ambiguous columns remain visible under their source
+names and warn instead of being guessed.
+
+Affinity-only inputs are unchanged. `melt_pvacseq_algorithms` continues to
+melt only the binding columns and no longer risks cloning presentation rows
+into false affinity rows when a current pVACtools report contains both. A
+score-only affinity predictor now leaves its unstated `value` / `affinity`
+fields null instead of inheriting the aggregate pVACseq median.
+
+Percentile columns from an otherwise unknown predictor inherit the kind of
+their sole explicit companion (for example, `BrandNew MT Percentile` beside
+`BrandNew MT IC50 Score` remains an affinity rank). If the kind is still
+ambiguous, the source column remains available under its original name and the
+reader warns instead of silently dropping it.
+
+WT prediction fields now participate in long/wide conversion. They use
+`{model}_{kind}_wt_value`, `_wt_score`, `_wt_rank`, `_wt_method`, and
+`_wt_version` in wide form, so sibling prediction rows stay one source row and
+round-trip without turning WT metadata into grouping keys or assuming the WT
+predictor metadata matches MT. LENS tool names may contain underscore-digit
+segments; the final underscore before the version is the delimiter. Calis
+immunogenicity metadata now records its mhctools semantics: allele-independent,
+class I.
+
 ## 5.51.0
 
 **One name for the frame nodes group: `EvalContext.df`.** 5.50.0 left `df` and

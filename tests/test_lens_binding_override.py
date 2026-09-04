@@ -14,6 +14,7 @@ version differently, which is the brittleness #206 removed.
 import pathlib
 import warnings
 
+import pandas as pd
 import pytest
 
 from topiary import read_lens
@@ -33,7 +34,7 @@ def _file_with(column, tmp_path, value="0.42"):
     return path
 
 
-UNMAPPED = "netmhcpan_4.1b.el_score"
+UNMAPPED = "netmhcpan_4.1b.opaque_metric"
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +47,70 @@ def test_an_unmapped_column_warns(tmp_path):
         read_lens(_file_with(UNMAPPED, tmp_path))
 
 
+@pytest.mark.parametrize(
+    "column, expected",
+    [
+        ("calis_EL_1.0.MT_Score", "calis_presentation_score"),
+        ("calis_BA_1.0.MT_Score", "calis_affinity_score"),
+        (
+            "futuremodel_1.0.immunogenicity_MT_percentile",
+            "futuremodel_immunogenicity_rank",
+        ),
+    ],
+)
+def test_shared_prediction_vocabulary_maps_new_lens_columns(
+    column, expected, tmp_path,
+):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        result = read_lens(_file_with(column, tmp_path))
+
+    assert expected in result.df.columns
+    assert result.df[expected].eq(0.42).all()
+
+
+def test_underscore_digit_tool_name_is_not_split_as_version(tmp_path):
+    column = "foo_2_1.0.MT_Presentation_Score"
+
+    result = read_lens(_file_with(column, tmp_path))
+
+    assert "foo_2_presentation_score" in result.df.columns
+    assert result.df["foo_2_presentation_score"].eq(0.42).all()
+    assert result.models["foo_2"] == "1.0"
+
+
+def test_underscore_digit_tool_name_matches_override_key(tmp_path):
+    column = "foo_2_1.0.opaque_metric"
+
+    result = read_lens(
+        _file_with(column, tmp_path),
+        binding_metrics={("foo_2", "opaque_metric"): ("affinity", "score")},
+    )
+
+    assert "foo_2_affinity_score" in result.df.columns
+    assert result.df["foo_2_affinity_score"].eq(0.42).all()
+
+
+def test_lens_normalizes_wt_prediction_without_relabeling_it_as_mt(tmp_path):
+    column = "calis_EL_1.0.WT_Score"
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        result = read_lens(_file_with(column, tmp_path))
+
+    assert "calis_presentation_wt_score" in result.df.columns
+    assert "calis_presentation_score" not in result.df.columns
+    rows = result.long_df
+    row = rows[
+        rows["prediction_method_name"].eq("calis")
+        & rows["kind"].eq("pMHC_presentation")
+    ].iloc[0]
+    assert row["wt_score"] == pytest.approx(0.42)
+    assert row["wt_prediction_method_name"] == "calis"
+    assert row["wt_predictor_version"] == "1.0"
+    assert pd.isna(row["score"])
+
+
 # ---------------------------------------------------------------------------
 # With one: the caller closes the gap locally
 # ---------------------------------------------------------------------------
@@ -54,7 +119,7 @@ def test_an_unmapped_column_warns(tmp_path):
 def test_an_override_maps_the_column(tmp_path):
     result = read_lens(
         _file_with(UNMAPPED, tmp_path),
-        binding_metrics={("netmhcpan", "el_score"): ("immunogenicity", "score")},
+        binding_metrics={("netmhcpan", "opaque_metric"): ("immunogenicity", "score")},
     )
 
     assert "netmhcpan_immunogenicity_score" in result.df.columns
@@ -68,7 +133,7 @@ def test_an_override_silences_the_warning(tmp_path):
         read_lens(
             path,
             binding_metrics={
-                ("netmhcpan", "el_score"): ("immunogenicity", "score"),
+                ("netmhcpan", "opaque_metric"): ("immunogenicity", "score"),
             },
         )
 
@@ -77,7 +142,7 @@ def test_the_mapped_column_reaches_the_long_form(tmp_path):
     """Landing in the wide frame is not enough — it has to survive to_long."""
     result = read_lens(
         _file_with(UNMAPPED, tmp_path),
-        binding_metrics={("netmhcpan", "el_score"): ("immunogenicity", "score")},
+        binding_metrics={("netmhcpan", "opaque_metric"): ("immunogenicity", "score")},
     )
 
     long_df = result.to_long().df
@@ -91,7 +156,7 @@ def test_overrides_merge_over_the_builtin_table(tmp_path):
     """Patch one column without restating the other thirteen."""
     result = read_lens(
         _file_with(UNMAPPED, tmp_path),
-        binding_metrics={("netmhcpan", "el_score"): ("immunogenicity", "score")},
+        binding_metrics={("netmhcpan", "opaque_metric"): ("immunogenicity", "score")},
     )
 
     assert "netmhcpan_affinity_value" in result.df.columns
@@ -158,7 +223,7 @@ def test_two_overrides_colliding_with_each_other_are_refused(tmp_path):
 
     with pytest.raises(ValueError, match="more than one column to the same"):
         read_lens(path, binding_metrics={
-            ("netmhcpan", "el_score"): ("immunogenicity", "score"),
+            ("netmhcpan", "opaque_metric"): ("immunogenicity", "score"),
             ("netmhcpan", "score_el"): ("immunogenicity", "score"),
         })
 
@@ -178,9 +243,9 @@ def test_the_key_is_version_free(tmp_path):
     """One mapping covers a tool however the file spells its version."""
     for version in ("4.1b", "4.2", "9.9"):
         result = read_lens(
-            _file_with(f"netmhcpan_{version}.el_score", tmp_path),
+            _file_with(f"netmhcpan_{version}.opaque_metric", tmp_path),
             binding_metrics={
-                ("netmhcpan", "el_score"): ("immunogenicity", "score"),
+                ("netmhcpan", "opaque_metric"): ("immunogenicity", "score"),
             },
         )
         assert "netmhcpan_immunogenicity_score" in result.df.columns
@@ -196,14 +261,14 @@ def test_none_silences_the_warning(tmp_path):
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
-        read_lens(path, binding_metrics={("netmhcpan", "el_score"): None})
+        read_lens(path, binding_metrics={("netmhcpan", "opaque_metric"): None})
 
 
 def test_none_leaves_the_column_alone(tmp_path):
     """Overriding a mapping must not delete the caller's data."""
     result = read_lens(
         _file_with(UNMAPPED, tmp_path),
-        binding_metrics={("netmhcpan", "el_score"): None},
+        binding_metrics={("netmhcpan", "opaque_metric"): None},
     )
 
     assert UNMAPPED in result.df.columns
@@ -220,7 +285,7 @@ def test_an_unknown_kind_is_refused():
     with pytest.raises(ValueError, match="unknown kind"):
         read_lens(
             FIXTURE,
-            binding_metrics={("netmhcpan", "el_score"): ("bogus", "score")},
+            binding_metrics={("netmhcpan", "opaque_metric"): ("bogus", "score")},
         )
 
 
@@ -228,7 +293,7 @@ def test_an_unknown_field_is_refused():
     with pytest.raises(ValueError, match="unknown field"):
         read_lens(
             FIXTURE,
-            binding_metrics={("netmhcpan", "el_score"): ("affinity", "nope")},
+            binding_metrics={("netmhcpan", "opaque_metric"): ("affinity", "nope")},
         )
 
 
@@ -236,7 +301,7 @@ def test_a_non_pair_key_is_refused():
     with pytest.raises(ValueError, match=r"\(tool, metric\) string"):
         read_lens(
             FIXTURE,
-            binding_metrics={"netmhcpan.el_score": ("affinity", "value")},
+            binding_metrics={"netmhcpan.opaque_metric": ("affinity", "value")},
         )
 
 
@@ -244,13 +309,13 @@ def test_a_non_pair_value_is_refused():
     with pytest.raises(ValueError, match="must be a .kind, field. pair"):
         read_lens(
             FIXTURE,
-            binding_metrics={("netmhcpan", "el_score"): "affinity"},
+            binding_metrics={("netmhcpan", "opaque_metric"): "affinity"},
         )
 
 
 def test_a_non_mapping_is_refused():
     with pytest.raises(TypeError, match="must be a mapping"):
-        read_lens(FIXTURE, binding_metrics=[("netmhcpan", "el_score")])
+        read_lens(FIXTURE, binding_metrics=[("netmhcpan", "opaque_metric")])
 
 
 def test_keys_are_case_and_space_insensitive(tmp_path):
@@ -258,7 +323,9 @@ def test_keys_are_case_and_space_insensitive(tmp_path):
     result = read_lens(
         _file_with(UNMAPPED, tmp_path),
         binding_metrics={
-            (" NetMHCpan ", " EL_Score "): ("immunogenicity", "score"),
+            (" NetMHCpan ", " Opaque_Metric "): (
+                "immunogenicity", "score",
+            ),
         },
     )
 
@@ -278,7 +345,7 @@ def test_an_unhashable_field_is_refused():
     with pytest.raises(ValueError, match="unknown field"):
         read_lens(
             FIXTURE,
-            binding_metrics={("netmhcpan", "el_score"): ("affinity", ["value"])},
+            binding_metrics={("netmhcpan", "opaque_metric"): ("affinity", ["value"])},
         )
 
 
@@ -287,7 +354,7 @@ def test_values_are_case_and_space_insensitive_like_keys(tmp_path):
     result = read_lens(
         _file_with(UNMAPPED, tmp_path),
         binding_metrics={
-            ("netmhcpan", "el_score"): (" Immunogenicity ", " Score "),
+            ("netmhcpan", "opaque_metric"): (" Immunogenicity ", " Score "),
         },
     )
 
@@ -295,11 +362,11 @@ def test_values_are_case_and_space_insensitive_like_keys(tmp_path):
 
 
 def test_a_key_no_column_could_match_is_refused():
-    """An underscore in the tool means the key is a silent no-op."""
+    """A tool that does not start with a letter is a silent no-op."""
     with pytest.raises(ValueError, match="no LENS column can match"):
         read_lens(
             FIXTURE,
-            binding_metrics={("net_mhc", "el_score"): ("affinity", "value")},
+            binding_metrics={("_netmhc", "opaque_metric"): ("affinity", "value")},
         )
 
 
@@ -321,7 +388,7 @@ def test_two_keys_meaning_the_same_pair_are_refused():
 
 def test_the_warning_names_the_override_key(tmp_path):
     """The design claim: what topiary tells you is what you pass back."""
-    with pytest.warns(UserWarning, match=r"\('netmhcpan', 'el_score'\)"):
+    with pytest.warns(UserWarning, match=r"\('netmhcpan', 'opaque_metric'\)"):
         read_lens(_file_with(UNMAPPED, tmp_path))
 
 
@@ -329,11 +396,11 @@ def test_overrides_are_recorded_as_provenance(tmp_path):
     """A frame built with a corrected map is distinguishable from one without."""
     result = read_lens(
         _file_with(UNMAPPED, tmp_path),
-        binding_metrics={("netmhcpan", "el_score"): ("immunogenicity", "score")},
+        binding_metrics={("netmhcpan", "opaque_metric"): ("immunogenicity", "score")},
     )
 
     assert result.metadata.extra["lens_binding_metrics"] == {
-        "netmhcpan.el_score": ["immunogenicity", "score"],
+        "netmhcpan.opaque_metric": ["immunogenicity", "score"],
     }
 
 
@@ -346,5 +413,5 @@ def test_validation_happens_before_the_file_is_read():
     with pytest.raises(ValueError, match="unknown kind"):
         read_lens(
             "/nonexistent/path.tsv",
-            binding_metrics={("netmhcpan", "el_score"): ("bogus", "score")},
+            binding_metrics={("netmhcpan", "opaque_metric"): ("bogus", "score")},
         )

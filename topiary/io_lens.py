@@ -5,7 +5,9 @@ schema with a :class:`TopiaryResult` return.  Binding columns are
 remapped to Topiary's ``{model}_{kind}_{field}`` convention, or
 ``{model}_{version}_{kind}_{field}`` where one tool appears at two
 versions for the same metric; per-model versions go into the metadata
-comment block.  LENS-specific columns
+comment block. Known LENS metrics use an exact map; new columns fall back to
+the shared external prediction vocabulary used by the pVACseq reader.
+LENS-specific columns
 (``erv_*``, ``priority_score_*``, ``b2m_*``, etc.) pass through as
 annotation columns for use via ``Column("...")`` in the DSL.
 
@@ -47,7 +49,9 @@ from .evidence import (
     attach_sequence_source,
 )
 from .result import TopiaryResult
-from .wide import WIDE_FIELDS, _known_kind_short_names
+from .prediction_columns import parse_prediction_metric
+from .ranking import _kind_short_name
+from .wide import LONG_TO_WIDE_FIELD, WIDE_FIELDS, _known_kind_short_names
 
 logger = logging.getLogger(__name__)
 
@@ -85,15 +89,19 @@ _BINDING_METRICS = {
     ("netmhcstabpan", "perc_rank_stab"):  ("stability",          "rank"),
 }
 
-#: ``<tool>_<version>.<metric>`` — the shape of a LENS binding column.
+#: ``<tool>_<version>.<metric>`` — the shape of a LENS binding column. The
+#: final underscore before a digit-led version is the delimiter, so tool names
+#: such as ``foo_2`` remain intact in ``foo_2_1.0.<metric>``.
 #: A column matching this that the table doesn't cover is a predictor
 #: topiary hasn't met, which is worth saying out loud rather than
 #: leaving as an absence.
-_BINDING_COLUMN = re.compile(r"^([A-Za-z][A-Za-z0-9]*)_(\d[\w.]*)\.(.+)$")
+_BINDING_COLUMN = re.compile(
+    r"^([A-Za-z][A-Za-z0-9_.-]*)_(\d[A-Za-z0-9.-]*)\.(.+)$"
+)
 
 #: The tool half of ``_BINDING_COLUMN``, for checking that an override
 #: key could ever match a column at all.
-_BINDING_TOOL = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
+_BINDING_TOOL = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 
 #: Sentinel in the ``field`` slot for a column the caller declared is
 #: not a prediction, to tell "topiary doesn't know this column" from
@@ -127,7 +135,18 @@ def _parse_binding_column(
     table = _BINDING_METRICS if binding_metrics is None else binding_metrics
     key = (tool.lower(), metric.lower())
     if key not in table:
-        return tool.lower(), version, None, None
+        inferred = parse_prediction_metric(tool, metric)
+        if inferred is None:
+            return tool.lower(), version, None, None
+        long_field = inferred.field
+        if inferred.sequence == "wt":
+            long_field = f"wt_{long_field}"
+        return (
+            inferred.prediction_method_name,
+            version,
+            _kind_short_name(inferred.kind),
+            LONG_TO_WIDE_FIELD[long_field],
+        )
     spec = table[key]
     if spec is None:
         # Acknowledged by the caller as a non-prediction column. It
@@ -181,8 +200,9 @@ def _resolve_binding_metrics(
         if not _BINDING_TOOL.match(tool):
             raise ValueError(
                 f"binding_metrics key {key!r} names a tool no LENS "
-                f"column can match: a tool is letters and digits "
-                f"starting with a letter, since the column name is "
+                f"column can match: a tool starts with a letter and "
+                f"uses letters, digits, periods, hyphens, or underscores, "
+                f"since the column name is "
                 f"'<tool>_<version>.<metric>'."
             )
         if not metric:
@@ -299,7 +319,10 @@ def read_lens(
     binding_metrics : mapping, optional
         Overrides for the built-in binding-column map, merged over it
         rather than replacing it — patch one column without restating
-        the rest.  Keys are ``(tool, metric)``, the same pair the
+        the rest. New unambiguous metrics are inferred first using
+        :func:`topiary.parse_prediction_metric`: ``EL`` is presentation,
+        ``BA`` / ``Aff`` / ``Affinity`` are affinity, and explicit quantity
+        words take precedence. Keys are ``(tool, metric)``, the same pair the
         unmapped-column warning names, so what topiary tells you is what
         you pass back::
 

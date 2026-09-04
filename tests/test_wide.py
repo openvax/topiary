@@ -105,6 +105,11 @@ class TestParseWideColumn:
             "mhcflurry", "affinity", "rank"
         )
 
+    def test_wt_affinity_rank(self):
+        assert _parse_wide_column("mhcflurry_affinity_wt_rank") == (
+            "mhcflurry", "affinity", "wt_rank"
+        )
+
     def test_presentation(self):
         assert _parse_wide_column("mhcflurry_presentation_score") == (
             "mhcflurry", "presentation", "score"
@@ -241,6 +246,40 @@ class TestToWide:
         assert row["netmhcpan_affinity_value"] == 120.0
         assert row["mhcflurry_affinity_value"] == 85.0
 
+    def test_wt_predictions_are_pivoted_not_grouped(self):
+        df = _long_df_multi_kind()
+        df["wt_value"] = [900.0, 0.25]
+        df["wt_score"] = [0.2, 0.25]
+        df["wt_percentile_rank"] = [7.0, 4.0]
+        df["wt_affinity"] = [900.0, np.nan]
+        df["wt_prediction_method_name"] = ["wt-affinity", "wt-presentation"]
+        df["wt_predictor_version"] = ["1.0", "2.0"]
+
+        wide = to_wide(df)
+
+        assert len(wide) == 1
+        assert wide.loc[0, "netmhcpan_affinity_wt_value"] == 900.0
+        assert wide.loc[0, "netmhcpan_presentation_wt_score"] == 0.25
+        assert wide.loc[0, "netmhcpan_presentation_wt_rank"] == 4.0
+        assert wide.loc[0, "netmhcpan_affinity_wt_method"] == "wt-affinity"
+        assert wide.loc[0, "netmhcpan_presentation_wt_version"] == "2.0"
+        assert pd.api.types.is_numeric_dtype(
+            wide["netmhcpan_presentation_wt_score"]
+        )
+
+        roundtrip = from_wide(wide).set_index("kind")
+        assert roundtrip.loc["pMHC_affinity", "wt_value"] == 900.0
+        assert roundtrip.loc["pMHC_presentation", "wt_score"] == 0.25
+        assert (
+            roundtrip.loc[
+                "pMHC_presentation", "wt_prediction_method_name"
+            ]
+            == "wt-presentation"
+        )
+        assert roundtrip.loc[
+            "pMHC_presentation", "wt_predictor_version"
+        ] == "2.0"
+
     def test_multi_underscore_kind(self):
         df = pd.DataFrame([dict(
             peptide="SIINFEKL", allele="HLA-A*02:01",
@@ -361,6 +400,19 @@ class TestToWide:
 
 
 class TestFromWide:
+    def test_legacy_wt_fields_inherit_mt_model_metadata(self):
+        wide = pd.DataFrame({
+            "peptide": ["SIINFEKL"],
+            "netmhcpan_affinity_value": [120.0],
+            "netmhcpan_affinity_wt_value": [900.0],
+        })
+        wide.attrs["topiary_models"] = {"netmhcpan": "4.1b"}
+
+        long = from_wide(wide)
+
+        assert long.loc[0, "wt_prediction_method_name"] == "netmhcpan"
+        assert long.loc[0, "wt_predictor_version"] == "4.1b"
+
     def test_roundtrip_single_model(self):
         orig = _long_df_single_model()
         wide = to_wide(orig)
