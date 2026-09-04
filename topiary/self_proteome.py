@@ -20,8 +20,8 @@ Distance metrics
 ----------------
 - ``"blosum62"`` (default): BLOSUM62-weighted substitution distance.
   Conservative substitutions (I↔L) produce lower distances than
-  non-conservative (I↔W).  Matrix is inlined as a constant — no
-  runtime dependency on Biopython.
+  non-conservative (I↔W). Canonical scores and encoding come from
+  :mod:`topiary.amino_acids` — no runtime dependency on Biopython.
 - ``"hamming"``: count mismatched positions (all mismatches equal).
 
 Indels
@@ -54,86 +54,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
-
-# ---------------------------------------------------------------------------
-# Amino-acid encoding
-# ---------------------------------------------------------------------------
-
-
-_AA_ALPHABET = "ACDEFGHIKLMNPQRSTVWY"
-_AA_TO_INT = {aa: i for i, aa in enumerate(_AA_ALPHABET)}
-# Non-standard residues (B/J/O/U/X/Z/*) all map to one sentinel so they
-# always count as a mismatch against canonical residues.
-_UNKNOWN_AA = len(_AA_ALPHABET)
-
-
-# Canonical BLOSUM62 substitution scores for the 20 standard amino
-# acids.  Rows / columns are ordered by ``_AA_ALPHABET``
-# ("ACDEFGHIKLMNPQRSTVWY").  Values are the integer scores from the
-# standard NCBI BLOSUM62 matrix and match what
-# ``Bio.Align.substitution_matrices.load("BLOSUM62")`` returns for
-# these 20 residues.  We inline the table to avoid a biopython
-# dependency for a 400-integer constant.
-_BLOSUM62_STANDARD = np.array([
-    # A   C   D   E   F   G   H   I   K   L   M   N   P   Q   R   S   T   V   W   Y
-    [  4,  0, -2, -1, -2,  0, -2, -1, -1, -1, -1, -2, -1, -1, -1,  1,  0,  0, -3, -2],  # A
-    [  0,  9, -3, -4, -2, -3, -3, -1, -3, -1, -1, -3, -3, -3, -3, -1, -1, -1, -2, -2],  # C
-    [ -2, -3,  6,  2, -3, -1, -1, -3, -1, -4, -3,  1, -1,  0, -2,  0, -1, -3, -4, -3],  # D
-    [ -1, -4,  2,  5, -3, -2,  0, -3,  1, -3, -2,  0, -1,  2,  0,  0, -1, -2, -3, -2],  # E
-    [ -2, -2, -3, -3,  6, -3, -1,  0, -3,  0,  0, -3, -4, -3, -3, -2, -2, -1,  1,  3],  # F
-    [  0, -3, -1, -2, -3,  6, -2, -4, -2, -4, -3,  0, -2, -2, -2,  0, -2, -3, -2, -3],  # G
-    [ -2, -3, -1,  0, -1, -2,  8, -3, -1, -3, -2,  1, -2,  0,  0, -1, -2, -3, -2,  2],  # H
-    [ -1, -1, -3, -3,  0, -4, -3,  4, -3,  2,  1, -3, -3, -3, -3, -2, -1,  3, -3, -1],  # I
-    [ -1, -3, -1,  1, -3, -2, -1, -3,  5, -2, -1,  0, -1,  1,  2,  0, -1, -2, -3, -2],  # K
-    [ -1, -1, -4, -3,  0, -4, -3,  2, -2,  4,  2, -3, -3, -2, -2, -2, -1,  1, -2, -1],  # L
-    [ -1, -1, -3, -2,  0, -3, -2,  1, -1,  2,  5, -2, -2,  0, -1, -1, -1,  1, -1, -1],  # M
-    [ -2, -3,  1,  0, -3,  0,  1, -3,  0, -3, -2,  6, -2,  0,  0,  1,  0, -3, -4, -2],  # N
-    [ -1, -3, -1, -1, -4, -2, -2, -3, -1, -3, -2, -2,  7, -1, -2, -1, -1, -2, -4, -3],  # P
-    [ -1, -3,  0,  2, -3, -2,  0, -3,  1, -2,  0,  0, -1,  5,  1,  0, -1, -2, -2, -1],  # Q
-    [ -1, -3, -2,  0, -3, -2,  0, -3,  2, -2, -1,  0, -2,  1,  5, -1, -1, -3, -3, -2],  # R
-    [  1, -1,  0,  0, -2,  0, -1, -2,  0, -2, -1,  1, -1,  0, -1,  4,  1, -2, -3, -2],  # S
-    [  0, -1, -1, -1, -2, -2, -2, -1, -1, -1, -1,  0, -1, -1, -1,  1,  5,  0, -2, -2],  # T
-    [  0, -1, -3, -2, -1, -3, -3,  3, -2,  1,  1, -3, -2, -2, -3, -2,  0,  4, -3, -1],  # V
-    [ -3, -2, -4, -3,  1, -2, -2, -3, -3, -2, -1, -4, -4, -2, -3, -3, -2, -3, 11,  2],  # W
-    [ -2, -2, -3, -2,  3, -3,  2, -1, -2, -1, -1, -2, -3, -1, -2, -2, -2, -1,  2,  7],  # Y
-], dtype=np.int8)
-
-
-def _load_blosum62() -> np.ndarray:
-    """Return the BLOSUM62 lookup as a (21, 21) int8 table indexed by
-    ``_AA_TO_INT`` encoding.
-
-    Row / column 20 (the sentinel for unknown residues B/J/O/U/X/Z/*)
-    scores -4 against everything so unknowns always rank as
-    large-distance mismatches.
-    """
-    n = len(_AA_ALPHABET) + 1  # +1 for sentinel
-    table = np.full((n, n), -4, dtype=np.int8)
-    table[:20, :20] = _BLOSUM62_STANDARD
-    return table
-
-
-# Lazy-loaded on first use — kept behind a cache so the module import
-# path stays allocation-free.
-_BLOSUM62: Optional[np.ndarray] = None
-
-
-def _get_blosum62() -> np.ndarray:
-    global _BLOSUM62
-    if _BLOSUM62 is None:
-        _BLOSUM62 = _load_blosum62()
-    return _BLOSUM62
-
-
-def _encode_peptides(peptides: List[str], length: int) -> np.ndarray:
-    """Encode peptides as an ``(N, length)`` int8 array.  Peptides
-    shorter than ``length`` are padded with the unknown sentinel;
-    peptides longer than ``length`` are truncated."""
-    arr = np.full((len(peptides), length), _UNKNOWN_AA, dtype=np.int8)
-    for i, pep in enumerate(peptides):
-        for j, aa in enumerate(pep[:length]):
-            arr[i, j] = _AA_TO_INT.get(aa.upper(), _UNKNOWN_AA)
-    return arr
+from .amino_acids import AMINO_ACIDS, blosum62_matrix, encode_amino_acids
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +283,7 @@ class SelfProteome:
         # Try insertions
         ref_set_ins = self._reference_set(L + 1)
         for i in range(L + 1):
-            for aa in _AA_ALPHABET:
+            for aa in AMINO_ACIDS:
                 candidate = peptide[:i] + aa + peptide[i:]
                 if candidate in ref_set_ins:
                     return self._indel_row(
@@ -420,10 +341,10 @@ class SelfProteome:
         ref_arr = self._reference_arrays[L]
         ref_peps = self._reference_peptides[L]
         query_peps = [pep for _, pep in items]
-        query_arr = _encode_peptides(query_peps, L)
+        query_arr = encode_amino_acids(query_peps, L)
 
         use_blosum = metric == "blosum62"
-        blosum = _get_blosum62() if use_blosum else None
+        blosum = blosum62_matrix() if use_blosum else None
 
         for start in range(0, len(query_arr), chunk_size):
             end = min(start + chunk_size, len(query_arr))
@@ -824,9 +745,7 @@ def _build_index(records, peptide_lengths):
             # different answers to one question.
             continue
         reference_peptides[L] = peps
-        reference_arrays[L] = _encode_peptides(peps, L) if peps else (
-            np.empty((0, L), dtype=np.int8)
-        )
+        reference_arrays[L] = encode_amino_acids(peps, L)
 
     logging.info(
         "SelfProteome index: %d distinct peptides across lengths %s",

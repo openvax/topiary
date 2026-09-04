@@ -131,9 +131,17 @@ available.
 
 ## Algorithm
 
-SIMD-vectorized Hamming distance against int8-encoded reference arrays,
-substitutions only. For a query of length L, the search is restricted
-to reference peptides of the same length.
+Reference and query peptides use the public `encode_amino_acids()` integer
+encoding. The default metric uses the canonical 20×20 cells from NCBI's
+[BLOSUM62 matrix](https://ftp.ncbi.nlm.nih.gov/blast/matrices/BLOSUM62);
+`metric="hamming"` uses SIMD-vectorized mismatch counts instead. For a query of
+length L, the same-length search is vectorized against that reference bucket,
+with 1aa insertion/deletion neighbors checked separately when enabled.
+
+Non-standard residues currently share Topiary's historical unknown sentinel.
+Its BLOSUM lookup score is `-4`; the asymmetric distance consequence is
+documented and tracked in [#268](https://github.com/openvax/topiary/issues/268)
+rather than being changed implicitly during the data relocation.
 
 ### Performance notes
 

@@ -1,5 +1,29 @@
 # API Reference
 
+## Amino-acid data
+
+Topiary exposes one encoding shared by sequence consumers:
+
+```python
+from topiary import (
+    AMINO_ACIDS,
+    AMINO_ACID_INDEX,
+    UNKNOWN_AMINO_ACID_INDEX,
+    blosum62_matrix,
+    encode_amino_acids,
+)
+
+encoded = encode_amino_acids(["SIINFEKL", "AXX"], length=8)
+scores = blosum62_matrix()
+```
+
+`AMINO_ACIDS` gives the canonical index order and `AMINO_ACID_INDEX` is an
+immutable mapping. Non-standard residues use `UNKNOWN_AMINO_ACID_INDEX`.
+`blosum62_matrix()` returns a fresh read-only 21×21 int8 array: its canonical
+20×20 cells are the [NCBI BLOSUM62 matrix](https://ftp.ncbi.nlm.nih.gov/blast/matrices/BLOSUM62),
+while the final row and column preserve Topiary's historical `-4` sentinel
+policy. Callers never receive shared mutable matrix state.
+
 ## TopiaryPredictor
 
 | Parameter | Type | Description |
