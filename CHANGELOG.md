@@ -1,5 +1,19 @@
 # Changelog
 
+## 5.52.0
+
+**Fixed pVACtools presentation data loss (#259).** `read_pvacseq` now emits
+`pMHC_presentation` rows for the presentation percentiles in aggregated
+reports and for MHCflurryEL, NetMHCpanEL, NetMHCIIpanEL, and BigMHC_EL scores
+and percentiles in `all_epitopes` reports. Algorithm rows use Topiary's
+canonical method names; pVACseq's median/best summary remains explicitly
+attributed to the `pvacseq` aggregate. MT and WT measurements both survive,
+and `kind_support` describes every emitted method/kind pair.
+
+Affinity-only inputs are unchanged. `melt_pvacseq_algorithms` continues to
+melt only the binding columns and no longer risks cloning presentation rows
+into false affinity rows when a current pVACtools report contains both.
+
 ## 5.51.0
 
 **One name for the frame nodes group: `EvalContext.df`.** 5.50.0 left `df` and

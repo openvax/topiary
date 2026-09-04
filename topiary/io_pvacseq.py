@@ -8,12 +8,13 @@ Parses both pVACtools output flavors into Topiary long form:
 - ``*.all_epitopes.tsv`` — one row per candidate peptide × allele ×
   length.
 
-Both flavors map onto the same long-form schema with
-``prediction_method_name="pvacseq"`` and ``kind="pMHC_affinity"``.  The
-file's Median MT IC50 / percentile populate the primary
-``value`` / ``percentile_rank``; the WT companions populate
-``wt_value`` / ``wt_percentile_rank`` so DSL expressions like
-``wt.Affinity.value`` work without further setup.
+Both flavors preserve binding measurements as ``pMHC_affinity`` rows and
+presentation measurements as separate ``pMHC_presentation`` rows.  The
+pVACseq aggregate keeps ``prediction_method_name="pvacseq"``; algorithm-level
+presentation rows use Topiary's canonical predictor names (for example,
+``mhcflurry`` and ``netmhcpan``).  MT and WT values populate the corresponding
+unscoped / ``wt_*`` columns so DSL expressions like ``wt.Affinity.value`` and
+``Presentation.rank`` work without further setup.
 
 Derived columns aligned with :class:`TopiaryPredictor` output so vaxrank
 and other downstream consumers don't have to special-case loader source:
@@ -36,13 +37,15 @@ rows leave ``wt_peptide`` NaN; users wanting full WT context for those
 should load the unaggregated ``all_epitopes.tsv`` flavor, which has a
 ``WT Epitope Seq`` column.
 
-Per-algorithm score columns in the all_epitopes flavor (e.g.
+Per-algorithm affinity columns in the all_epitopes flavor (e.g.
 "NetMHCpan MT IC50 Score", "MHCflurry WT Percentile") pass through as
 snake_cased ``pvacseq_<algo>_{ic50,pct}_{mt,wt}`` annotation columns,
 accessible from the DSL via ``Column("...")``.  They aren't melted into
 extra ``prediction_method_name`` rows, so the DSL's ``Affinity['netmhcpan']``
 selector won't reach them — callers wanting per-algorithm DSL access
 should melt them out themselves or re-predict via :class:`TopiaryPredictor`.
+Presentation algorithms are already emitted as native long-form rows and do
+not require this extra melting step.
 """
 
 from __future__ import annotations
@@ -258,6 +261,76 @@ _PER_ALGO_RE = re.compile(
 )
 _FIELD_SHORT = {"IC50 Score": "ic50", "Percentile": "pct"}
 
+# Current pVACtools presentation algorithms whose percentile columns don't
+# carry the word "Presentation". The source algorithm names are normalized to
+# the same names Topiary's own mhctools-backed predictors use, so downstream
+# code does not need a pVACtools-specific method translation table.
+_PRESENTATION_METHODS = {
+    "mhcflurryel": "mhcflurry",
+    "netmhcpanel": "netmhcpan",
+    "netmhciipanel": "netmhciipan",
+    "bigmhc_el": "bigmhc_el",
+}
+_PRESENTATION_COLUMN_RES = (
+    re.compile(
+        r"^(?P<algo>.+?) Presentation (?P<mtwt>MT|WT) "
+        r"(?P<field>Score|Percentile)$"
+    ),
+    re.compile(
+        r"^(?P<algo>.+?) (?P<mtwt>MT|WT) Presentation "
+        r"(?P<field>Score|Percentile)$"
+    ),
+)
+_SUMMARY_ALGORITHMS = frozenset({"Median", "Best", "Corresponding"})
+
+
+def _snake_algorithm_name(name):
+    """Normalize a pVACtools algorithm label for prediction metadata."""
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+
+def _presentation_method(name):
+    """Return Topiary's method name for a pVACtools presentation algorithm."""
+    snake = _snake_algorithm_name(name)
+    return _PRESENTATION_METHODS.get(snake, snake)
+
+
+def _is_presentation_algorithm(name):
+    """Whether *name* is a known EL algorithm with an ambiguous rank header."""
+    return _snake_algorithm_name(name) in _PRESENTATION_METHODS
+
+
+def _presentation_algorithm_columns(df):
+    """Map presentation method names to their MT/WT score/rank columns."""
+    by_method = {}
+    for column in df.columns:
+        match = None
+        for pattern in _PRESENTATION_COLUMN_RES:
+            match = pattern.match(column)
+            if match is not None:
+                break
+        if match is None:
+            # NetMHCpanEL, NetMHCIIpanEL, and BigMHC_EL label the score as
+            # presentation but use the shorter "<algo> MT Percentile" form
+            # for its rank. It is indistinguishable from an affinity rank
+            # without knowing which algorithms are EL-only.
+            match = _PER_ALGO_RE.match(column)
+            if (
+                match is None
+                or match.group("field") != "Percentile"
+                or not _is_presentation_algorithm(match.group("algo"))
+            ):
+                continue
+
+        algorithm = match.group("algo")
+        if algorithm in _SUMMARY_ALGORITHMS:
+            continue
+        method = _presentation_method(algorithm)
+        field = "score" if match.group("field") == "Score" else "rank"
+        mtwt = match.group("mtwt").lower()
+        by_method.setdefault(method, {})[f"{field}_{mtwt}"] = column
+    return by_method
+
 
 def _first_present_column(df, *candidates):
     """Return the first DataFrame column whose name is in *candidates*, or None."""
@@ -388,23 +461,25 @@ def _summarize_mhc_class(allele_series):
     return None
 
 
-def _build_kind_support(mhc_class):
+def _build_kind_support(mhc_class, rows):
     """Synthesize a kind_support dict for pVACseq's single-allele scoring.
 
     pVACseq always operates per allele, so ``mhc_dependence`` is
     ``"single_allele"``.  ``mhc_class`` reflects what's actually in the
     file ("I", "II", "both", or "none" when alleles are unrecognized).
     Shape matches ``TopiaryPredictor.kind_support``: dict of
-    ``model_key -> {kind -> {mhc_dependence, mhc_class}}``.
+    ``model_key -> {kind -> {mhc_dependence, mhc_class}}``. Every
+    method/kind pair actually emitted by the reader is registered.
     """
-    return {
-        "pvacseq": {
-            "pMHC_affinity": {
-                "mhc_dependence": "single_allele",
-                "mhc_class": mhc_class or "none",
-            },
-        },
+    support = {}
+    detail = {
+        "mhc_dependence": "single_allele",
+        "mhc_class": mhc_class or "none",
     }
+    pairs = rows[["prediction_method_name", "kind"]].drop_duplicates()
+    for method, kind in pairs.itertuples(index=False, name=None):
+        support.setdefault(method, {})[kind] = dict(detail)
+    return support
 
 
 def _derive_mutation_interval(parsed):
@@ -551,7 +626,10 @@ def _parse_all_epitopes(df):
     )
     out = attach_sequence_source(out, PVACSEQ_EPITOPE)
 
-    # Per-algorithm score columns pass through as snake_case names.
+    # Per-algorithm affinity columns pass through as snake_case names.
+    # Presentation algorithms get native long-form rows below; treating
+    # their percentile as an affinity percentile would silently invent a
+    # second, wrong kind for the same source value.
     for col in df.columns:
         m = _PER_ALGO_RE.match(col)
         if m is None:
@@ -559,7 +637,9 @@ def _parse_all_epitopes(df):
         algo = m.group("algo")
         if algo in ("Median", "Best", "Corresponding"):
             continue
-        snake = algo.lower().replace(".", "_").replace("-", "_")
+        if _is_presentation_algorithm(algo):
+            continue
+        snake = _snake_algorithm_name(algo)
         new_col = (
             f"pvacseq_{snake}"
             f"_{_FIELD_SHORT[m.group('field')]}"
@@ -650,6 +730,84 @@ def _finalize(parsed, *, source):
     return augmented[canonical + extra]
 
 
+def _numeric_source_column(source_df, name):
+    """Return one source column as numeric, or an all-null aligned Series."""
+    if name is None or name not in source_df.columns:
+        return pd.Series(np.nan, index=source_df.index, dtype=float)
+    return pd.to_numeric(source_df[name], errors="coerce")
+
+
+def _presentation_frame(base, source_df, *, method, columns):
+    """Build native presentation rows for one aggregate or algorithm."""
+    score = _numeric_source_column(source_df, columns.get("score_mt"))
+    rank = _numeric_source_column(source_df, columns.get("rank_mt"))
+    wt_score = _numeric_source_column(source_df, columns.get("score_wt"))
+    wt_rank = _numeric_source_column(source_df, columns.get("rank_wt"))
+    stated = pd.concat([score, rank, wt_score, wt_rank], axis=1).notna().any(axis=1)
+    if not stated.any():
+        return base.head(0)
+
+    rows = base.loc[stated].copy()
+    rows["kind"] = "pMHC_presentation"
+    rows["score"] = score.loc[stated]
+    # For presentation, the model score is the kind's primary value. This is
+    # the same convention used by TopiaryPredictor and CachedPredictor.
+    rows["value"] = score.loc[stated]
+    rows["affinity"] = np.nan
+    rows["percentile_rank"] = rank.loc[stated]
+    rows["prediction_method_name"] = method
+    rows["predictor_version"] = pd.NA
+    rows["wt_score"] = wt_score.loc[stated]
+    rows["wt_value"] = wt_score.loc[stated]
+    rows["wt_affinity"] = np.nan
+    rows["wt_percentile_rank"] = wt_rank.loc[stated]
+    rows["wt_prediction_method_name"] = method
+    rows["wt_predictor_version"] = pd.NA
+    return rows
+
+
+def _presentation_frames(source_df, base, fmt):
+    """Return every aggregate and per-algorithm presentation frame."""
+    if fmt == "aggregated":
+        aggregate_columns = {
+            "rank_mt": "Pres %ile MT",
+            "rank_wt": "Pres %ile WT",
+        }
+    else:
+        aggregate_columns = {
+            "rank_mt": next(
+                (name for name in (
+                    "Median MT Presentation Percentile",
+                    "Best MT Presentation Percentile",
+                ) if name in source_df.columns),
+                None,
+            ),
+            "rank_wt": next(
+                (name for name in (
+                    "Median WT Presentation Percentile",
+                    "Corresponding WT Presentation Percentile",
+                ) if name in source_df.columns),
+                None,
+            ),
+        }
+
+    frames = [
+        _presentation_frame(
+            base, source_df, method="pvacseq", columns=aggregate_columns,
+        ),
+    ]
+    if fmt == "all_epitopes":
+        for method, columns in sorted(
+            _presentation_algorithm_columns(source_df).items()
+        ):
+            frames.append(
+                _presentation_frame(
+                    base, source_df, method=method, columns=columns,
+                )
+            )
+    return [frame for frame in frames if not frame.empty]
+
+
 # =============================================================================
 # Public entry point
 # =============================================================================
@@ -672,7 +830,8 @@ def read_pvacseq(path, *, tag=None) -> TopiaryResult:
     Returns
     -------
     TopiaryResult
-        Long-form DataFrame with one row per (peptide, allele) and
+        Long-form DataFrame with affinity and presentation measurements as
+        separate rows per (peptide, allele), and
         ``Metadata.extra["pvacseq_format"]`` recording the file flavor.
         Compose multiple files with :func:`topiary.stack_results`.
     """
@@ -691,6 +850,9 @@ def read_pvacseq(path, *, tag=None) -> TopiaryResult:
     parsed = (_parse_aggregated if fmt == "aggregated" else _parse_all_epitopes)(df)
     source_label = tag or f"pvacseq-{fmt}:{path.name}"
     out = _finalize(parsed, source=source_label)
+    presentation = _presentation_frames(df, out, fmt)
+    if presentation:
+        out = pd.concat([out] + presentation, ignore_index=True)
 
     mhc_class = _summarize_mhc_class(out["allele"])
     meta = Metadata(form="long", sources=[source_label])
@@ -698,7 +860,7 @@ def read_pvacseq(path, *, tag=None) -> TopiaryResult:
     # kind_support has the same shape as TopiaryPredictor.kind_support so
     # downstream callers (e.g. vaxrank's evaluate_scores) can pass
     # `r.extra["kind_support"]` through without branching on loader source.
-    meta.extra["kind_support"] = _build_kind_support(mhc_class)
+    meta.extra["kind_support"] = _build_kind_support(mhc_class, out)
     return TopiaryResult(out, meta)
 
 
@@ -721,7 +883,8 @@ def melt_pvacseq_algorithms(result: TopiaryResult) -> TopiaryResult:
     becomes a separate row with ``prediction_method_name=<algo>``, so
     expressions like ``Affinity['mhcflurry'].value`` reach it natively.
 
-    The original Median rows are preserved.  Algorithms that don't have
+    The original aggregate and presentation rows are preserved. Algorithms
+    that don't have
     any non-null score for a given (peptide, allele) still get a row
     (with NaN value / percentile_rank); the caller can filter those out
     if undesired.
@@ -749,26 +912,36 @@ def melt_pvacseq_algorithms(result: TopiaryResult) -> TopiaryResult:
     if not algos:
         return result
 
+    # Only the aggregate affinity rows own the pvacseq_* IC50 annotations.
+    # Presentation siblings copy those annotations for row context, but they
+    # must not themselves be cloned into fake affinity-algorithm rows.
+    aggregate_affinity = df[
+        (df["kind"] == "pMHC_affinity")
+        & (df["prediction_method_name"] == "pvacseq")
+    ]
+    if aggregate_affinity.empty:
+        return result
+
     rows_per_algo = []
     for algo in algos:
-        row = df.copy()
+        row = aggregate_affinity.copy()
         row["prediction_method_name"] = algo
         mt_ic50 = f"pvacseq_{algo}_ic50_mt"
         mt_pct = f"pvacseq_{algo}_pct_mt"
         wt_ic50 = f"pvacseq_{algo}_ic50_wt"
         wt_pct = f"pvacseq_{algo}_pct_wt"
-        if mt_ic50 in df.columns:
-            row["value"] = df[mt_ic50]
-            row["affinity"] = df[mt_ic50]
-            row["score"] = df[mt_ic50]
-        if mt_pct in df.columns:
-            row["percentile_rank"] = df[mt_pct]
-        if wt_ic50 in df.columns:
-            row["wt_value"] = df[wt_ic50]
-            row["wt_affinity"] = df[wt_ic50]
-            row["wt_score"] = df[wt_ic50]
-        if wt_pct in df.columns:
-            row["wt_percentile_rank"] = df[wt_pct]
+        if mt_ic50 in aggregate_affinity.columns:
+            row["value"] = aggregate_affinity[mt_ic50]
+            row["affinity"] = aggregate_affinity[mt_ic50]
+            row["score"] = aggregate_affinity[mt_ic50]
+        if mt_pct in aggregate_affinity.columns:
+            row["percentile_rank"] = aggregate_affinity[mt_pct]
+        if wt_ic50 in aggregate_affinity.columns:
+            row["wt_value"] = aggregate_affinity[wt_ic50]
+            row["wt_affinity"] = aggregate_affinity[wt_ic50]
+            row["wt_score"] = aggregate_affinity[wt_ic50]
+        if wt_pct in aggregate_affinity.columns:
+            row["wt_percentile_rank"] = aggregate_affinity[wt_pct]
         row["wt_prediction_method_name"] = algo
         rows_per_algo.append(row)
 
@@ -776,11 +949,17 @@ def melt_pvacseq_algorithms(result: TopiaryResult) -> TopiaryResult:
 
     # Preserve & extend kind_support so DSL evaluations of
     # `Affinity['<algo>'].value` find consistent metadata for each.
-    new_kind_support = dict(result.extra.get("kind_support", {}))
+    new_kind_support = {
+        method: {
+            kind: dict(detail)
+            for kind, detail in support.items()
+        }
+        for method, support in result.extra.get("kind_support", {}).items()
+    }
     template = new_kind_support.get("pvacseq", {}).get("pMHC_affinity")
     if template is not None:
         for algo in algos:
-            new_kind_support.setdefault(algo, {"pMHC_affinity": dict(template)})
+            new_kind_support.setdefault(algo, {})["pMHC_affinity"] = dict(template)
 
     new_extra = dict(result.extra)
     new_extra["kind_support"] = new_kind_support

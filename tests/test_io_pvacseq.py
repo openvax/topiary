@@ -9,6 +9,7 @@ import pytest
 from topiary import (
     Affinity,
     Column,
+    Presentation,
     SelfProteome,
     TopiaryResult,
     apply_filter,
@@ -29,6 +30,8 @@ MHC_I_AGG = FIXTURE_DIR / "mhc_i_aggregated.tsv"
 MHC_II_AGG = FIXTURE_DIR / "mhc_ii_aggregated.tsv"
 MHC_I_ALL = FIXTURE_DIR / "mhc_i_all_epitopes.tsv"
 MHC_II_ALL = FIXTURE_DIR / "mhc_ii_all_epitopes.tsv"
+MHC_I_AGG_PRESENTATION = FIXTURE_DIR / "mhc_i_aggregated_presentation.tsv"
+MHC_I_ALL_PRESENTATION = FIXTURE_DIR / "mhc_i_all_epitopes_presentation.tsv"
 
 
 def _data_row_count(path):
@@ -70,6 +73,23 @@ class TestLoadAggregated:
     def test_one_row_per_variant(self):
         r = read_pvacseq(MHC_I_AGG)
         assert len(r) == _data_row_count(MHC_I_AGG)
+
+    def test_legacy_affinity_only_file_gains_no_rows_or_kinds(self):
+        r = read_pvacseq(MHC_I_AGG)
+        assert len(r) == _data_row_count(MHC_I_AGG)
+        assert set(r.df["kind"]) == {"pMHC_affinity"}
+
+    def test_presentation_percentile_becomes_a_separate_aggregate_row(self):
+        r = read_pvacseq(MHC_I_AGG_PRESENTATION)
+        assert len(r) == 2
+
+        row = r.df[r.df["kind"] == "pMHC_presentation"].iloc[0]
+        assert row["prediction_method_name"] == "pvacseq"
+        assert row["percentile_rank"] == pytest.approx(0.46)
+        assert row["wt_percentile_rank"] == pytest.approx(7.2)
+        assert pd.isna(row["score"])
+        assert pd.isna(row["value"])
+        assert pd.isna(row["affinity"])
 
     def test_metadata_records_flavor(self):
         r = read_pvacseq(MHC_I_AGG)
@@ -236,6 +256,98 @@ class TestLoadAllEpitopes:
         r = read_pvacseq(MHC_I_ALL)
         row = r.df.iloc[0]
         assert math.isclose(row["value"], 76.11, abs_tol=0.01)
+
+    def test_presentation_algorithms_become_native_rows(self):
+        r = read_pvacseq(MHC_I_ALL_PRESENTATION)
+        presentation = r.df[r.df["kind"] == "pMHC_presentation"]
+
+        assert set(presentation["prediction_method_name"]) == {
+            "pvacseq", "mhcflurry", "netmhcpan",
+        }
+        mhcflurry = presentation[
+            presentation["prediction_method_name"] == "mhcflurry"
+        ].iloc[0]
+        assert mhcflurry["score"] == pytest.approx(0.91)
+        assert mhcflurry["value"] == pytest.approx(0.91)
+        assert mhcflurry["percentile_rank"] == pytest.approx(0.12)
+        assert mhcflurry["wt_score"] == pytest.approx(0.11)
+        assert mhcflurry["wt_value"] == pytest.approx(0.11)
+        assert mhcflurry["wt_percentile_rank"] == pytest.approx(5.0)
+        assert pd.isna(mhcflurry["affinity"])
+        assert pd.isna(mhcflurry["wt_affinity"])
+
+        netmhcpan = presentation[
+            presentation["prediction_method_name"] == "netmhcpan"
+        ].iloc[0]
+        assert netmhcpan["score"] == pytest.approx(0.64)
+        assert netmhcpan["percentile_rank"] == pytest.approx(0.8)
+
+    def test_presentation_rows_are_reachable_from_dsl(self):
+        r = read_pvacseq(MHC_I_ALL_PRESENTATION)
+        scores = Presentation["mhcflurry"].score.evaluate(r.df)
+        assert scores == pytest.approx(0.91)
+
+    def test_presentation_kind_support_records_each_source(self):
+        r = read_pvacseq(MHC_I_ALL_PRESENTATION)
+        support = r.extra["kind_support"]
+        assert set(support) == {"pvacseq", "mhcflurry", "netmhcpan"}
+        assert "pMHC_affinity" in support["pvacseq"]
+        for method in ("pvacseq", "mhcflurry", "netmhcpan"):
+            assert support[method]["pMHC_presentation"] == {
+                "mhc_dependence": "single_allele",
+                "mhc_class": "I",
+            }
+
+    @pytest.mark.parametrize(("algorithm", "method"), [
+        ("NetMHCIIpanEL", "netmhciipan"),
+        ("BigMHC_EL", "bigmhc_el"),
+    ])
+    def test_other_current_el_algorithm_names_are_preserved(
+        self, tmp_path, algorithm, method,
+    ):
+        df = pd.read_csv(MHC_I_ALL_PRESENTATION, sep="\t")
+        mhcflurry_columns = [
+            column for column in df.columns
+            if column.startswith("MHCflurryEL Presentation")
+        ]
+        df = df.drop(columns=mhcflurry_columns)
+        df = df.rename(columns={
+            column: column.replace("NetMHCpanEL", algorithm)
+            for column in df.columns
+            if column.startswith("NetMHCpanEL")
+        })
+        path = tmp_path / f"{algorithm}.tsv"
+        df.to_csv(path, sep="\t", index=False)
+
+        rows = read_pvacseq(path).df
+        row = rows[
+            (rows["kind"] == "pMHC_presentation")
+            & (rows["prediction_method_name"] == method)
+        ].iloc[0]
+        assert row["score"] == pytest.approx(0.64)
+        assert row["percentile_rank"] == pytest.approx(0.8)
+
+    def test_best_presentation_summary_is_used_when_median_is_absent(
+        self, tmp_path,
+    ):
+        df = pd.read_csv(MHC_I_ALL_PRESENTATION, sep="\t").rename(columns={
+            "Median MT Presentation Percentile": (
+                "Best MT Presentation Percentile"
+            ),
+            "Median WT Presentation Percentile": (
+                "Corresponding WT Presentation Percentile"
+            ),
+        })
+        path = tmp_path / "best-presentation.tsv"
+        df.to_csv(path, sep="\t", index=False)
+
+        rows = read_pvacseq(path).df
+        aggregate = rows[
+            (rows["kind"] == "pMHC_presentation")
+            & (rows["prediction_method_name"] == "pvacseq")
+        ].iloc[0]
+        assert aggregate["percentile_rank"] == pytest.approx(0.46)
+        assert aggregate["wt_percentile_rank"] == pytest.approx(7.2)
 
     def test_wt_peptide_from_wt_epitope_seq(self):
         r = read_pvacseq(MHC_I_ALL)
@@ -479,6 +591,21 @@ class TestMeltAlgorithms:
         n_rows_original = len(r)
         n_rows_melted = len(melted)
         assert n_rows_melted == n_rows_original * 3  # median + 2 algos
+
+    def test_melt_adds_affinity_rows_without_cloning_presentation_rows(self):
+        r = read_pvacseq(MHC_I_ALL_PRESENTATION)
+        melted = melt_pvacseq_algorithms(r)
+
+        assert len(r) == 4  # aggregate affinity + 3 presentation rows
+        assert len(melted) == 6  # two algorithm-specific affinity rows added
+        presentation = melted.df[
+            melted.df["kind"] == "pMHC_presentation"
+        ]
+        affinity = melted.df[melted.df["kind"] == "pMHC_affinity"]
+        assert len(presentation) == 3
+        assert set(affinity["prediction_method_name"]) == {
+            "pvacseq", "mhcflurry", "netmhcpan",
+        }
 
     def test_melted_rows_have_distinct_method_names(self):
         r = read_pvacseq(MHC_I_ALL)

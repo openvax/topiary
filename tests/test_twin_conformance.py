@@ -28,6 +28,7 @@ import pandas as pd
 import pytest
 
 from topiary.evidence import attach_dna_evidence, attach_rna_evidence
+from topiary import read_pvacseq
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,48 @@ TWINS = (
 )
 
 FRAME = pd.DataFrame({"x": [1, 2]}, index=[10, 11])
+
+
+# ---------------------------------------------------------------------------
+# pVACseq's two report flavors
+#
+# Their schemas differ too much for the generic keyword-argument battery
+# above. Register the pair here and drive both public reader branches through
+# the same semantic assertion instead.
+# ---------------------------------------------------------------------------
+
+PVACSEQ_PRESENTATION_TWINS = (
+    (
+        "aggregated/all_epitopes presentation",
+        "tests/data/pvacseq/mhc_i_aggregated_presentation.tsv",
+        "tests/data/pvacseq/mhc_i_all_epitopes_presentation.tsv",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "aggregated_path", "all_epitopes_path"),
+    PVACSEQ_PRESENTATION_TWINS,
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_pvacseq_flavors_agree_on_aggregate_presentation(
+    name, aggregated_path, all_epitopes_path,
+):
+    """Both reader doors preserve pVACtools' aggregate presentation rank."""
+    del name
+    rows = []
+    for path in (aggregated_path, all_epitopes_path):
+        df = read_pvacseq(path).df
+        rows.append(df[
+            (df["kind"] == "pMHC_presentation")
+            & (df["prediction_method_name"] == "pvacseq")
+        ].iloc[0])
+
+    for column in (
+        "peptide", "allele", "kind", "prediction_method_name",
+        "percentile_rank", "wt_percentile_rank",
+    ):
+        assert rows[0][column] == rows[1][column]
 
 
 # ---------------------------------------------------------------------------
