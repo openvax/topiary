@@ -2,13 +2,24 @@
 
 ## 5.52.0
 
-**Fixed pVACtools presentation data loss (#259).** `read_pvacseq` now emits
-`pMHC_presentation` rows for the presentation percentiles in aggregated
-reports and for MHCflurryEL, NetMHCpanEL, NetMHCIIpanEL, and BigMHC_EL scores
-and percentiles in `all_epitopes` reports. Algorithm rows use Topiary's
-canonical method names; pVACseq's median/best summary remains explicitly
-attributed to the `pvacseq` aggregate. MT and WT measurements both survive,
-and `kind_support` describes every emitted method/kind pair.
+**Fixed pVACtools prediction data loss (#259).** `read_pvacseq` now emits native
+rows for presentation, processing, and immunogenicity measurements in
+`all_epitopes` reports, in addition to the established affinity rows. This
+includes both explicit headers and pVACtools' plain `NetMHCpanEL MT Score` /
+`BigMHC_EL MT Score` forms. Aggregate presentation and immunogenicity
+percentiles remain explicitly attributed to `pvacseq`. MT and WT scores and
+percentiles survive, and `kind_support` describes every emitted method/kind
+pair.
+
+**One shared external prediction vocabulary.** The public
+`parse_prediction_metric(model_name, metric_name)` classifier recognizes the
+pVACtools/mhctools model vocabulary, treats `EL` as presentation, `BA` /
+`Aff` / `Affinity` as affinity, and `IM` as immunogenicity, and understands
+MT/WT score and percentile modifiers for affinity, processing, presentation,
+and immunogenicity. Explicit metric text wins over a model suffix. Both the
+pVACseq and LENS readers use this function; new unambiguous LENS prediction
+columns normalize automatically, while ambiguous and WT-specific LENS columns
+remain visible under their source names and warn instead of being guessed.
 
 Affinity-only inputs are unchanged. `melt_pvacseq_algorithms` continues to
 melt only the binding columns and no longer risks cloning presentation rows

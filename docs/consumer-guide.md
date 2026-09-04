@@ -369,8 +369,22 @@ new names.
 
 ## Reader escape hatches
 
+Topiary automatically recognizes common prediction vocabulary in new pVACtools
+and LENS columns: `EL` means presentation, `BA` / `Aff` / `Affinity` mean
+affinity, `IM` means immunogenicity, and explicit quantity words such as
+`Processing` take precedence over a model suffix. MT/WT score and percentile
+modifiers are recognized for affinity, processing, presentation, and
+immunogenicity. Consumers that inspect external headers directly can call
+`parse_prediction_metric(model_name, metric_name)` to apply the same rule.
+
+`binding_metrics` remains the escape hatch for a LENS column whose meaning
+cannot be inferred safely:
+
 ```python
-read_lens(path, binding_metrics={("newtool", "ic50_nm"): ("affinity", "value")})
+read_lens(
+    path,
+    binding_metrics={("newtool", "opaque_metric"): ("affinity", "value")},
+)
 ```
 
 Merged over the built-in table, keyed on `(tool, metric)` — the pair the

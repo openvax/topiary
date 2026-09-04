@@ -155,12 +155,14 @@ from .result import (
     stack_results,
     combine_predictions,
 )
+from .prediction_columns import PredictionMetric, parse_prediction_metric
 from .wide import detect_form, from_wide, to_wide
 
 __version__ = "5.52.0"
 
 __all__ = [
     "TopiaryPredictor",
+    "PredictionMetric",
     "from_predictions",
     "fragment_from_effect",
     "CachedPredictor",
@@ -262,6 +264,7 @@ __all__ = [
     "read_csv",
     "read_lens",
     "read_pvacseq",
+    "parse_prediction_metric",
     "read_tsv",
     "to_csv",
     "to_tsv",

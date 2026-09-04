@@ -15,8 +15,8 @@ pVACseq emits two TSV flavors per MHC class:
 
 | File | Granularity | Per-algorithm scores |
 |------|-------------|----------------------|
-| `*.all_epitopes.tsv` | one row per (peptide, allele, length) candidate | each algorithm's MT/WT binding and presentation measurements |
-| `*.all_epitopes.aggregated.tsv` | one row per variant; pVACseq picks the Best Peptide × Allele | aggregate affinity and presentation ranks |
+| `*.all_epitopes.tsv` | one row per (peptide, allele, length) candidate | each algorithm's MT/WT affinity, processing, presentation, and immunogenicity measurements |
+| `*.all_epitopes.aggregated.tsv` | one row per variant; pVACseq picks the Best Peptide × Allele | aggregate affinity and any reported presentation ranks |
 
 `read_pvacseq()` auto-detects which flavor you have from the column headers — same call site works for both:
 
@@ -31,10 +31,10 @@ Returns a [`TopiaryResult`](api.md) with `r.df` (long-form DataFrame), `r.source
 
 ## Schema mapping
 
-The loader produces Topiary's standard long-form schema. Binding and
-presentation measurements become separate `pMHC_affinity` and
-`pMHC_presentation` rows. WT companions populate the `wt_*` schema so the
-[`wt` scope](ranking.md#wt-wildtype-comparison) works without further setup.
+The loader produces Topiary's standard long-form schema. Affinity,
+presentation, processing, and immunogenicity measurements become separate
+rows. WT companions populate the `wt_*` schema so the [`wt`
+scope](ranking.md#wt-wildtype-comparison) works without further setup.
 
 Affinity rows use the following mapping:
 
@@ -58,13 +58,37 @@ algorithms:
 |-------------|------------------|-------------|
 | Aggregate presentation rank | `Pres %ile MT/WT` (aggregated) or `Median/Best MT Presentation Percentile` and its WT companion (`all_epitopes`) | `pvacseq` |
 | MHCflurry presentation score and rank | `MHCflurryEL Presentation {MT,WT} {Score,Percentile}` | `mhcflurry` |
-| NetMHCpan presentation score and rank | `NetMHCpanEL {MT,WT} Presentation Score` and `{MT,WT} Percentile` | `netmhcpan` |
+| NetMHCpan presentation score and rank | `NetMHCpanEL {MT,WT} Presentation Score` or plain `NetMHCpanEL {MT,WT} Score`, plus `{MT,WT} Percentile` | `netmhcpan` |
 | NetMHCIIpan presentation score and rank | equivalent `NetMHCIIpanEL` columns | `netmhciipan` |
-| BigMHC presentation score and rank | equivalent `BigMHC_EL` columns | `bigmhc_el` |
+| BigMHC presentation score and rank | explicit presentation columns or plain `BigMHC_EL {MT,WT} Score`, plus percentiles | `bigmhc_el` |
+| MHCflurry processing score and rank | `MHCflurryEL Processing {MT,WT} {Score,Percentile}` | `mhcflurry` |
+| BigMHC immunogenicity score and rank | `BigMHC_IM {MT,WT} [Immunogenicity] {Score,Percentile}` | `bigmhc_im` |
+| PRIME immunogenicity score and rank | `PRIME {MT,WT} Immunogenicity {Score,Percentile}` | `prime` |
 
-For algorithm rows, `score` is also the presentation row's `value`, while
-`affinity` remains null. Aggregate TSV rows carry only a presentation
-percentile, so their presentation `score` and `value` are honestly null.
+For score-only algorithm rows, `score` is also the row's `value`, while
+`affinity` remains null outside affinity rows. Aggregate TSV rows carry only a
+presentation percentile, so their presentation `score` and `value` are
+honestly null.
+
+### Prediction-column vocabulary
+
+The parser does not depend on one exact header spelling. It treats model
+suffixes `EL` as presentation, `BA` / `Aff` / `Affinity` as affinity, and `IM`
+as immunogenicity. Separators and capitalization are interchangeable, so
+`NetMHCpanEL`, `NetMHCpan_EL`, and `netmhcpan-el` carry the same meaning.
+`MT` and `WT` can appear on either side of `Score`, `Value`, or `Percentile`.
+
+An explicit quantity in the metric wins over the model suffix. For example,
+`MHCflurryEL Processing WT Percentile` is processing—not presentation—and is
+stored in `wt_percentile_rank`. Affinity, processing, presentation, and
+immunogenicity can all carry MT or WT percentile ranks. Known pVACtools and
+mhctools model names may use a bare `MT Score`; an unknown model must state its
+quantity rather than being guessed.
+
+The same classifier is public as
+`parse_prediction_metric(model_name, metric_name)` and is also the fallback
+for new LENS predictor columns. This keeps the two readers from developing
+different interpretations of the same header.
 
 ### Derived columns (vaxrank-friendly)
 
@@ -180,8 +204,7 @@ The `all_epitopes` flavor also carries each binding algorithm's MT/WT IC50 + per
 
 ```
 NetMHCpan MT IC50 Score, NetMHCpan WT IC50 Score, NetMHCpan MT Percentile, NetMHCpan WT Percentile,
-MHCflurry MT IC50 Score, MHCflurry WT IC50 Score, MHCflurry MT Percentile, MHCflurry WT Percentile,
-BigMHC_EL MT IC50 Score, ...
+MHCflurry MT IC50 Score, MHCflurry WT IC50 Score, MHCflurry MT Percentile, MHCflurry WT Percentile, ...
 ```
 
 `read_pvacseq()` snake-cases these into `pvacseq_<algo>_<field>_<mtwt>` annotation columns, reachable via `Column("...")`:
@@ -214,9 +237,10 @@ strong_in_mhcflurry = apply_filter(
 ```
 
 Melt extends `Metadata.extra["kind_support"]` to register each affinity
-algorithm under the same MHC class as `"pvacseq"`. Existing presentation rows
-remain unchanged. On the aggregated flavor (no per-algorithm binding columns
-to melt) `melt_pvacseq_algorithms` is a no-op.
+algorithm under the same MHC class as `"pvacseq"`. Existing processing,
+presentation, and immunogenicity rows remain unchanged. On the aggregated
+flavor (no per-algorithm binding columns to melt)
+`melt_pvacseq_algorithms` is a no-op.
 
 ## WT peptide reconstruction
 

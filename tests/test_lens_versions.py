@@ -89,13 +89,16 @@ def test_values_are_unchanged_by_the_version_spelling(tmp_path):
 
 
 def test_an_unknown_tool_is_reported_not_dropped(tmp_path):
-    path = _respun(tmp_path, ("netmhcpan_4.1b.aff_nm", "brandnewtool_1.0.aff_nm"))
+    path = _respun(
+        tmp_path,
+        ("netmhcpan_4.1b.aff_nm", "brandnewtool_1.0.opaque_metric"),
+    )
 
-    with pytest.warns(UserWarning, match="brandnewtool_1.0.aff_nm"):
+    with pytest.warns(UserWarning, match="brandnewtool_1.0.opaque_metric"):
         df = _frame(read_lens(path))
 
     # Still in the frame under its own name — reported, not discarded.
-    assert "brandnewtool_1.0.aff_nm" in df.columns
+    assert "brandnewtool_1.0.opaque_metric" in df.columns
 
 
 def test_an_unknown_metric_is_reported(tmp_path):

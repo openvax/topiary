@@ -402,19 +402,23 @@ Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use
 | `read_lens(path, binding_metrics=None)` | LENS report (v1.4 / v1.5.1 / v1.9) | `TopiaryResult` (wide form) |
 | `read_pvacseq(path)` | pVACseq aggregated or `all_epitopes` TSV (MHC-I or MHC-II) | `TopiaryResult` (long form) |
 | `melt_pvacseq_algorithms(result)` | Loaded pVACseq `all_epitopes` result | `TopiaryResult` with one row per (peptide, allele, algorithm) |
+| `parse_prediction_metric(model_name, metric_name)` | External predictor and metric labels | `PredictionMetric(method, kind, field, sequence)` or `None` when ambiguous |
 | `derive_mhc_class(allele_series)` | Allele Series (mhcgnomes-normalized or raw) | Series of `"I"` / `"II"` / `pd.NA` |
 | `slice_regions(seqs, regions)` | Sequences + intervals | `{name:start-end: subseq}` |
 | `exclude_by(df, ref, mode)` | DataFrame + ref sequences | Filtered DataFrame |
 
 ### Correcting a LENS binding-column mapping
 
-`read_lens` warns when a file has a predictor-shaped column its built-in
-map doesn't cover. Pass `binding_metrics` to close the gap without
-waiting for a topiary release:
+`read_lens` first applies the same prediction vocabulary as `read_pvacseq` to
+new predictor-shaped columns. `EL` means presentation, `BA` / `Aff` /
+`Affinity` mean affinity, and `IM` means immunogenicity; explicit quantity
+words take precedence. It warns when the remaining tool/metric pair is still
+ambiguous. Pass `binding_metrics` to close that gap without waiting for a
+topiary release:
 
 ```python
 read_lens(path, binding_metrics={
-    ("newtool", "ic50_nm"): ("affinity", "value"),
+    ("newtool", "opaque_metric"): ("affinity", "value"),
     ("sometool", "noisy_metric"): None,   # not a prediction
 })
 ```
@@ -434,6 +438,11 @@ release. Values are `(kind, field)` with `field` one of
 `value` / `score` / `rank`, validated up front; `None` declares the
 column a non-prediction, silencing the warning while leaving the column
 in place as an annotation column.
+
+LENS's normalized wide schema describes the mutant peptide and has no
+WT-scoped prediction fields. A newly inferred WT-specific column is therefore
+left under its original name with a warning; Topiary does not relabel it as an
+MT value.
 
 ## Source functions
 

@@ -262,7 +262,7 @@ class TestLoadAllEpitopes:
         presentation = r.df[r.df["kind"] == "pMHC_presentation"]
 
         assert set(presentation["prediction_method_name"]) == {
-            "pvacseq", "mhcflurry", "netmhcpan",
+            "pvacseq", "bigmhc_el", "mhcflurry", "netmhcpan",
         }
         mhcflurry = presentation[
             presentation["prediction_method_name"] == "mhcflurry"
@@ -282,6 +282,12 @@ class TestLoadAllEpitopes:
         assert netmhcpan["score"] == pytest.approx(0.64)
         assert netmhcpan["percentile_rank"] == pytest.approx(0.8)
 
+        bigmhc = presentation[
+            presentation["prediction_method_name"] == "bigmhc_el"
+        ].iloc[0]
+        assert bigmhc["score"] == pytest.approx(0.72)
+        assert bigmhc["percentile_rank"] == pytest.approx(0.6)
+
     def test_presentation_rows_are_reachable_from_dsl(self):
         r = read_pvacseq(MHC_I_ALL_PRESENTATION)
         scores = Presentation["mhcflurry"].score.evaluate(r.df)
@@ -290,21 +296,14 @@ class TestLoadAllEpitopes:
     def test_presentation_kind_support_records_each_source(self):
         r = read_pvacseq(MHC_I_ALL_PRESENTATION)
         support = r.extra["kind_support"]
-        assert set(support) == {"pvacseq", "mhcflurry", "netmhcpan"}
         assert "pMHC_affinity" in support["pvacseq"]
-        for method in ("pvacseq", "mhcflurry", "netmhcpan"):
+        for method in ("pvacseq", "bigmhc_el", "mhcflurry", "netmhcpan"):
             assert support[method]["pMHC_presentation"] == {
                 "mhc_dependence": "single_allele",
                 "mhc_class": "I",
             }
 
-    @pytest.mark.parametrize(("algorithm", "method"), [
-        ("NetMHCIIpanEL", "netmhciipan"),
-        ("BigMHC_EL", "bigmhc_el"),
-    ])
-    def test_other_current_el_algorithm_names_are_preserved(
-        self, tmp_path, algorithm, method,
-    ):
+    def test_netmhciipan_el_name_is_preserved(self, tmp_path):
         df = pd.read_csv(MHC_I_ALL_PRESENTATION, sep="\t")
         mhcflurry_columns = [
             column for column in df.columns
@@ -312,20 +311,59 @@ class TestLoadAllEpitopes:
         ]
         df = df.drop(columns=mhcflurry_columns)
         df = df.rename(columns={
-            column: column.replace("NetMHCpanEL", algorithm)
+            column: column.replace("NetMHCpanEL", "NetMHCIIpanEL")
             for column in df.columns
             if column.startswith("NetMHCpanEL")
         })
-        path = tmp_path / f"{algorithm}.tsv"
+        path = tmp_path / "NetMHCIIpanEL.tsv"
         df.to_csv(path, sep="\t", index=False)
 
         rows = read_pvacseq(path).df
         row = rows[
             (rows["kind"] == "pMHC_presentation")
-            & (rows["prediction_method_name"] == method)
+            & (rows["prediction_method_name"] == "netmhciipan")
         ].iloc[0]
         assert row["score"] == pytest.approx(0.64)
         assert row["percentile_rank"] == pytest.approx(0.8)
+
+    def test_processing_and_immunogenicity_are_native_rows(self):
+        r = read_pvacseq(MHC_I_ALL_PRESENTATION)
+
+        processing = r.df[r.df["kind"] == "antigen_processing"]
+        assert processing["prediction_method_name"].tolist() == ["mhcflurry"]
+        assert processing["score"].iloc[0] == pytest.approx(0.75)
+        assert processing["percentile_rank"].iloc[0] == pytest.approx(0.9)
+        assert r.extra["kind_support"]["mhcflurry"]["antigen_processing"] == {
+            "mhc_dependence": "none",
+            "mhc_class": "none",
+        }
+
+        immunogenicity = r.df[r.df["kind"] == "immunogenicity"]
+        assert set(immunogenicity["prediction_method_name"]) == {
+            "pvacseq", "bigmhc_im", "prime",
+        }
+        bigmhc = immunogenicity[
+            immunogenicity["prediction_method_name"] == "bigmhc_im"
+        ].iloc[0]
+        assert bigmhc["score"] == pytest.approx(0.83)
+        assert bigmhc["percentile_rank"] == pytest.approx(0.4)
+
+    def test_processing_summary_percentile_uses_shared_vocabulary(
+        self, tmp_path,
+    ):
+        df = pd.read_csv(MHC_I_ALL_PRESENTATION, sep="\t")
+        df["Median MT Processing Percentile"] = 1.2
+        df["Median WT Processing Percentile"] = 3.4
+        path = tmp_path / "processing-summary.tsv"
+        df.to_csv(path, sep="\t", index=False)
+
+        rows = read_pvacseq(path).df
+        summary = rows[
+            (rows["kind"] == "antigen_processing")
+            & (rows["prediction_method_name"] == "pvacseq")
+        ].iloc[0]
+        assert summary["percentile_rank"] == pytest.approx(1.2)
+        assert summary["wt_percentile_rank"] == pytest.approx(3.4)
 
     def test_best_presentation_summary_is_used_when_median_is_absent(
         self, tmp_path,
@@ -596,13 +634,13 @@ class TestMeltAlgorithms:
         r = read_pvacseq(MHC_I_ALL_PRESENTATION)
         melted = melt_pvacseq_algorithms(r)
 
-        assert len(r) == 4  # aggregate affinity + 3 presentation rows
-        assert len(melted) == 6  # two algorithm-specific affinity rows added
+        assert len(r) == 9
+        assert len(melted) == 11  # two algorithm-specific affinity rows added
         presentation = melted.df[
             melted.df["kind"] == "pMHC_presentation"
         ]
         affinity = melted.df[melted.df["kind"] == "pMHC_affinity"]
-        assert len(presentation) == 3
+        assert len(presentation) == 4
         assert set(affinity["prediction_method_name"]) == {
             "pvacseq", "mhcflurry", "netmhcpan",
         }
