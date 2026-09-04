@@ -16,9 +16,10 @@ Ensembl data is downloaded on first use via pyensembl.
 """
 
 import logging
-import re
 
 from pyensembl import EnsemblRelease, ensembl_grch38
+
+from .optional_dependencies import require_optional_dependency
 
 
 # ---------------------------------------------------------------------------
@@ -212,9 +213,8 @@ def tissue_expressed_gene_ids(tissues, min_ntpm=1.0):
     """
     if not tissues:
         raise ValueError("tissues must be a non-empty list")
-    _check_pirlygenes()
-    from pirlygenes import pan_cancer_expression
-    pce = pan_cancer_expression()
+    pirlygenes = _check_pirlygenes("pan_cancer_expression")
+    pce = pirlygenes.pan_cancer_expression()
 
     cols = _tissue_columns(pce, tissues)
 
@@ -242,9 +242,8 @@ def tissue_expressed_sequences(tissues, min_ntpm=1.0, release=None):
 
 def available_tissues():
     """List all available tissue names from PirlyGenes expression data."""
-    _check_pirlygenes()
-    from pirlygenes import pan_cancer_expression
-    return sorted(_tissue_column_map(pan_cancer_expression()))
+    pirlygenes = _check_pirlygenes("pan_cancer_expression")
+    return sorted(_tissue_column_map(pirlygenes.pan_cancer_expression()))
 
 
 # ---------------------------------------------------------------------------
@@ -320,45 +319,20 @@ def _tissue_columns(pce, tissues):
     return [columns[t] for t in tissues]
 
 
-_PIRLYGENES_MIN = (5, 1, 0)
-_PIRLYGENES_MIN_TEXT = "5.1.0"
-_PIRLYGENES_VERSION_RE = re.compile(r"^\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?")
-_PIRLYGENES_PRERELEASE_RE = re.compile(
-    r"^\s*[-_.]?\s*(?:a|alpha|b|beta|rc|c|pre|preview|dev)",
-    re.I,
-)
-
-
-def _check_pirlygenes():
-    try:
-        import pirlygenes
-    except ImportError:
-        raise ImportError(
-            "pirlygenes is required for CTA/tissue gene lists. "
-            "Install with: pip install 'pirlygenes>=5.1.0'"
-        ) from None
-    version = getattr(pirlygenes, "__version__", "0.0.0")
-    if not _pirlygenes_version_at_least(version):
-        raise ImportError(
-            f"pirlygenes>={_PIRLYGENES_MIN_TEXT} required for CTA/tissue "
-            f"gene lists; found {version}. Upgrade with: "
-            f"pip install -U 'pirlygenes>={_PIRLYGENES_MIN_TEXT}'"
-        )
-
-
-def _pirlygenes_version_at_least(version):
-    text = str(version)
-    match = _PIRLYGENES_VERSION_RE.match(text)
-    if match is None:
-        return False
-    parts = tuple(int(p) if p is not None else 0 for p in match.groups())
-    if parts != _PIRLYGENES_MIN:
-        return parts > _PIRLYGENES_MIN
-    suffix = text[match.end():]
-    return _PIRLYGENES_PRERELEASE_RE.match(suffix) is None
+def _check_pirlygenes(*required_callables):
+    """Load the PirlyGenes API used for CTA and tissue-expression data."""
+    return require_optional_dependency(
+        "pirlygenes",
+        feature="cancer-testis antigen and tissue-expression gene lists",
+        required_callables=required_callables,
+    )
 
 
 def _pirlygenes_cta_gene_ids():
-    _check_pirlygenes()
-    from pirlygenes.gene_sets_cancer import CTA_gene_ids
-    return set(CTA_gene_ids())
+    gene_sets = require_optional_dependency(
+        "pirlygenes.gene_sets_cancer",
+        feature="cancer-testis antigen gene lists",
+        extra="pirlygenes",
+        required_callables=("CTA_gene_ids",),
+    )
+    return set(gene_sets.CTA_gene_ids())

@@ -31,7 +31,13 @@ pyensembl install --release 112 --species human
 For cancer-testis antigen and tissue expression features:
 
 ```bash
-pip install pirlygenes
+pip install 'topiary[pirlygenes]'
+```
+
+For RNA-assembled protein fragments from Isovar:
+
+```bash
+pip install 'topiary[isovar]'
 ```
 
 **MHC predictors** (NetMHCpan, mhcflurry, etc.) are installed

@@ -128,12 +128,12 @@ or not it can populate them.
 
 ### isovar is optional in the strong sense
 
-Not imported at module scope, not in `requirements.txt`, and topiary's shape is
-identical whether or not it is installed — `import topiary` does not import it.
-Only `fragments_from_variants` with an `alignment_file` imports it, and it says
-how to install it if missing. `fragment_from_isovar_result` needs nothing from
-isovar at all — it reads an already-built result by attribute. A consumer that only reads LENS reports should not pay for a package
-it never calls.
+Not imported at module scope and not in Topiary's base requirements, so
+`import topiary` does not import it. Install the optional integration with
+`pip install 'topiary[isovar]'`. Only `fragments_from_variants` with an
+`alignment_file` imports it. `fragment_from_isovar_result` needs nothing from
+isovar at all — it reads an already-built result by attribute. A consumer that
+only reads LENS reports should not pay for a package it never calls.
 
 isovar is also the only source that *counts* the reads supporting an assembled
 sequence. Everything else derives them or counts something adjacent, which is

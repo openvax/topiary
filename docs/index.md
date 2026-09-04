@@ -61,7 +61,13 @@ pyensembl install --release 112 --species human
 For cancer-testis antigen and tissue expression features:
 
 ```bash
-pip install pirlygenes
+pip install 'topiary[pirlygenes]'
+```
+
+For RNA-assembled protein fragments from Isovar:
+
+```bash
+pip install 'topiary[isovar]'
 ```
 
 See the [Quickstart](quickstart.md) for more examples, [Protein Fragments](fragments.md) for the universal antigen abstraction, [Cached Predictions](cached.md) for running from pre-computed scores, [Ranking DSL](ranking.md) for the expression system, and [API Reference](api.md) for full details.

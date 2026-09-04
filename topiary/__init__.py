@@ -158,7 +158,7 @@ from .result import (
 from .prediction_columns import PredictionMetric, parse_prediction_metric
 from .wide import detect_form, from_wide, to_wide
 
-__version__ = "5.52.0"
+__version__ = "5.52.1"
 
 __all__ = [
     "TopiaryPredictor",

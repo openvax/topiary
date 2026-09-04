@@ -208,8 +208,9 @@ def support(fragment):
     return fragment.n_rna_alt          # None where the source has no RNA
 ```
 
-**isovar is optional in the strong sense** — not in `requirements.txt`, and
-`import topiary` does not import it. Only `fragments_from_variants` with an
+**isovar is optional in the strong sense** — it is not a base requirement, and
+`import topiary` does not import it. Install it with
+`pip install 'topiary[isovar]'`; only `fragments_from_variants` with an
 `alignment_file` needs it.
 
 ### Reads and fragments
