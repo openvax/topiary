@@ -54,7 +54,11 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
-from .amino_acids import AMINO_ACIDS, blosum62_matrix, encode_amino_acids
+from .amino_acids import (
+    AMINO_ACIDS,
+    blosum62_distance_matrix,
+    encode_amino_acids,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -344,22 +348,18 @@ class SelfProteome:
         query_arr = encode_amino_acids(query_peps, L)
 
         use_blosum = metric == "blosum62"
-        blosum = blosum62_matrix() if use_blosum else None
+        blosum_distances = blosum62_distance_matrix() if use_blosum else None
 
         for start in range(0, len(query_arr), chunk_size):
             end = min(start + chunk_size, len(query_arr))
             q_chunk = query_arr[start:end]
 
             if use_blosum:
-                # BLOSUM62 distance: sum of (self_score - pair_score)
-                # per position.  Lower = more similar.
-                pair_scores = blosum[
+                # Sum explicit per-position distances. Canonical pairs retain
+                # historical behavior; ambiguous/unknown pairs are symmetric.
+                dists = blosum_distances[
                     q_chunk[:, None, :], ref_arr[None, :, :]
                 ].sum(axis=2)
-                self_scores = blosum[
-                    q_chunk, q_chunk
-                ].sum(axis=1)
-                dists = self_scores[:, None] - pair_scores
             else:
                 # Hamming: count mismatched positions.
                 dists = (

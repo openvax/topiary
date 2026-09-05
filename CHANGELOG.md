@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.52.6
+
+**Symmetric distances for ambiguous amino acids (#268).** Nearest-self
+BLOSUM62 distance now uses NCBI's published ambiguity scores for B/J/Z and an
+explicit symmetric worst-case distance for O/U/X/* and unrecognized
+characters. Unknown query residues can no longer appear to match every
+reference residue exactly. Canonical amino-acid distances are unchanged.
+
 ## 5.52.5
 
 **One release interpreter (#261).** `deploy.sh`, `lint.sh`, and `test.sh`

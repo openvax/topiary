@@ -546,6 +546,78 @@ class TestBlosum62:
         # BLOSUM62(I,L)=2 is better than BLOSUM62(I,W)=-3
         assert out.iloc[0]["self_nearest_peptide"] == "SLINFEKLA"
 
+    @pytest.mark.parametrize(
+        ("ambiguous", "canonical", "expected"),
+        [
+            ("B", "D", 2),
+            ("B", "N", 2),
+            ("J", "I", 1),
+            ("J", "L", 1),
+            ("Z", "E", 1),
+            ("Z", "Q", 1),
+            ("O", "A", 15),
+            ("U", "A", 15),
+            ("X", "A", 15),
+            ("*", "A", 15),
+            ("?", "A", 15),
+        ],
+    )
+    def test_noncanonical_distances_are_symmetric(
+        self,
+        ambiguous,
+        canonical,
+        expected,
+    ):
+        forward_reference = SelfProteome.from_peptides(
+            {"g": canonical},
+            peptide_lengths=[1],
+        )
+        reverse_reference = SelfProteome.from_peptides(
+            {"g": ambiguous},
+            peptide_lengths=[1],
+        )
+
+        forward = forward_reference.nearest(
+            [ambiguous],
+            include_indels=False,
+        )
+        reverse = reverse_reference.nearest(
+            [canonical],
+            include_indels=False,
+        )
+
+        assert forward.iloc[0]["self_nearest_blosum_distance"] == expected
+        assert reverse.iloc[0]["self_nearest_blosum_distance"] == expected
+
+    def test_published_ambiguity_prefers_compatible_residue(self):
+        ref = SelfProteome.from_peptides(
+            {"compatible": "D", "radical": "W"},
+            peptide_lengths=[1],
+        )
+
+        out = ref.nearest(["B"], include_indels=False)
+
+        assert out.iloc[0]["self_nearest_peptide"] == "D"
+        assert out.iloc[0]["self_nearest_blosum_distance"] == 2
+
+    @pytest.mark.parametrize("unknown", list("OUX*") + ["?"])
+    def test_unknown_never_creates_a_zero_distance(self, unknown):
+        ref = SelfProteome.from_peptides(
+            {"same_symbol": unknown, "canonical": "A"},
+            peptide_lengths=[1],
+        )
+
+        out = ref.nearest([unknown], include_indels=False)
+
+        assert out.iloc[0]["self_nearest_blosum_distance"] == 15
+
+    def test_hamming_distinguishes_named_noncanonical_residues(self):
+        ref = SelfProteome.from_peptides({"g": "O"}, peptide_lengths=[1])
+
+        out = ref.nearest(["U"], metric="hamming", include_indels=False)
+
+        assert out.iloc[0]["self_nearest_edit_distance"] == 1
+
     def test_hamming_metric_opt_in(self):
         ref = SelfProteome.from_peptides(
             {"g": "SIINFEKLA"}, peptide_lengths=[9],

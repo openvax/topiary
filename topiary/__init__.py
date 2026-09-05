@@ -160,18 +160,24 @@ from .wide import detect_form, from_wide, to_wide
 from .amino_acids import (
     AMINO_ACIDS,
     AMINO_ACID_INDEX,
+    BLOSUM62_AMINO_ACIDS,
+    ENCODED_AMINO_ACIDS,
     UNKNOWN_AMINO_ACID_INDEX,
+    blosum62_distance_matrix,
     blosum62_matrix,
     encode_amino_acids,
 )
 
-__version__ = "5.52.5"
+__version__ = "5.52.6"
 
 __all__ = [
     "TopiaryPredictor",
     "AMINO_ACIDS",
     "AMINO_ACID_INDEX",
+    "BLOSUM62_AMINO_ACIDS",
+    "ENCODED_AMINO_ACIDS",
     "UNKNOWN_AMINO_ACID_INDEX",
+    "blosum62_distance_matrix",
     "blosum62_matrix",
     "encode_amino_acids",
     "PredictionMetric",
