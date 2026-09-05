@@ -8,21 +8,30 @@ Topiary exposes one encoding shared by sequence consumers:
 from topiary import (
     AMINO_ACIDS,
     AMINO_ACID_INDEX,
+    BLOSUM62_AMINO_ACIDS,
+    ENCODED_AMINO_ACIDS,
     UNKNOWN_AMINO_ACID_INDEX,
+    blosum62_distance_matrix,
     blosum62_matrix,
     encode_amino_acids,
 )
 
 encoded = encode_amino_acids(["SIINFEKL", "AXX"], length=8)
 scores = blosum62_matrix()
+distances = blosum62_distance_matrix()
 ```
 
-`AMINO_ACIDS` gives the canonical index order and `AMINO_ACID_INDEX` is an
-immutable mapping. Non-standard residues use `UNKNOWN_AMINO_ACID_INDEX`.
-`blosum62_matrix()` returns a fresh read-only 21×21 int8 array: its canonical
-20×20 cells are the [NCBI BLOSUM62 matrix](https://ftp.ncbi.nlm.nih.gov/blast/matrices/BLOSUM62),
-while the final row and column preserve Topiary's historical `-4` sentinel
-policy. Callers never receive shared mutable matrix state.
+`AMINO_ACIDS` gives the canonical order, `BLOSUM62_AMINO_ACIDS` adds NCBI's
+B/J/Z ambiguity rows, and `ENCODED_AMINO_ACIDS` adds O/U/X/*. The immutable
+`AMINO_ACID_INDEX` mapping follows that order; any other character uses
+`UNKNOWN_AMINO_ACID_INDEX`.
+
+`blosum62_matrix()` returns substitution scores. `blosum62_distance_matrix()`
+returns the distances used by `SelfProteome`: canonical pairs retain Topiary's
+established behavior, B/J/Z comparisons use their published scores with a
+symmetric conservative transformation, and O/U/X/* or unrecognized characters
+receive the symmetric worst-case canonical distance (15). Both functions
+return fresh read-only int8 arrays, so callers never share mutable matrix state.
 
 ## TopiaryPredictor
 
