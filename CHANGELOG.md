@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.52.5
+
+**One release interpreter (#261).** `deploy.sh`, `lint.sh`, and `test.sh`
+now share one Python resolver and invoke Ruff, pytest, xdist detection, build,
+and Twine through that exact interpreter. Selection follows explicit `PYTHON`,
+an active virtual environment, the repository `.venv`, then `python3`; invalid
+explicit choices fail instead of silently falling back.
+
 ## 5.52.4
 
 **Normal ProteinFragment construction (#265).** `ProteinFragment` now defines
