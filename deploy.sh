@@ -1,15 +1,18 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # Deploy topiary to PyPI
 # Usage: ./deploy.sh
 # Override the interpreter with PYTHON=/path/to/python ./deploy.sh
 
-PYTHON=${PYTHON:-python3}
-PYTHON_BIN=$("${PYTHON}" -c "import sys; print(sys.executable)")
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/scripts/resolve_python.sh"
+resolve_topiary_python
+unset SCRIPT_DIR
+
 VERSION=$("${PYTHON}" -c "import topiary; print(topiary.__version__)")
 echo "Deploying topiary v${VERSION}"
-echo "Using Python: ${PYTHON_BIN}"
+echo "Using Python: ${PYTHON}"
 
 # Check we're on master
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
