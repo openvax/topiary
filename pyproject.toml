@@ -44,3 +44,8 @@ ignore = ["F821", "E501", "F841", "E731", "E741", "E722", "E721"]
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "test*/*" = ["F401"]
+
+[tool.pytest.ini_options]
+markers = [
+    "pirlygenes: exercises the installed PirlyGenes optional integration",
+]

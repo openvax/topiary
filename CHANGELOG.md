@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.52.7
+
+**Required PirlyGenes integration coverage (#267).** Base CI now proves the
+optional package is absent, while a dedicated job installs
+`topiary[pirlygenes]` and runs the real CTA and tissue-expression workflows as
+required tests. Integration tests skip only a genuinely absent top-level
+package; broken or transitively incomplete installations fail with their
+original import error instead of being hidden by `pytest.importorskip`.
+
 ## 5.52.6
 
 **Symmetric distances for ambiguous amino acids (#268).** Nearest-self

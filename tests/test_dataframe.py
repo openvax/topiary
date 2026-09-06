@@ -1,3 +1,4 @@
+import pytest
 from mhctools import NetMHC
 from topiary import TopiaryPredictor
 from .data import cancer_test_variants
@@ -8,12 +9,15 @@ alleles = [
     "HLA-C*07:02",
 ]
 
-mhc_model = NetMHC(alleles=alleles, default_peptide_lengths=[8, 9, 10])
-
 DEFAULT_FPKM = 1.0
 
 
-def test_epitopes_to_dataframe_transcript_expression():
+@pytest.fixture(scope="module")
+def mhc_model():
+    return NetMHC(alleles=alleles, default_peptide_lengths=[8, 9, 10])
+
+
+def test_epitopes_to_dataframe_transcript_expression(mhc_model):
     predictor = TopiaryPredictor(mhc_model=mhc_model, only_novel_epitopes=False)
     df = predictor.predict_from_variants(
         variants=cancer_test_variants,
@@ -32,7 +36,7 @@ def test_epitopes_to_dataframe_transcript_expression():
     ).all(), "Invalid FPKM values in DataFrame transcript_expression column"
 
 
-def test_epitopes_to_dataframe_gene_expression():
+def test_epitopes_to_dataframe_gene_expression(mhc_model):
     predictor = TopiaryPredictor(mhc_model=mhc_model, only_novel_epitopes=False)
 
     df = predictor.predict_from_variants(

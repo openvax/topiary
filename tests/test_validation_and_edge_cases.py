@@ -239,7 +239,6 @@ def test_sequences_from_transcript_names_empty_raises():
 
 
 def test_tissue_expressed_gene_ids_empty_raises():
-    pytest.importorskip("pirlygenes")
     from topiary.sources import tissue_expressed_gene_ids
     with pytest.raises(ValueError, match="non-empty"):
         tissue_expressed_gene_ids([])
@@ -453,9 +452,9 @@ def test_sequences_from_transcript_names_unknown():
     assert len(seqs) == 0
 
 
+@pytest.mark.pirlygenes
 def test_non_cta_sequences_excludes_cta_genes():
     """non_cta_sequences should return proteins whose genes are NOT in the CTA set."""
-    pytest.importorskip("pirlygenes")
     from topiary.sources import non_cta_sequences, _pirlygenes_cta_gene_ids
     from pyensembl import ensembl_grch38
 

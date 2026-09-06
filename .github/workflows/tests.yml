@@ -59,7 +59,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install pytest pytest-cov ruff
-          pip install -e .
+          python -m pip install -e .
+      - name: Verify PirlyGenes is absent from the base environment
+        run: |
+          python -c "import importlib.util; assert importlib.util.find_spec('pirlygenes') is None, 'base CI unexpectedly installed PirlyGenes'"
       - name: Lint with ruff
         run: |
           ./lint.sh
@@ -115,6 +118,40 @@ jobs:
         with:
           parallel: true
           flag-name: python-${{ matrix.python-version }}
+
+  pirlygenes-integration:
+    needs: build
+    runs-on: ubuntu-22.04
+    env:
+      PYENSEMBL_CACHE_DIR: ${{ github.workspace }}/pyensembl-data
+      TOPIARY_TEST_REQUIRE_PIRLYGENES: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+      - name: Restore Ensembl data from the base jobs
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/pyensembl-data
+          key: pyensembl-GRCh37.75-GRCm38.102-GRCh38.93-GRCm38.93-v2
+          fail-on-cache-miss: true
+      - name: Install Topiary with PirlyGenes
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pytest-cov pytest-xdist
+          python -m pip install -e '.[pirlygenes]'
+      - name: Verify PirlyGenes imports
+        run: |
+          python -c "from importlib.metadata import version; import pirlygenes; print('PirlyGenes', version('pirlygenes'))"
+      - name: Test PirlyGenes integration
+        run: |
+          ./test.sh -m pirlygenes --strict-markers
 
   coveralls-finish:
     needs: build

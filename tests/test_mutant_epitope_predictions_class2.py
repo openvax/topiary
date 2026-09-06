@@ -10,6 +10,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
 from mhctools import NetMHCIIpan
 from pyensembl import ensembl_grch37
 from topiary import TopiaryPredictor
@@ -28,10 +29,12 @@ variants = VariantCollection(
 
 alleles = ["HLA-DPA1*01:05/DPB1*100:01", "DRB10102"]
 
-mhc_model = NetMHCIIpan(alleles=alleles, default_peptide_lengths=[15, 16])
+@pytest.fixture(scope="module")
+def mhc_model():
+    return NetMHCIIpan(alleles=alleles, default_peptide_lengths=[15, 16])
 
 
-def test_netmhcii_pan_epitopes():
+def test_netmhcii_pan_epitopes(mhc_model):
     epitope_predictions = TopiaryPredictor(
         mhc_model=mhc_model, only_novel_epitopes=True
     ).predict_from_variants(variants=variants)
