@@ -29,10 +29,12 @@ variants = VariantCollection(
 
 alleles = ["A02:01", "a0204", "B*07:02", "HLA-B14:02", "HLA-C*07:02", "hla-c07:01"]
 
-mhc_model = NetMHCpan(alleles=alleles, default_peptide_lengths=[9])
+@pytest.fixture(scope="module")
+def mhc_model():
+    return NetMHCpan(alleles=alleles, default_peptide_lengths=[9])
 
 
-def test_epitope_prediction_without_padding():
+def test_epitope_prediction_without_padding(mhc_model):
     output_without_padding = TopiaryPredictor(
         mhc_model=mhc_model, only_novel_epitopes=True
     ).predict_from_variants(variants=variants)
@@ -44,21 +46,21 @@ def test_epitope_prediction_without_padding():
     assert "pMHC_affinity" in output_without_padding["kind"].values
 
 
-def test_epitope_prediction_with_invalid_padding():
+def test_epitope_prediction_with_invalid_padding(mhc_model):
     with pytest.raises(ValueError):
         TopiaryPredictor(
             mhc_model=mhc_model, padding_around_mutation=7
         ).predict_from_variants(variants=variants)
 
 
-def test_epitope_prediction_with_invalid_zero_padding():
+def test_epitope_prediction_with_invalid_zero_padding(mhc_model):
     with pytest.raises(ValueError):
         TopiaryPredictor(
             mhc_model=mhc_model, padding_around_mutation=7
         ).predict_from_variants(variants=variants)
 
 
-def test_epitope_prediction_with_valid_padding():
+def test_epitope_prediction_with_valid_padding(mhc_model):
     predictor = TopiaryPredictor(
         mhc_model=mhc_model, padding_around_mutation=8, only_novel_epitopes=True
     )
