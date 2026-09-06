@@ -337,8 +337,8 @@ def test_sequences_from_transcript_ids_unknown():
     assert len(seqs) == 0
 
 
+@pytest.mark.pirlygenes
 def test_available_tissues_has_testis():
-    pytest.importorskip("pirlygenes")
     from topiary.sources import available_tissues
     tissues = available_tissues()
     assert "testis" in tissues
