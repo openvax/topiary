@@ -168,7 +168,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.52.7"
+__version__ = "5.52.8"
 
 __all__ = [
     "TopiaryPredictor",
