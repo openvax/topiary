@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.52.9
+
+**Require corrected Isovar RNA assembly (#279).** The optional `isovar` extra
+now requires Isovar 1.7.10 or newer. Real integration tests cover mutations
+spanning two codons, long insertions, and distinct read/fragment support through
+RNA assembly, Topiary prediction, and the ranking DSL. Dedicated CI jobs test
+the minimum and latest Isovar releases; missing or broken installations fail
+instead of silently skipping. Isovar remains optional and lazily imported.
+
 ## 5.52.8
 
 **Packaging and CI cleanup (#276, #274, #270).** Wheels now install only

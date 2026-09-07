@@ -20,6 +20,7 @@ import pytest
 from topiary import (
     EvalContext,
     Presentation,
+    TopiaryPredictor,
     TopiaryResult,
     aggregate_evidence_across_samples,
     apply_filter,
@@ -31,6 +32,7 @@ from topiary import (
     fragment_from_effect,
     fragment_from_isovar_result,
     fragments_from_dataframe,
+    fragments_from_variants,
     peptide_view,
     read_lens,
     read_pvacseq,
@@ -394,3 +396,173 @@ def test_a_context_from_another_frame_is_still_refused():
 
     with pytest.raises(ValueError, match="different DataFrame"):
         evaluate_scores(smaller, parse("affinity.score"), context=context)
+
+
+# ---------------------------------------------------------------------------
+# Real Isovar RNA assembly → fragments → predictions → ranking DSL (#279)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def isovar_fragments_from_reads(monkeypatch):
+    """Supply read/reference inputs without replacing the Isovar pipeline.
+
+    Imports happen after the integration marker's availability check. No BAM
+    decoding or downloaded Ensembl data is needed: only read collection,
+    reference lookup, and effect annotation are supplied here. The installed
+    run_isovar, assembly, translation, IsovarResult, and Topiary adapters run.
+
+    Sequences are specified in transcript orientation, with reads converted
+    to genomic orientation on the minus strand. Codon expectations follow
+    NCBI's standard genetic code and CDS strand conventions:
+    https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi#SG1
+    https://www.ncbi.nlm.nih.gov/genbank/feature_table/
+    """
+    from varcode import Variant
+    from isovar.allele_read import AlleleRead
+    from isovar.dna import reverse_complement_dna
+    from isovar.protein_sequence_creator import ProteinSequenceCreator
+    from isovar.read_evidence import ReadEvidence
+    from isovar.reference_context import ReferenceContext
+
+    def assemble(strand, assembly, ref, alt, prefixes, suffix):
+        def genomic(sequence):
+            return sequence if strand == "+" else reverse_complement_dna(sequence)
+
+        variant = Variant("1", 100, genomic(ref), genomic(alt), "GRCh38")
+        reads = []
+        for index, prefix in enumerate(prefixes):
+            left, right = (prefix, suffix) if strand == "+" else (suffix, prefix)
+            reads.append(AlleleRead(
+                genomic(left), genomic(alt), genomic(right), str(index),
+                source_read_count=2,
+            ))
+        evidence = ReadEvidence.from_variant_and_allele_reads(variant, reads)
+        context = ReferenceContext(
+            strand=strand,
+            sequence_before_variant_locus=min(prefixes, key=len),
+            sequence_at_variant_locus=ref,
+            sequence_after_variant_locus=suffix,
+            offset_to_first_complete_codon=0,
+            contains_start_codon=False,
+            overlaps_start_codon=False,
+            contains_five_prime_utr=False,
+            amino_acids_before_variant="",
+            variant=variant,
+            transcripts=(),
+        )
+
+        class Collector:
+            def read_evidence_generator(self, variants, alignment_file):
+                assert list(variants) == [variant]
+                yield variant, evidence
+
+        with monkeypatch.context() as inputs:
+            inputs.setattr(
+                "isovar.protein_sequence_creator.reference_contexts_for_variant",
+                lambda variant, **kwargs: [context],
+            )
+            inputs.setattr("isovar.main.top_varcode_effect", lambda variant, **kwargs: None)
+            return fragments_from_variants(
+                [variant], alignment_file=object(), read_collector=Collector(),
+                protein_sequence_creator=ProteinSequenceCreator(
+                    variant_sequence_assembly=assembly,
+                ),
+                filter_thresholds={}, filter_flags=[],
+            )
+
+    return assemble
+
+
+def _isovar_prediction_frame(fragment):
+    """Exercise peptide selection and evidence handoff, not MHC accuracy."""
+    from mhctools import RandomBindingPredictor
+
+    model = RandomBindingPredictor(
+        alleles=["HLA-A*02:01"], default_peptide_lengths=[9],
+    )
+    predictor = TopiaryPredictor(models=model, only_novel_epitopes=True)
+    return predictor.predict_from_fragments([fragment])
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("strand", ["+", "-"])
+@pytest.mark.parametrize("assembly", [False, True])
+def test_isovar_multibase_mutation_keeps_second_changed_codon(
+    isovar_fragments_from_reads, strand, assembly,
+):
+    # AT[GAA]A → AT[TCC]A changes ATG/AAA (MK) to ATT/CCA (IP).
+    fragment, = isovar_fragments_from_reads(
+        strand, assembly, "GAA", "TCC", ["AAA" * 4 + "AT"] * 2, "A" + "GGG" * 8,
+    )
+    assert fragment.sequence == "KKKKIP" + "G" * 8
+    assert list(fragment.target_intervals) == [(4, 6)]
+
+    frame = _isovar_prediction_frame(fragment)
+    # The 9-mer beginning on the second mutant residue was lost with the
+    # incorrect [4, 5) interval, despite a correctly translated sequence.
+    assert "P" + "G" * 8 in set(frame.peptide)
+    assert frame.contains_mutant_residues.all()
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("strand", ["+", "-"])
+@pytest.mark.parametrize("assembly", [False, True])
+def test_isovar_long_insertion_reaches_fragment_and_predictions(
+    isovar_fragments_from_reads, strand, assembly,
+):
+    fragment, = isovar_fragments_from_reads(
+        strand, assembly, "", "A" * 45, ["ACG" * 4] * 3, "G" * 30,
+    )
+    assert fragment.sequence == "TTT" + "K" * 15 + "GG"
+    assert list(fragment.target_intervals) == [(3, 18)]
+    assert fragment.n_rna_alt_reads_supporting_protein_sequence == 6
+    assert fragment.n_rna_alt_fragments_supporting_protein_sequence == 3
+
+    frame = _isovar_prediction_frame(fragment)
+    assert "K" * 9 in set(frame.peptide)
+    assert frame.contains_mutant_residues.all()
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("strand", ["+", "-"])
+@pytest.mark.parametrize("assembly", [False, True])
+def test_isovar_long_insertion_still_requires_real_flanking_context(
+    isovar_fragments_from_reads, strand, assembly,
+):
+    # Nine transcript-prefix bases cannot satisfy Isovar's ten-base minimum.
+    assert isovar_fragments_from_reads(
+        strand, assembly, "", "A" * 45, ["ACG" * 3] * 3, "G" * 30,
+    ) == []
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("strand", ["+", "-"])
+@pytest.mark.parametrize("assembly", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_isovar_shared_support_survives_adapter_and_dsl(
+    isovar_fragments_from_reads, strand, assembly, reverse,
+):
+    prefixes = [
+        prefix + "A" * 12
+        for prefix in ("", "GGG", "CCCGGG", "TTTCCCGGG", "GGGTTTCCCGGG")
+    ]
+    if reverse:
+        prefixes.reverse()
+    fragment, = isovar_fragments_from_reads(
+        strand, assembly, "G", "C", prefixes, "A" * 30,
+    )
+    frame = _isovar_prediction_frame(fragment)
+    assert not frame.empty
+
+    # Five read pairs contribute ten raw reads, not five: neither unit may
+    # disappear or be substituted for the other at either public handoff.
+    for field, count in (
+        ("n_rna_alt_reads_supporting_protein_sequence", 10),
+        ("n_rna_alt_fragments_supporting_protein_sequence", 5),
+    ):
+        assert getattr(fragment, field) == count
+        assert fragment.provenance_of(field) == "measured"
+        assert evaluate_scores(frame, parse(field)).eq(count).all()
+        assert not apply_filter(frame, parse(f"{field} >= {count}")).empty
+        assert apply_filter(frame, parse(f"{field} > {count}")).empty

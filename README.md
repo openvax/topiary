@@ -40,6 +40,10 @@ For RNA-assembled protein fragments from Isovar:
 pip install 'topiary[isovar]'
 ```
 
+This extra requires Isovar 1.7.10 or newer for corrected mutation intervals,
+long-insertion assembly, and shared RNA support counts. Isovar is not needed
+for other input sources.
+
 **MHC predictors** (NetMHCpan, mhcflurry, etc.) are installed
 separately — topiary calls them through
 [mhctools](https://github.com/openvax/mhctools). mhcflurry installs
