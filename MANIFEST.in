@@ -1,14 +1,13 @@
-# Ship the docs with the source distribution.
-#
-# docs/consumer-guide.md is written as the reference a downstream
-# consumer reads instead of asking; a consumer working from an installed
-# package could not find it when it lived only in the repo.
+# Keep documentation and test resources in the source distribution.
+# Package discovery limits the installed wheel to topiary itself.
 include README.md
 include CHANGELOG.md
 include LICENSE
 include requirements.txt
+include mkdocs.yml
+include *.sh
 recursive-include docs *.md
-recursive-include topiary/data *
-# Keep the authoritative matrix fixture beside the regression test in sdists
-# and wheels, which currently ship the test package.
-include tests/data/BLOSUM62.ncbi
+recursive-include scripts *.sh
+recursive-include .github/workflows *.yml
+recursive-include tests *.py
+recursive-include tests/data *

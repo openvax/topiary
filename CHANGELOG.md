@@ -9,6 +9,15 @@ RNA assembly, Topiary prediction, and the ranking DSL. Dedicated CI jobs test
 the minimum and latest Isovar releases; missing or broken installations fail
 instead of silently skipping. Isovar remains optional and lazily imported.
 
+## 5.52.8
+
+**Packaging and CI cleanup (#276, #274, #270).** Wheels now install only
+Topiary's runtime packages; documentation, tests, and fixtures remain in the
+source archive. Distributions declare the SPDX license expression
+`Apache-2.0` and include the license text. CI checks the actual wheel and
+source archive contents and metadata. Test and documentation workflows use
+Node.js 24-compatible GitHub Actions.
+
 ## 5.52.7
 
 **Required PirlyGenes integration coverage (#267).** Base CI now proves the
