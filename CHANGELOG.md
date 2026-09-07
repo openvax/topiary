@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.52.10
+
+**Reliable CI retries and offline test collection (#282, #280).** Coverage is
+combined from every Python matrix job and published once, with a separate build
+identifier for each retry. The reporter download is version-pinned, retried with
+HTTP diagnostics, and SHA-256 verified; missing or corrupt coverage stays fatal.
+Ensembl-backed test data is now loaded by fixtures only when selected tests need
+it. Whole-suite collection and Isovar marker selection work without downloading
+reference data. There are no runtime API changes.
+
 ## 5.52.9
 
 **Require corrected Isovar RNA assembly (#279).** The optional `isovar` extra

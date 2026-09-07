@@ -1,10 +1,9 @@
 from topiary.cli.args import arg_parser, predict_epitopes_from_args
 
 from .common import eq_
-from .data import cancer_test_variants
 
 
-def test_cancer_epitopes_from_args():
+def test_cancer_epitopes_from_args(cancer_test_variants):
     epitope_lengths = [9, 10]
     alleles = ["HLA-A*02:01", "C0701"]
     args_list = [
