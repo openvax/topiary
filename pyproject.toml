@@ -34,7 +34,7 @@ exclude = ["test", "test.*"]
 topiary = "topiary.cli.script:main"
 
 [project.optional-dependencies]
-isovar = ["isovar>=1.7.2"]
+isovar = ["isovar>=1.7.10"]
 pirlygenes = ["pirlygenes>=5.1.0"]
 
 [tool.ruff.lint]
@@ -47,5 +47,6 @@ ignore = ["F821", "E501", "F841", "E731", "E741", "E722", "E721"]
 
 [tool.pytest.ini_options]
 markers = [
+    "isovar: exercises the installed Isovar optional integration",
     "pirlygenes: exercises the installed PirlyGenes optional integration",
 ]

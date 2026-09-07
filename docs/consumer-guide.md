@@ -213,6 +213,11 @@ def support(fragment):
 `pip install 'topiary[isovar]'`; only `fragments_from_variants` with an
 `alignment_file` needs it.
 
+The extra requires Isovar 1.7.10 or newer. Earlier releases can lose peptides
+from mutations spanning two codons or long insertions, or discard shared RNA
+support before Topiary receives it. Upgrade with
+`pip install --upgrade 'topiary[isovar]'`; the Topiary calling API is unchanged.
+
 ### Reads and fragments
 
 isovar reports both units. Both are carried, each under a name that says what it
