@@ -179,10 +179,10 @@ def fragments_from_isovar_results(isovar_results):
 #: A fragment is scanned by a sliding window later, so the assembled
 #: sequence has to be long enough to contain every peptide that could
 #: cover the mutation — the peptide length plus padding on both sides.
-#: This matches isovar's own default rather than raising it: with
-#: assembly on, a longer window still has to be reachable from the
-#: reads, and asking for more than the data supports silently returns
-#: fewer variants rather than longer sequences.
+#: Topiary keeps its historical 21-amino-acid default independently of
+#: Isovar's default. Callers can request a different length or supply a
+#: configured ProteinSequenceCreator; available RNA context still limits
+#: the assembled sequence.
 DEFAULT_PROTEIN_SEQUENCE_LENGTH = 21
 
 

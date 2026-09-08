@@ -8,7 +8,10 @@ identifier for each retry. The reporter download is version-pinned, retried with
 HTTP diagnostics, and SHA-256 verified; missing or corrupt coverage stays fatal.
 Ensembl-backed test data is now loaded by fixtures only when selected tests need
 it. Whole-suite collection and Isovar marker selection work without downloading
-reference data. There are no runtime API changes.
+reference data. Isovar integration fixtures request explicit protein windows
+and cover both 21- and 49-amino-acid windows, including mutation offsets and
+read support, so Isovar's changed default does not change test expectations.
+There are no runtime API changes.
 
 ## 5.52.9
 
