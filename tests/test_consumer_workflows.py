@@ -18,6 +18,7 @@ import pandas as pd
 import pytest
 
 from topiary import (
+    DEFAULT_PROTEIN_SEQUENCE_LENGTH,
     EvalContext,
     Presentation,
     TopiaryPredictor,
@@ -425,7 +426,10 @@ def isovar_fragments_from_reads(monkeypatch):
     from isovar.read_evidence import ReadEvidence
     from isovar.reference_context import ReferenceContext
 
-    def assemble(strand, assembly, ref, alt, prefixes, suffix):
+    def assemble(
+        strand, assembly, ref, alt, prefixes, suffix,
+        protein_sequence_length=DEFAULT_PROTEIN_SEQUENCE_LENGTH,
+    ):
         def genomic(sequence):
             return sequence if strand == "+" else reverse_complement_dna(sequence)
 
@@ -467,6 +471,7 @@ def isovar_fragments_from_reads(monkeypatch):
                 [variant], alignment_file=object(), read_collector=Collector(),
                 protein_sequence_creator=ProteinSequenceCreator(
                     variant_sequence_assembly=assembly,
+                    protein_sequence_length=protein_sequence_length,
                 ),
                 filter_thresholds={}, filter_flags=[],
             )
@@ -508,14 +513,22 @@ def test_isovar_multibase_mutation_keeps_second_changed_codon(
 @pytest.mark.isovar
 @pytest.mark.parametrize("strand", ["+", "-"])
 @pytest.mark.parametrize("assembly", [False, True])
+@pytest.mark.parametrize("protein_sequence_length,sequence,interval", [
+    (21, "TTT" + "K" * 15 + "GGG", (3, 18)),
+    (49, "TTTT" + "K" * 15 + "G" * 10, (4, 19)),
+])
 def test_isovar_long_insertion_reaches_fragment_and_predictions(
     isovar_fragments_from_reads, strand, assembly,
+    protein_sequence_length, sequence, interval,
 ):
+    # Explicit windows cover Topiary's default and the longer context used by
+    # Isovar 1.8.0. A dependency's default must not determine this fixture.
     fragment, = isovar_fragments_from_reads(
         strand, assembly, "", "A" * 45, ["ACG" * 4] * 3, "G" * 30,
+        protein_sequence_length=protein_sequence_length,
     )
-    assert fragment.sequence == "TTT" + "K" * 15 + "GG"
-    assert list(fragment.target_intervals) == [(3, 18)]
+    assert fragment.sequence == sequence
+    assert list(fragment.target_intervals) == [interval]
     assert fragment.n_rna_alt_reads_supporting_protein_sequence == 6
     assert fragment.n_rna_alt_fragments_supporting_protein_sequence == 3
 

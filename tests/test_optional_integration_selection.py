@@ -95,11 +95,7 @@ def test_ci_requires_both_absent_and_installed_environments(dependency):
     assert f"{dependency}-integration:" in workflow
     assert f"python -m pip install -e '.[{dependency}]'" in workflow
     assert f'TOPIARY_TEST_REQUIRE_{dependency.upper()}: "1"' in workflow
-    command = (
-        "python -m pytest tests/test_consumer_workflows.py"
-        if dependency == "isovar" else "./test.sh"
-    )
-    assert f"{command} -m {dependency} --strict-markers" in workflow
+    assert f"./test.sh -m {dependency} --strict-markers" in workflow
 
 
 def test_external_predictors_are_not_created_during_test_collection():

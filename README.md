@@ -649,3 +649,24 @@ topiary --peptide-csv peptides.csv \
 
 `--mhc-predictor` and `--mhc-alleles` become optional when a cache
 supplies predictions.
+
+## Development checks
+
+Run `./lint.sh` and `./test.sh` before submitting changes. The full suite uses
+real Ensembl annotations and external MHC predictors. Collecting tests does
+not load those resources, and the synthetic Isovar integration tests need only
+the optional package:
+
+```bash
+python -m pytest tests --collect-only
+pip install '.[isovar]' pytest pytest-cov pytest-xdist
+./test.sh -m isovar --strict-markers
+```
+
+CI saves each Python version's coverage as a separate artifact, then combines
+all of them in one upload job. If coverage publication fails, use GitHub's
+**Re-run failed jobs**; successful test jobs and their artifacts are reused.
+Each attempt has a separate Coveralls build number, with no parallel-build
+finalization step. Reporter downloads use a pinned version and SHA-256 digest;
+update both together in `.github/workflows/tests.yml`. Download, checksum,
+missing-artifact, and upload errors all fail CI.

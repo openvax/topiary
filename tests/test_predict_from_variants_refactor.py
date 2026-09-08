@@ -28,9 +28,6 @@ from topiary.predictor import (
     fragment_from_effect,
 )
 
-from .data import cancer_test_variants
-
-
 ALLELES = ["HLA-A*02:01"]
 
 
@@ -49,7 +46,7 @@ def _predictor(**kwargs):
 
 
 class TestLegacyColumnContract:
-    def test_required_columns_present(self):
+    def test_required_columns_present(self, cancer_test_variants):
         df = _predictor().predict_from_variants(cancer_test_variants)
         required = {
             "peptide", "peptide_offset", "peptide_length", "allele",
@@ -63,7 +60,7 @@ class TestLegacyColumnContract:
         missing = required - set(df.columns)
         assert not missing, f"Missing legacy columns: {missing}"
 
-    def test_peptide_offset_is_absolute(self):
+    def test_peptide_offset_is_absolute(self, cancer_test_variants):
         """Offset should be relative to the full mutant protein, not
         to the sliding-window subsequence."""
         df = _predictor().predict_from_variants(cancer_test_variants)
@@ -75,7 +72,7 @@ class TestLegacyColumnContract:
             "peptide_offset appears to be fragment-local, not absolute protein"
         )
 
-    def test_mutation_interval_populated_when_overlapping(self):
+    def test_mutation_interval_populated_when_overlapping(self, cancer_test_variants):
         df = _predictor().predict_from_variants(cancer_test_variants)
         aff = df[df["kind"] == "pMHC_affinity"]
         mutant = aff[aff["contains_mutant_residues"].eq(True)]
@@ -87,7 +84,7 @@ class TestLegacyColumnContract:
         assert nonmutant["mutation_start_in_peptide"].isna().all()
         assert nonmutant["mutation_end_in_peptide"].isna().all()
 
-    def test_internal_annotation_keys_not_leaked(self):
+    def test_internal_annotation_keys_not_leaked(self, cancer_test_variants):
         """Internal bookkeeping keys stashed on fragment.annotations
         must not appear as columns on the returned DataFrame."""
         df = _predictor().predict_from_variants(cancer_test_variants)
@@ -98,7 +95,7 @@ class TestLegacyColumnContract:
         ):
             assert leaked not in df.columns, f"Internal key leaked: {leaked}"
 
-    def test_only_novel_epitopes_drops_non_mutant_rows(self):
+    def test_only_novel_epitopes_drops_non_mutant_rows(self, cancer_test_variants):
         # padding=16 gives a 33-residue subseq for a single-aa mutation,
         # so the outer 9-mers don't overlap the mutation and we can
         # verify that only_novel_epitopes=True drops them.
@@ -118,7 +115,7 @@ class TestLegacyColumnContract:
 
 
 class TestFragmentColumnsOnVariantPath:
-    def test_fragment_id_and_source_type_populated(self):
+    def test_fragment_id_and_source_type_populated(self, cancer_test_variants):
         df = _predictor().predict_from_variants(cancer_test_variants)
         assert "fragment_id" in df.columns
         assert "source_type" in df.columns
@@ -126,7 +123,7 @@ class TestFragmentColumnsOnVariantPath:
         # Both BRAF V600E and TP53 R248W are single-residue substitutions
         assert (df["source_type"] == "variant:snv").all()
 
-    def test_overlaps_target_matches_contains_mutant(self):
+    def test_overlaps_target_matches_contains_mutant(self, cancer_test_variants):
         """For variant fragments, overlaps_target and
         contains_mutant_residues derive from the same interval — they
         should agree row-by-row."""
@@ -134,7 +131,7 @@ class TestFragmentColumnsOnVariantPath:
         aff = df[df["kind"] == "pMHC_affinity"]
         assert (aff["overlaps_target"] == aff["contains_mutant_residues"]).all()
 
-    def test_wt_peptide_populated_for_substitutions(self):
+    def test_wt_peptide_populated_for_substitutions(self, cancer_test_variants):
         """Substitution effects have matched-length original/mutant
         proteins, so wt_peptide is derived from the reference slice."""
         df = _predictor().predict_from_variants(cancer_test_variants)
@@ -145,7 +142,7 @@ class TestFragmentColumnsOnVariantPath:
         mutant = aff[aff["contains_mutant_residues"].eq(True)]
         assert (mutant["peptide"] != mutant["wt_peptide"]).all()
 
-    def test_predict_wt_populates_wt_prediction_columns(self):
+    def test_predict_wt_populates_wt_prediction_columns(self, cancer_test_variants):
         """predict_wt=True should run on the variant path after legacy
         mutation columns are attached but before filter/sort."""
         df = _predictor(predict_wt=True).predict_from_variants(
@@ -335,7 +332,7 @@ class TestExpressionDictPlumbing:
     """Regression: legacy gene_expression_dict / transcript_expression_dict
     still propagate into the column output through the refactored path."""
 
-    def test_transcript_expression_dict_populates_column(self):
+    def test_transcript_expression_dict_populates_column(self, cancer_test_variants):
         expr_dict = {
             transcript_id: 42.0
             for v in cancer_test_variants
@@ -347,7 +344,7 @@ class TestExpressionDictPlumbing:
         assert "transcript_expression" in df.columns
         assert (df["transcript_expression"] == 42.0).all()
 
-    def test_gene_expression_dict_populates_column(self):
+    def test_gene_expression_dict_populates_column(self, cancer_test_variants):
         expr_dict = {
             gene_id: 7.5
             for v in cancer_test_variants
