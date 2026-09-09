@@ -49,9 +49,11 @@ def check_padding_around_mutation(given_padding, epitope_lengths):
     """
     If user doesn't provide any padding around the mutation we need
     to at least include enough of the surrounding non-mutated
-    esidues to construct candidate epitopes of the specified lengths.
+    residues to construct candidate epitopes of the specified lengths.
+    An empty collection (whole-peptide models with no scanning windows)
+    requires no padding.
     """
-    min_required_padding = max(epitope_lengths) - 1
+    min_required_padding = max((length - 1 for length in epitope_lengths), default=0)
     if not given_padding:
         return min_required_padding
     else:

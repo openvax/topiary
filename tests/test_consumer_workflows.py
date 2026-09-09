@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 
 from topiary import (
+    CachedPredictor,
     DEFAULT_PROTEIN_SEQUENCE_LENGTH,
     EvalContext,
     Presentation,
@@ -37,6 +38,7 @@ from topiary import (
     fragment_from_isovar_result,
     fragments_from_dataframe,
     fragments_from_variants,
+    mhc_dependence,
     peptide_view,
     read_lens,
     read_pvacseq,
@@ -719,6 +721,176 @@ def test_nested_dataclass_annotations_survive_all_serialization_doors(tmp_path):
         assert restored.annotations["settings"][0]["enabled"] is True
     assert type(settings.enabled) is np.bool_
     assert settings.label == "label\0"
+
+
+@pytest.fixture
+def half_life_models(tmp_path, monkeypatch):
+    """Exercise actual wrapper APIs without unsafe sidecars or model downloads.
+
+    Values are synthetic transport fixtures, not independently validated
+    biological predictions (mhctools #310/#311).
+    """
+    from mhctools import PeptiVerse, PlifePred2
+
+    peptiverse = tmp_path / "peptiverse"
+    (peptiverse / "training_classifiers" / "half_life").mkdir(parents=True)
+    (peptiverse / "inference.py").touch()
+    plifepred2 = tmp_path / "plifepred2"
+    (plifepred2 / "models").mkdir(parents=True)
+    (plifepred2 / "models" / "plifepred2_natural_model.sav").touch()
+    pfeature = tmp_path / "pfeature"
+    (pfeature / "Data").mkdir(parents=True)
+    (pfeature / "pfeature_comp.py").touch()
+    for name in ("Schneider-Wrede.csv", "Grantham.csv"):
+        (pfeature / "Data" / name).touch()
+    for key, path in (("PEPTIVERSE_HOME", peptiverse), ("PLIFEPRED2_HOME", plifepred2),
+                      ("PFEATURE_HOME", pfeature)):
+        monkeypatch.setenv(key, str(path))
+
+    def synthetic_output(model, peptides):
+        # Opposite preference between matrices proves that they stay distinct.
+        serum = model._predictor_name() == "peptiverse"
+        values = [2.0 if p.startswith("S") else 8.0 for p in peptides]
+        if not serum:
+            values = [12.0 if p.startswith("S") else 1.0 for p in peptides]
+        # Native outputs are supplied too, for the reviewed PlifePred2 API
+        # that withholds an unverified hours conversion by default.
+        return pd.DataFrame({"hours": values, "log10_seconds": values})
+
+    for cls in (PeptiVerse, PlifePred2):
+        monkeypatch.setattr(cls, "_run_sidecar", synthetic_output)
+    return PeptiVerse(), PlifePred2()
+
+
+@pytest.mark.parametrize("model_index", [0, 1])
+def test_whole_peptide_wrappers_survive_prediction_cache_io_and_ranking(
+    half_life_models, model_index, tmp_path,
+):
+    from tests.test_twin_conformance import WHOLE_PEPTIDE_PREDICTION_DOORS
+    from topiary import read_tsv, to_tsv
+
+    model = half_life_models[model_index]
+    peptides = ["SIINFEKLGGALQ", "KLGGALQAKKYKY", "SIINFEKLGGALQ"]
+    kind, = model.supported_kinds
+    columns = ["source_sequence_name", "peptide", "allele", "kind", "value", "score",
+               "percentile_rank", "prediction_method_name", "predictor_version"]
+    frames = [
+        door(model, peptides).astype({"value": float, "score": float, "percentile_rank": float})
+        .sort_values("source_sequence_name").reset_index(drop=True)
+        for door in WHOLE_PEPTIDE_PREDICTION_DOORS
+    ]
+    pd.testing.assert_frame_equal(frames[0][columns], frames[1][columns], check_dtype=False)
+    native = frames[0]
+    assert len(native) == 3
+    assert native.allele.eq("").all()
+    assert native.affinity.isna().all()
+    assert native.kind.eq(kind).all()
+    assert mhc_dependence(kind) == "none"
+    if model_index == 0:
+        assert native.value.tolist() == [2.0, 8.0, 2.0]
+    else:
+        # The default PlifePred2 output has no independently verified unit.
+        assert native.value.isna().all()
+
+    path = tmp_path / "half-life.tsv"
+    to_tsv(native, path)
+    restored = read_tsv(path).df
+    cache = CachedPredictor(restored)
+    assert cache.kind_support()[kind]["mhc_dependence"] == "none"
+    replayed = TopiaryPredictor(models=cache).predict_from_named_peptides(
+        {str(i): p for i, p in enumerate(peptides)},
+    ).sort_values("source_sequence_name").reset_index(drop=True)
+    # TSV uses NaN where an in-memory wrapper may use None.
+    replayed = replayed.astype({"value": float, "score": float, "percentile_rank": float})
+    pd.testing.assert_frame_equal(native[columns], replayed[columns], check_dtype=False)
+
+    # A whole-peptide observation stays one row, even alongside two alleles.
+    # Projection is an explicit query operation, not duplicated measurements.
+    from mhctools import RandomBindingPredictor
+    affinity = TopiaryPredictor(models=RandomBindingPredictor(
+        alleles=["HLA-A*02:01", "HLA-B*07:02"], default_peptide_lengths=[12],
+    )).predict_from_named_peptides({"0": peptides[0], "1": peptides[1]})
+    mixed = pd.concat([native[native.source_sequence_name != "2"], affinity], ignore_index=True)
+    for frame in (mixed, TopiaryResult(mixed).to_wide().to_long().df):
+        assert len(frame[frame.kind == kind]) == 2
+        scores = evaluate_scores(frame, parse(f"peptide_view({kind}.score)"))
+        assert scores.notna().all()
+        threshold = (native.score.min() + native.score.max()) / 2
+        selected = apply_filter(frame, parse(f"peptide_view({kind}.score) > {threshold}"))
+        assert set(selected.peptide) == {peptides[1 if model_index == 0 else 0]}
+
+
+@pytest.mark.parametrize("model_index", [0, 1])
+@pytest.mark.parametrize("door", ["instance", "class", "name"])
+def test_whole_peptide_model_construction_and_scanning_boundary(half_life_models, model_index, door):
+    model = half_life_models[model_index]
+    supplied = {"instance": model, "class": type(model), "name": model._predictor_name()}[door]
+    predictor = TopiaryPredictor(models=supplied)
+    assert predictor.padding_around_mutation == 0
+    assert predictor.predict_from_named_peptides({}).empty
+    frame = predictor.predict_from_named_peptides({"vaccine": "SIINFEKLGGALQ"})
+    assert len(frame) == 1
+    assert frame.peptide.tolist() == ["SIINFEKLGGALQ"]
+    with pytest.raises(ValueError, match="predict_from_named_peptides"):
+        predictor.predict_from_named_sequences({"protein": "SIINFEKLGGALQ"})
+    with pytest.raises(ValueError, match="predict_from_named_peptides"):
+        predictor.predict_from_fragments([
+            ProteinFragment(fragment_id="protein", sequence="SIINFEKLGGALQ"),
+        ])
+
+
+def test_whole_peptide_model_rejects_mixed_scanning_before_running_any_model(half_life_models):
+    from mhctools import RandomBindingPredictor
+
+    class MustNotRun(RandomBindingPredictor):
+        def predict_proteins_dataframe(self, sequences):
+            pytest.fail("Protein scanning started before model compatibility was checked")
+
+    predictor = TopiaryPredictor(models=[
+        MustNotRun(alleles=["HLA-A*02:01"], default_peptide_lengths=[9]), half_life_models[0],
+    ])
+    assert predictor.padding_around_mutation == 8
+    with pytest.raises(ValueError, match="predict_from_named_peptides"):
+        predictor.predict_from_named_sequences({"protein": "SIINFEKLGGALQ"})
+
+
+def test_whole_peptide_models_keep_domain_errors_and_unknown_units(half_life_models):
+    from mhctools import Prediction
+    from topiary import from_predictions
+
+    with pytest.raises(ValueError, match="12-100 residues"):
+        TopiaryPredictor(models=half_life_models[1]).predict_from_named_peptides({"short": "SIINFEKL"})
+    for kind in ("serum_half_life", "blood_half_life", "pMHC_stability"):
+        frame = from_predictions([Prediction(
+            kind=kind, peptide="SIINFEKLGGALQ", score=2.5, value=None,
+            predictor_name="unknown-unit", predictor_version="1",
+        )])
+        assert frame.value.isna().all()
+        assert frame.score.eq(2.5).all()
+
+
+def test_stability_stdout_retains_hours_through_cache_io_and_selection(tmp_path):
+    from pathlib import Path
+    from tests.test_twin_conformance import STABILITY_PREDICTION_DOORS
+    from topiary import read_tsv, to_tsv
+
+    path = Path(__file__).parent / "data" / "netmhc_fixtures" / "netmhcstabpan_SLLQHLIGL_A0201.out"
+    columns = ["peptide", "allele", "kind", "value", "score", "affinity", "percentile_rank"]
+    cached, direct = [door(path) for door in STABILITY_PREDICTION_DOORS]
+    for frame in (cached, direct):
+        assert frame.value.tolist() == [7.04]  # Explicit Thalf(h) in the original output.
+        assert frame.affinity.isna().all()
+        assert frame.percentile_rank.tolist() == [0.4]
+    pd.testing.assert_frame_equal(cached[columns], direct[columns], check_dtype=False)
+
+    to_tsv(cached, tmp_path / "stability.tsv")
+    restored = read_tsv(tmp_path / "stability.tsv").df
+    replayed = TopiaryPredictor(models=CachedPredictor(restored)).predict_from_named_peptides(
+        {"candidate": "SLLQHLIGL"},
+    )
+    assert len(apply_filter(replayed, parse("stability.value > 7"))) == 1
+    assert apply_filter(replayed, parse("stability.value > 8")).empty
+    assert replayed.affinity.isna().all()
 
 
 @pytest.mark.isovar

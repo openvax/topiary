@@ -62,6 +62,13 @@ def test_the_mapping_is_read_only():
         KIND_MHC_DEPENDENCE["pMHC_affinity"] = "none"
 
 
+@pytest.mark.parametrize("kind", ["serum_half_life", "blood_half_life"])
+def test_circulating_peptide_half_life_is_not_pmhc_stability(kind):
+    assert _kind_value(KIND_ALIASES[kind]) == kind
+    assert KIND_MHC_DEPENDENCE[kind] == "none"
+    assert KIND_MHC_DEPENDENCE["pMHC_stability"] == "single_allele"
+
+
 # ---------------------------------------------------------------------------
 # Resolution order: kind_support > allele_set > the kind's default
 # ---------------------------------------------------------------------------

@@ -36,6 +36,7 @@ from .ranking import (
 )
 from .io import _model_version_str
 from mhctools.pred import COLUMNS as _PRED_COLUMNS
+from mhctools.wrapper_base import AlleleFreePredictor
 
 from .protein_fragment import ProteinFragment
 from .evidence import VARCODE_TRANSLATION
@@ -156,12 +157,21 @@ def _resolve_model_name(name):
     Supports case-insensitive matching against mhctools class names,
     e.g. ``"netmhcpan41"`` → ``NetMHCpan41``, ``"mhcflurry"`` → ``MHCflurry``.
     """
+    import mhctools
+
     model_lookup = _build_model_lookup()
 
     key = name.lower().replace("-", "").replace("_", "").replace(" ", "")
     factory = model_lookup.get(key)
     if factory is None:
         factory = model_lookup.get(name.lower())
+    if factory is None:
+        # Whole-peptide models need not participate in the MHC CLI. Resolve
+        # a matching public export only, without loading other ML runtimes.
+        for export_name in mhctools.__all__:
+            if export_name.lower().replace("_", "") == key:
+                factory = getattr(mhctools, export_name)
+                break
     if factory is None:
         available = sorted(model_lookup.keys())
         raise ValueError(
@@ -174,8 +184,6 @@ def _resolve_model_name(name):
     if isinstance(factory, type):
         cls = factory
     else:
-        import mhctools
-
         export_name = getattr(factory, "__name__", "")
         cls = getattr(mhctools, export_name, None)
     if not isinstance(cls, type) or not (
@@ -722,7 +730,7 @@ class TopiaryPredictor(object):
 
                   TopiaryPredictor(models=NetMHCpan(alleles=["A0201"]))
 
-            - A case-insensitive mhctools registry name or list of names::
+            - A case-insensitive mhctools registry or public class name, or list::
 
                   TopiaryPredictor(
                       models=["netmhcpan41", "mhcflurry"],
@@ -730,8 +738,9 @@ class TopiaryPredictor(object):
                   )
 
         alleles : list of str, optional
-            HLA alleles. When provided, model classes in ``models`` are
-            instantiated with these alleles.
+            HLA alleles, required when constructing MHC model classes.
+            Allele-free mhctools classes do not receive this argument.
+            Pass a configured model instance for other constructor options.
 
         filter_by : DSLNode or str, optional
             Boolean filter expression. Accepts a parsed DSL node or a
@@ -825,19 +834,22 @@ class TopiaryPredictor(object):
             if isinstance(m, str):
                 m = _resolve_model_name(m)
             if isinstance(m, type):
-                if alleles is None:
+                if issubclass(m, AlleleFreePredictor):
+                    self.models.append(m())
+                elif alleles is None:
                     raise ValueError(
                         f"alleles required when passing model class {m.__name__}"
                     )
-                self.models.append(m(alleles=alleles))
+                else:
+                    self.models.append(m(alleles=alleles))
             else:
                 self.models.append(m)
         self._model_keys = _unique_model_keys(self.models)
 
-        # Padding uses the union of all models' peptide lengths
+        # Whole-peptide models have no scanning window or flanking requirement.
         all_lengths = set()
         for m in self.models:
-            all_lengths.update(m.default_peptide_lengths)
+            all_lengths.update(getattr(m, "default_peptide_lengths", ()))
         self.padding_around_mutation = check_padding_around_mutation(
             given_padding=padding_around_mutation,
             epitope_lengths=sorted(all_lengths),
@@ -937,6 +949,13 @@ class TopiaryPredictor(object):
 
     def predict_from_named_peptides(self, name_to_peptide_dict):
         """
+        Score complete peptides as supplied, without sliding windows.
+
+        This is also the entry point for peptide-only predictors such as
+        PeptiVerse and PlifePred2. They do not require alleles, and retain
+        their own peptide-length/domain validation. Whole-peptide half-life
+        is not a prediction for every MHC ligand within that peptide.
+
         Parameters
         ----------
         name_to_peptide_dict : dict (str -> str)
@@ -958,6 +977,13 @@ class TopiaryPredictor(object):
 
     def _predict_raw(self, name_to_sequence_dict):
         """Run models and format output, without applying filter/ranking."""
+        for model in self.models:
+            if not callable(getattr(model, "predict_proteins_dataframe", None)):
+                raise ValueError(
+                    f"{type(model).__name__} scores whole peptides, not protein "
+                    "windows. Use predict_from_named_peptides with the complete "
+                    "peptides to score."
+                )
         dfs = []
         for model, model_key in zip(self.models, self._model_keys):
             dfs.append(

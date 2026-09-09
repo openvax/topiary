@@ -70,12 +70,54 @@ columns including:
 | `kind` | Prediction type (`pMHC_affinity`, `pMHC_presentation`, etc.) |
 | `affinity` | Predicted IC50 binding affinity (nM) |
 | `percentile_rank` | Percentile rank (lower = stronger binder) |
-| `score` | Normalized 0–1 score (higher = stronger) |
+| `score` | Model score (not necessarily a probability or bounded by 1) |
 | `prediction_method_name` | Which predictor produced this row |
 
 Variant-derived predictions add `gene`, `variant`, `effect`,
 `contains_mutant_residues`, `wt_peptide`, and more — see the
 [API Reference](api.md) for the full column list.
+
+### Whole-peptide half-life models
+
+With Topiary 5.53.0, the Python API accepts mhctools' `PeptiVerse` and
+`PlifePred2` instances, classes, or public class names. Configure the external
+model installation through mhctools, then score **the complete peptide**:
+
+```python
+from mhctools import PeptiVerse
+from topiary import TopiaryPredictor, evaluate_scores, parse
+
+model = PeptiVerse(peptiverse_home="/path/to/PeptiVerse")
+df = TopiaryPredictor(models=model).predict_from_named_peptides({
+    "candidate": "SIINFEKLGGALQ",
+})
+scores = evaluate_scores(df, parse("peptide_view(serum_half_life.value)"))
+```
+
+No HLA allele is needed. Protein/fragment scanning rejects these peptide-only
+models and points to `predict_from_named_peptides`; Topiary does not invent
+scanning lengths or assign the full peptide's half-life to its inner ligands.
+
+`serum_half_life`, `blood_half_life`, and `pMHC_stability` are separate kinds.
+The first two describe the peptide without MHC; the third describes a
+peptide–MHC complex. Known physical half-lives use `value` in hours. An unknown
+unit stays missing rather than being replaced by the native `score`.
+Do not assume a half-life score is a probability, or infer a percentile that
+the model does not supply. Use explicit `peptide_view(...)` when combining
+peptide-level evidence with per-allele predictions.
+
+Topiary tests the real wrapper interfaces with synthetic sidecar output through
+prediction, cache replay, TSV, wide/long conversion, and ranking. This verifies
+data transport, **not biological accuracy or suitability for long vaccines**.
+The external models and their runtime environments are not bundled. PlifePred2
+has upstream [workspace-safety](https://github.com/openvax/mhctools/issues/310)
+and [unit/assay validation](https://github.com/openvax/mhctools/issues/311)
+issues addressed in mhctools 3.39.0, now required by Topiary. Its native
+output is not a verified half-life in hours by default.
+
+These models do not supply per-bond extracellular peptidase maps. Site-level
+cleavage, full assay/chemistry provenance and configuration-aware cache identity
+remain tracked in [Topiary #288](https://github.com/openvax/topiary/issues/288).
 
 ### Multiple models
 

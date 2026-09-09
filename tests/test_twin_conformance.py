@@ -37,7 +37,7 @@ from topiary.evidence import (
     attach_rna_evidence,
 )
 from topiary import (
-    APPROXIMATED, MEASURED, ProteinFragment, fragments_from_variants,
+    APPROXIMATED, MEASURED, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
     read_fragments, read_pvacseq, write_fragments,
 )
 from topiary.io_isovar import _check_isovar
@@ -219,6 +219,45 @@ FRAGMENT_SERIALIZATION_DOORS = (
     ("dict", fragment_dict_roundtrip),
     ("json", fragment_json_roundtrip),
     ("tsv", fragment_tsv_roundtrip),
+)
+
+
+def whole_peptides_through_predictor(model, peptides):
+    return TopiaryPredictor(models=model).predict_from_named_peptides(
+        {str(i): peptide for i, peptide in enumerate(peptides)},
+    )
+
+
+def whole_peptides_through_predictions(model, peptides):
+    predictions = [prediction for result in model.predict(peptides) for prediction in result.preds]
+    return from_predictions(
+        predictions, extra_columns={"source_sequence_name": [str(i) for i in range(len(peptides))]},
+    )
+
+
+# Real mhctools wrappers, with only their external sidecars stubbed, drive
+# this pair in test_consumer_workflows.py. It tests integration, not model accuracy.
+WHOLE_PEPTIDE_PREDICTION_DOORS = (whole_peptides_through_predictor, whole_peptides_through_predictions)
+
+
+def stability_through_stdout_cache(path):
+    from topiary import CachedPredictor
+
+    return CachedPredictor.from_netmhcstabpan_stdout(path).predict_peptides_dataframe(["SLLQHLIGL"])
+
+
+def stability_through_native_conversion(path):
+    from mhctools.parsing import parse_netmhcstabpan
+
+    return from_predictions([
+        prediction.to_pred(kind="pMHC_stability")
+        for prediction in parse_netmhcstabpan(path.read_text())
+    ])
+
+
+STABILITY_PREDICTION_DOORS = (
+    stability_through_stdout_cache,
+    stability_through_native_conversion,
 )
 
 

@@ -2362,11 +2362,10 @@ _MHC_DEPENDENCE_VALUES = MHC_DEPENDENCE_VALUES
 #: peptide on its own?
 #:
 #: The ``pMHC_`` kinds name a peptide-MHC pair, so they are per-allele.
-#: The rest are steps of antigen processing that happen before, or
-#: apart from, MHC loading — cleavage, transport, trimming — so they
-#: describe the peptide alone.  ``immunogenicity`` sits with the
-#: per-allele kinds because every mhctools predictor that emits it
-#: (DeepImmuno, PRIME, TLimmuno2) scores a peptide against an allele.
+#: Cleavage, transport, trimming and circulating-peptide half-life describe
+#: the peptide apart from MHC loading. ``immunogenicity`` defaults to
+#: per-allele for models such as DeepImmuno, PRIME and TLimmuno2; an
+#: allele-free model such as Calis overrides that default through metadata.
 #:
 #: This is the default a kind carries when nothing more specific is
 #: known.  A predictor's own ``kind_support()`` overrides it — MHCflurry
@@ -2384,6 +2383,8 @@ KIND_MHC_DEPENDENCE = MappingProxyType({
     "endolysosomal_cleavage": "none",
     "erap_trimming": "none",
     "tap_transport": "none",
+    "serum_half_life": "none",
+    "blood_half_life": "none",
 })
 
 

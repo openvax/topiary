@@ -29,6 +29,14 @@ The cache answers `predict_proteins_dataframe` and
 `predict_peptides_dataframe` calls from the table, so every
 `predict_from_*` method on `TopiaryPredictor` works unchanged.
 
+For whole-peptide half-life tables, use `predict_from_named_peptides` to replay
+the complete peptides originally scored. Known allele-independent kinds retain
+`mhc_dependence="none"` without a live fallback; caching a measurement does not
+make it allele-specific. A fallback's explicit kind metadata takes precedence.
+The cache does not yet identify different chemistry, assay conditions or model
+settings beyond the stored method/version: do not mix those experiments in one
+cache ([#288](https://github.com/openvax/topiary/issues/288)).
+
 ## Loaders
 
 ### From topiary's own prediction output

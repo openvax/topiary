@@ -25,6 +25,19 @@ being coerced to display strings or unitless/lower-precision numbers.
 The shared serializer also preserves complete Unicode contents and nested
 dataclass output without invoking potentially value-changing deep-copy hooks.
 
+**Whole-peptide mhctools integration (#291–#294).** PeptiVerse and PlifePred2
+can be passed as configured instances, classes or public names without MHC
+alleles or invented scanning lengths. Use `predict_from_named_peptides` for
+complete peptides; protein/fragment scanning rejects peptide-only models with
+a clear error before any model runs. Serum and blood half-life stay distinct
+from pMHC stability and retain allele-independent semantics through cached
+prediction, IO and ranking. NetMHCstabpan stdout caches now preserve the
+explicit half-life in hours through mhctools' native conversion. Unknown units
+and percentiles are not guessed from scores. Requires mhctools >=3.39.0,
+including the upstream PlifePred2 safety and unit fixes. These transport tests
+do not validate biological accuracy, assay assumptions or extracellular
+per-bond cleavage (separate follow-up #288).
+
 ## 5.52.10
 
 **Reliable CI retries and offline test collection (#282, #280).** Coverage is
