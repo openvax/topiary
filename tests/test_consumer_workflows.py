@@ -39,7 +39,9 @@ from topiary import (
     read_pvacseq,
     resolve_default_methods,
     resolve_default_versions,
+    read_fragments,
     stack_results,
+    write_fragments,
 )
 from topiary.ranking import parse
 
@@ -579,3 +581,215 @@ def test_isovar_shared_support_survives_adapter_and_dsl(
         assert evaluate_scores(frame, parse(field)).eq(count).all()
         assert not apply_filter(frame, parse(f"{field} >= {count}")).empty
         assert apply_filter(frame, parse(f"{field} > {count}")).empty
+
+
+# ---------------------------------------------------------------------------
+# Original osteosarc RNA → peptide-aware context → IO/prediction (#284)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def osteosarc_rna(tmp_path_factory):
+    from tests.osteosarc_helpers import load_osteosarc
+
+    return load_osteosarc(tmp_path_factory.mktemp("topiary_osteosarc"))
+
+
+def osteosarc_fragments(data, sample, gene, **options):
+    import pysam
+
+    variants, bams, _ = data
+    with pysam.AlignmentFile(bams[sample]) as bam:
+        return fragments_from_variants(
+            [variants[gene]], bam, filter_thresholds={}, filter_flags=[], **options,
+        )
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("sample", ["bulk_star_t0", "ont_t1"])
+@pytest.mark.parametrize("peptide", [15, 25, 30])
+@pytest.mark.parametrize("floor", [2, 5])
+def test_osteosarc_peptide_size_and_floor_match_the_explicit_creator(
+    osteosarc_rna, sample, peptide, floor,
+):
+    import pysam
+    from tests.osteosarc_helpers import assert_expected_fragment
+    from tests.test_twin_conformance import ISOVAR_RECONSTRUCTION_TWINS
+
+    variants, bams, expected = osteosarc_rna
+    twin = ISOVAR_RECONSTRUCTION_TWINS
+    results = []
+    for door in (twin.left, twin.right):
+        with pysam.AlignmentFile(bams[sample]) as bam:
+            fragment, = door(
+                [variants["DYNC1H1"]], bam,
+                protein_context_peptide_length=peptide,
+                protein_sequence_preference="balanced",
+                min_protein_sequence_support_fraction=0.85,
+                min_variant_sequence_coverage=floor,
+            )
+        assert_expected_fragment(fragment, expected["DYNC1H1"])
+        if sample == "bulk_star_t0":
+            length = 2 * peptide - 1 if floor == 2 else 16
+            counts = (9, 6)
+        else:
+            length, counts = 20, (11, 11)
+        assert len(fragment.sequence) == length
+        assert (fragment.n_rna_alt_reads_supporting_protein_sequence,
+                fragment.n_rna_alt_fragments_supporting_protein_sequence) == counts
+        assert fragment.annotations["isovar_protein_sequence_length"] == 2 * peptide - 1
+        results.append(fragment.to_dict())
+    assert results[0] == results[1]
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("sample,gene,length", [
+    ("bulk_star_t0", "EXOC4", 49), ("ont_t1", "EXOC4", 25),
+    ("bulk_star_t0", "H1-2", None), ("ont_t1", "H1-2", 30),
+    ("bulk_star_t0", "GTF3C5", 49), ("ont_t1", "GTF3C5", 29),
+    ("bulk_star_t0", "PIP5K1A", None), ("ont_t1", "PIP5K1A", 46),
+    ("bulk_star_t0", "MAP2", None), ("ont_t1", "MAP2", None),
+])
+def test_osteosarc_real_edits_survive_context_and_prediction(
+    osteosarc_rna, sample, gene, length,
+):
+    from tests.osteosarc_helpers import assert_expected_fragment
+
+    fragments = osteosarc_fragments(
+        osteosarc_rna, sample, gene, protein_context_peptide_length=25,
+    )
+    if length is None:
+        assert fragments == []
+        return
+    fragment, = fragments
+    assert len(fragment.sequence) == length
+    assert_expected_fragment(fragment, osteosarc_rna[2][gene])
+    frame = _isovar_prediction_frame(fragment)
+    assert not frame.empty
+    assert frame.contains_mutant_residues.all()
+    start, end = fragment.target_intervals[0]
+    if gene == "GTF3C5":
+        assert start == end  # zero-width novel adjacency, not a mutant residue
+    for row in frame.itertuples():
+        assert row.peptide == fragment.sequence[row.peptide_offset:row.peptide_offset + 9]
+        assert row.peptide_offset < end and row.peptide_offset + 9 > start
+
+
+@pytest.mark.isovar
+def test_osteosarc_context_settings_survive_io_predictions_and_dsl(osteosarc_rna, tmp_path):
+    short, = osteosarc_fragments(osteosarc_rna, "bulk_star_t0", "DYNC1H1")
+    long, = osteosarc_fragments(
+        osteosarc_rna, "bulk_star_t0", "DYNC1H1", protein_context_peptide_length=25,
+    )
+    assert (len(short.sequence), len(long.sequence)) == (21, 49)
+    assert short.annotations["isovar_protein_context_peptide_length"] == 11
+    path = tmp_path / "rna-fragments.tsv"
+    write_fragments([short, long], path)
+    reloaded = read_fragments(path)
+    assert [f.to_dict() for f in reloaded] == [f.to_dict() for f in (short, long)]
+    frames = []
+    for fragment in reloaded:
+        frame = _isovar_prediction_frame(fragment)
+        for key, value in fragment.annotations.items():
+            if key.startswith("isovar_"):
+                assert frame[key].eq(value).all()
+        assert frame.n_rna_alt_reads_supporting_protein_sequence.eq(9).all()
+        assert frame.n_rna_alt_fragments_supporting_protein_sequence.eq(6).all()
+        frames.append(frame)
+    # Both contexts already contain every mutant 9mer. The larger RNA
+    # objective changes available vaccine windows, not MHC prediction lengths.
+    assert set(frames[0].peptide) == set(frames[1].peptide)
+    window_counts = []
+    for fragment in reloaded:
+        start, end = fragment.target_intervals[0]
+        window_counts.append(sum(i < end and i + 25 > start
+                                 for i in range(len(fragment.sequence) - 25 + 1)))
+    assert window_counts == [0, 25]
+    combined = pd.concat(frames, ignore_index=True)
+    selected = apply_filter(combined, parse("isovar_protein_context_peptide_length >= 25"))
+    assert set(selected.fragment_id) == {long.fragment_id}
+
+
+@pytest.mark.isovar
+def test_osteosarc_relative_support_changes_context_without_changing_allele_counts(osteosarc_rna):
+    from tests.osteosarc_helpers import assert_expected_fragment
+
+    fragments = []
+    for options in ({}, {"min_protein_sequence_support_fraction": 0.8},
+                    {"protein_sequence_preference": "context"}):
+        fragment, = osteosarc_fragments(
+            osteosarc_rna, "ont_t1", "DYNC1H1",
+            protein_context_peptide_length=25, **options,
+        )
+        assert_expected_fragment(fragment, osteosarc_rna[2]["DYNC1H1"])
+        fragments.append(fragment)
+    assert [len(f.sequence) for f in fragments] == [20, 37, 49]
+    assert [f.n_rna_alt_fragments_supporting_protein_sequence for f in fragments] == [11, 9, 7]
+    assert {f.n_rna_alt_fragments for f in fragments} == {16}
+    assert {f.annotations["isovar_min_variant_sequence_coverage"] for f in fragments} == {2}
+    # The default is allowed to be too short for a full 25mer. Neither an
+    # implicit reference extension nor a relaxed budget manufactures one.
+    assert len(fragments[0].sequence) < 25
+
+
+@pytest.mark.isovar
+def test_osteosarc_support_preference_and_explicit_length_are_respected(osteosarc_rna):
+    from tests.osteosarc_helpers import assert_expected_fragment
+    from isovar.protein_sequence_creator import ProteinSequenceCreator
+
+    options = dict(protein_context_peptide_length=25, protein_sequence_length=20,
+                   protein_sequence_preference="support")
+    explicit, = osteosarc_fragments(osteosarc_rna, "ont_t1", "DYNC1H1", **options)
+    custom, = osteosarc_fragments(
+        osteosarc_rna, "ont_t1", "DYNC1H1",
+        protein_sequence_creator=ProteinSequenceCreator(variant_sequence_assembly=True, **options),
+    )
+    assert explicit.to_dict() == custom.to_dict()
+    assert_expected_fragment(explicit, osteosarc_rna[2]["DYNC1H1"])
+    assert len(explicit.sequence) <= 20
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("preference", ["balanced", "support", "context"])
+def test_osteosarc_absolute_floor_is_not_relaxed_by_any_preference(osteosarc_rna, preference):
+    fragment, = osteosarc_fragments(
+        osteosarc_rna, "bulk_star_t0", "DYNC1H1",
+        protein_context_peptide_length=25, protein_sequence_preference=preference,
+        min_variant_sequence_coverage=5,
+    )
+    assert len(fragment.sequence) == 16
+    assert osteosarc_fragments(
+        osteosarc_rna, "bulk_star_t0", "DYNC1H1",
+        protein_context_peptide_length=25, protein_sequence_preference=preference,
+        min_variant_sequence_coverage=1000,
+    ) == []
+
+
+@pytest.mark.isovar
+def test_osteosarc_no_alt_reference_fallback_is_explicit_and_separate(osteosarc_rna):
+    assert osteosarc_fragments(
+        osteosarc_rna, "bulk_star_t0", "MAP2", protein_context_peptide_length=30,
+    ) == []
+    reference, = osteosarc_fragments(
+        osteosarc_rna, "bulk_star_t0", "MAP2", protein_context_peptide_length=30,
+        allow_reference_fallback=True, padding_around_mutation=14,
+    )
+    assert reference.annotations["sequence_source"] == "varcode_translation"
+    assert reference.n_rna_alt_reads is None
+    assert reference.n_rna_alt_fragments is None
+    assert not any(key.startswith("isovar_") for key in reference.annotations)
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("option", [
+    {"protein_context_peptide_length": 0},
+    {"protein_context_peptide_length": 1.5},
+    {"protein_sequence_preference": "typo"},
+    {"min_protein_sequence_support_fraction": 1.1},
+    {"min_protein_sequence_support_fraction": float("nan")},
+    {"min_variant_sequence_coverage": -1},
+    {"min_variant_sequence_coverage": 1.5},
+])
+def test_invalid_rna_settings_fail_before_reading_alignments(option):
+    with pytest.raises(ValueError):
+        fragments_from_variants([], alignment_file=object(), **option)

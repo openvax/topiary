@@ -1,5 +1,19 @@
 # Changelog
 
+## 5.53.0
+
+**Peptide-aware RNA reconstruction (#284).** `fragments_from_variants` exposes
+the desired peptide size, sequence-selection preference, relative compatible
+read-name support budget and independent absolute per-base RNA coverage floor.
+The default ligand objective follows `max(epitope_lengths)` (11 aa, targeting
+21 aa); long vaccine workflows can request their own size. Explicit context
+lengths and custom creators remain supported, with conflicting settings
+rejected. Reference-fallback padding is independent of the new RNA objective.
+Resolved creator settings and Isovar version survive fragment serialization
+and prediction as annotations. Isovar remains optional, now requiring >=1.8.0.
+Real checksum-pinned osteosarc RNA tests compare both configuration paths,
+independent mutant-protein expectations, support controls and downstream IO.
+
 ## 5.52.10
 
 **Reliable CI retries and offline test collection (#282, #280).** Coverage is

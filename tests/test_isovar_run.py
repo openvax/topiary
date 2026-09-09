@@ -46,14 +46,27 @@ class _Result:
 
 
 class _FakeCreator:
-    def __init__(self, protein_sequence_length=21,
-                 variant_sequence_assembly=False):
-        self.protein_sequence_length = protein_sequence_length
+    def __init__(self, protein_sequence_length=None,
+                 variant_sequence_assembly=False,
+                 protein_context_peptide_length=25,
+                 protein_sequence_preference="balanced",
+                 min_protein_sequence_support_fraction=0.85,
+                 min_variant_sequence_coverage=2):
+        self.protein_sequence_length = (
+            2 * protein_context_peptide_length - 1
+            if protein_sequence_length is None else protein_sequence_length
+        )
         self.variant_sequence_assembly = variant_sequence_assembly
+        self.protein_context_peptide_length = protein_context_peptide_length
+        self.protein_sequence_preference = protein_sequence_preference
+        self.min_protein_sequence_support_fraction = min_protein_sequence_support_fraction
+        self.min_variant_sequence_coverage = min_variant_sequence_coverage
 
 
 class _FakeIsovar:
     """Stands in for the isovar module, recording how it was called."""
+
+    __version__ = "test-version"
 
     def __init__(self, results):
         self._results = results
@@ -67,10 +80,6 @@ class _FakeIsovar:
 def _fake(monkeypatch, results):
     module = _FakeIsovar(results)
     monkeypatch.setattr("topiary.io_isovar._check_isovar", lambda: module)
-    monkeypatch.setattr(
-        "topiary.io_isovar.ProteinSequenceCreator", _FakeCreator,
-        raising=False,
-    )
     import sys
     import types
     stub = types.ModuleType("isovar.protein_sequence_creator")
@@ -97,44 +106,64 @@ def test_an_alignment_file_assembles_from_rna(isovar):
     assert fragments[0].annotations["sequence_source"] == "isovar_assembly"
 
 
-def test_assembly_is_turned_on():
-    """isovar defaults it off, and with it off a single read must span the
-    whole window — so a longer context yields fewer variants rather than
-    longer sequences, and "carrying the phasing the reads support" would
-    not be true of the result."""
-    import types
-
-    import topiary.io_isovar as module
-
-    captured = {}
-
-    class _Creator(_FakeCreator):
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-            super().__init__(**kwargs)
-
-    stub = types.ModuleType("isovar.protein_sequence_creator")
-    stub.ProteinSequenceCreator = _Creator
-    fake = _FakeIsovar([_Result()])
-
-    import sys
-    sys.modules["isovar"] = types.ModuleType("isovar")
-    sys.modules["isovar.protein_sequence_creator"] = stub
-    original = module._check_isovar
-    module._check_isovar = lambda: fake
-    try:
-        fragments_from_variants(["v"], alignment_file=object())
-    finally:
-        module._check_isovar = original
-        del sys.modules["isovar"], sys.modules["isovar.protein_sequence_creator"]
-
-    assert captured["variant_sequence_assembly"] is True
+def test_assembly_is_turned_on(isovar):
+    fragments_from_variants(["v"], alignment_file=object())
+    assert isovar.calls[0]["protein_sequence_creator"].variant_sequence_assembly is True
 
 
-def test_the_default_window_matches_isovar_rather_than_exceeding_it():
-    """Asking for more context than the reads support returns fewer
-    variants, not longer sequences."""
+def test_default_ligand_objective_retains_the_historical_target(isovar):
+    fragments_from_variants(["v"], alignment_file=object())
+    creator = isovar.calls[0]["protein_sequence_creator"]
     assert DEFAULT_PROTEIN_SEQUENCE_LENGTH == 21
+    assert creator.protein_sequence_length == 21
+    assert creator.protein_context_peptide_length == 11
+
+
+@pytest.mark.parametrize("peptide", [15, 25, 30])
+def test_peptide_size_drives_creator_not_run_isovar(isovar, peptide):
+    fragment, = fragments_from_variants(
+        ["v"], alignment_file=object(), protein_context_peptide_length=peptide,
+        protein_sequence_preference="support",
+        min_protein_sequence_support_fraction=0.9,
+        min_variant_sequence_coverage=5,
+    )
+    call = isovar.calls[0]
+    creator = call["protein_sequence_creator"]
+    expected = {
+        "protein_sequence_length": 2 * peptide - 1,
+        "protein_context_peptide_length": peptide,
+        "protein_sequence_preference": "support",
+        "min_protein_sequence_support_fraction": 0.9,
+        "min_variant_sequence_coverage": 5,
+    }
+    for name, value in expected.items():
+        assert getattr(creator, name) == value
+        assert name not in call
+        assert fragment.annotations[f"isovar_{name}"] == value
+    assert fragment.annotations["isovar_version"] == "test-version"
+
+
+def test_ligand_lengths_drive_only_the_implicit_peptide_objective(isovar):
+    fragments_from_variants(["v"], alignment_file=object(), epitope_lengths=(15,))
+    fragments_from_variants(
+        ["v"], alignment_file=object(), epitope_lengths=(15,),
+        protein_context_peptide_length=25, protein_sequence_length=35,
+    )
+    implicit, explicit = (call["protein_sequence_creator"] for call in isovar.calls)
+    assert (implicit.protein_context_peptide_length, implicit.protein_sequence_length) == (15, 29)
+    assert (explicit.protein_context_peptide_length, explicit.protein_sequence_length) == (25, 35)
+
+
+def test_numeric_creator_settings_are_json_serializable(isovar):
+    import numpy as np
+
+    fragment, = fragments_from_variants(
+        ["v"], alignment_file=object(), protein_context_peptide_length=np.int64(25),
+        min_variant_sequence_coverage=np.int64(5),
+    )
+    restored = ProteinFragment.from_json(fragment.to_json())
+    assert restored.annotations == fragment.annotations
+    assert restored.annotations["isovar_variant_sequence_assembly"] is True
 
 
 def test_isovar_knobs_are_passed_through(isovar):
@@ -205,14 +234,20 @@ def test_a_filtered_out_result_can_fall_back_to_reference(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_a_creator_and_a_length_together_are_refused(isovar):
-    """The creator's length would have won silently, breaking the
-    guarantee protein_sequence_length exists to make."""
+@pytest.mark.parametrize("option", [
+    {"protein_sequence_length": 21},
+    {"protein_sequence_length": 31},
+    {"protein_context_peptide_length": 11},
+    {"protein_sequence_preference": "balanced"},
+    {"min_protein_sequence_support_fraction": 0.85},
+    {"min_variant_sequence_coverage": 2},
+])
+def test_a_creator_and_explicit_options_together_are_refused(isovar, option):
     with pytest.raises(ValueError, match="pass one"):
         fragments_from_variants(
             ["v"], alignment_file=object(),
-            protein_sequence_length=31,
             protein_sequence_creator=_FakeCreator(protein_sequence_length=15),
+            **option,
         )
 
 
@@ -224,6 +259,53 @@ def test_a_caller_supplied_creator_is_used(isovar):
     )
 
     assert isovar.calls[0]["protein_sequence_creator"] is mine
+
+
+def test_a_custom_creator_without_public_settings_does_not_invent_provenance(isovar):
+    mine = object()
+    fragment, = fragments_from_variants(
+        ["v"], alignment_file=object(), protein_sequence_creator=mine,
+    )
+    assert isovar.calls[0]["protein_sequence_creator"] is mine
+    assert "isovar_protein_sequence_length" not in fragment.annotations
+
+
+@pytest.mark.parametrize("option", [
+    {"protein_context_peptide_length": 25},
+    {"protein_sequence_preference": "balanced"},
+    {"min_protein_sequence_support_fraction": 0.85},
+    {"min_variant_sequence_coverage": 2},
+    {"protein_sequence_creator": object()},
+])
+def test_creator_options_require_rna(option):
+    with pytest.raises(TypeError, match="only apply when an alignment_file"):
+        fragments_from_variants(["v"], **option)
+
+
+@pytest.mark.parametrize("length", [0, -1, 1.5, True])
+def test_context_lengths_are_positive_integers(length):
+    with pytest.raises(ValueError, match="must be positive"):
+        fragments_from_variants(["v"], protein_sequence_length=length)
+
+
+def test_rna_objective_does_not_change_reference_fallback_padding(monkeypatch):
+    _fake(monkeypatch, [_Result(supported=False)])
+    paddings = []
+    monkeypatch.setattr("topiary.io_isovar._effects_for", lambda variants: [])
+
+    def reference(effects, padding, **kwargs):
+        paddings.append(padding)
+        return []
+
+    monkeypatch.setattr("topiary.io_isovar.fragments_from_effects", reference)
+    for options in ({}, {"protein_context_peptide_length": 30},
+                    {"protein_sequence_creator": _FakeCreator(protein_sequence_length=59)},
+                    {"protein_sequence_length": 49},
+                    {"protein_context_peptide_length": 30, "padding_around_mutation": 14}):
+        fragments_from_variants(
+            ["v"], alignment_file=object(), allow_reference_fallback=True, **options,
+        )
+    assert paddings == [10, 10, 10, 24, 14]
 
 
 def test_isovar_only_kwargs_are_refused_without_an_alignment_file():

@@ -36,7 +36,7 @@ from topiary.evidence import (
     attach_dna_evidence,
     attach_rna_evidence,
 )
-from topiary import APPROXIMATED, MEASURED, ProteinFragment, read_pvacseq
+from topiary import APPROXIMATED, MEASURED, ProteinFragment, fragments_from_variants, read_pvacseq
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
 import topiary.optional_dependencies as optional_dependencies
@@ -82,6 +82,39 @@ TWINS = (
     ),
 )
 
+
+def fragments_with_creator_options(variants, alignment_file, **options):
+    """Public convenience options, with result filters disabled for the test."""
+    return fragments_from_variants(
+        variants, alignment_file, filter_thresholds={}, filter_flags=[], **options,
+    )
+
+
+def fragments_with_explicit_creator(variants, alignment_file, **options):
+    """The existing custom-creator door must produce exactly the same result."""
+    from isovar.protein_sequence_creator import ProteinSequenceCreator
+
+    return fragments_from_variants(
+        variants, alignment_file, filter_thresholds={}, filter_flags=[],
+        protein_sequence_creator=ProteinSequenceCreator(
+            variant_sequence_assembly=True, **options,
+        ),
+    )
+
+
+# These callables consume variants and a BAM, not a DataFrame. The original
+# RNA battery in test_consumer_workflows.py drives this registered pair.
+ISOVAR_RECONSTRUCTION_TWINS = Twin(
+    name="RNA creator options/custom creator",
+    left=fragments_with_creator_options,
+    right=fragments_with_explicit_creator,
+    shared={name: name for name in (
+        "protein_sequence_length", "protein_context_peptide_length",
+        "protein_sequence_preference", "min_protein_sequence_support_fraction",
+        "min_variant_sequence_coverage",
+    )},
+)
+
 FRAME = pd.DataFrame({"x": [1, 2]}, index=[10, 11])
 
 
@@ -115,7 +148,7 @@ OPTIONAL_DEPENDENCY_TWINS = (
         "run_isovar",
         _check_isovar,
         "assembling protein fragments from RNA alignments",
-        ">=1.7.10",
+        ">=1.8.0",
     ),
     (
         "pirlygenes",
