@@ -20,6 +20,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
+from .serialization import normalize_python_types
+
 
 # =============================================================================
 # ProteinFragment
@@ -210,6 +212,9 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
         :meth:`is_usable_as_biology` rather than reading the dict.
     annotations : dict
         Tool-specific signals that don't fit the above fields.
+        NumPy boolean, integer, real and string scalars are normalized to
+        native Python values, including in nested containers, on construction
+        and serialization. The caller's input containers are not mutated.
         Serialized as JSON in TSV IO; carried through prediction as
         additional output columns.  Underscore-prefixed keys are
         reserved for internal plumbing and are **not** surfaced as
@@ -306,7 +311,7 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
 
         values.update(legacy_fields)
         known = {fragment_field.name for fragment_field in fragment_fields}
-        values = _migrate_fragment_dict(values, known)
+        values = _migrate_fragment_dict(normalize_python_types(values), known)
         unknown = set(values) - known
         if unknown:
             name = sorted(unknown)[0]
@@ -617,8 +622,13 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
     # ------------------------------------------------------------------
 
     def to_dict(self) -> dict:
-        """Plain-dict representation (tuples → lists, JSON-compatible)."""
-        d = dataclasses.asdict(self)
+        """Plain dict with native scalars and target-interval tuples as lists.
+
+        Nested NumPy scalars are normalized even when annotations were
+        changed after construction. Unsupported custom objects remain
+        unchanged and will be rejected by the JSON encoder.
+        """
+        d = normalize_python_types(self, dataclasses_as_dict=True)
         if d["target_intervals"] is not None:
             d["target_intervals"] = [list(p) for p in d["target_intervals"]]
         return d

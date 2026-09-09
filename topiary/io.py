@@ -24,6 +24,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .serialization import normalize_python_types
+
 
 _JSON_EXTRA_PREFIX = "json:"
 
@@ -145,6 +147,7 @@ def _parse_extra_value(key, value):
 
 def _format_extra_value(value):
     """Format a Metadata.extra value for the comment block."""
+    value = normalize_python_types(value)
     if isinstance(value, (dict, list)):
         try:
             return _JSON_EXTRA_PREFIX + json.dumps(value, separators=(",", ":"))

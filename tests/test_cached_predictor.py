@@ -1088,13 +1088,14 @@ class _Stub:
 
 
 def test_bindings_to_dataframe_backfills_presentation_value():
+    from mhctools import BindingPrediction
     from topiary.cached import _bindings_to_dataframe
 
     preds = [
-        _Stub(
-            peptide="SIINFEKL", allele="HLA-A*02:01", length=8,
+        BindingPrediction(
+            peptide="SIINFEKL", allele="HLA-A*02:01",
             score=0.42, affinity=None, percentile_rank=2.0,
-            value=None, source_sequence_name=None, offset=0,
+            source_sequence_name=None, offset=0,
         ),
     ]
     df = _bindings_to_dataframe(preds, kind="pMHC_presentation")
@@ -1103,13 +1104,14 @@ def test_bindings_to_dataframe_backfills_presentation_value():
 
 
 def test_bindings_to_dataframe_preserves_affinity_unit():
+    from mhctools import BindingPrediction
     from topiary.cached import _bindings_to_dataframe
 
     preds = [
-        _Stub(
-            peptide="SIINFEKL", allele="HLA-A*02:01", length=8,
+        BindingPrediction(
+            peptide="SIINFEKL", allele="HLA-A*02:01",
             score=0.8, affinity=120.0, percentile_rank=0.5,
-            value=120.0, source_sequence_name=None, offset=0,
+            source_sequence_name=None, offset=0,
         ),
     ]
     df = _bindings_to_dataframe(preds, kind="pMHC_affinity")

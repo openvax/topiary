@@ -263,6 +263,36 @@ class TestReadWriteTSV:
         assert "test_cohort" in meta2.sources
         assert meta2.extra.get("patient") == "PT01"
 
+    @pytest.mark.parametrize("writer,reader", [(to_tsv, read_tsv), (to_csv, read_csv)])
+    def test_numpy_scalars_in_structured_metadata(self, tmp_path, writer, reader):
+        settings = {"enabled": np.bool_(True), "disabled": np.bool_(False),
+                    "limits": [np.int64(2**60 + 1), np.float32(0.5)]}
+        meta = Metadata(extra={"settings": settings})
+        path = tmp_path / "out.txt"
+        writer(_sample_long_df(), path, metadata=meta)
+        restored = reader(path).metadata.extra["settings"]
+        assert restored == {"enabled": True, "disabled": False, "limits": [2**60 + 1, 0.5]}
+        assert restored["enabled"] is True
+        assert restored["disabled"] is False
+        assert type(restored["limits"][0]) is int
+        assert type(restored["limits"][1]) is float
+        assert type(settings["enabled"]) is np.bool_
+
+    @pytest.mark.parametrize("writer,reader", [(to_tsv, read_tsv), (to_csv, read_csv)])
+    @pytest.mark.parametrize("dtype", [np.datetime64, np.timedelta64])
+    @pytest.mark.parametrize("unit", ["s", "ns"])
+    @pytest.mark.parametrize("nested", [False, True])
+    def test_temporal_metadata_keeps_its_existing_text_format(
+        self, tmp_path, writer, reader, dtype, unit, nested,
+    ):
+        value = dtype(1, unit)
+        original = {"value": value} if nested else value
+        path = tmp_path / "temporal.txt"
+        writer(_sample_long_df(), path, metadata=Metadata(extra={"temporal": original}))
+        # Non-JSON metadata has historically used a text representation.
+        # Do not introduce a new encoding or silently drop the temporal unit.
+        assert reader(path).metadata.extra["temporal"] == str(original)
+
     def test_model_versions_auto_extracted(self, tmp_path):
         df = _sample_long_df()
         path = tmp_path / "out.tsv"

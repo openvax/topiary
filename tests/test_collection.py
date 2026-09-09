@@ -19,6 +19,7 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
     cache.mkdir()
     code = textwrap.dedent("""
         import sys
+        from pathlib import Path
 
         def forbid_network(event, args):
             if event in {"socket.connect", "socket.getaddrinfo"}:
@@ -30,9 +31,30 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
         def forbid_annotation(*args, **kwargs):
             raise AssertionError("Unselected Ensembl annotation was accessed")
 
-        pyensembl.Genome.db = property(forbid_annotation)
+        # Selected real-read tests may index their checked-in, checksum-pinned
+        # subset in a temporary directory. No reference access at all is
+        # allowed during collection, and full-genome lookup/download stays
+        # forbidden in both modes.
+        reference = Path("tests/data/osteosarc/protein_reference/reference.gtf.gz").resolve()
+        original_db = pyensembl.Genome.db.fget
+        original_index = pyensembl.Genome.index
+
+        def require_pinned_reference(genome):
+            assert "--collect-only" not in sys.argv, "Reference access during collection"
+            assert genome.reference_name == "GRCh38-osteosarc-six-transcript-subset"
+            assert Path(genome.to_dict()["gtf_path_or_url"]).resolve() == reference
+
+        def pinned_db(genome):
+            require_pinned_reference(genome)
+            return original_db(genome)
+
+        def pinned_index(genome, *args, **kwargs):
+            require_pinned_reference(genome)
+            return original_index(genome, *args, **kwargs)
+
+        pyensembl.Genome.db = property(pinned_db)
         pyensembl.Genome.download = forbid_annotation
-        pyensembl.Genome.index = forbid_annotation
+        pyensembl.Genome.index = pinned_index
 
         import pytest
         raise SystemExit(pytest.main(["tests", "-q", *sys.argv[1:]]))

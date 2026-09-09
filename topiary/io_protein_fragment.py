@@ -32,8 +32,7 @@ def _fragment_to_row(f: ProteinFragment) -> dict:
     """Convert a :class:`ProteinFragment` to a flat dict suitable for
     a TSV row (lists / dicts JSON-encoded)."""
     row = {}
-    for col in _COLUMNS:
-        val = getattr(f, col)
+    for col, val in f.to_dict().items():
         if col == "target_intervals":
             row[col] = json.dumps([list(p) for p in val]) if val is not None else ""
         elif col in ("annotations", "field_provenance"):

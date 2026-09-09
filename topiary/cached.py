@@ -37,7 +37,7 @@ from typing import Callable, Iterable, List, Mapping, Optional, Union
 import pandas as pd
 
 from .predictor import _backfill_value_from_score
-from .ranking import is_stated, stated_values
+from .ranking import KIND_MHC_DEPENDENCE, is_stated, stated_values
 
 
 # Columns a cache row must carry so the core invariant and lookup work.
@@ -539,10 +539,10 @@ class CachedPredictor:
         Mirrors ``mhctools.BasePredictor.kind_support()``. If a fallback is
         configured and exposes ``kind_support``, its entries are preferred
         for the kinds it shares with the cache (so haplotype-mode
-        presentation, etc., is reported faithfully). Kinds present only in
-        the cache default to ``single_allele`` / class I — the cache stores
-        rows per ``(peptide, allele, kind)``, so this is the most
-        conservative truthful description.
+        presentation, etc., is reported faithfully). Otherwise, known
+        allele-independent kinds retain that meaning. Remaining kinds
+        use the legacy ``single_allele`` / class I default; exact model
+        configuration cannot be reconstructed from kind names alone.
         """
         cached_kinds = sorted({str(k) for k in self._df["kind"].unique().tolist()})
         fallback_support = {}
@@ -552,6 +552,8 @@ class CachedPredictor:
         for kind in cached_kinds:
             if kind in fallback_support:
                 support[kind] = dict(fallback_support[kind])
+            elif KIND_MHC_DEPENDENCE.get(kind) == "none":
+                support[kind] = {"mhc_dependence": "none", "mhc_class": "none"}
             else:
                 support[kind] = {"mhc_dependence": "single_allele", "mhc_class": "I"}
         return support
@@ -1340,30 +1342,16 @@ def _flank_key(value):
 
 def _bindings_to_dataframe(preds, *, kind: str) -> pd.DataFrame:
     """Convert an mhctools ``list[BindingPrediction]`` into a DataFrame
-    shaped for :class:`CachedPredictor`.  Uses ``length`` (the
-    mhctools attribute name) → ``peptide_length``.
+    shaped for :class:`CachedPredictor`, using mhctools' native conversion.
 
     ``kind`` is required and stamped on every row — DSL expressions
     like ``Affinity.value <= 500`` filter on the ``kind`` column, and
     mhctools' ``BindingPrediction`` objects don't carry ``kind`` as
     an attribute.  The caller knows the right value based on the tool.
     """
-    rows = [
-        {
-            "peptide": p.peptide,
-            "allele": p.allele,
-            "peptide_length": p.length,
-            "kind": kind,
-            "score": p.score,
-            "affinity": p.affinity,
-            "percentile_rank": p.percentile_rank,
-            "value": getattr(p, "value", None),
-            "source_sequence_name": getattr(p, "source_sequence_name", None),
-            "peptide_offset": getattr(p, "offset", None),
-        }
-        for p in preds
-    ]
-    return _backfill_value_from_score(pd.DataFrame(rows))
+    # to_pred owns the unit-aware conversion (notably Thalf(h) for stability).
+    # Copying legacy value/affinity fields independently loses that contract.
+    return _predictions_to_dataframe(p.to_pred(kind=kind) for p in preds)
 
 
 def _predictions_to_dataframe(preds) -> pd.DataFrame:

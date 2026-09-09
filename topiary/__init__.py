@@ -1,3 +1,4 @@
+from .serialization import normalize_python_types
 from .predictor import (
     TopiaryPredictor,
     fragment_from_effect,
@@ -168,9 +169,10 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.52.10"
+__version__ = "5.53.0"
 
 __all__ = [
+    "normalize_python_types",
     "TopiaryPredictor",
     "AMINO_ACIDS",
     "AMINO_ACID_INDEX",

@@ -219,20 +219,20 @@ class TestCachedPredictorKindSupport:
         # Cache had no affinity rows, so fallback's affinity entry isn't surfaced
         assert "pMHC_affinity" not in support
 
-    def test_proteasome_cleavage_rows_default_to_single_allele(self):
-        """No-fallback default for any kind is single_allele/I (the
-        cache stores rows per (peptide, allele, kind), so we can't
-        downgrade to 'none' without external context). This is the
-        documented conservative behavior — a fallback is the way to
-        report 'none' faithfully."""
+    @pytest.mark.parametrize("kind", [
+        "antigen_processing", "proteasome_cleavage", "endolysosomal_cleavage",
+        "erap_trimming", "tap_transport", "serum_half_life", "blood_half_life",
+    ])
+    def test_allele_independent_kinds_retain_their_meaning_without_fallback(self, kind):
+        """Cache keys do not change what a measurement is about."""
         cache = CachedPredictor(
-            pd.DataFrame([_cache_row(kind="proteasome_cleavage")])
+            pd.DataFrame([_cache_row(kind=kind, allele="")])
         )
         support = cache.kind_support()
         assert support == {
-            "proteasome_cleavage": {
-                "mhc_dependence": "single_allele",
-                "mhc_class": "I",
+            kind: {
+                "mhc_dependence": "none",
+                "mhc_class": "none",
             }
         }
 

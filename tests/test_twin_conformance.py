@@ -36,7 +36,10 @@ from topiary.evidence import (
     attach_dna_evidence,
     attach_rna_evidence,
 )
-from topiary import APPROXIMATED, MEASURED, ProteinFragment, read_pvacseq
+from topiary import (
+    APPROXIMATED, MEASURED, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
+    read_fragments, read_pvacseq, write_fragments,
+)
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
 import topiary.optional_dependencies as optional_dependencies
@@ -82,6 +85,39 @@ TWINS = (
     ),
 )
 
+
+def fragments_with_creator_options(variants, alignment_file, **options):
+    """Public convenience options, with result filters disabled for the test."""
+    return fragments_from_variants(
+        variants, alignment_file, filter_thresholds={}, filter_flags=[], **options,
+    )
+
+
+def fragments_with_explicit_creator(variants, alignment_file, **options):
+    """The existing custom-creator door must produce exactly the same result."""
+    from isovar.protein_sequence_creator import ProteinSequenceCreator
+
+    return fragments_from_variants(
+        variants, alignment_file, filter_thresholds={}, filter_flags=[],
+        protein_sequence_creator=ProteinSequenceCreator(
+            variant_sequence_assembly=True, **options,
+        ),
+    )
+
+
+# These callables consume variants and a BAM, not a DataFrame. The original
+# RNA battery in test_consumer_workflows.py drives this registered pair.
+ISOVAR_RECONSTRUCTION_TWINS = Twin(
+    name="RNA creator options/custom creator",
+    left=fragments_with_creator_options,
+    right=fragments_with_explicit_creator,
+    shared={name: name for name in (
+        "protein_sequence_length", "protein_context_peptide_length",
+        "protein_sequence_preference", "min_protein_sequence_support_fraction",
+        "min_variant_sequence_coverage",
+    )},
+)
+
 FRAME = pd.DataFrame({"x": [1, 2]}, index=[10, 11])
 
 
@@ -115,7 +151,7 @@ OPTIONAL_DEPENDENCY_TWINS = (
         "run_isovar",
         _check_isovar,
         "assembling protein fragments from RNA alignments",
-        ">=1.7.10",
+        ">=1.8.0",
     ),
     (
         "pirlygenes",
@@ -160,6 +196,68 @@ def _construct_fragment_from_dict(values):
 FRAGMENT_CONSTRUCTION_DOORS = (
     ("direct", _construct_fragment_directly),
     ("from_dict", _construct_fragment_from_dict),
+)
+
+
+def fragment_dict_roundtrip(fragment, path):
+    return ProteinFragment.from_dict(fragment.to_dict())
+
+
+def fragment_json_roundtrip(fragment, path):
+    return ProteinFragment.from_json(fragment.to_json())
+
+
+def fragment_tsv_roundtrip(fragment, path):
+    write_fragments([fragment], path)
+    restored, = read_fragments(path)
+    return restored
+
+
+# The same scalar/type battery and real custom-creator workflow drive all
+# three serialization doors in test_consumer_workflows.py.
+FRAGMENT_SERIALIZATION_DOORS = (
+    ("dict", fragment_dict_roundtrip),
+    ("json", fragment_json_roundtrip),
+    ("tsv", fragment_tsv_roundtrip),
+)
+
+
+def whole_peptides_through_predictor(model, peptides):
+    return TopiaryPredictor(models=model).predict_from_named_peptides(
+        {str(i): peptide for i, peptide in enumerate(peptides)},
+    )
+
+
+def whole_peptides_through_predictions(model, peptides):
+    predictions = [prediction for result in model.predict(peptides) for prediction in result.preds]
+    return from_predictions(
+        predictions, extra_columns={"source_sequence_name": [str(i) for i in range(len(peptides))]},
+    )
+
+
+# Real mhctools wrappers, with only their external sidecars stubbed, drive
+# this pair in test_consumer_workflows.py. It tests integration, not model accuracy.
+WHOLE_PEPTIDE_PREDICTION_DOORS = (whole_peptides_through_predictor, whole_peptides_through_predictions)
+
+
+def stability_through_stdout_cache(path):
+    from topiary import CachedPredictor
+
+    return CachedPredictor.from_netmhcstabpan_stdout(path).predict_peptides_dataframe(["SLLQHLIGL"])
+
+
+def stability_through_native_conversion(path):
+    from mhctools.parsing import parse_netmhcstabpan
+
+    return from_predictions([
+        prediction.to_pred(kind="pMHC_stability")
+        for prediction in parse_netmhcstabpan(path.read_text())
+    ])
+
+
+STABILITY_PREDICTION_DOORS = (
+    stability_through_stdout_cache,
+    stability_through_native_conversion,
 )
 
 

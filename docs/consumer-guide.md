@@ -213,10 +213,57 @@ def support(fragment):
 `pip install 'topiary[isovar]'`; only `fragments_from_variants` with an
 `alignment_file` needs it.
 
-The extra requires Isovar 1.7.10 or newer. Earlier releases can lose peptides
-from mutations spanning two codons or long insertions, or discard shared RNA
-support before Topiary receives it. Upgrade with
-`pip install --upgrade 'topiary[isovar]'`; the Topiary calling API is unchanged.
+The extra requires Isovar 1.8.0 or newer for peptide-aware RNA context and
+independent support controls. Upgrade with
+`pip install --upgrade 'topiary[isovar]'`.
+
+### RNA context for ligands versus vaccine peptides
+
+Tell Topiary how long the peptide of interest is. For ligand-only workflows,
+the default objective is the longest `epitope_lengths` entry: 11 aa with the
+default 8–11mer lengths, retaining a 21-aa RNA context target. For long vaccine
+peptides, set the vaccine size separately from MHC prediction lengths:
+
+```python
+fragments = fragments_from_variants(
+    variants,
+    alignment_file=bam,
+    protein_context_peptide_length=25,       # vaccine peptide size
+    protein_sequence_preference="balanced",
+    min_protein_sequence_support_fraction=0.85,
+    min_variant_sequence_coverage=2,
+)
+```
+
+Isovar derives a context target of `2*K - 1` residues: 29 for a 15mer, 49 for
+a 25mer, 59 for a 30mer. This covers all placements around a centered
+single-residue substitution, not a guarantee for every wider mutation or
+deletion junction. Available RNA and stop codons can shorten the result.
+`protein_sequence_length=35` explicitly overrides the target, not the peptide
+size used to evaluate it. `protein_sequence_creator=my_creator` remains
+supported unchanged; combining a custom creator with explicit creator options
+raises an error instead of silently choosing one.
+
+`balanced` favors useful context while retaining the specified fraction of
+the best mutant candidate's **compatible read-name support**. `support`
+prioritizes support; `context` prioritizes context without that relative
+budget. All three obey the separate **per-base RNA read-object floor**.
+Neither fraction nor floor is a confidence probability, total-alt VAF or a
+claim that every supporting name spans the whole peptide. No RNA sequence is
+padded from reference and no floor is lowered to reach the requested length.
+
+The new RNA controls require `alignment_file`. Reference translation and
+explicit fallback retain their separate `padding_around_mutation` rule;
+requesting a longer RNA peptide objective does not change reference padding.
+Fallback fragments remain reference-derived and carry no invented RNA counts.
+
+RNA fragments record resolved settings in `isovar_*` annotations, including
+`isovar_version`, `isovar_protein_context_peptide_length`,
+`isovar_protein_sequence_length`, the preference and both support controls.
+These survive fragment TSV/JSON save/reload and become prediction columns.
+Custom-creator settings are recorded only where the creator exposes them;
+Topiary does not fabricate missing values. These settings describe the run,
+not a validation of historical vaccine selection or clinical efficacy.
 
 ### Reads and fragments
 

@@ -14,11 +14,13 @@ not pay for a package it never calls.
 
 from __future__ import annotations
 
+from numbers import Integral
 from typing import Optional
 
 from .protein_fragment import ProteinFragment
 from .evidence import ISOVAR_ASSEMBLY, RNA_ALIGNMENT
 from .optional_dependencies import require_optional_dependency
+from .serialization import normalize_python_types
 
 
 def _check_isovar():
@@ -174,15 +176,10 @@ def fragments_from_isovar_results(isovar_results):
     return fragments
 
 
-#: Default assembled window around a mutation, in amino acids.
-#:
-#: A fragment is scanned by a sliding window later, so the assembled
-#: sequence has to be long enough to contain every peptide that could
-#: cover the mutation — the peptide length plus padding on both sides.
-#: Topiary keeps its historical 21-amino-acid default independently of
-#: Isovar's default. Callers can request a different length or supply a
-#: configured ProteinSequenceCreator; available RNA context still limits
-#: the assembled sequence.
+#: Historical context length, retained for explicit callers and reference
+#: padding. The RNA default is now derived by Isovar from the desired peptide
+#: size: the default 11-aa ligand objective still requests 21 aa. Available
+#: RNA, mutation position and stop codons can limit the returned context.
 DEFAULT_PROTEIN_SEQUENCE_LENGTH = 21
 
 
@@ -271,7 +268,12 @@ def fragments_from_variants(
     variants,
     alignment_file=None,
     *,
-    protein_sequence_length: int = DEFAULT_PROTEIN_SEQUENCE_LENGTH,
+    protein_sequence_length: Optional[int] = None,
+    protein_context_peptide_length: Optional[int] = None,
+    protein_sequence_preference: Optional[str] = None,
+    min_protein_sequence_support_fraction: Optional[float] = None,
+    min_variant_sequence_coverage: Optional[int] = None,
+    protein_sequence_creator=None,
     padding_around_mutation: Optional[int] = None,
     epitope_lengths=(8, 9, 10, 11),
     allow_reference_fallback: bool = False,
@@ -292,10 +294,12 @@ def fragments_from_variants(
     of :class:`~topiary.ProteinFragment` with the same core, so the rest
     of a pipeline does not change when the RNA does or does not exist.
 
-    The assembled sequence is deliberately longer than one peptide — a
-    fragment is scanned by a sliding window downstream, so it has to
-    contain every peptide that could cover the mutation. Hence
-    *protein_sequence_length*, not a peptide length.
+    The desired peptide size and the RNA context length are distinct.
+    By default Isovar targets ``2 * protein_context_peptide_length - 1``
+    residues, enough for every overlapping peptide placement around a
+    centered single-residue substitution. Wider edits and deletion junctions
+    have different overlap geometry, and reads may support less context.
+    No reference residues are appended to an RNA-supported fragment.
 
     Parameters
     ----------
@@ -307,17 +311,43 @@ def fragments_from_variants(
         from reads covering each variant and counts the reads supporting
         it. When ``None``, every fragment comes from reference
         translation and carries no read counts.
-    protein_sequence_length : int
-        Amino acids of assembled context around the mutation.
+    protein_sequence_length : int, optional
+        Explicit positive RNA context target, in amino acids. When omitted,
+        Isovar derives the target from *protein_context_peptide_length*.
+        A target is not a promise that enough RNA context exists.
+    protein_context_peptide_length : int, optional
+        Peptide size used to evaluate mutation-overlapping RNA context.
+        Defaults to ``max(epitope_lengths)`` for ligand workflows (11 aa
+        with the default lengths). Set this to the vaccine peptide size
+        for vaccine workflows; it does not change MHC prediction lengths.
+    protein_sequence_preference : str, optional
+        Isovar's ``balanced`` default favors useful context within the
+        relative support budget. ``support`` prioritizes support and
+        ``context`` prioritizes context without that relative budget.
+        The absolute per-base floor applies to every preference.
+    min_protein_sequence_support_fraction : float, optional
+        Balanced selection's minimum fraction of the best mutant candidate's
+        compatible read-name support (Isovar default 0.85). Not per-base
+        depth, total-alt VAF, a confidence probability, or a count of names
+        spanning the entire peptide.
+    min_variant_sequence_coverage : int, optional
+        Independent absolute floor of RNA read objects covering each retained
+        base (Isovar default 2). It is never relaxed to meet a length target.
+    protein_sequence_creator : isovar.ProteinSequenceCreator, optional
+        Use this configured creator unchanged. Cannot be combined with any
+        explicit creator option above, even one equal to its default. Unknown
+        settings on custom creators are left unknown in provenance.
     padding_around_mutation : int, optional
         Residues kept either side of the mutation on the reference arm.
         Validated against *epitope_lengths* by
         :func:`~topiary.check_padding_around_mutation`, so a padding too
         small to contain any epitope is refused rather than producing
-        fragments the sliding window cannot use.
+        fragments the sliding window cannot use. The default retains the
+        historical padding rule using an explicit *protein_sequence_length*
+        or 21 aa; the new RNA peptide objective does not change this rule.
     epitope_lengths : sequence of int
-        Peptide lengths the fragments must be able to contain; only used
-        to validate the padding.
+        MHC ligand lengths. Used for reference-padding validation and, when
+        no RNA peptide size or custom creator is given, the RNA objective.
     allow_reference_fallback : bool
         When true, a variant isovar could not support is translated from
         the reference instead of dropped. Fragments say which they are
@@ -334,8 +364,8 @@ def fragments_from_variants(
     transcript_id_whitelist, filter_thresholds
         Passed to :func:`isovar.run_isovar`.
     **isovar_kwargs
-        Also passed through — ``read_collector``,
-        ``protein_sequence_creator``, and friends. Rejected when no
+        Passed to ``run_isovar``, for example ``read_collector`` and
+        ``filter_flags``. Creator options above are not passed here. Rejected when no
         *alignment_file* is given, rather than silently ignored.
 
     Returns
@@ -345,16 +375,33 @@ def fragments_from_variants(
 
     Notes
     -----
-    Requires isovar only when *alignment_file* is given.
+    Requires Isovar >=1.8.0 only when *alignment_file* is given. Explicit
+    RNA-only options are rejected without an alignment file. RNA fragments
+    record the Isovar version, creator class and available creator settings
+    as ``isovar_*`` annotations, preserved by fragment IO and prediction.
     """
-    if protein_sequence_length < 1:
+    if protein_sequence_length is not None and (
+        isinstance(protein_sequence_length, bool)
+        or not isinstance(protein_sequence_length, Integral)
+        or protein_sequence_length < 1
+    ):
         raise ValueError(
             f"protein_sequence_length is a count of amino acids and must "
-            f"be positive; got {protein_sequence_length}."
+            f"be positive (an integer); got {protein_sequence_length}."
         )
+    creator_options = {
+        name: value for name, value in (
+            ("protein_sequence_length", protein_sequence_length),
+            ("protein_context_peptide_length", protein_context_peptide_length),
+            ("protein_sequence_preference", protein_sequence_preference),
+            ("min_protein_sequence_support_fraction", min_protein_sequence_support_fraction),
+            ("min_variant_sequence_coverage", min_variant_sequence_coverage),
+        ) if value is not None
+    }
     if padding_around_mutation is None:
         padding_around_mutation = max(
-            max(epitope_lengths) - 1, (protein_sequence_length - 1) // 2
+            max(epitope_lengths) - 1,
+            ((protein_sequence_length or DEFAULT_PROTEIN_SEQUENCE_LENGTH) - 1) // 2,
         )
     else:
         from .sequence_helpers import check_padding_around_mutation
@@ -365,9 +412,11 @@ def fragments_from_variants(
     if alignment_file is None:
         rejected = sorted(
             set(isovar_kwargs)
+            | (set(creator_options) - {"protein_sequence_length"})
             | {k for k, v in (
                 ("transcript_id_whitelist", transcript_id_whitelist),
                 ("filter_thresholds", filter_thresholds),
+                ("protein_sequence_creator", protein_sequence_creator),
             ) if v is not None}
         )
         if rejected:
@@ -384,7 +433,12 @@ def fragments_from_variants(
         )
 
     isovar = _check_isovar()
-    creator = isovar_kwargs.pop("protein_sequence_creator", None)
+    creator = protein_sequence_creator
+    if creator is not None and creator_options:
+        raise ValueError(
+            f"protein_sequence_creator and {sorted(creator_options)} both "
+            "configure RNA reconstruction; pass one configuration source."
+        )
     if creator is None:
         creator_module = require_optional_dependency(
             "isovar.protein_sequence_creator",
@@ -392,21 +446,29 @@ def fragments_from_variants(
             extra="isovar",
             required_callables=("ProteinSequenceCreator",),
         )
+        creator_options.setdefault("protein_context_peptide_length", max(epitope_lengths))
         creator = creator_module.ProteinSequenceCreator(
-            protein_sequence_length=protein_sequence_length,
-            # Without assembly a single read or fragment must span the
-            # whole window, so a longer context quietly yields fewer
-            # variants rather than longer sequences — and "assembled
-            # from reads, carrying the phasing the reads support" would
-            # not be true of the result.
+            # Preserve Topiary's overlap-assembly policy; Isovar still
+            # enforces the support floor on the retained RNA context.
             variant_sequence_assembly=True,
+            **creator_options,
         )
-    elif protein_sequence_length != DEFAULT_PROTEIN_SEQUENCE_LENGTH:
-        raise ValueError(
-            "protein_sequence_length and protein_sequence_creator both "
-            "set the assembled window; pass one. The creator's length "
-            "would have won silently."
-        )
+
+    reconstruction_annotations = {
+        "isovar_version": getattr(isovar, "__version__", None),
+        "isovar_creator": f"{type(creator).__module__}.{type(creator).__qualname__}",
+    }
+    for name in (
+        "protein_sequence_length", "protein_context_peptide_length",
+        "protein_sequence_preference", "min_protein_sequence_support_fraction",
+        "min_variant_sequence_coverage", "variant_sequence_assembly",
+        "min_transcript_prefix_length", "max_transcript_mismatches",
+        "count_mismatches_after_variant", "min_assembly_overlap_size",
+        "max_protein_sequences_per_variant",
+    ):
+        value = getattr(creator, name, None)
+        if value is not None:
+            reconstruction_annotations[f"isovar_{name}"] = normalize_python_types(value)
 
     results = isovar.run_isovar(
         variants=variants,
@@ -434,6 +496,7 @@ def fragments_from_variants(
             transcript_expression=None,
         )
         if fragment is not None:
+            fragment.annotations.update(reconstruction_annotations)
             fragments.append(fragment)
         else:
             unsupported.append(getattr(result, "variant", None))

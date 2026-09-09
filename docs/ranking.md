@@ -179,9 +179,16 @@ Each accessor has three fields:
 |-------|-------------|---------|
 | `.value` | Raw value (e.g. IC50 nM) | `Affinity.value` |
 | `.rank` | Percentile rank (lower = better) | `Affinity.rank` |
-| `.score` | Normalized score (higher = better) | `Affinity.score` |
+| `.score` | Model score (higher = better; not always normalized) | `Affinity.score` |
 
 The default field is `.value`, so `Affinity <= 500` means `Affinity.value <= 500`.
+
+Circulating-peptide half-life is available by its distinct kind name:
+`serum_half_life.value` or `blood_half_life.score`. Both are allele-independent;
+`stability` still means `pMHC_stability`, not serum or blood stability. Missing
+physical values or percentiles stay missing. See the
+[whole-peptide workflow](quickstart.md#whole-peptide-half-life-models) for the
+model setup and interpretation limits.
 
 ## peptide_view — one value per peptide
 
