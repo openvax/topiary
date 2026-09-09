@@ -13,6 +13,7 @@ supported" has something that runs behind it.
 """
 
 import warnings
+from enum import Enum
 
 import numpy as np
 import pandas as pd
@@ -616,6 +617,7 @@ def osteosarc_fragments(data, sample, gene, **options):
     (np.float32(0.5), 0.5),
     (np.float64(0.85), 0.85),
     (np.str_("True"), "True"),
+    (np.str_("value\0"), "value\0"),
 ])
 def test_fragment_numpy_scalars_survive_all_serialization_doors(value, expected, tmp_path):
     from tests.test_twin_conformance import (
@@ -644,6 +646,79 @@ def test_fragment_numpy_scalars_survive_all_serialization_doors(value, expected,
                            restored.annotations["later"]["value"]):
                 assert type(scalar) is type(expected)
                 assert scalar == expected
+
+
+def test_string_enum_variant_predictions_survive_construction_and_serialization(tmp_path):
+    from dataclasses import replace
+    from tests.test_twin_conformance import (
+        FRAGMENT_CONSTRUCTION_DOORS, FRAGMENT_SERIALIZATION_DOORS,
+    )
+
+    class Origin(str, Enum):
+        SNV = "variant:snv"
+
+    expected = {"SIINFEKLA", "IINFEKLAA"}
+    for source_type in ("variant:snv", Origin.SNV):
+        for _, construct in FRAGMENT_CONSTRUCTION_DOORS:
+            fragment = construct(dict(source_type=source_type, target_intervals=[(4, 5)]))
+            # The construction doors use a nine-residue sequence. Add one
+            # residue to exercise two distinct mutation-overlapping windows.
+            fragment = replace(fragment, sequence="SIINFEKLAA")
+            candidates = [fragment] + [
+                roundtrip(fragment, tmp_path / f"{name}.tsv")
+                for name, roundtrip in FRAGMENT_SERIALIZATION_DOORS
+            ]
+            for restored in candidates:
+                frame = _isovar_prediction_frame(restored)
+                assert set(frame.peptide) == expected
+                assert frame.contains_mutant_residues.all()
+                assert restored.source_type == "variant:snv"
+                assert type(restored.source_type) is str
+
+
+@pytest.mark.parametrize("dtype", [np.datetime64, np.timedelta64])
+@pytest.mark.parametrize("unit", ["s", "ns"])
+def test_fragment_temporal_values_reach_custom_json_encoder_with_units(dtype, unit):
+    from tests.test_twin_conformance import FRAGMENT_CONSTRUCTION_DOORS
+
+    value = dtype(1, unit)
+    for _, construct in FRAGMENT_CONSTRUCTION_DOORS:
+        fragment = construct({"annotations": {"duration_or_date": value}})
+        seen = []
+
+        def encode_temporal(obj):
+            assert type(obj) is dtype
+            assert obj.dtype == value.dtype
+            assert obj == value
+            seen.append(obj)
+            return {"dtype": obj.dtype.str, "ticks": int(obj.astype("int64"))}
+
+        restored = ProteinFragment.from_json(fragment.to_json(default=encode_temporal))
+        encoded = restored.annotations["duration_or_date"]
+        decoded = np.array(encoded["ticks"], dtype=encoded["dtype"])[()]
+        assert len(seen) == 1
+        assert decoded.dtype == value.dtype
+        assert decoded == value
+
+
+def test_nested_dataclass_annotations_survive_all_serialization_doors(tmp_path):
+    from dataclasses import dataclass
+    from tests.test_twin_conformance import FRAGMENT_SERIALIZATION_DOORS
+
+    @dataclass
+    class Settings:
+        enabled: object
+        label: object
+
+    settings = Settings(np.bool_(True), np.str_("label\0"))
+    fragment = ProteinFragment(fragment_id="nested", annotations={"settings": [settings]})
+    assert fragment.annotations["settings"][0] is settings
+    for name, roundtrip in FRAGMENT_SERIALIZATION_DOORS:
+        restored = roundtrip(fragment, tmp_path / f"{name}.tsv")
+        assert restored.annotations == {"settings": [{"enabled": True, "label": "label\0"}]}
+        assert restored.annotations["settings"][0]["enabled"] is True
+    assert type(settings.enabled) is np.bool_
+    assert settings.label == "label\0"
 
 
 @pytest.mark.isovar

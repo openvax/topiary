@@ -628,7 +628,7 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
         changed after construction. Unsupported custom objects remain
         unchanged and will be rejected by the JSON encoder.
         """
-        d = normalize_python_types(dataclasses.asdict(self))
+        d = normalize_python_types(self, dataclasses_as_dict=True)
         if d["target_intervals"] is not None:
             d["target_intervals"] = [list(p) for p in d["target_intervals"]]
         return d

@@ -350,12 +350,25 @@ For single-fragment / API use: `fragment.to_dict()`, `fragment.to_json()`, and
 the `from_dict` / `from_json` classmethods.
 
 NumPy scalars work like their Python equivalents: `np.bool_(True)` becomes
-`True`, integer scalars become `int`, and real scalars become `float`.
+`True`, integer scalars become `int`, and ordinary floating scalars become
+`float`. String-backed enums preserve their underlying text: a member whose
+value is `"variant:snv"` stays `"variant:snv"`, not an enum display name.
 Construction and JSON/TSV serialization apply the same conversion, including
 inside nested annotations and to annotations added later. Callers' input data
 is not modified. Strings such as `"False"` stay strings, and unsupported objects
 still raise serialization errors. The shared conversion is also available as
 `topiary.normalize_python_types(value)`.
+
+Normalization is not a universal encoder. Dates, durations, decimals, fractions,
+extended-precision floats, complex numbers and arrays remain intact rather than
+losing units or precision. Use `fragment.to_json(default=your_encoder)` to
+choose an explicit representation for these values. Non-JSON prediction-file
+metadata retains its existing text fallback; reading that fallback returns text,
+not an automatically reconstructed date or duration.
+
+Nested dataclass annotations still serialize as field dictionaries. This
+conversion shares the same traversal (`dataclasses_as_dict=True`) and does not
+invoke custom deep-copy hooks that could alter values before encoding.
 
 ## Identity
 

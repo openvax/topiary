@@ -18,6 +18,12 @@ Python booleans, integers, floats and strings across construction and JSON/TSV
 save/reload; custom creators are not modified.
 Structured prediction-file metadata uses the same conversion, preventing
 NumPy scalars from turning a saved mapping into an opaque string (#290).
+Normalization preserves the stored values of string/numeric subclasses and
+enums. Dates, durations (including NumPy units), extended-precision numbers
+and other rich scalar types remain intact for explicit encoders instead of
+being coerced to display strings or unitless/lower-precision numbers.
+The shared serializer also preserves complete Unicode contents and nested
+dataclass output without invoking potentially value-changing deep-copy hooks.
 
 ## 5.52.10
 

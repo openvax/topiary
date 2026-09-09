@@ -278,6 +278,21 @@ class TestReadWriteTSV:
         assert type(restored["limits"][1]) is float
         assert type(settings["enabled"]) is np.bool_
 
+    @pytest.mark.parametrize("writer,reader", [(to_tsv, read_tsv), (to_csv, read_csv)])
+    @pytest.mark.parametrize("dtype", [np.datetime64, np.timedelta64])
+    @pytest.mark.parametrize("unit", ["s", "ns"])
+    @pytest.mark.parametrize("nested", [False, True])
+    def test_temporal_metadata_keeps_its_existing_text_format(
+        self, tmp_path, writer, reader, dtype, unit, nested,
+    ):
+        value = dtype(1, unit)
+        original = {"value": value} if nested else value
+        path = tmp_path / "temporal.txt"
+        writer(_sample_long_df(), path, metadata=Metadata(extra={"temporal": original}))
+        # Non-JSON metadata has historically used a text representation.
+        # Do not introduce a new encoding or silently drop the temporal unit.
+        assert reader(path).metadata.extra["temporal"] == str(original)
+
     def test_model_versions_auto_extracted(self, tmp_path):
         df = _sample_long_df()
         path = tmp_path / "out.tsv"

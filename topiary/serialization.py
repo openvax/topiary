@@ -1,45 +1,68 @@
 """Shared conversion of scientific scalars to ordinary Python values."""
 
-from numbers import Integral, Real
+import dataclasses
 
 import numpy as np
 
 
-def normalize_python_types(value):
-    """Copy nested data with Python equivalents of NumPy scalar types.
+def normalize_python_types(value, *, dataclasses_as_dict=False):
+    """Copy nested data, simplifying scalar types without changing values.
 
     Parameters
     ----------
     value : object
-        A scalar or nested dict, list or tuple. Numeric and boolean values
-        may come from NumPy, for example from a pandas row or custom creator.
+        A scalar or nested dict, list or tuple, for example from a pandas
+        row or custom creator. ``None`` and empty containers are valid.
+    dataclasses_as_dict : bool, optional
+        Also represent dataclass instances as field dictionaries, recursively.
+        Used by fragment serialization. By default dataclass objects are left
+        intact, like other custom objects. No arbitrary objects are deep-copied:
+        their copy hooks can change stored values before an encoder sees them.
 
     Returns
     -------
     object
-        Booleans become ``bool``, integral numbers become ``int``, real
-        numbers become ``float``, and strings become ``str``. Containers
-        retain their shape with recursively normalized keys and values;
-        the input is not mutated. ``None`` and empty containers are valid.
+        NumPy boolean, signed/unsigned integer and floating
+        scalars use NumPy's lossless ``item`` conversion. Extended-precision
+        floats without an equivalent Python type remain NumPy scalars.
+        Built-in str/int/float subclasses use their stored value, not an
+        overridden display/conversion method; a string-backed enum containing
+        ``"variant:snv"`` therefore becomes that string, not its member name.
 
-        Other objects are left unchanged, so serialization still rejects
-        unsupported types instead of silently stringifying them. This is
-        not coercion of strings or truthy values: ``"False"`` stays a string
-        and ``0`` stays an integer. Booleans are checked before integers
-        because Python treats ``bool`` as an integer subclass.
+        Dates, durations, decimals, fractions, complex numbers, bytes,
+        arrays and other objects are left unchanged for their encoders.
+        In particular, durations must not become unitless integers merely
+        because NumPy classifies them as integral. This function does not
+        promise that every output is JSON-serializable: unsupported objects
+        still need an explicit encoder.
+
+        Dicts, lists and tuples are copied with recursively normalized keys
+        and values; the input is not mutated. ``"False"`` remains a string,
+        ``0`` remains an integer, and ``False`` remains a boolean.
     """
-    if isinstance(value, (bool, np.bool_)):
-        return bool(value)
-    if isinstance(value, Integral):
-        return int(value)
-    if isinstance(value, Real):
-        return float(value)
+    if dataclasses_as_dict and dataclasses.is_dataclass(value) and not isinstance(value, type):
+        value = {field.name: getattr(value, field.name) for field in dataclasses.fields(value)}
     if isinstance(value, str):
-        return str(value)
+        # Also covers np.str_; its item() can discard trailing NUL characters.
+        return str.__str__(value)
+    if isinstance(value, np.generic):
+        # Whitelist primitive dtype kinds. Temporal kinds (m/M) carry units;
+        # item() can discard those units, so they must not enter this path.
+        return np.generic.item(value) if value.dtype.kind in "biuf" else value
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return int.__int__(value)
+    if isinstance(value, float):
+        return float.__float__(value)
     if isinstance(value, dict):
-        return {normalize_python_types(k): normalize_python_types(v) for k, v in value.items()}
+        return {
+            normalize_python_types(k, dataclasses_as_dict=dataclasses_as_dict):
+            normalize_python_types(v, dataclasses_as_dict=dataclasses_as_dict)
+            for k, v in value.items()
+        }
     if isinstance(value, list):
-        return [normalize_python_types(v) for v in value]
+        return [normalize_python_types(v, dataclasses_as_dict=dataclasses_as_dict) for v in value]
     if isinstance(value, tuple):
-        return tuple(normalize_python_types(v) for v in value)
+        return tuple(normalize_python_types(v, dataclasses_as_dict=dataclasses_as_dict) for v in value)
     return value
