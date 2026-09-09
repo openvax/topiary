@@ -14,12 +14,13 @@ not pay for a package it never calls.
 
 from __future__ import annotations
 
-from numbers import Integral, Real
+from numbers import Integral
 from typing import Optional
 
 from .protein_fragment import ProteinFragment
 from .evidence import ISOVAR_ASSEMBLY, RNA_ALIGNMENT
 from .optional_dependencies import require_optional_dependency
+from .serialization import normalize_python_types
 
 
 def _check_isovar():
@@ -467,11 +468,7 @@ def fragments_from_variants(
     ):
         value = getattr(creator, name, None)
         if value is not None:
-            if isinstance(value, Integral) and not isinstance(value, bool):
-                value = int(value)
-            elif isinstance(value, Real) and not isinstance(value, (bool, int)):
-                value = float(value)
-            reconstruction_annotations[f"isovar_{name}"] = value
+            reconstruction_annotations[f"isovar_{name}"] = normalize_python_types(value)
 
     results = isovar.run_isovar(
         variants=variants,

@@ -263,6 +263,21 @@ class TestReadWriteTSV:
         assert "test_cohort" in meta2.sources
         assert meta2.extra.get("patient") == "PT01"
 
+    @pytest.mark.parametrize("writer,reader", [(to_tsv, read_tsv), (to_csv, read_csv)])
+    def test_numpy_scalars_in_structured_metadata(self, tmp_path, writer, reader):
+        settings = {"enabled": np.bool_(True), "disabled": np.bool_(False),
+                    "limits": [np.int64(2**60 + 1), np.float32(0.5)]}
+        meta = Metadata(extra={"settings": settings})
+        path = tmp_path / "out.txt"
+        writer(_sample_long_df(), path, metadata=meta)
+        restored = reader(path).metadata.extra["settings"]
+        assert restored == {"enabled": True, "disabled": False, "limits": [2**60 + 1, 0.5]}
+        assert restored["enabled"] is True
+        assert restored["disabled"] is False
+        assert type(restored["limits"][0]) is int
+        assert type(restored["limits"][1]) is float
+        assert type(settings["enabled"]) is np.bool_
+
     def test_model_versions_auto_extracted(self, tmp_path):
         df = _sample_long_df()
         path = tmp_path / "out.tsv"

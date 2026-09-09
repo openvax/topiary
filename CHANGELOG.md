@@ -13,6 +13,11 @@ Resolved creator settings and Isovar version survive fragment serialization
 and prediction as annotations. Isovar remains optional, now requiring >=1.8.0.
 Real checksum-pinned osteosarc RNA tests compare both configuration paths,
 independent mutant-protein expectations, support controls and downstream IO.
+NumPy scalar settings and nested fragment annotations normalize to native
+Python booleans, integers, floats and strings across construction and JSON/TSV
+save/reload; custom creators are not modified.
+Structured prediction-file metadata uses the same conversion, preventing
+NumPy scalars from turning a saved mapping into an opaque string (#290).
 
 ## 5.52.10
 

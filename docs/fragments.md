@@ -79,11 +79,12 @@ support, and comes with counted read support; a translated one carries the
 reference everywhere except the variant itself, and no read counts at all.
 `annotations["sequence_source"]` says which.
 
-`protein_sequence_length` is a *sequence* length, not a peptide length — a
-fragment is scanned by a sliding window downstream, so the assembled context has
-to be long enough to contain every peptide that could cover the mutation.
-Default 25 (a 9-mer plus 8 either side). `padding_around_mutation` defaults to
-half of it, so the reference arm produces a comparable window.
+`protein_context_peptide_length` sets the RNA reconstruction objective; it
+defaults to the longest requested `epitope_lengths` (11 aa, targeting 21 aa of
+context). Long vaccine workflows can request a separate peptide size.
+`protein_sequence_length` overrides the context target directly, while
+`padding_around_mutation` controls reference translation independently. See the
+[consumer guide](consumer-guide.md) for selection and support controls.
 
 `allow_reference_fallback=True` translates variants isovar could not support
 rather than dropping them. The fragments stay distinguishable by
@@ -92,9 +93,9 @@ RNA-backed candidate with an inferred one.
 
 isovar is needed **only** when `alignment_file` is given. `fragments_from_effects`
 is the reference arm on its own, public because a caller with variants and no
-alignment file wants exactly that. The test suite for this path imports isovar
-nowhere — the RNA arm is exercised through a fake — so it runs in an environment
-that has never installed it.
+alignment file wants exactly that. Reference-only and configuration tests run
+without Isovar; marked integration tests exercise real RNA reconstruction with
+both the minimum supported and latest Isovar releases.
 
 ## Every source reaches a fragment
 
@@ -345,7 +346,16 @@ columns raise. Evidence names from 5.47 and earlier are migrated through
 attribute reads, and keys inside `field_provenance`. New dictionaries and TSVs
 always emit only the assay-scoped names.
 
-For single-fragment / API use: `fragment.to_dict()`, `fragment.to_json()`, and the `from_dict` / `from_json` classmethods — stdlib only, no dependencies.
+For single-fragment / API use: `fragment.to_dict()`, `fragment.to_json()`, and
+the `from_dict` / `from_json` classmethods.
+
+NumPy scalars work like their Python equivalents: `np.bool_(True)` becomes
+`True`, integer scalars become `int`, and real scalars become `float`.
+Construction and JSON/TSV serialization apply the same conversion, including
+inside nested annotations and to annotations added later. Callers' input data
+is not modified. Strings such as `"False"` stay strings, and unsupported objects
+still raise serialization errors. The shared conversion is also available as
+`topiary.normalize_python_types(value)`.
 
 ## Identity
 

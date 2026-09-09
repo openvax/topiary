@@ -14,6 +14,7 @@ supported" has something that runs behind it.
 
 import warnings
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -21,6 +22,7 @@ from topiary import (
     DEFAULT_PROTEIN_SEQUENCE_LENGTH,
     EvalContext,
     Presentation,
+    ProteinFragment,
     TopiaryPredictor,
     TopiaryResult,
     aggregate_evidence_across_samples,
@@ -603,6 +605,79 @@ def osteosarc_fragments(data, sample, gene, **options):
         return fragments_from_variants(
             [variants[gene]], bam, filter_thresholds={}, filter_flags=[], **options,
         )
+
+
+@pytest.mark.parametrize("value,expected", [
+    (np.bool_(True), True),
+    (np.bool_(False), False),
+    (np.int32(-3), -3),
+    (np.int64(2**60 + 1), 2**60 + 1),
+    (np.uint64(2**64 - 1), 2**64 - 1),
+    (np.float32(0.5), 0.5),
+    (np.float64(0.85), 0.85),
+    (np.str_("True"), "True"),
+])
+def test_fragment_numpy_scalars_survive_all_serialization_doors(value, expected, tmp_path):
+    from tests.test_twin_conformance import (
+        FRAGMENT_CONSTRUCTION_DOORS, FRAGMENT_SERIALIZATION_DOORS,
+    )
+
+    for _, construct in FRAGMENT_CONSTRUCTION_DOORS:
+        annotations = {"nested": [{"value": value}]}
+        fragment = construct(dict(
+            target_intervals=[(np.int64(1), np.int32(2))],
+            n_rna_alt_reads=np.int64(3), gene_expression=np.float32(0.5),
+            annotations=annotations,
+        ))
+        assert type(fragment.annotations["nested"][0]["value"]) is type(expected)
+        assert fragment.annotations["nested"][0]["value"] == expected
+        assert type(annotations["nested"][0]["value"]) is type(value)
+        # Mutable annotations added after construction must serialize too.
+        fragment.annotations["later"] = {"value": value}
+        for name, roundtrip in FRAGMENT_SERIALIZATION_DOORS:
+            restored = roundtrip(fragment, tmp_path / f"{name}.tsv")
+            assert restored.to_dict() == fragment.to_dict()
+            assert type(restored.n_rna_alt_reads) is int
+            assert type(restored.gene_expression) is float
+            assert all(type(i) is int for pair in restored.target_intervals for i in pair)
+            for scalar in (restored.annotations["nested"][0]["value"],
+                           restored.annotations["later"]["value"]):
+                assert type(scalar) is type(expected)
+                assert scalar == expected
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("assembly", [True, False])
+def test_osteosarc_numpy_custom_creator_survives_serialization(osteosarc_rna, tmp_path, assembly):
+    from isovar.protein_sequence_creator import ProteinSequenceCreator
+    from tests.osteosarc_helpers import assert_expected_fragment
+    from tests.test_twin_conformance import FRAGMENT_SERIALIZATION_DOORS
+
+    fragments = []
+    for bool_type in (bool, np.bool_):
+        creator = ProteinSequenceCreator(
+            variant_sequence_assembly=bool_type(assembly),
+            count_mismatches_after_variant=bool_type(False),
+            protein_context_peptide_length=np.int64(25),
+            min_variant_sequence_coverage=np.int32(2),
+            min_protein_sequence_support_fraction=np.float64(0.85),
+        )
+        fragment, = osteosarc_fragments(
+            osteosarc_rna, "bulk_star_t0", "DYNC1H1", protein_sequence_creator=creator,
+        )
+        assert_expected_fragment(fragment, osteosarc_rna[2]["DYNC1H1"])
+        for name, roundtrip in FRAGMENT_SERIALIZATION_DOORS:
+            restored = roundtrip(fragment, tmp_path / f"{name}.tsv")
+            assert restored.to_dict() == fragment.to_dict()
+            assert restored.annotations["isovar_variant_sequence_assembly"] is assembly
+            assert restored.annotations["isovar_count_mismatches_after_variant"] is False
+        assert fragment.annotations["isovar_variant_sequence_assembly"] is assembly
+        assert type(creator.variant_sequence_assembly) is bool_type
+        frame = _isovar_prediction_frame(fragment)
+        assert not frame.empty
+        assert frame.isovar_variant_sequence_assembly.eq(assembly).all()
+        fragments.append(fragment.to_dict())
+    assert fragments[0] == fragments[1]
 
 
 @pytest.mark.isovar

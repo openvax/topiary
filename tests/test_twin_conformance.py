@@ -36,7 +36,10 @@ from topiary.evidence import (
     attach_dna_evidence,
     attach_rna_evidence,
 )
-from topiary import APPROXIMATED, MEASURED, ProteinFragment, fragments_from_variants, read_pvacseq
+from topiary import (
+    APPROXIMATED, MEASURED, ProteinFragment, fragments_from_variants,
+    read_fragments, read_pvacseq, write_fragments,
+)
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
 import topiary.optional_dependencies as optional_dependencies
@@ -193,6 +196,29 @@ def _construct_fragment_from_dict(values):
 FRAGMENT_CONSTRUCTION_DOORS = (
     ("direct", _construct_fragment_directly),
     ("from_dict", _construct_fragment_from_dict),
+)
+
+
+def fragment_dict_roundtrip(fragment, path):
+    return ProteinFragment.from_dict(fragment.to_dict())
+
+
+def fragment_json_roundtrip(fragment, path):
+    return ProteinFragment.from_json(fragment.to_json())
+
+
+def fragment_tsv_roundtrip(fragment, path):
+    write_fragments([fragment], path)
+    restored, = read_fragments(path)
+    return restored
+
+
+# The same scalar/type battery and real custom-creator workflow drive all
+# three serialization doors in test_consumer_workflows.py.
+FRAGMENT_SERIALIZATION_DOORS = (
+    ("dict", fragment_dict_roundtrip),
+    ("json", fragment_json_roundtrip),
+    ("tsv", fragment_tsv_roundtrip),
 )
 
 
