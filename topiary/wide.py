@@ -116,6 +116,115 @@ def _parse_wide_column(col_name):
     return None
 
 
+#: Marks a stand-in built for a container cell, so it cannot collide
+#: with a string cell that happens to look like one.
+_GROUP_TOKEN_TAG = "__topiary_group_token__"
+
+#: One stand-in for every spelling of a missing value, so two rows that
+#: are both missing an annotation land in the same group. Comparing the
+#: raw values would not: ``nan != nan``.
+_GROUP_MISSING = ("__topiary_group_missing__",)
+
+
+def _normalized_container(value):
+    """A hashable, order-canonical copy of one container cell.
+
+    Sequences keep their order — two orders of the same transcripts are
+    two different annotations — while sets and mappings do not, because
+    iteration order is not part of their value.
+    """
+    if isinstance(value, dict):
+        return tuple(sorted(
+            (str(key), _normalized_container(item))
+            for key, item in value.items()
+        ))
+    if isinstance(value, (set, frozenset)):
+        return tuple(sorted(
+            (_normalized_container(item) for item in value), key=repr
+        ))
+    if isinstance(value, np.ndarray):
+        return tuple(_normalized_container(item) for item in value.tolist())
+    if isinstance(value, (list, tuple)):
+        return tuple(_normalized_container(item) for item in value)
+    return value
+
+
+def _group_token(value):
+    """A hashable stand-in for one annotation cell.
+
+    Topiary's own fragments carry list-valued annotations —
+    ``supporting_reference_transcripts`` is a list of transcript ids, and
+    prediction preserves it — so grouping the frame by its annotation
+    columns raised ``TypeError: unhashable type: 'list'`` on ordinary RNA
+    results (#287).
+
+    The token stands in only while rows are being grouped. The original
+    object is what reaches the output, so transcript identities survive
+    and a list is still a list on the far side.
+    """
+    if value is None:
+        return _GROUP_MISSING
+    try:
+        if pd.isna(value):
+            return _GROUP_MISSING
+    except (TypeError, ValueError):
+        # pd.isna on a container answers elementwise; a container is
+        # present by definition, so fall through to tokenizing it.
+        pass
+    try:
+        hash(value)
+    except TypeError:
+        return (_GROUP_TOKEN_TAG, _normalized_container(value))
+    return value
+
+
+def _group_ids(df, group_cols):
+    """A group id per row, in first-appearance order.
+
+    **The one place that decides which rows are the same group**, so the
+    id attached to a melted row and the row written to the output cannot
+    disagree about it. Columns are coded independently and the codes
+    combined, which keeps pandas' own null handling: two rows missing the
+    same annotation group together, where comparing ``nan`` to ``nan``
+    would have split them.
+    """
+    if not group_cols:
+        return np.zeros(len(df), dtype=int)
+    codes = []
+    for column in group_cols:
+        series = df[column]
+        try:
+            column_codes, _ = pd.factorize(series, use_na_sentinel=True)
+        except TypeError:
+            column_codes, _ = pd.factorize(
+                series.map(_group_token), use_na_sentinel=True
+            )
+        codes.append(column_codes)
+    ids, _ = pd.factorize(pd.Series(list(zip(*codes))))
+    return ids
+
+
+def _distinct_group_rows(df, group_cols, ids=None):
+    """One row per distinct group, first-appearance order, values intact.
+
+    The rows come back by position rather than being rebuilt, so a
+    container-valued annotation is the same object it was on the way in
+    — deduplicating through a hashable stand-in would otherwise hand the
+    caller the stand-in.
+
+    Pass *ids* when the caller has already grouped the same rows, so the
+    id attached to a melted row and the row written to the output are
+    the same answer rather than two computations of it.
+    """
+    columns = list(group_cols)
+    if len(df) == 0 or not columns:
+        return df[columns].drop_duplicates().reset_index(drop=True)
+    if ids is None:
+        ids = _group_ids(df, columns)
+    _, first_positions = np.unique(ids, return_index=True)
+    return df.iloc[first_positions][columns].reset_index(drop=True)
+
+
 def detect_form(df):
     """Detect whether a DataFrame is in long or wide form.
 
@@ -156,7 +265,7 @@ def to_wide(df):
     group_cols = [c for c in df.columns if c not in PREDICTION_COLUMNS]
 
     if df.empty:
-        return df[group_cols].drop_duplicates().reset_index(drop=True)
+        return _distinct_group_rows(df, group_cols)
 
     # Determine model keys.  Include version only on collision.
     version_collision = False
@@ -231,29 +340,38 @@ def to_wide(df):
             if version_str and not model_versions.get(method_str):
                 model_versions[method_str] = version_str
 
+    # Group each row before melting, and carry the id through the melt.
+    # Recovering the grouping afterwards by merging the melted frame back
+    # on every group column required each of those columns to be
+    # hashable, which an annotation topiary itself produces need not be:
+    # an RNA-derived fragment carries a list of supporting transcripts
+    # (#287). The id says which rows belong together; the values only
+    # have to survive the trip.
+    group_ids = _group_ids(work, group_cols)
+    work["_topiary_group_id"] = group_ids
+    if group_cols:
+        group_index = _distinct_group_rows(work, group_cols, ids=group_ids)
+        group_index["_topiary_group_id"] = range(len(group_index))
+    else:
+        group_index = pd.DataFrame({"_topiary_group_id": [0]})
+
     # Melt each long field into wide column entries.
+    carried = ["_topiary_group_id", "_model_key", "_kind_short"]
     records = []
     for long_field, wide_field in LONG_TO_WIDE_FIELD.items():
         if long_field not in work.columns:
             continue
-        temp = work[group_cols + ["_model_key", "_kind_short", long_field]].copy()
+        temp = work[carried + [long_field]].copy()
         temp["_wide_col"] = (
             temp["_model_key"] + "_" + temp["_kind_short"] + "_" + wide_field
         )
         temp = temp.rename(columns={long_field: "_wide_val"})
-        records.append(temp[group_cols + ["_wide_col", "_wide_val"]])
+        records.append(temp[["_topiary_group_id", "_wide_col", "_wide_val"]])
 
     if not records:
-        return work[group_cols].drop_duplicates().reset_index(drop=True)
+        return _distinct_group_rows(work, group_cols)
 
     melted = pd.concat(records, ignore_index=True)
-    if group_cols:
-        group_index = melted[group_cols].drop_duplicates().reset_index(drop=True)
-        group_index["_topiary_group_id"] = range(len(group_index))
-        melted = melted.merge(group_index, on=group_cols, how="left")
-    else:
-        group_index = pd.DataFrame({"_topiary_group_id": [0]})
-        melted["_topiary_group_id"] = 0
 
     # Check for duplicates that would silently collapse in the pivot.
     dup_cols = ["_topiary_group_id", "_wide_col"]
