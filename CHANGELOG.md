@@ -1,5 +1,18 @@
 # Changelog
 
+## 5.53.1
+
+**Fail-closed release preflight (#286).** Releases now query PyPI's exact-release
+JSON endpoint through the selected Python interpreter. Only a confirmed HTTP
+404 permits release to continue; network, TLS, server and malformed-response
+errors stop before lint, tests, builds or uploads, with a clear diagnostic.
+Standard packaging rules distinguish nearby versions while recognizing
+equivalent spellings. Yanked, prerelease and interpreter-incompatible releases
+cannot disappear behind pip's installability filtering. The read-only
+`pypi_release_exists` API and `python -m topiary.cli.release PROJECT VERSION`
+command share one implementation. Packaging >=23.2 supplies validated package
+names; no custom version regex or shell output parsing remains.
+
 ## 5.53.0
 
 **Peptide-aware RNA reconstruction (#284).** `fragments_from_variants` exposes

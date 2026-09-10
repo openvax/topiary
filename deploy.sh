@@ -28,11 +28,8 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 
-# Check version isn't already on PyPI
-if "${PYTHON}" -m pip index versions topiary 2>/dev/null | grep -q "${VERSION}"; then
-    echo "ERROR: topiary ${VERSION} already exists on PyPI"
-    exit 1
-fi
+# Stop on an existing release OR an unverifiable lookup, before any gates run.
+"${PYTHON}" -m topiary.cli.release topiary "${VERSION}"
 
 # Lint
 ./lint.sh

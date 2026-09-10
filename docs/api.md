@@ -513,3 +513,29 @@ available_properties()
 ```
 
 Groups: `"core"`, `"manufacturability"`, `"immunogenicity"`. See [Peptide Properties](properties.md) for details.
+
+## Release preflight
+
+```python
+from topiary import pypi_release_exists
+
+exists = pypi_release_exists("topiary", "5.53.0", timeout=10)
+```
+
+Returns `True` for a matching PyPI release, including yanked releases and
+releases incompatible with the running Python. Returns `False` only for HTTP
+404 (project or version absent). Network/server errors and malformed or
+mismatched metadata raise `RuntimeError`; invalid names or versions raise
+`ValueError`. Versions use [standard packaging comparisons](https://packaging.pypa.io/en/stable/version.html),
+not substring matching: `1.0` and `1.0.0` are equivalent, but `1.0.1` and
+`1.0rc1` are different releases.
+
+The lookup uses PyPI's [release-specific JSON API](https://docs.pypi.org/api/json/#get-a-release),
+independent of pip index settings and Python/platform filtering. It performs no
+upload or reservation; a subsequent upload still has to reject duplicates.
+
+For release scripts, use `python -m topiary.cli.release PROJECT VERSION`.
+It returns success only when the release is confirmed absent, otherwise a
+nonzero exit and a diagnostic. `deploy.sh` uses this same implementation and
+interpreter before lint, tests, build or upload. A failed lookup never gives
+permission to publish; fix the lookup error and retry the release.

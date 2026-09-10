@@ -57,6 +57,32 @@ PVACSEQ_PRESENTATION = (
 )
 
 
+@pytest.mark.parametrize("scenario, allowed", [
+    ("absent", True), ("published", False), ("timeout", False),
+    ("http_error", False), ("bad_metadata", False), ("wrong_version", False),
+])
+def test_release_api_and_cli_enforce_the_same_publish_policy(monkeypatch, scenario, allowed):
+    from urllib.error import HTTPError
+    from topiary import release
+    from tests.test_release import response
+    from tests.test_twin_conformance import RELEASE_PREFLIGHT_DOORS
+
+    def lookup(request, timeout):
+        if scenario in {"absent", "http_error"}:
+            status = 404 if scenario == "absent" else 503
+            raise HTTPError(request.full_url, status, "simulated", {}, None)
+        if scenario == "timeout":
+            raise TimeoutError("lookup timed out")
+        if scenario == "bad_metadata":
+            return response({})
+        version = "5.53.0" if scenario == "published" else "5.53.1"
+        return response({"info": {"name": "topiary", "version": version}})
+
+    monkeypatch.setattr(release, "urlopen", lookup)
+    for door in RELEASE_PREFLIGHT_DOORS:
+        assert door("topiary", "5.53.0") is allowed
+
+
 def _long(reader, path):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
