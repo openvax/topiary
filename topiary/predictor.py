@@ -546,6 +546,35 @@ def _add_legacy_mutation_columns(df, fragments):
 _MHCTOOLS_COLUMNS = _PRED_COLUMNS
 
 
+def _reject_conflicting_offset_columns(df):
+    """Refuse a frame that states the peptide's coordinate twice.
+
+    ``offset`` is mhctools' name for it and ``peptide_offset`` topiary's,
+    so :func:`_normalize_prediction_frame` renames the first to the
+    second.  When a producer emits both, that rename lands on a column
+    that already exists and pandas keeps them both: the frame comes out
+    with two columns named ``peptide_offset``, and ``frame[key]`` returns
+    a DataFrame where every consumer expects a Series.  The failure then
+    surfaces far away as ``'DataFrame' object has no attribute 'dtype'``,
+    which says nothing about the producer that caused it.
+
+    Neither column can be preferred here.  They disagree exactly when a
+    cached prediction has been rebound to a new occurrence, and the frame
+    alone does not say which of the two coordinates describes the protein
+    the caller asked about — so this reports the contract violation
+    instead of guessing at one and silently mislabelling the rows.
+    """
+    if "offset" not in df.columns or "peptide_offset" not in df.columns:
+        return
+    raise ValueError(
+        "Prediction frame states the peptide coordinate twice: it has "
+        "both 'offset' (mhctools' name) and 'peptide_offset' (topiary's), "
+        "which would rename onto each other and leave two columns of the "
+        "same name.  A producer must emit exactly one coordinate, "
+        "describing the occurrence it was asked about."
+    )
+
+
 def _normalize_prediction_frame(df):
     """Put an mhctools prediction frame into topiary's long form.
 
@@ -554,6 +583,7 @@ def _normalize_prediction_frame(df):
     ``affinity`` for affinity rows.  The single definition of what the
     long form is, shared by the predictor and :func:`from_predictions`.
     """
+    _reject_conflicting_offset_columns(df)
     df = df.rename(columns={
         "offset": "peptide_offset",
         "predictor_name": "prediction_method_name",
@@ -1143,8 +1173,16 @@ class TopiaryPredictor(object):
             columns=["source_sequence_name"], errors="ignore"
         ).merge(peptide_names_df, on="peptide", how="inner")
 
-        if "offset" in expanded_df.columns:
-            expanded_df["offset"] = 0
+        # The caller supplied each peptide whole and named it, so the
+        # peptide starts at 0 of the sequence now named as its source.
+        # Both spellings are reset, not just mhctools': a producer that
+        # already speaks topiary's vocabulary (a cache loaded from a
+        # previous run) carries the offset the peptide had in whatever
+        # protein it was originally found in, and leaving that in place
+        # reports the peptide as sitting partway through itself.
+        for offset_column in ("offset", "peptide_offset"):
+            if offset_column in expanded_df.columns:
+                expanded_df[offset_column] = 0
         return expanded_df
 
     def _format_prediction_df(self, df):

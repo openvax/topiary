@@ -65,6 +65,21 @@ _CACHE_COLUMNS = (
     "allele_set",
 )
 
+#: Columns a sliding-window protein scan emits, in mhctools' vocabulary.
+#:
+#: A protein scan answers "where does this peptide sit in the sequence I
+#: just handed you", so the requested occurrence — not the occurrence the
+#: cache happened to be built from — owns the coordinate. It is spelled
+#: ``offset`` because that is what mhctools' protein-scan output calls it
+#: and what :func:`topiary.predictor._normalize_prediction_frame` renames
+#: to ``peptide_offset``; emitting the cached ``peptide_offset`` alongside
+#: it would rename onto an existing column and produce two columns of the
+#: same name, one of them describing a protein the caller never asked
+#: about.
+PROTEIN_SCAN_COLUMNS = tuple(
+    column for column in _CACHE_COLUMNS if column != "peptide_offset"
+) + ("offset",)
+
 # Composite key for the cache index.
 #
 # - (peptide, allele, peptide_length): basic identity.
@@ -662,32 +677,46 @@ class CachedPredictor:
                     )
 
         if not unique_peptides:
-            return pd.DataFrame(
-                columns=list(_CACHE_COLUMNS) + [
-                    "source_sequence_name", "offset",
-                ]
-            )
+            return pd.DataFrame(columns=list(PROTEIN_SCAN_COLUMNS))
         df = self.predict_peptides_dataframe(sorted(unique_peptides))
 
-        # Expand: one row per (peptide, allele) × (name, offset) matching length.
+        # Expand: one row per (peptide, allele) × (name, offset) matching
+        # length.  Each output row describes the *requested* occurrence,
+        # so every column saying where the peptide was found is rewritten
+        # to that occurrence — as a unit.  Rewriting only some of them is
+        # how this went wrong before: the row named the requested protein
+        # while the coordinate and flanks still described the protein the
+        # cache was built from.
         expanded = []
+        unmatched_context = {}
         for _, row in df.iterrows():
             positions = per_peptide_positions.get(row["peptide"], [])
             for (name, offset, length) in positions:
                 if int(row["peptide_length"]) != length:
                     continue
+                sequence = name_to_sequence[name]
+                if not _flanks_apply_at(row, sequence, offset, length):
+                    # The cached score was computed with flanking
+                    # residues this occurrence does not have, so it is a
+                    # prediction about a different context.  Record it in
+                    # case nothing else covers the occurrence.
+                    unmatched_context.setdefault(
+                        (row["peptide"], row["allele"], name, offset), []
+                    ).append(row)
+                    continue
                 r = row.to_dict()
+                r.pop("peptide_offset", None)
                 r["source_sequence_name"] = name
                 r["offset"] = offset
                 expanded.append(r)
 
+        _raise_on_uncovered_occurrences(expanded, unmatched_context)
+
         if not expanded:
-            return pd.DataFrame(
-                columns=list(_CACHE_COLUMNS) + [
-                    "source_sequence_name", "offset",
-                ]
-            )
-        return pd.DataFrame(expanded)
+            return pd.DataFrame(columns=list(PROTEIN_SCAN_COLUMNS))
+        return pd.DataFrame(expanded).reindex(
+            columns=list(PROTEIN_SCAN_COLUMNS)
+        )
 
     # --- fallback resolution ----------------------------------------
 
@@ -1338,6 +1367,78 @@ def _flank_key(value):
     if not s or s.lower() == "nan":
         return ""
     return s.upper()
+
+
+def _flanks_apply_at(row, sequence, offset, length) -> bool:
+    """Whether a cached row's prediction applies at one occurrence.
+
+    Flanking residues are a prediction *input*, not provenance: they sit
+    in :data:`PREDICTION_KEY_COLUMNS` precisely because mhcflurry's
+    processing and presentation predictors score the same peptide
+    differently in different flanking contexts.  So a cached row carrying
+    flanks answers a question about the context it was predicted in, and
+    reusing it at an occurrence with different neighbours reports a score
+    for a protein the caller never asked about.
+
+    A row with no flank context (the empty string :func:`_flank_key`
+    normalizes every missing spelling to) came from a predictor that does
+    not read flanks, so it applies wherever the peptide occurs.
+
+    A stored flank is compared against the occurrence's real neighbours
+    rather than required to equal them: predictors store a bounded number
+    of flanking residues, so the cached ``n_flank`` is the tail of what
+    actually precedes the peptide and ``c_flank`` the head of what
+    follows.  A stored flank longer than the sequence provides fails both
+    tests, which is the right answer — the occurrence cannot supply the
+    context the prediction was made in.
+    """
+    cached_n = _flank_key(row.get("n_flank"))
+    cached_c = _flank_key(row.get("c_flank"))
+    if not cached_n and not cached_c:
+        return True
+    upstream = str(sequence[:offset]).upper()
+    downstream = str(sequence[offset + length:]).upper()
+    if cached_n and not upstream.endswith(cached_n):
+        return False
+    if cached_c and not downstream.startswith(cached_c):
+        return False
+    return True
+
+
+def _raise_on_uncovered_occurrences(expanded, unmatched_context) -> None:
+    """Fail loudly when flank mismatch left an occurrence with no row.
+
+    A peptide whose only cached rows were predicted in a different
+    flanking context is not a cache hit for this occurrence, and it is
+    not something the fallback can repair either: the fallback API takes
+    peptides, so it cannot be asked for a specific protein context.  The
+    remaining honest options are to return a score computed for the wrong
+    neighbours or to say so, and returning it silently is what made this
+    a bug rather than a limitation.
+    """
+    if not unmatched_context:
+        return
+    covered = {
+        (r["peptide"], r["allele"], r["source_sequence_name"], r["offset"])
+        for r in expanded
+    }
+    uncovered = sorted(
+        occurrence for occurrence in unmatched_context if occurrence not in covered
+    )
+    if not uncovered:
+        return
+    peptide, allele, name, offset = uncovered[0]
+    stored = unmatched_context[(peptide, allele, name, offset)][0]
+    extra = "" if len(uncovered) == 1 else f" (and {len(uncovered) - 1} more)"
+    raise KeyError(
+        f"CachedPredictor: {peptide!r} occurs in {name!r} at offset "
+        f"{offset}, but the only cached prediction(s) for it and allele "
+        f"{allele!r} were made in a different flanking context "
+        f"(n_flank={_flank_key(stored.get('n_flank'))!r}, "
+        f"c_flank={_flank_key(stored.get('c_flank'))!r}), so their scores "
+        f"are not predictions about this occurrence{extra}.  Re-predict "
+        f"these sequences, or use a cache built without flank context."
+    )
 
 
 def _bindings_to_dataframe(preds, *, kind: str) -> pd.DataFrame:

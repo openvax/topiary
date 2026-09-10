@@ -88,6 +88,7 @@ from .cached import (
     PREDICTION_CONTEXT_COLUMNS,
     PREDICTION_KEY_COLUMNS,
     PREDICTION_VALUE_COLUMNS,
+    PROTEIN_SCAN_COLUMNS,
     conflicting_predictions,
     mhcflurry_composite_version,
 )
@@ -170,7 +171,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.53.1"
+__version__ = "5.54.0"
 
 __all__ = [
     "normalize_python_types",
@@ -323,6 +324,7 @@ __all__ = [
     "PREDICTION_KEY_COLUMNS",
     "PREDICTION_VALUE_COLUMNS",
     "PREDICTION_CONTEXT_COLUMNS",
+    "PROTEIN_SCAN_COLUMNS",
     "conflicting_predictions",
     "RNA_EVIDENCE_COLUMNS",
     "DNA_EVIDENCE_COLUMNS",
