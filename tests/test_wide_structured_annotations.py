@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 
 from topiary import (
+    CachedPredictor,
     ProteinFragment,
     TopiaryPredictor,
     detect_form,
@@ -289,3 +290,50 @@ def test_two_rna_fragments_keep_their_own_transcript_lists():
     }
     assert by_fragment["rna__abc123"] == {tuple(TRANSCRIPTS)}
     assert by_fragment["rna__def456"] == {("ENST00000999999",)}
+
+
+def test_cached_scan_of_an_rna_fragment_reaches_wide_form():
+    """The two halves of a real run, composed.
+
+    A cached predictor rebinds each peptide to the occurrence it was
+    asked about (#296) and the fragment carries a list of supporting
+    transcripts (#287). Each half was fixed against its own frame; only
+    running them together shows that the frame one produces is a frame
+    the other accepts.
+    """
+    peptide = "SIINFEKLA"
+    # The peptide occurs twice, at 2 and 13, and the cache remembers a
+    # position in a different protein entirely.
+    protein = "GG" + peptide + "GG" + peptide + "GG"
+    rows = {
+        protein[offset:offset + 9]: {
+            "peptide": protein[offset:offset + 9], "allele": ALLELE,
+            "peptide_length": 9, "kind": "pMHC_affinity", "score": 0.5,
+            "affinity": 42.0, "percentile_rank": 2.0, "value": 42.0,
+            "prediction_method_name": "netmhcpan", "predictor_version": "4.2",
+            "source_sequence_name": "ORIGINAL", "peptide_offset": 77,
+        }
+        for offset in range(len(protein) - 9 + 1)
+    }
+    cache = CachedPredictor.from_dataframe(pd.DataFrame(list(rows.values())))
+    fragment = ProteinFragment(
+        fragment_id="rna__x", source_type="variant:snv", sequence=protein,
+        gene="OVA",
+        annotations={"supporting_reference_transcripts": TRANSCRIPTS},
+    )
+
+    long_df = TopiaryPredictor(models=[cache]).predict_from_fragments(
+        [fragment]
+    )
+
+    assert long_df.columns.is_unique
+    repeated = long_df[long_df["peptide"] == peptide]
+    assert sorted(repeated["peptide_offset"]) == [2, 13]
+
+    wide = to_wide(long_df)
+
+    assert len(wide) == len(long_df)
+    assert isinstance(wide["supporting_reference_transcripts"].iloc[0], list)
+    assert from_wide(wide)[
+        "supporting_reference_transcripts"
+    ].iloc[0] == TRANSCRIPTS
