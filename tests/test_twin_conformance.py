@@ -222,6 +222,24 @@ FRAGMENT_SERIALIZATION_DOORS = (
 )
 
 
+def release_allowed_through_api(project, version):
+    from topiary import pypi_release_exists
+
+    try:
+        return not pypi_release_exists(project, version)
+    except (ValueError, RuntimeError):
+        return False
+
+
+def release_allowed_through_cli(project, version):
+    from topiary.cli.release import main
+
+    return main([project, version]) == 0
+
+
+RELEASE_PREFLIGHT_DOORS = (release_allowed_through_api, release_allowed_through_cli)
+
+
 def whole_peptides_through_predictor(model, peptides):
     return TopiaryPredictor(models=model).predict_from_named_peptides(
         {str(i): peptide for i, peptide in enumerate(peptides)},
