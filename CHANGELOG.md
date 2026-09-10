@@ -1,5 +1,33 @@
 # Changelog
 
+## 5.54.0
+
+**Cached protein scans describe the occurrence they were asked about (#296).**
+`CachedPredictor.predict_proteins_dataframe` rebinds every column that says
+*where* a peptide was found to the requested occurrence, instead of rewriting
+the source name while leaving the coordinate and flanking residues pointing at
+the protein the cache was built from. The scan emits a single coordinate,
+`offset`, in mhctools' vocabulary; it no longer also emits the cached
+`peptide_offset`, whose rename onto `offset` produced two columns of the same
+name and made `frame["peptide_offset"]` a DataFrame. Consumers saw that as
+`'DataFrame' object has no attribute 'dtype'` far from its cause. Repeated
+occurrences, nonzero offsets and distinct source names are preserved, and no
+duplicate column is dropped downstream to compensate.
+
+Flanking residues are a prediction input rather than provenance, so they select
+occurrences instead of being rewritten to fit one: a cached row predicted with
+flanks applies only where the scanned sequence really supplies them, matching a
+stored flank against the tail or head of the real context, and a row with no
+flank context still applies wherever the peptide occurs. An occurrence left
+uncovered by flank mismatch raises, naming the peptide, source, offset and
+stored context, rather than returning a score computed for different
+neighbours. `predict_from_named_peptides` resets the coordinate to zero for
+both spellings, so a cache row no longer reports a whole supplied peptide as
+sitting partway through itself. Normalizing a prediction frame that states the
+coordinate twice now reports the producer contract instead of building the
+broken frame. `PROTEIN_SCAN_COLUMNS` names the scan's output shape, and an
+empty scan result no longer carries a duplicate `source_sequence_name`.
+
 ## 5.53.1
 
 **Fail-closed release preflight (#286).** Releases now query PyPI's exact-release
