@@ -698,10 +698,16 @@ class CachedPredictor:
                 if not _flanks_apply_at(row, sequence, offset, length):
                     # The cached score was computed with flanking
                     # residues this occurrence does not have, so it is a
-                    # prediction about a different context.  Record it in
-                    # case nothing else covers the occurrence.
+                    # prediction about a different context.  Record it
+                    # under its own kind: a cache mixing a flank-reading
+                    # predictor with one that ignores flanks would
+                    # otherwise count the occurrence as covered by the
+                    # kind that survived, and drop the other silently
+                    # (#302).
                     unmatched_context.setdefault(
-                        (row["peptide"], row["allele"], name, offset), []
+                        (row["peptide"], row["allele"], row["kind"],
+                         name, offset),
+                        [],
                     ).append(row)
                     continue
                 r = row.to_dict()
@@ -1406,7 +1412,7 @@ def _flanks_apply_at(row, sequence, offset, length) -> bool:
 
 
 def _raise_on_uncovered_occurrences(expanded, unmatched_context) -> None:
-    """Fail loudly when flank mismatch left an occurrence with no row.
+    """Fail loudly when flank mismatch left a kind with no row.
 
     A peptide whose only cached rows were predicted in a different
     flanking context is not a cache hit for this occurrence, and it is
@@ -1415,25 +1421,39 @@ def _raise_on_uncovered_occurrences(expanded, unmatched_context) -> None:
     remaining honest options are to return a score computed for the wrong
     neighbours or to say so, and returning it silently is what made this
     a bug rather than a limitation.
+
+    Coverage is decided per ``(peptide, allele, kind, source, offset)``
+    rather than per occurrence, because the two are not the same question
+    for a cache holding both a flank-reading predictor and one that
+    ignores flanks.  Deciding it per occurrence let the surviving kind
+    vouch for the excluded one, so a presentation score predicted in
+    another context disappeared behind an affinity row and the caller
+    read the silence as a weak presenter (#302).
+
+    A kind the cache simply does not hold for a peptide is not this
+    situation and stays quiet: only rows that were found and then
+    excluded are recorded here.
     """
     if not unmatched_context:
         return
     covered = {
-        (r["peptide"], r["allele"], r["source_sequence_name"], r["offset"])
+        (r["peptide"], r["allele"], r["kind"],
+         r["source_sequence_name"], r["offset"])
         for r in expanded
     }
     uncovered = sorted(
-        occurrence for occurrence in unmatched_context if occurrence not in covered
+        (key for key in unmatched_context if key not in covered),
+        key=repr,
     )
     if not uncovered:
         return
-    peptide, allele, name, offset = uncovered[0]
-    stored = unmatched_context[(peptide, allele, name, offset)][0]
+    peptide, allele, kind, name, offset = uncovered[0]
+    stored = unmatched_context[uncovered[0]][0]
     extra = "" if len(uncovered) == 1 else f" (and {len(uncovered) - 1} more)"
     raise KeyError(
         f"CachedPredictor: {peptide!r} occurs in {name!r} at offset "
-        f"{offset}, but the only cached prediction(s) for it and allele "
-        f"{allele!r} were made in a different flanking context "
+        f"{offset}, but the only cached {kind!r} prediction(s) for it and "
+        f"allele {allele!r} were made in a different flanking context "
         f"(n_flank={_flank_key(stored.get('n_flank'))!r}, "
         f"c_flank={_flank_key(stored.get('c_flank'))!r}), so their scores "
         f"are not predictions about this occurrence{extra}.  Re-predict "

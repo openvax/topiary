@@ -1,5 +1,28 @@
 # Changelog
 
+## 5.54.2
+
+**A prediction kind no longer disappears behind one that applies (#302).**
+Follow-up to #296. `CachedPredictor.predict_proteins_dataframe` declines to
+attach a flanked cache row to an occurrence whose real neighbours differ, and
+raises when flank mismatch leaves an occurrence uncovered. Coverage was decided
+per `(peptide, allele, source, offset)`, so an occurrence counted as covered as
+soon as any kind applied. A cache holding a flanked row for one kind and a
+flankless row for another therefore lost the flanked kind without a word. One
+cache holds exactly one `(method, version)` pair, so that mix is not two
+different predictors merged; it is one model whose rows arrived by two routes
+and were joined by `concat`, which the version invariant permits. A protein
+scan records the flanking context it scored in; a peptide-level run has none to
+record.
+
+The failure was absence-shaped: a caller filtering on presentation saw no rows
+for the peptide and read it as a weak presenter, when the cache in fact held no
+presentation prediction applicable to that context. Coverage is now decided per
+`(peptide, allele, kind, source, offset)`, and the error names the kind that
+did not apply alongside the peptide, source, offset and stored flank context. A
+kind the cache simply does not hold for a peptide stays quiet, since only rows
+that were found and then excluded are recorded.
+
 ## 5.54.1
 
 **Wide conversion accepts the structured annotations topiary produces (#287).**

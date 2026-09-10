@@ -333,3 +333,133 @@ def test_normalizing_a_two_coordinate_frame_reports_the_contract():
 
     with pytest.raises(ValueError, match="coordinate twice"):
         _normalize_prediction_frame(df)
+
+
+# ---------------------------------------------------------------------------
+# Coverage is per kind: one kind cannot vouch for another (#302)
+# ---------------------------------------------------------------------------
+
+
+def _mixed_flank_cache(protein, *, flanked_kind, n_flank, c_flank):
+    """Cache where one kind reads flanks and the rest do not.
+
+    One cache holds exactly one ``(method, version)`` pair, so this is
+    not two different predictors' caches merged — that is refused at
+    construction. It is one model whose rows reached the cache by two
+    routes, which :meth:`CachedPredictor.concat` joins without complaint
+    because the version invariant holds: a protein scan records the
+    flanking context it scored in, and a peptide-level run has none to
+    record.
+    """
+    rows = [
+        _row(protein[offset:offset + 9])
+        for offset in range(len(protein) - 9 + 1)
+    ]
+    rows.append(_row(
+        PEPTIDE, kind=flanked_kind, score=0.9, affinity=None,
+        n_flank=n_flank, c_flank=c_flank,
+    ))
+    return CachedPredictor.from_dataframe(pd.DataFrame(rows))
+
+
+def test_a_kind_that_applies_does_not_vouch_for_one_that_does_not():
+    # The affinity row has no flank context and applies here; the
+    # presentation row was predicted somewhere else.  Reporting only the
+    # affinity would read as "no presentation prediction", which is not
+    # what the cache says.
+    protein = "MA" + PEPTIDE + "GG"
+    cache = _mixed_flank_cache(
+        protein, flanked_kind="pMHC_presentation",
+        n_flank="WW", c_flank="CC",
+    )
+
+    with pytest.raises(KeyError, match="different flanking context"):
+        cache.predict_proteins_dataframe({"prot": protein})
+
+
+def test_the_uncovered_kind_is_named_in_the_error():
+    protein = "MA" + PEPTIDE + "GG"
+    cache = _mixed_flank_cache(
+        protein, flanked_kind="pMHC_presentation",
+        n_flank="WW", c_flank="CC",
+    )
+
+    with pytest.raises(KeyError) as excinfo:
+        cache.predict_proteins_dataframe({"prot": protein})
+
+    message = str(excinfo.value)
+    assert "pMHC_presentation" in message
+    assert PEPTIDE in message
+    assert "'WW'" in message and "'CC'" in message
+
+
+def test_a_kind_the_cache_never_held_stays_quiet():
+    # A cache that simply has no presentation row for a peptide is not
+    # the same as one whose only presentation row does not apply here.
+    # Only the second is worth an error.
+    protein = "MASIINFEKLAGGQ"
+    rows = [
+        _row(protein[offset:offset + 9])
+        for offset in range(len(protein) - 9 + 1)
+    ]
+    rows.append(_row(protein[0:9], kind="pMHC_presentation", score=0.9))
+    cache = CachedPredictor.from_dataframe(pd.DataFrame(rows))
+
+    out = cache.predict_proteins_dataframe({"prot": protein})
+
+    kinds = out.groupby("peptide")["kind"].apply(lambda s: set(s)).to_dict()
+    assert kinds[protein[0:9]] == {"pMHC_affinity", "pMHC_presentation"}
+    assert kinds[PEPTIDE] == {"pMHC_affinity"}
+
+
+def test_a_flanked_kind_that_applies_is_still_returned_alongside_others():
+    protein = "MA" + PEPTIDE + "GG"
+    cache = _mixed_flank_cache(
+        protein, flanked_kind="pMHC_presentation",
+        n_flank="MA", c_flank="GG",
+    )
+
+    out = cache.predict_proteins_dataframe({"prot": protein})
+    hits = out[out["peptide"] == PEPTIDE]
+
+    assert set(hits["kind"]) == {"pMHC_affinity", "pMHC_presentation"}
+    assert set(hits["offset"]) == {2}
+
+
+def test_concat_of_a_scan_cache_and_a_peptide_cache_reaches_the_same_check():
+    """The mix arrives through a public door, not only a built frame.
+
+    A scan-built cache and a peptide-built cache from the same model at
+    the same version satisfy the version invariant, so ``concat`` joins
+    them — and the result holds a flanked and a flankless row for one
+    ``(peptide, allele)``. Building the frame by hand would test the
+    check without showing that a caller can get here.
+    """
+    scanned = CachedPredictor.from_dataframe(pd.DataFrame([
+        _row(PEPTIDE, kind="pMHC_presentation", score=0.9, affinity=None,
+             n_flank="WW", c_flank="CC"),
+    ]))
+    from_peptides = CachedPredictor.from_dataframe(pd.DataFrame([
+        _row(PEPTIDE),
+    ]))
+
+    merged = CachedPredictor.concat([scanned, from_peptides])
+    rows = merged.predict_peptides_dataframe([PEPTIDE])
+
+    assert set(rows["kind"]) == {"pMHC_affinity", "pMHC_presentation"}
+    assert set(rows["n_flank"]) == {"WW", ""}
+
+    # Scanning a protein whose real flanks are MA / GG must not let the
+    # applicable affinity row vouch for the presentation row.
+    protein = "MA" + PEPTIDE + "GG"
+    covering = CachedPredictor.concat([
+        merged,
+        CachedPredictor.from_dataframe(pd.DataFrame([
+            _row(protein[offset:offset + 9])
+            for offset in range(len(protein) - 9 + 1)
+            if protein[offset:offset + 9] != PEPTIDE
+        ])),
+    ])
+
+    with pytest.raises(KeyError, match="pMHC_presentation"):
+        covering.predict_proteins_dataframe({"prot": protein})
