@@ -204,18 +204,24 @@ def _group_ids(df, group_cols):
     return ids
 
 
-def _distinct_group_rows(df, group_cols):
+def _distinct_group_rows(df, group_cols, ids=None):
     """One row per distinct group, first-appearance order, values intact.
 
     The rows come back by position rather than being rebuilt, so a
     container-valued annotation is the same object it was on the way in
     — deduplicating through a hashable stand-in would otherwise hand the
     caller the stand-in.
+
+    Pass *ids* when the caller has already grouped the same rows, so the
+    id attached to a melted row and the row written to the output are
+    the same answer rather than two computations of it.
     """
     columns = list(group_cols)
     if len(df) == 0 or not columns:
         return df[columns].drop_duplicates().reset_index(drop=True)
-    _, first_positions = np.unique(_group_ids(df, columns), return_index=True)
+    if ids is None:
+        ids = _group_ids(df, columns)
+    _, first_positions = np.unique(ids, return_index=True)
     return df.iloc[first_positions][columns].reset_index(drop=True)
 
 
@@ -341,9 +347,10 @@ def to_wide(df):
     # an RNA-derived fragment carries a list of supporting transcripts
     # (#287). The id says which rows belong together; the values only
     # have to survive the trip.
-    work["_topiary_group_id"] = _group_ids(work, group_cols)
+    group_ids = _group_ids(work, group_cols)
+    work["_topiary_group_id"] = group_ids
     if group_cols:
-        group_index = _distinct_group_rows(work, group_cols)
+        group_index = _distinct_group_rows(work, group_cols, ids=group_ids)
         group_index["_topiary_group_id"] = range(len(group_index))
     else:
         group_index = pd.DataFrame({"_topiary_group_id": [0]})
