@@ -1,5 +1,25 @@
 # Changelog
 
+## 5.54.1
+
+**Wide conversion accepts the structured annotations topiary produces (#287).**
+`to_wide` grouped rows by merging the melted frame back on every
+non-prediction column, which required each of those columns to be hashable. An
+RNA-derived `ProteinFragment` carries `supporting_reference_transcripts` as a
+list of every transcript consistent with the assembled sequence, and prediction
+preserves it, so ordinary RNA results reached `TypeError: unhashable type:
+'list'`. Rows are now grouped before the melt and the group id carried through
+it, so the annotation values only have to survive the trip rather than be
+compared.
+
+Grouping is by content: two rows agree when their annotations are equal, not
+when they are the same object, and rows missing the same annotation group
+together instead of splitting on `nan != nan`. Sequence order is part of a
+list's value and distinguishes groups; key and element order in mappings and
+sets is not. Lists, tuples, sets, dicts, nested combinations and NumPy arrays
+all reach the output as themselves, so transcript identities and annotation
+types survive `to_wide` and the round trip back through `from_wide`.
+
 ## 5.54.0
 
 **Cached protein scans describe the occurrence they were asked about (#296).**
