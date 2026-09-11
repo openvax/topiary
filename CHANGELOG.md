@@ -1,5 +1,23 @@
 # Changelog
 
+## 5.55.1
+
+**A `CachedPredictor` coverage-gap error reaches the CLI cleanly (#304).**
+`CachedPredictor` raises `KeyError` — not `ValueError` — for a peptide the
+cache doesn't cover and no fallback can resolve, and for a protein-scan
+occurrence a flank or genotype mismatch leaves uncovered (#296, #302). The
+CLI's top-level handler only caught `(OSError, ValueError)`, so this one
+`CachedPredictor` failure surfaced as a raw Python traceback instead of the
+clean `topiary: error: ...` message every other failure in this path gets.
+`main()` now catches `KeyError` too, and unwraps its message the way
+`ValueError`/`OSError` already render rather than through `str(KeyError(...))`,
+which reprs the message with an extra quoted layer.
+
+Whether a coverage-gap failure during a multi-sequence batch scan should abort
+the whole run (current behavior) or skip and report just the offending
+occurrence is left open — that's a real design choice with its own tradeoffs,
+not a bug, and #304 stays open for it.
+
 ## 5.55.0
 
 **Genotype closes the same coverage gap #302 closed for kind.** A follow-up
