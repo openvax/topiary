@@ -1,5 +1,30 @@
 # Changelog
 
+## 5.55.0
+
+**Genotype closes the same coverage gap #302 closed for kind.** A follow-up
+review of #302 (unreleased) found the coverage check it added still omitted
+`allele_set`, which sits beside `kind` in `PREDICTION_KEY_COLUMNS` for the
+identical reason: a haplotype-mode presentation call scores one
+`(peptide, allele)` differently per genotype, the way a multi-kind cache
+scores it differently per kind. A cache holding two genotypes' presentation
+rows for the same peptide, one flanked to match a scanned protein and one not,
+silently returned only the matching genotype's row — the exact silent-vouching
+failure #302 was written to close, one column over. Coverage is now decided
+per `(peptide, allele, kind, allele_set, source, offset)`, computed by one
+shared `_coverage_key` both sides of the check call, and the error names the
+genotype alongside the peptide, allele, source and offset.
+
+A second, independent bug in the same #302 code sorted uncovered occurrences
+by `repr()`, so a numeric offset compared as text and could report a later
+occurrence (offset 10) ahead of an earlier one (offset 9) in the raised error.
+Every element of the coverage key is a plain string or an int, all orderable
+and type-consistent within their position, so plain `sorted()` gives the
+correct numeric order and needs no key function.
+
+A truncation-suffix idiom (`" (and N more)"`) duplicated three times across
+this file's diagnostics is now the single `_more_suffix` helper.
+
 ## 5.54.2
 
 **A prediction kind no longer disappears behind one that applies (#302).**

@@ -26,6 +26,7 @@ from .ranking import (
     KIND_MHC_DEPENDENCE,
     MHC_DEPENDENCE_VALUES,
     mhc_dependence,
+    resolve_kind,
     resolve_default_methods,
     describe_default_versions,
     is_named_version,
@@ -171,7 +172,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.54.2"
+__version__ = "5.55.0"
 
 __all__ = [
     "normalize_python_types",
@@ -210,6 +211,7 @@ __all__ = [
     "KIND_MHC_DEPENDENCE",
     "MHC_DEPENDENCE_VALUES",
     "mhc_dependence",
+    "resolve_kind",
     "resolve_default_methods",
     "describe_default_versions",
     "is_named_version",
