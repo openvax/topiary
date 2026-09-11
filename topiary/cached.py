@@ -219,6 +219,19 @@ def _conflict_message(where: str, conflicts: pd.DataFrame) -> str:
     )
 
 
+def _more_suffix(n_total, n_shown):
+    """``" (and N more)"`` once *n_total* exceeds *n_shown*, else ``""``.
+
+    Every diagnostic in this module that previews a handful of a larger
+    problem set (missed peptides, overlapping keys, uncovered
+    occurrences) needs this exact phrase; a copy per call site is a
+    wording fix that has to be found and applied three times instead of
+    one.
+    """
+    extra = n_total - n_shown
+    return "" if extra <= 0 else f" (and {extra} more)"
+
+
 class CachedPredictor:
     """Predictor that answers MHC binding queries from a pre-computed table.
 
@@ -699,15 +712,14 @@ class CachedPredictor:
                     # The cached score was computed with flanking
                     # residues this occurrence does not have, so it is a
                     # prediction about a different context.  Record it
-                    # under its own kind: a cache mixing a flank-reading
-                    # predictor with one that ignores flanks would
-                    # otherwise count the occurrence as covered by the
-                    # kind that survived, and drop the other silently
-                    # (#302).
+                    # under its own kind and genotype: a cache mixing a
+                    # flank-reading predictor with one that ignores
+                    # flanks, or holding two genotypes' presentation
+                    # calls, would otherwise count the occurrence as
+                    # covered by whichever kind/genotype survived, and
+                    # drop the other silently (#302).
                     unmatched_context.setdefault(
-                        (row["peptide"], row["allele"], row["kind"],
-                         name, offset),
-                        [],
+                        _coverage_key(row, name, offset), [],
                     ).append(row)
                     continue
                 r = row.to_dict()
@@ -734,8 +746,7 @@ class CachedPredictor:
         """
         if self.fallback is None:
             missed_preview = peptides[:5]
-            extra = "" if len(peptides) <= 5 else \
-                f" (and {len(peptides) - 5} more)"
+            extra = _more_suffix(len(peptides), 5)
             raise KeyError(
                 f"CachedPredictor: {len(peptides)} peptide(s) missed and "
                 f"no fallback set.  Missed peptides: {missed_preview}{extra}."
@@ -1250,8 +1261,7 @@ class CachedPredictor:
         if on_overlap == "raise":
             dupes = df[dup_mask][key_cols].drop_duplicates()
             sample = dupes.head(5).to_dict("records")
-            extra = "" if len(dupes) <= 5 else \
-                f" (and {len(dupes) - 5} more)"
+            extra = _more_suffix(len(dupes), 5)
             raise ValueError(
                 f"CachedPredictor.concat: {len(dupes)} overlapping "
                 f"{tuple(key_cols)} key(s) across "
@@ -1411,6 +1421,33 @@ def _flanks_apply_at(row, sequence, offset, length) -> bool:
     return True
 
 
+def _coverage_key(row, name, offset):
+    """The key deciding whether one occurrence's prediction is covered.
+
+    Peptide, allele, kind and genotype (``allele_set``) say *what* was
+    predicted; source and offset say *where* it is being asked about.
+    ``allele_set`` sits beside ``kind`` in :data:`PREDICTION_KEY_COLUMNS`
+    for the same reason: a haplotype-mode presentation call scores the
+    same ``(peptide, allele)`` differently per genotype, exactly the way
+    a multi-kind cache scores it differently per kind. Leaving either
+    dimension out of this key lets one applicable row vouch for another
+    prediction that has none — #302 fixed that for ``kind``; omitting
+    ``allele_set`` here reopened the identical hole one column over.
+
+    Used identically by the caller building ``expanded``/
+    ``unmatched_context`` and by :func:`_raise_on_uncovered_occurrences`
+    building ``covered``, so the two can't compute a different answer to
+    "is this the same occurrence" (topiary's own "two doors, one
+    answer" rule).
+    """
+    allele_set = row.get("allele_set")
+    allele_set = str(allele_set).strip() if is_stated(allele_set) else ""
+    return (
+        row["peptide"], row["allele"], row["kind"], allele_set,
+        name, offset,
+    )
+
+
 def _raise_on_uncovered_occurrences(expanded, unmatched_context) -> None:
     """Fail loudly when flank mismatch left a kind with no row.
 
@@ -1422,13 +1459,16 @@ def _raise_on_uncovered_occurrences(expanded, unmatched_context) -> None:
     neighbours or to say so, and returning it silently is what made this
     a bug rather than a limitation.
 
-    Coverage is decided per ``(peptide, allele, kind, source, offset)``
-    rather than per occurrence, because the two are not the same question
-    for a cache holding both a flank-reading predictor and one that
-    ignores flanks.  Deciding it per occurrence let the surviving kind
-    vouch for the excluded one, so a presentation score predicted in
-    another context disappeared behind an affinity row and the caller
-    read the silence as a weak presenter (#302).
+    Coverage is decided per :func:`_coverage_key` — ``(peptide, allele,
+    kind, allele_set, source, offset)`` — rather than per occurrence,
+    because the two are not the same question for a cache holding both a
+    flank-reading predictor and one that ignores flanks, or two
+    genotypes' haplotype-mode calls for the same peptide and allele.
+    Deciding it per occurrence let the surviving kind or genotype vouch
+    for the excluded one, so a presentation score predicted in another
+    context disappeared behind an affinity row, or behind a different
+    genotype's row, and the caller read the silence as a weak presenter
+    (#302).
 
     A kind the cache simply does not hold for a peptide is not this
     situation and stays quiet: only rows that were found and then
@@ -1437,23 +1477,26 @@ def _raise_on_uncovered_occurrences(expanded, unmatched_context) -> None:
     if not unmatched_context:
         return
     covered = {
-        (r["peptide"], r["allele"], r["kind"],
-         r["source_sequence_name"], r["offset"])
+        _coverage_key(r, r["source_sequence_name"], r["offset"])
         for r in expanded
     }
-    uncovered = sorted(
-        (key for key in unmatched_context if key not in covered),
-        key=repr,
-    )
+    # Every key element is a str except offset, which is an int -- both
+    # orderable and type-consistent within their position across every
+    # key, so plain `sorted()` gives the natural, numeric offset order.
+    # An earlier `key=repr` sorted offsets as strings instead ("10"
+    # before "9"), reporting a later occurrence as if it were first.
+    uncovered = sorted(key for key in unmatched_context if key not in covered)
     if not uncovered:
         return
-    peptide, allele, kind, name, offset = uncovered[0]
+    peptide, allele, kind, allele_set, name, offset = uncovered[0]
     stored = unmatched_context[uncovered[0]][0]
-    extra = "" if len(uncovered) == 1 else f" (and {len(uncovered) - 1} more)"
+    extra = _more_suffix(len(uncovered), 1)
+    genotype_clause = f" (genotype {allele_set!r})" if allele_set else ""
     raise KeyError(
         f"CachedPredictor: {peptide!r} occurs in {name!r} at offset "
         f"{offset}, but the only cached {kind!r} prediction(s) for it and "
-        f"allele {allele!r} were made in a different flanking context "
+        f"allele {allele!r}{genotype_clause} were made in a different "
+        f"flanking context "
         f"(n_flank={_flank_key(stored.get('n_flank'))!r}, "
         f"c_flank={_flank_key(stored.get('c_flank'))!r}), so their scores "
         f"are not predictions about this occurrence{extra}.  Re-predict "

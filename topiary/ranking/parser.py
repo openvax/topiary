@@ -46,6 +46,7 @@ from .nodes import (
     _FIELD_ALIASES,
     KIND_ALIASES,
     _combine_bool,
+    resolve_kind,
     _resolve_qualified_kind,
     geomean,
     maximum,
@@ -472,6 +473,19 @@ class _Parser:
                 self.tokenizer.advance()
                 compute_fn, _ = _PROPERTIES[name]
                 return PeptideProperty(name, compute_fn)
+            if self.tokenizer.peek_at(1)[0] == "LBRACKET":
+                # A bracket after a bare identifier is only ever kind
+                # qualifier syntax (Kind[method] / Kind[method, version])
+                # -- a plain Column has no bracket operation, so reaching
+                # here with one always ends in an error either way.
+                # _is_kind_name already said this name is not a
+                # registered kind; ask resolve_kind for the same
+                # available/close-match diagnostic parse() gives a
+                # top-level unknown kind, instead of deferring to
+                # _apply_bracket, where the name is gone and the error
+                # reads as a subscript problem on a Column rather than
+                # the unregistered kind it actually is (#300).
+                resolve_kind(name)
             self.tokenizer.advance()
             return Column(tok[1])
         raise ValueError(f"Unexpected token {tok!r} in expression {self.text!r}")

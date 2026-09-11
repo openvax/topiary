@@ -463,3 +463,138 @@ def test_concat_of_a_scan_cache_and_a_peptide_cache_reaches_the_same_check():
 
     with pytest.raises(KeyError, match="pMHC_presentation"):
         covering.predict_proteins_dataframe({"prot": protein})
+
+
+# ---------------------------------------------------------------------------
+# Coverage is per genotype too: one genotype cannot vouch for another
+# ---------------------------------------------------------------------------
+
+
+def _mixed_genotype_cache(protein, *, covered_allele_set, uncovered_allele_set,
+                           covered_flank, uncovered_flank):
+    """Cache holding two genotypes' presentation calls for one peptide.
+
+    Haplotype-mode presentation scores the same ``(peptide, allele)``
+    once per genotype, each in whatever flanking context it was
+    predicted in — an ordinary shape, not a contrived one. One genotype's
+    row is flanked to match *protein*; the other is not.
+    """
+    covered_n, covered_c = covered_flank
+    uncovered_n, uncovered_c = uncovered_flank
+    rows = [
+        _row(protein[offset:offset + 9])
+        for offset in range(len(protein) - 9 + 1)
+        if protein[offset:offset + 9] != PEPTIDE
+    ]
+    rows.append(_row(
+        PEPTIDE, kind="pMHC_presentation", score=0.9, affinity=None,
+        allele_set=covered_allele_set,
+        n_flank=covered_n, c_flank=covered_c,
+    ))
+    rows.append(_row(
+        PEPTIDE, kind="pMHC_presentation", score=0.4, affinity=None,
+        allele_set=uncovered_allele_set,
+        n_flank=uncovered_n, c_flank=uncovered_c,
+    ))
+    return CachedPredictor.from_dataframe(pd.DataFrame(rows))
+
+
+def test_a_genotype_that_applies_does_not_vouch_for_one_that_does_not():
+    # One genotype's presentation row has no flank context and applies
+    # here; the other genotype's row was predicted somewhere else.
+    # Reporting only the first would read as "no prediction for this
+    # genotype", which is not what the cache says.
+    protein = "MA" + PEPTIDE + "GG"
+    cache = _mixed_genotype_cache(
+        protein,
+        covered_allele_set="HLA-A*02:01,HLA-B*07:02",
+        uncovered_allele_set="HLA-A*02:01,HLA-C*07:01",
+        covered_flank=("MA", "GG"), uncovered_flank=("WW", "CC"),
+    )
+
+    with pytest.raises(KeyError, match="different flanking context"):
+        cache.predict_proteins_dataframe({"prot": protein})
+
+
+def test_the_uncovered_genotype_is_named_in_the_error():
+    protein = "MA" + PEPTIDE + "GG"
+    cache = _mixed_genotype_cache(
+        protein,
+        covered_allele_set="HLA-A*02:01,HLA-B*07:02",
+        uncovered_allele_set="HLA-A*02:01,HLA-C*07:01",
+        covered_flank=("MA", "GG"), uncovered_flank=("WW", "CC"),
+    )
+
+    with pytest.raises(KeyError) as excinfo:
+        cache.predict_proteins_dataframe({"prot": protein})
+
+    message = str(excinfo.value)
+    assert "HLA-A*02:01,HLA-C*07:01" in message
+    assert "'WW'" in message and "'CC'" in message
+
+
+def test_a_genotype_the_cache_never_held_stays_quiet():
+    # A cache with only one genotype's presentation row for a peptide is
+    # not the same as one whose only row for a genotype does not apply
+    # here. Only the second is worth an error.
+    protein = "MASIINFEKLAGGQ"
+    rows = [
+        _row(protein[offset:offset + 9])
+        for offset in range(len(protein) - 9 + 1)
+    ]
+    rows.append(_row(
+        protein[0:9], kind="pMHC_presentation", score=0.9,
+        allele_set="HLA-A*02:01,HLA-B*07:02",
+    ))
+    cache = CachedPredictor.from_dataframe(pd.DataFrame(rows))
+
+    out = cache.predict_proteins_dataframe({"prot": protein})
+
+    hits = out[out["peptide"] == protein[0:9]]
+    assert set(hits["kind"]) == {"pMHC_affinity", "pMHC_presentation"}
+
+
+def test_a_genotype_that_applies_is_still_returned_alongside_others():
+    protein = "MA" + PEPTIDE + "GG"
+    cache = _mixed_genotype_cache(
+        protein,
+        covered_allele_set="HLA-A*02:01,HLA-B*07:02",
+        uncovered_allele_set="HLA-A*02:01,HLA-C*07:01",
+        covered_flank=("MA", "GG"), uncovered_flank=("MA", "GG"),
+    )
+
+    out = cache.predict_proteins_dataframe({"prot": protein})
+    hits = out[out["peptide"] == PEPTIDE]
+
+    assert set(hits["allele_set"]) == {
+        "HLA-A*02:01,HLA-B*07:02", "HLA-A*02:01,HLA-C*07:01",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Multiple uncovered occurrences are reported in occurrence order, not
+# string order
+# ---------------------------------------------------------------------------
+
+
+def test_uncovered_occurrences_are_named_in_numeric_not_string_offset_order():
+    # Two occurrences of the same peptide, at offsets 9 and 10 -- as
+    # strings, "10" sorts before "9". A cache row flanked to match
+    # neither offset leaves both uncovered; the error must name the
+    # earlier one (9), not whichever sorts first as text.
+    protein = "G" * 9 + PEPTIDE + "G" + PEPTIDE + "GG"
+    assert protein.index(PEPTIDE) == 9
+    assert protein.index(PEPTIDE, 10) == 19
+    rows = [
+        _row(protein[offset:offset + 9])
+        for offset in range(len(protein) - 9 + 1)
+        if protein[offset:offset + 9] != PEPTIDE
+    ]
+    rows.append(_row(
+        PEPTIDE, kind="pMHC_presentation", score=0.9, affinity=None,
+        n_flank="WW", c_flank="CC",
+    ))
+    cache = CachedPredictor.from_dataframe(pd.DataFrame(rows))
+
+    with pytest.raises(KeyError, match=r"at offset 9\b"):
+        cache.predict_proteins_dataframe({"prot": protein})

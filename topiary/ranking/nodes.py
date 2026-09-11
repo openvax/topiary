@@ -3892,7 +3892,42 @@ _FIELD_ALIASES = {
 }
 
 
-def _resolve_kind(name):
+def resolve_kind(name):
+    """Resolve a DSL kind spelling to its registered value.
+
+    Accepts any spelling :data:`KIND_ALIASES` registers: the canonical
+    name (``"pMHC_affinity"``), the DSL short name (``"affinity"``), and
+    the recognized abbreviations (``"ba"``, ``"el"``, ``"aff"``,
+    ``"ic50"``, ``"processing"``). Case-insensitive; surrounding
+    whitespace is stripped.
+
+    The one place that turns a plain kind spelling into a value and a
+    diagnostic when it isn't one — a caller normalizing a DSL string by
+    hand gets the same "did you mean" answer :func:`parse` itself gives,
+    rather than a private ``KIND_ALIASES`` lookup with no equivalent.
+
+    Does **not** accept the ``tool_kind`` compound form a bare DSL
+    identifier allows (``mhcflurry_pmhc_affinity``) — that splitting is
+    a parsing-grammar convenience for one identifier token, not a
+    property of the kind name itself, and resolving it needs the
+    bracket or ``tool.kind`` forms' own method handling alongside it.
+
+    Parameters
+    ----------
+    name : str
+        A kind spelling, in any of the recognized forms above.
+
+    Returns
+    -------
+    The registered value from :data:`KIND_ALIASES` — an ``mhctools.Kind``
+    constant on a normally installed mhctools, or the string it wraps.
+
+    Raises
+    ------
+    ValueError
+        If *name* is not a registered kind spelling, naming the closest
+        registered spellings (or the full list, when none are close).
+    """
     key = name.strip().lower()
     if key in KIND_ALIASES:
         return KIND_ALIASES[key]
