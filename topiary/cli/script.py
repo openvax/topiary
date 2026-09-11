@@ -50,8 +50,17 @@ def main(args_list=None):
     args = parse_args(args_list)
     try:
         df = predict_epitopes_from_args(args)
-    except (OSError, ValueError) as e:
-        arg_parser.error(str(e))
+    except (OSError, ValueError, KeyError) as e:
+        # KeyError alongside OSError/ValueError: CachedPredictor raises it
+        # for exactly two conditions a CLI user needs to see cleanly
+        # rather than as a traceback -- missed peptides with no fallback
+        # configured, and a coverage gap a flank or genotype mismatch
+        # leaves in a protein scan (#296, #302, #304). str(KeyError(...))
+        # would otherwise print with an extra layer of quoting (Python
+        # reprs a KeyError's args), so unwrap it the same way arg_parser
+        # already renders ValueError/OSError text.
+        message = e.args[0] if isinstance(e, KeyError) and e.args else str(e)
+        arg_parser.error(str(message))
     write_outputs(df, args)
     print("Total count: %d" % len(df))
     return 0
