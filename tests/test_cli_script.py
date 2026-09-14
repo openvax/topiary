@@ -72,11 +72,20 @@ def test_main_reports_cached_predictor_miss_as_a_clean_cli_error(
     assert "topiary: error:" in captured.err
     assert "GILGFVFTL" in captured.err
     assert "no fallback set" in captured.err
-    # str(KeyError(...)) reprs its message with an extra quoted layer
-    # ("'CachedPredictor: ...'" instead of "CachedPredictor: ..."); the
-    # CLI error must read like the ValueError/OSError messages above it,
-    # not like a KeyError repr.
-    assert "\"'CachedPredictor" not in captured.err
+    # KeyError's str() reprs its argument, so without
+    # CachedPredictorCoverageError.__str__ this arrives wrapped in
+    # quotes. Which quote character depends on the message: repr picks
+    # double quotes when the text itself contains single ones, as both
+    # coverage messages do. Asserting on one spelling missed that and
+    # could never fail -- assert the message starts unquoted instead.
+    error_line = next(
+        line for line in captured.err.splitlines()
+        if line.startswith("topiary: error:")
+    )
+    assert error_line == "topiary: error: " + (
+        "CachedPredictor: 1 peptide(s) missed and no fallback set.  "
+        "Missed peptides: ['GILGFVFTL']."
+    )
     assert "Traceback" not in captured.err
     assert "Namespace(" not in captured.out
 
@@ -98,31 +107,73 @@ def test_main_does_not_mask_an_unrelated_keyerror(monkeypatch):
         main(["--peptide-csv", "unused.csv"])
 
 
-def test_main_reports_a_missing_input_file_readably(tmp_path, capsys):
+def test_main_reports_a_missing_input_file_readably(monkeypatch, capsys):
     """An OSError's message, not its errno.
 
     ``OSError.args`` is ``(errno, strerror)``, so unwrapping ``args[0]``
-    the way ``CachedPredictorCoverageError`` needs (its ``str()`` adds a
-    layer of repr quoting) turns a missing input file into the bare
-    integer ``2``. The unwrap has to be scoped to the exception that
-    actually needs it -- every other error on this path already renders
-    correctly through ``str()``.
+    -- which 5.56.0 did for every exception, to strip the repr quoting
+    ``CachedPredictorCoverageError`` needed -- turns a missing input
+    file into the bare integer ``2``. ``str()`` is correct for an
+    OSError, and is what the handler uses for every type now.
+
+    Raised through a patched ``predict_epitopes_from_args`` rather than a
+    real missing file: the thing under test is how the handler renders
+    an OSError, and going through the real pipeline would make this
+    depend on the NetMHC fixtures (the cache loads before the peptide
+    CSV is read, so without them the error names the fixture, not this
+    path, and the assertion below fails instead of skipping).
     """
-    missing = tmp_path / "definitely-missing.csv"
+    missing = "/nonexistent/definitely-missing.csv"
+
+    def _raise_missing_file(args):
+        raise FileNotFoundError(2, "No such file or directory", missing)
+
+    monkeypatch.setattr(
+        cli_script, "predict_epitopes_from_args", _raise_missing_file,
+    )
 
     with pytest.raises(SystemExit) as exc_info:
-        main([
-            "--peptide-csv", str(missing),
-            "--mhc-cache-file", str(
-                _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A0201.out"
-            ),
-            "--mhc-cache-format", "netmhcpan",
-        ])
+        main(["--peptide-csv", missing])
 
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
-    assert "No such file or directory" in captured.err
-    assert str(missing) in captured.err
-    # The bug this pins: "topiary: error: 2", the errno alone.
-    assert "topiary: error: 2\n" not in captured.err
+    error_line = next(
+        line for line in captured.err.splitlines()
+        if line.startswith("topiary: error:")
+    )
+    assert "No such file or directory" in error_line
+    assert missing in error_line
+    # The 5.56.0 regression this pins: the errno alone.
+    assert error_line != "topiary: error: 2"
+    assert "Traceback" not in captured.err
+
+
+def test_main_reports_predictor_setup_failure_readably(monkeypatch, capsys):
+    """RuntimeError carries actionable setup advice, not a bug report.
+
+    ``mhcflurry_composite_version`` raises RuntimeError when mhcflurry is
+    installed but has no model release fetched, and the message says to
+    run ``mhcflurry-downloads fetch``. That reached CLI users as a stack
+    trace, which buries the one thing they need to do.
+    """
+    advice = (
+        "mhcflurry has no active model release.  Run "
+        "`mhcflurry-downloads fetch` or pass predictor_version "
+        "explicitly."
+    )
+
+    def _raise_setup_error(args):
+        raise RuntimeError(advice)
+
+    monkeypatch.setattr(
+        cli_script, "predict_epitopes_from_args", _raise_setup_error,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--peptide-csv", "unused.csv"])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert f"topiary: error: {advice}" in captured.err
+    assert "mhcflurry-downloads fetch" in captured.err
     assert "Traceback" not in captured.err

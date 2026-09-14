@@ -1,5 +1,40 @@
 # Changelog
 
+## 5.56.2
+
+**`CachedPredictorCoverageError` formats its own message, so every caller gets
+it unquoted.** `KeyError.__str__` reprs its argument, which is right for a key
+and wrong for a prepared sentence: library users and logs saw
+`CachedPredictorCoverageError: "CachedPredictor: 'SIINFEKLA' occurs in ..."`,
+quotes included, and any newline as a literal `\n`. The class now defines
+`__str__`, so the readable form reaches tracebacks, logs and the CLI alike.
+
+The CLI's own unwrapping is gone with it. That unwrap needed a type guard to
+avoid printing `OSError`'s errno instead of its message, the guard was dropped
+once while an adjacent comment was edited (5.56.0, fixed in 5.56.1), and there
+is now no guard left to drop — `str(e)` is correct for every type the handler
+catches.
+
+`RuntimeError` joins that set. `mhcflurry_composite_version` raises it for
+predictor setup the user has to finish, with messages like "Run
+`mhcflurry-downloads fetch`", and that advice was reaching CLI users as a
+stack trace.
+
+Two test defects fixed. The assertion meant to guard the coverage-error
+quoting checked for a quote spelling that never occurs — `repr` picks double
+quotes when the text contains single ones, as both coverage messages do — so
+it could never fail, and the unwrap it guarded had no working test. It now
+asserts the exact rendered line, and fails when `__str__` is removed. The
+missing-input-file test raised through a patched call rather than a real
+missing file, so it no longer depends on the NetMHC fixtures being present
+(the cache loads before the peptide CSV is read, so without them the error
+named the fixture and the test went red instead of skipping).
+
+Filed openvax/topiary#310 for two deferred CLI ergonomics problems the same
+review raised: `write_outputs` running outside the error handler with no
+pre-flight output-path validation, and runtime failures printing the full
+usage block and exiting 2 like a malformed command line.
+
 ## 5.56.1
 
 **A missing input file reports its message again, not its errno.** 5.56.0

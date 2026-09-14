@@ -51,29 +51,35 @@ def main(args_list=None):
     args = parse_args(args_list)
     try:
         df = predict_epitopes_from_args(args)
-    except (OSError, ValueError, CachedPredictorCoverageError) as e:
-        # CachedPredictorCoverageError alongside OSError/ValueError: it's
-        # the one CachedPredictor failure a CLI user needs to see cleanly
-        # rather than as a traceback -- missed peptides with no fallback
-        # configured, and a coverage gap a flank or genotype mismatch
-        # leaves in a protein scan (#296, #302, #304). Catching this
-        # specific subclass rather than bare KeyError means an unrelated
-        # dict-lookup bug elsewhere in the same call graph still surfaces
-        # as a traceback instead of being silently reported as a clean
-        # CLI error. str(CachedPredictorCoverageError(...)) would print
-        # with an extra layer of quoting (it subclasses KeyError, whose
-        # str() reprs its args), so unwrap that one specifically.
+    except (
+        OSError, ValueError, RuntimeError, CachedPredictorCoverageError,
+    ) as e:
+        # Every failure caught here is something the user can act on, so
+        # each gets a one-line message rather than a traceback:
         #
-        # The isinstance guard matters: OSError's args are
-        # (errno, strerror), so args[0] on a missing input file is the
-        # bare integer 2 while str(e) is the readable
-        # "[Errno 2] No such file or directory: '...'". Unwrapping
-        # unconditionally printed "topiary: error: 2".
-        if isinstance(e, CachedPredictorCoverageError) and e.args:
-            message = str(e.args[0])
-        else:
-            message = str(e)
-        arg_parser.error(message)
+        # - OSError: a missing or unreadable input file.
+        # - ValueError: what the rest of this package raises for bad
+        #   arguments and malformed input.
+        # - RuntimeError: predictor setup the user has to finish -- e.g.
+        #   mhcflurry installed with no model release fetched, whose
+        #   message is "Run `mhcflurry-downloads fetch`". Actionable
+        #   advice that was reaching them as a stack trace.
+        # - CachedPredictorCoverageError: missed peptides with no
+        #   fallback, or a coverage gap a flank or genotype mismatch
+        #   leaves in a protein scan (#296, #302, #304).
+        #
+        # Deliberately not bare KeyError: an unrelated dict-lookup bug
+        # elsewhere in this call graph should still surface as a
+        # traceback rather than be reported as a clean CLI error.
+        #
+        # str(e) suits all four. CachedPredictorCoverageError defines
+        # __str__ so its message arrives unquoted, rather than the CLI
+        # unwrapping e.args[0] itself -- that unwrap needed a type guard
+        # to avoid printing OSError's errno in place of its message, and
+        # the guard was dropped once already while an adjacent comment
+        # was edited (5.56.0, fixed in 5.56.1). There is no longer a
+        # guard to drop.
+        arg_parser.error(str(e))
     write_outputs(df, args)
     print("Total count: %d" % len(df))
     return 0

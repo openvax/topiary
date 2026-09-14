@@ -249,6 +249,26 @@ class CachedPredictorCoverageError(KeyError):
     elsewhere in the same call graph and reporting it the same way.
     """
 
+    def __str__(self):
+        """The message, without ``KeyError``'s repr quoting.
+
+        ``KeyError.__str__`` reprs its argument, because a key is
+        usually a value worth seeing quoted — ``KeyError('x')`` prints
+        as ``'x'``.  Here the argument is always a prepared sentence, so
+        that quoting is noise: it reaches tracebacks and logs as
+        ``"CachedPredictor: 'SIINFEKLA' occurs in ..."``, quotes and all,
+        and turns any newline into a literal ``\\n``.
+
+        Fixing it here rather than at each call site means every caller
+        gets the readable form — a library user reading a traceback, a
+        log line, the CLI — and the CLI needs no special case of its
+        own.  It had one, and the guard it depended on was dropped once
+        already while editing an adjacent comment (5.56.0/5.56.1).
+        """
+        if len(self.args) == 1:
+            return str(self.args[0])
+        return super().__str__()
+
 
 class CachedPredictor:
     """Predictor that answers MHC binding queries from a pre-computed table.
