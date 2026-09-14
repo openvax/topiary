@@ -9,7 +9,11 @@ import pandas as pd
 import pytest
 from mhctools import RandomBindingPredictor
 
-from topiary import CachedPredictor, TopiaryPredictor
+from topiary import (
+    CachedPredictor,
+    CachedPredictorCoverageError,
+    TopiaryPredictor,
+)
 from topiary.cached import mhcflurry_composite_version
 
 
@@ -174,6 +178,15 @@ class TestPredictPeptides:
     def test_miss_raises_without_fallback(self):
         cache = CachedPredictor.from_dataframe(_df([_row()]))
         with pytest.raises(KeyError, match="missed"):
+            cache.predict_peptides_dataframe(["QQQQQQQQQ"])
+
+    def test_miss_without_fallback_raises_the_documented_subclass(self):
+        """Not just any KeyError -- CachedPredictorCoverageError
+        specifically, which is what lets a caller (the CLI) catch this
+        exact failure without also catching an unrelated KeyError bug
+        elsewhere."""
+        cache = CachedPredictor.from_dataframe(_df([_row()]))
+        with pytest.raises(CachedPredictorCoverageError):
             cache.predict_peptides_dataframe(["QQQQQQQQQ"])
 
     def test_multiple_alleles_cross_product(self):

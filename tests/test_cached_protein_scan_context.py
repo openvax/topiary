@@ -22,6 +22,7 @@ from topiary import (
     PROTEIN_SCAN_COLUMNS,
     Affinity,
     CachedPredictor,
+    CachedPredictorCoverageError,
     TopiaryPredictor,
     apply_filter,
     evaluate_scores,
@@ -597,4 +598,94 @@ def test_uncovered_occurrences_are_named_in_numeric_not_string_offset_order():
     cache = CachedPredictor.from_dataframe(pd.DataFrame(rows))
 
     with pytest.raises(KeyError, match=r"at offset 9\b"):
+        cache.predict_proteins_dataframe({"prot": protein})
+
+
+# ---------------------------------------------------------------------------
+# When more than one cached flank context mismatches the same occurrence,
+# the error names all of them (up to a cap), not just the first
+# ---------------------------------------------------------------------------
+
+
+def _two_mismatched_flank_contexts_cache(protein):
+    """Two rows for PEPTIDE, same kind and genotype, different flanks --
+    both real cache entries, since flanks are part of what makes two
+    rows distinct under the cache's own uniqueness invariant."""
+    rows = [
+        _row(protein[offset:offset + 9])
+        for offset in range(len(protein) - 9 + 1)
+        if protein[offset:offset + 9] != PEPTIDE
+    ]
+    rows.append(_row(
+        PEPTIDE, kind="pMHC_presentation", score=0.9, affinity=None,
+        n_flank="MA", c_flank="GG",
+    ))
+    rows.append(_row(
+        PEPTIDE, kind="pMHC_presentation", score=0.4, affinity=None,
+        n_flank="ZZ", c_flank="QQZ",
+    ))
+    return CachedPredictor.from_dataframe(pd.DataFrame(rows))
+
+
+def test_multiple_mismatched_contexts_are_all_named():
+    # Real flanks here are QQ / RR -- neither cached context matches.
+    protein = "QQ" + PEPTIDE + "RR"
+    cache = _two_mismatched_flank_contexts_cache(protein)
+
+    with pytest.raises(KeyError) as excinfo:
+        cache.predict_proteins_dataframe({"prot": protein})
+
+    message = str(excinfo.value)
+    assert "'MA'" in message and "'GG'" in message
+    assert "'ZZ'" in message and "'QQZ'" in message
+    assert "contexts" in message  # plural, not "a different ... context"
+
+
+def test_a_single_mismatched_context_keeps_the_singular_wording():
+    protein = "QQ" + PEPTIDE + "RR"
+    cache = _mixed_flank_cache(
+        protein, flanked_kind="pMHC_presentation",
+        n_flank="MA", c_flank="GG",
+    )
+
+    with pytest.raises(KeyError, match=r"a different flanking context \("):
+        cache.predict_proteins_dataframe({"prot": protein})
+
+
+def test_mismatched_contexts_beyond_the_cap_are_summarized():
+    protein = "QQ" + PEPTIDE + "RR"
+    rows = [
+        _row(protein[offset:offset + 9])
+        for offset in range(len(protein) - 9 + 1)
+        if protein[offset:offset + 9] != PEPTIDE
+    ]
+    # Six distinct mismatched flank contexts -- one more than the cap.
+    for i in range(6):
+        rows.append(_row(
+            PEPTIDE, kind="pMHC_presentation", score=0.1 * i, affinity=None,
+            n_flank=f"M{i}", c_flank=f"G{i}",
+        ))
+    cache = CachedPredictor.from_dataframe(pd.DataFrame(rows))
+
+    with pytest.raises(KeyError, match=r"\(and 1 more\)") as excinfo:
+        cache.predict_proteins_dataframe({"prot": protein})
+
+    # All 6 are genuinely distinct cache rows; the message still shows
+    # 5 of them plus an accurate "(and 1 more)", not a silent undercount.
+    message = str(excinfo.value)
+    for i in range(5):
+        assert f"'M{i}'" in message
+
+
+def test_uncovered_occurrence_raises_the_documented_subclass():
+    """The protein-scan coverage-gap path raises the same public
+    exception type as the peptide-level miss path, so a caller (the
+    CLI) can catch one type for both."""
+    protein = "MA" + PEPTIDE + "GG"
+    cache = _mixed_flank_cache(
+        protein, flanked_kind="pMHC_presentation",
+        n_flank="WW", c_flank="CC",
+    )
+
+    with pytest.raises(CachedPredictorCoverageError):
         cache.predict_proteins_dataframe({"prot": protein})

@@ -86,6 +86,7 @@ from .sequence_helpers import (
 )
 from .cached import (
     CachedPredictor,
+    CachedPredictorCoverageError,
     PREDICTION_CONTEXT_COLUMNS,
     PREDICTION_KEY_COLUMNS,
     PREDICTION_VALUE_COLUMNS,
@@ -172,7 +173,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.55.1"
+__version__ = "5.56.0"
 
 __all__ = [
     "normalize_python_types",
@@ -190,6 +191,7 @@ __all__ = [
     "from_predictions",
     "fragment_from_effect",
     "CachedPredictor",
+    "CachedPredictorCoverageError",
     "mhcflurry_composite_version",
     "SelfProteome",
     "Affinity",

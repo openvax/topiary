@@ -162,8 +162,8 @@ def _group_token(value):
     object is what reaches the output, so transcript identities survive
     and a list is still a list on the far side.
     """
-    if value is None:
-        return _GROUP_MISSING
+    # pd.isna(None) is already True, so a separate `value is None` check
+    # ahead of it would only re-decide a case this one already covers.
     try:
         if pd.isna(value):
             return _GROUP_MISSING
@@ -369,7 +369,7 @@ def to_wide(df):
         records.append(temp[["_topiary_group_id", "_wide_col", "_wide_val"]])
 
     if not records:
-        return _distinct_group_rows(work, group_cols)
+        return _distinct_group_rows(work, group_cols, ids=group_ids)
 
     melted = pd.concat(records, ignore_index=True)
 

@@ -142,3 +142,20 @@ def test_explicit_column_bracket_error_is_unchanged():
     been a kind, so it keeps the original generic message."""
     with pytest.raises(ValueError, match=r"Cannot use \['\.\.\.'\] on Column"):
         parse("column(peptide)['x']")
+
+
+def test_bracket_on_an_ordinary_column_name_mentions_the_column_reading():
+    """A bare identifier before a bracket is ambiguous between an
+    attempted kind and a mistyped column subscript, and parse() has no
+    DataFrame to resolve that ambiguity with. ``n_flank`` is a real
+    topiary column, so a bracket after it is far more likely a stray
+    subscript than an attempted kind -- the message has to say so
+    rather than reading as if registering 'n_flank' as a kind were the
+    only possible fix."""
+    with pytest.raises(ValueError) as excinfo:
+        parse("n_flank['x']")
+
+    message = str(excinfo.value)
+    assert "Unknown prediction kind 'n_flank'" in message
+    assert "ordinary column" in message
+    assert "bracket indexing is not supported on a column" in message

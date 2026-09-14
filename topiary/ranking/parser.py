@@ -474,18 +474,36 @@ class _Parser:
                 compute_fn, _ = _PROPERTIES[name]
                 return PeptideProperty(name, compute_fn)
             if self.tokenizer.peek_at(1)[0] == "LBRACKET":
-                # A bracket after a bare identifier is only ever kind
-                # qualifier syntax (Kind[method] / Kind[method, version])
-                # -- a plain Column has no bracket operation, so reaching
-                # here with one always ends in an error either way.
+                # A bracket after a bare identifier is either a kind
+                # qualifier (Kind[method] / Kind[method, version]) or a
+                # mistaken attempt to subscript an ordinary column -- a
+                # plain Column has no bracket operation, so either
+                # reading ends in an error, and parse() alone can't
+                # tell which one the identifier was meant to be (it
+                # has no DataFrame to check the name against).
                 # _is_kind_name already said this name is not a
                 # registered kind; ask resolve_kind for the same
                 # available/close-match diagnostic parse() gives a
-                # top-level unknown kind, instead of deferring to
-                # _apply_bracket, where the name is gone and the error
-                # reads as a subscript problem on a Column rather than
-                # the unregistered kind it actually is (#300).
-                resolve_kind(name)
+                # top-level unknown kind, and name the column reading
+                # too, rather than a message that reads as if
+                # registering a kind is the only possible fix -- e.g.
+                # ``n_flank['x']`` is far more likely a stray bracket
+                # on a real column than an attempted kind (#300).
+                try:
+                    resolve_kind(name)
+                except ValueError as exc:
+                    # resolve_kind's message ends in "." on one branch
+                    # and "?" on the other; neither is guaranteed, so
+                    # terminate it explicitly rather than risk running
+                    # the two sentences together.
+                    detail = str(exc)
+                    if not detail.endswith((".", "?", "!")):
+                        detail += "."
+                    raise ValueError(
+                        f"{detail} If {name!r} is meant to be an "
+                        f"ordinary column instead, note that bracket "
+                        f"indexing is not supported on a column."
+                    ) from None
             self.tokenizer.advance()
             return Column(tok[1])
         raise ValueError(f"Unexpected token {tok!r} in expression {self.text!r}")
