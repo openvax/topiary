@@ -30,7 +30,7 @@ import sys
 
 import argcomplete
 
-from ..cached import CachedPredictorCoverageError
+from ..cached import CachedPredictorCoverageError, PredictorSetupError
 from .args import arg_parser, predict_epitopes_from_args
 
 from .outputs import write_outputs
@@ -51,28 +51,25 @@ def main(args_list=None):
     args = parse_args(args_list)
     try:
         df = predict_epitopes_from_args(args)
-    except (OSError, ValueError, CachedPredictorCoverageError) as e:
-        # CachedPredictorCoverageError alongside OSError/ValueError: it's
-        # the one CachedPredictor failure a CLI user needs to see cleanly
-        # rather than as a traceback -- missed peptides with no fallback
-        # configured, and a coverage gap a flank or genotype mismatch
-        # leaves in a protein scan (#296, #302, #304). Catching this
-        # specific subclass rather than bare KeyError means an unrelated
-        # dict-lookup bug elsewhere in the same call graph still surfaces
-        # as a traceback instead of being silently reported as a clean
-        # CLI error. str(CachedPredictorCoverageError(...)) would print
-        # with an extra layer of quoting (it subclasses KeyError, whose
-        # str() reprs its args), so unwrap that one specifically.
+    except (
+        OSError, ValueError, PredictorSetupError,
+        CachedPredictorCoverageError,
+    ) as e:
+        # Each of these names something the user can act on, so each
+        # gets a one-line message instead of a traceback: a missing or
+        # unreadable input file, a bad argument or malformed input,
+        # predictor setup still to finish, or a cache that cannot answer
+        # for a peptide or occurrence (#296, #302, #304).
         #
-        # The isinstance guard matters: OSError's args are
-        # (errno, strerror), so args[0] on a missing input file is the
-        # bare integer 2 while str(e) is the readable
-        # "[Errno 2] No such file or directory: '...'". Unwrapping
-        # unconditionally printed "topiary: error: 2".
-        if isinstance(e, CachedPredictorCoverageError) and e.args:
-            message = str(e.args[0])
-        else:
-            message = str(e)
+        # All four are narrow on purpose. Bare KeyError would swallow an
+        # unrelated dict-lookup bug; bare RuntimeError is worse, since
+        # NotImplementedError and RecursionError subclass it, so an
+        # abstract method left unimplemented would print as a clean user
+        # error. Those must keep reaching the user as tracebacks.
+        #
+        # CachedPredictorCoverageError defines __str__, so its message
+        # arrives unquoted and this needs no per-type formatting.
+        message = str(e) or type(e).__name__
         arg_parser.error(message)
     write_outputs(df, args)
     print("Total count: %d" % len(df))

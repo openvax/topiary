@@ -1,5 +1,53 @@
 # Changelog
 
+## 5.56.2
+
+**`CachedPredictorCoverageError` formats its own message, so every caller gets
+it unquoted.** `KeyError.__str__` reprs its argument, which is right for a key
+and wrong for a prepared sentence: library users and logs saw
+`CachedPredictorCoverageError: "CachedPredictor: 'SIINFEKLA' occurs in ..."`,
+quotes included, and any newline as a literal `\n`. The class now defines
+`__str__`, so the readable form reaches tracebacks, logs and the CLI alike.
+
+The CLI's own unwrapping is gone with it. That unwrap needed a type guard to
+avoid printing `OSError`'s errno instead of its message, the guard was dropped
+once while an adjacent comment was edited (5.56.0, fixed in 5.56.1), and there
+is now no guard left to drop. The handler also falls back to the exception's
+type name when a message is empty, so an argument-less exception cannot render
+as a bare `topiary: error:` with nothing after it.
+
+**New `PredictorSetupError` for setup the user has to finish.**
+`mhcflurry_composite_version` raised bare `RuntimeError` for a reachable but
+unusable predictor — mhcflurry installed with no model release fetched, whose
+message says to run `mhcflurry-downloads fetch` — and that advice reached CLI
+users as a stack trace. It now raises `PredictorSetupError`, exported, and the
+CLI catches that specific type.
+
+Catching `RuntimeError` itself would have been wrong for the same reason bare
+`KeyError` is: `NotImplementedError` and `RecursionError` both subclass it, so
+an abstract method left unimplemented would have printed as a clean user error
+with an empty message rather than a traceback. Both narrow types exist so
+genuine bugs keep surfacing as bugs.
+
+Two test defects fixed. The assertion meant to guard the coverage-error
+quoting checked for a quote spelling that never occurs — `repr` picks double
+quotes when the text contains single ones, as both coverage messages do — so
+it could never fail, and the unwrap it guarded had no working test. It now
+asserts the exact rendered line, and fails when `__str__` is removed. The
+missing-input-file test now raises through a patched call, so the rendering it
+checks no longer depends on the NetMHC fixtures being present (the cache loads
+before the peptide CSV is read, so without them the error named the fixture
+and the test went red instead of skipping); a separate fixture-guarded test
+keeps end-to-end coverage that a real missing file still reaches the handler
+as an `OSError`. `CachedPredictorCoverageError.__str__` and the
+predictor-setup path both have direct tests now, the latter driven through
+mhcflurry's own release lookup rather than a copy of its message.
+
+Filed openvax/topiary#310 for two deferred CLI ergonomics problems the same
+review raised: `write_outputs` running outside the error handler with no
+pre-flight output-path validation, and runtime failures printing the full
+usage block and exiting 2 like a malformed command line.
+
 ## 5.56.1
 
 **A missing input file reports its message again, not its errno.** 5.56.0

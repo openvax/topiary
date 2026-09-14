@@ -180,6 +180,23 @@ class TestPredictPeptides:
         with pytest.raises(KeyError, match="missed"):
             cache.predict_peptides_dataframe(["QQQQQQQQQ"])
 
+    def test_coverage_error_str_has_no_repr_quoting(self):
+        """KeyError.__str__ reprs its argument; this one must not.
+
+        Tested directly rather than only through the CLI: the CLI test
+        that would notice is the one place this was covered, and the
+        other tests here match substrings of str(excinfo.value), which
+        pass whether or not the message arrives wrapped in quotes.
+        """
+        message = "CachedPredictor: 'SIINFEKLA' occurs in 'prot'."
+
+        assert str(CachedPredictorCoverageError(message)) == message
+        # Multiple args keep KeyError's behavior rather than silently
+        # dropping all but the first.
+        assert str(CachedPredictorCoverageError(message, ["PEP"])) == str(
+            (message, ["PEP"])
+        )
+
     def test_miss_without_fallback_raises_the_documented_subclass(self):
         """Not just any KeyError -- CachedPredictorCoverageError
         specifically, which is what lets a caller (the CLI) catch this
