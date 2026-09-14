@@ -62,10 +62,18 @@ def main(args_list=None):
         # as a traceback instead of being silently reported as a clean
         # CLI error. str(CachedPredictorCoverageError(...)) would print
         # with an extra layer of quoting (it subclasses KeyError, whose
-        # str() reprs its args), so unwrap it the same way arg_parser
-        # already renders ValueError/OSError text.
-        message = e.args[0] if e.args else str(e)
-        arg_parser.error(str(message))
+        # str() reprs its args), so unwrap that one specifically.
+        #
+        # The isinstance guard matters: OSError's args are
+        # (errno, strerror), so args[0] on a missing input file is the
+        # bare integer 2 while str(e) is the readable
+        # "[Errno 2] No such file or directory: '...'". Unwrapping
+        # unconditionally printed "topiary: error: 2".
+        if isinstance(e, CachedPredictorCoverageError) and e.args:
+            message = str(e.args[0])
+        else:
+            message = str(e)
+        arg_parser.error(message)
     write_outputs(df, args)
     print("Total count: %d" % len(df))
     return 0

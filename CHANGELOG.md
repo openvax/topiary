@@ -1,5 +1,18 @@
 # Changelog
 
+## 5.56.1
+
+**A missing input file reports its message again, not its errno.** 5.56.0
+unwrapped `e.args[0]` for every exception its CLI handler caught, to strip the
+extra layer of repr quoting `str()` puts on a `KeyError` subclass. But
+`OSError.args` is `(errno, strerror)`, so a missing `--peptide-csv` printed
+`topiary: error: 2` instead of
+`topiary: error: [Errno 2] No such file or directory: '...'`. The unwrap is now
+scoped to `CachedPredictorCoverageError`, the only exception on this path whose
+`str()` needs it; every other error renders through `str()` as it did before
+5.56.0. Found reviewing 5.56.0's own diff, and pinned by a test that fails
+against it.
+
 ## 5.56.0
 
 **A dedicated `CachedPredictorCoverageError` for the two intentional cache
