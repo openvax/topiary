@@ -259,15 +259,34 @@ class CachedPredictorCoverageError(KeyError):
         ``"CachedPredictor: 'SIINFEKLA' occurs in ..."``, quotes and all,
         and turns any newline into a literal ``\\n``.
 
-        Fixing it here rather than at each call site means every caller
-        gets the readable form — a library user reading a traceback, a
-        log line, the CLI — and the CLI needs no special case of its
-        own.  It had one, and the guard it depended on was dropped once
-        already while editing an adjacent comment (5.56.0/5.56.1).
+        Fixing it here rather than at each call site means every
+        caller gets the readable form — a library user reading a
+        traceback, a log line, the CLI — and no caller needs a
+        formatting special case of its own.
         """
         if len(self.args) == 1:
             return str(self.args[0])
         return super().__str__()
+
+
+class PredictorSetupError(RuntimeError):
+    """Predictor setup the caller has to finish before predicting.
+
+    Raised when a predictor is reachable but not usable yet and the fix
+    belongs to whoever is running it — mhcflurry installed with no model
+    release fetched, for instance, whose message says to run
+    ``mhcflurry-downloads fetch``.  Distinct from a bug: the message
+    names an action, so a CLI can show it as a one-line error instead of
+    a stack trace.
+
+    Its own type for the same reason
+    :class:`CachedPredictorCoverageError` has one.  ``RuntimeError``
+    itself is far too broad to catch: ``NotImplementedError`` and
+    ``RecursionError`` both subclass it, as do the internal-invariant
+    failures dependencies raise, so catching it wholesale would report
+    genuine bugs as clean user errors — with an empty message, since a
+    bare ``NotImplementedError()`` stringifies to ``""``.
+    """
 
 
 class CachedPredictor:
@@ -1796,14 +1815,14 @@ def mhcflurry_composite_version() -> str:
         import mhcflurry
         import mhcflurry.downloads
     except ImportError as e:
-        raise RuntimeError(
+        raise PredictorSetupError(
             "mhcflurry is not installed — cannot derive a composite "
             "version.  Install mhcflurry or pass predictor_version "
             "explicitly."
         ) from e
     pkg = getattr(mhcflurry, "__version__", None)
     if not pkg:
-        raise RuntimeError(
+        raise PredictorSetupError(
             "mhcflurry is installed but exposes no __version__; cannot "
             "derive a composite version — pass predictor_version "
             "explicitly."
@@ -1811,12 +1830,12 @@ def mhcflurry_composite_version() -> str:
     try:
         release = mhcflurry.downloads.get_current_release()
     except Exception as e:
-        raise RuntimeError(
+        raise PredictorSetupError(
             f"Could not read mhcflurry's current model release: {e!r}.  "
             f"Pass predictor_version explicitly."
         ) from e
     if not release:
-        raise RuntimeError(
+        raise PredictorSetupError(
             "mhcflurry has no active model release.  Run "
             "`mhcflurry-downloads fetch` or pass predictor_version "
             "explicitly."

@@ -30,7 +30,7 @@ import sys
 
 import argcomplete
 
-from ..cached import CachedPredictorCoverageError
+from ..cached import CachedPredictorCoverageError, PredictorSetupError
 from .args import arg_parser, predict_epitopes_from_args
 
 from .outputs import write_outputs
@@ -52,34 +52,25 @@ def main(args_list=None):
     try:
         df = predict_epitopes_from_args(args)
     except (
-        OSError, ValueError, RuntimeError, CachedPredictorCoverageError,
+        OSError, ValueError, PredictorSetupError,
+        CachedPredictorCoverageError,
     ) as e:
-        # Every failure caught here is something the user can act on, so
-        # each gets a one-line message rather than a traceback:
+        # Each of these names something the user can act on, so each
+        # gets a one-line message instead of a traceback: a missing or
+        # unreadable input file, a bad argument or malformed input,
+        # predictor setup still to finish, or a cache that cannot answer
+        # for a peptide or occurrence (#296, #302, #304).
         #
-        # - OSError: a missing or unreadable input file.
-        # - ValueError: what the rest of this package raises for bad
-        #   arguments and malformed input.
-        # - RuntimeError: predictor setup the user has to finish -- e.g.
-        #   mhcflurry installed with no model release fetched, whose
-        #   message is "Run `mhcflurry-downloads fetch`". Actionable
-        #   advice that was reaching them as a stack trace.
-        # - CachedPredictorCoverageError: missed peptides with no
-        #   fallback, or a coverage gap a flank or genotype mismatch
-        #   leaves in a protein scan (#296, #302, #304).
+        # All four are narrow on purpose. Bare KeyError would swallow an
+        # unrelated dict-lookup bug; bare RuntimeError is worse, since
+        # NotImplementedError and RecursionError subclass it, so an
+        # abstract method left unimplemented would print as a clean user
+        # error. Those must keep reaching the user as tracebacks.
         #
-        # Deliberately not bare KeyError: an unrelated dict-lookup bug
-        # elsewhere in this call graph should still surface as a
-        # traceback rather than be reported as a clean CLI error.
-        #
-        # str(e) suits all four. CachedPredictorCoverageError defines
-        # __str__ so its message arrives unquoted, rather than the CLI
-        # unwrapping e.args[0] itself -- that unwrap needed a type guard
-        # to avoid printing OSError's errno in place of its message, and
-        # the guard was dropped once already while an adjacent comment
-        # was edited (5.56.0, fixed in 5.56.1). There is no longer a
-        # guard to drop.
-        arg_parser.error(str(e))
+        # CachedPredictorCoverageError defines __str__, so its message
+        # arrives unquoted and this needs no per-type formatting.
+        message = str(e) or type(e).__name__
+        arg_parser.error(message)
     write_outputs(df, args)
     print("Total count: %d" % len(df))
     return 0

@@ -87,6 +87,7 @@ from .sequence_helpers import (
 from .cached import (
     CachedPredictor,
     CachedPredictorCoverageError,
+    PredictorSetupError,
     PREDICTION_CONTEXT_COLUMNS,
     PREDICTION_KEY_COLUMNS,
     PREDICTION_VALUE_COLUMNS,
@@ -192,6 +193,7 @@ __all__ = [
     "fragment_from_effect",
     "CachedPredictor",
     "CachedPredictorCoverageError",
+    "PredictorSetupError",
     "mhcflurry_composite_version",
     "SelfProteome",
     "Affinity",
