@@ -96,3 +96,33 @@ def test_main_does_not_mask_an_unrelated_keyerror(monkeypatch):
 
     with pytest.raises(KeyError, match="ENSG00000141510"):
         main(["--peptide-csv", "unused.csv"])
+
+
+def test_main_reports_a_missing_input_file_readably(tmp_path, capsys):
+    """An OSError's message, not its errno.
+
+    ``OSError.args`` is ``(errno, strerror)``, so unwrapping ``args[0]``
+    the way ``CachedPredictorCoverageError`` needs (its ``str()`` adds a
+    layer of repr quoting) turns a missing input file into the bare
+    integer ``2``. The unwrap has to be scoped to the exception that
+    actually needs it -- every other error on this path already renders
+    correctly through ``str()``.
+    """
+    missing = tmp_path / "definitely-missing.csv"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main([
+            "--peptide-csv", str(missing),
+            "--mhc-cache-file", str(
+                _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A0201.out"
+            ),
+            "--mhc-cache-format", "netmhcpan",
+        ])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "No such file or directory" in captured.err
+    assert str(missing) in captured.err
+    # The bug this pins: "topiary: error: 2", the errno alone.
+    assert "topiary: error: 2\n" not in captured.err
+    assert "Traceback" not in captured.err
