@@ -30,6 +30,7 @@ import sys
 
 import argcomplete
 
+from ..cached import CachedPredictorCoverageError
 from .args import arg_parser, predict_epitopes_from_args
 
 from .outputs import write_outputs
@@ -50,16 +51,20 @@ def main(args_list=None):
     args = parse_args(args_list)
     try:
         df = predict_epitopes_from_args(args)
-    except (OSError, ValueError, KeyError) as e:
-        # KeyError alongside OSError/ValueError: CachedPredictor raises it
-        # for exactly two conditions a CLI user needs to see cleanly
+    except (OSError, ValueError, CachedPredictorCoverageError) as e:
+        # CachedPredictorCoverageError alongside OSError/ValueError: it's
+        # the one CachedPredictor failure a CLI user needs to see cleanly
         # rather than as a traceback -- missed peptides with no fallback
         # configured, and a coverage gap a flank or genotype mismatch
-        # leaves in a protein scan (#296, #302, #304). str(KeyError(...))
-        # would otherwise print with an extra layer of quoting (Python
-        # reprs a KeyError's args), so unwrap it the same way arg_parser
+        # leaves in a protein scan (#296, #302, #304). Catching this
+        # specific subclass rather than bare KeyError means an unrelated
+        # dict-lookup bug elsewhere in the same call graph still surfaces
+        # as a traceback instead of being silently reported as a clean
+        # CLI error. str(CachedPredictorCoverageError(...)) would print
+        # with an extra layer of quoting (it subclasses KeyError, whose
+        # str() reprs its args), so unwrap it the same way arg_parser
         # already renders ValueError/OSError text.
-        message = e.args[0] if isinstance(e, KeyError) and e.args else str(e)
+        message = e.args[0] if e.args else str(e)
         arg_parser.error(str(message))
     write_outputs(df, args)
     print("Total count: %d" % len(df))

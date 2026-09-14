@@ -1,5 +1,44 @@
 # Changelog
 
+## 5.56.0
+
+**A dedicated `CachedPredictorCoverageError` for the two intentional cache
+failures, and diagnostic/efficiency fixes an ultra code review found in
+5.55.0/5.55.1.** `CachedPredictor` now raises `CachedPredictorCoverageError`
+(a `KeyError` subclass, so existing `except KeyError` handlers are
+unaffected) rather than bare `KeyError`, for a peptide the cache doesn't
+cover with no fallback, and for a protein-scan occurrence a flank or
+genotype mismatch leaves uncovered. The CLI catches this specific type
+instead of every `KeyError`, so an unrelated programming bug elsewhere in
+the same call graph surfaces as a real traceback again instead of being
+silently reported as a clean CLI error.
+
+An uncovered occurrence whose only cached rows were mismatched under more
+than one flanking context now names all of them (capped, with an accurate
+"(and N more)" past the cap) instead of silently reporting only the first
+and dropping the rest — the accumulated-but-unread mismatch rows are capped
+too, so a cache holding many mismatched contexts for one key no longer grows
+that bookkeeping without bound. The flank-matching check now slices only as
+much of the occurrence's neighbouring sequence as the cached flank's own
+length requires, rather than the entire remaining sequence on every
+(cached row, occurrence) pair a scan checks. `allele_set` normalization,
+duplicated between the cache's row key and its coverage key, is now the
+single `_allele_set_key` helper. Two dead `value is None` branches already
+subsumed by `pd.isna` (which is already `True` for `None`) are removed.
+
+A bracket after an identifier the parser doesn't recognize as a prediction
+kind now also names the possibility that the identifier was meant to be an
+ordinary DataFrame column instead — bracket indexing was never supported on
+a column, so `n_flank['x']` is far more likely a stray subscript than an
+attempted kind, and the error no longer reads as if registering a kind is
+the only possible fix.
+
+Filed two follow-ups the review raised as real design questions rather than
+bugs: openvax/topiary#307 (should a flank/genotype-mismatched occurrence try
+the fallback predictor, when it supports protein scanning, before raising)
+and a note on openvax/topiary#304 (already open) about batch abort-vs-skip
+semantics.
+
 ## 5.55.1
 
 **A `CachedPredictor` coverage-gap error reaches the CLI cleanly (#304).**

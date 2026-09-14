@@ -30,6 +30,7 @@ Fallback semantics
 from __future__ import annotations
 
 import re
+from collections import Counter
 from itertools import repeat
 from pathlib import Path
 from typing import Callable, Iterable, List, Mapping, Optional, Union
@@ -230,6 +231,23 @@ def _more_suffix(n_total, n_shown):
     """
     extra = n_total - n_shown
     return "" if extra <= 0 else f" (and {extra} more)"
+
+
+class CachedPredictorCoverageError(KeyError):
+    """A peptide or occurrence the cache cannot answer for.
+
+    Raised for exactly two conditions: a peptide missed by every cached
+    row with no fallback set to resolve it, and a protein-scan occurrence
+    a flank or genotype mismatch leaves with no applicable cached row
+    (#296, #302). Both are ``KeyError`` — a lookup that found no entry —
+    so this subclasses it rather than introducing an unrelated type a
+    caller already catching ``KeyError`` would stop seeing.
+
+    It exists as its own type so a caller can catch *this* specifically
+    — the CLI does, to turn it into a clean error message — without also
+    silently catching an unrelated ``KeyError`` from a genuine bug
+    elsewhere in the same call graph and reporting it the same way.
+    """
 
 
 class CachedPredictor:
@@ -483,7 +501,7 @@ class CachedPredictor:
             str(kind),
             _flank_key(n_flank),
             _flank_key(c_flank),
-            str(allele_set).strip() if is_stated(allele_set) else "",
+            _allele_set_key(allele_set),
         )
 
     @classmethod
@@ -702,6 +720,15 @@ class CachedPredictor:
         # cache was built from.
         expanded = []
         unmatched_context = {}
+        # How many mismatched rows exist per key, independent of how
+        # many :data:`_MAX_STORED_MISMATCHES_PER_KEY` actually keeps --
+        # the cache's own uniqueness invariant makes every row under one
+        # key a distinct flanking context (flanks are themselves part of
+        # what makes two cache rows distinct), so this is exactly the
+        # count of distinct contexts that failed to match, and the raised
+        # error can say "(and N more)" truthfully even once the cap
+        # drops the rows themselves.
+        unmatched_counts = Counter()
         for _, row in df.iterrows():
             positions = per_peptide_positions.get(row["peptide"], [])
             for (name, offset, length) in positions:
@@ -718,9 +745,18 @@ class CachedPredictor:
                     # calls, would otherwise count the occurrence as
                     # covered by whichever kind/genotype survived, and
                     # drop the other silently (#302).
-                    unmatched_context.setdefault(
-                        _coverage_key(row, name, offset), [],
-                    ).append(row)
+                    key = _coverage_key(row, name, offset)
+                    unmatched_counts[key] += 1
+                    bucket = unmatched_context.setdefault(key, [])
+                    # Capped rather than unbounded: every row here is
+                    # read back only if the key stays uncovered, and
+                    # only to list its flanking context in the raised
+                    # error, so a handful is enough to report from
+                    # without growing this dict without limit on a
+                    # cache holding many mismatched flank contexts for
+                    # one (peptide, allele, kind, allele_set).
+                    if len(bucket) < _MAX_STORED_MISMATCHES_PER_KEY:
+                        bucket.append(row)
                     continue
                 r = row.to_dict()
                 r.pop("peptide_offset", None)
@@ -728,7 +764,9 @@ class CachedPredictor:
                 r["offset"] = offset
                 expanded.append(r)
 
-        _raise_on_uncovered_occurrences(expanded, unmatched_context)
+        _raise_on_uncovered_occurrences(
+            expanded, unmatched_context, unmatched_counts,
+        )
 
         if not expanded:
             return pd.DataFrame(columns=list(PROTEIN_SCAN_COLUMNS))
@@ -747,7 +785,7 @@ class CachedPredictor:
         if self.fallback is None:
             missed_preview = peptides[:5]
             extra = _more_suffix(len(peptides), 5)
-            raise KeyError(
+            raise CachedPredictorCoverageError(
                 f"CachedPredictor: {len(peptides)} peptide(s) missed and "
                 f"no fallback set.  Missed peptides: {missed_preview}{extra}."
             )
@@ -1372,8 +1410,8 @@ def _flank_key(value):
     round-trips through TSV / Parquet stay stable.  Otherwise:
     uppercased stripped string.
     """
-    if value is None:
-        return ""
+    # pd.isna(None) is already True, so a separate `value is None` check
+    # ahead of it would only re-decide a case this one already covers.
     try:
         if pd.isna(value):
             return ""
@@ -1383,6 +1421,29 @@ def _flank_key(value):
     if not s or s.lower() == "nan":
         return ""
     return s.upper()
+
+
+def _allele_set_key(value):
+    """Normalize a genotype column value for use as part of a cache key.
+
+    Every not-stated spelling — ``None``, ``NaN``, whitespace-only —
+    collapses to ``""``, the way :func:`_flank_key` collapses flank
+    spellings, so two rows differing only in how they wrote "no
+    genotype" are one key rather than two.  Unlike a flank, an
+    ``allele_set`` string is not upper-cased: HLA allele names carry
+    their own canonical case (``"HLA-A*02:01"``), and forcing it would
+    not collapse any real spelling variance here the way it does for a
+    flank read off a raw sequence.
+    """
+    return str(value).strip() if is_stated(value) else ""
+
+
+#: How many mismatched flank contexts :func:`_raise_on_uncovered_occurrences`
+#: keeps per uncovered key, for its error message. Matches the ``5`` this
+#: module already previews elsewhere (missed peptides, overlapping keys);
+#: :data:`Counter` in the producer tracks the true count past this cap, so
+#: the raised message can still say "(and N more)" accurately.
+_MAX_STORED_MISMATCHES_PER_KEY = 5
 
 
 def _flanks_apply_at(row, sequence, offset, length) -> bool:
@@ -1412,12 +1473,23 @@ def _flanks_apply_at(row, sequence, offset, length) -> bool:
     cached_c = _flank_key(row.get("c_flank"))
     if not cached_n and not cached_c:
         return True
-    upstream = str(sequence[:offset]).upper()
-    downstream = str(sequence[offset + length:]).upper()
-    if cached_n and not upstream.endswith(cached_n):
-        return False
-    if cached_c and not downstream.startswith(cached_c):
-        return False
+    # Bounded to the cached flank's own length: only that many residues
+    # can ever match it, so slicing and upper-casing the rest of the
+    # sequence -- unbounded in offset for n_flank, in remaining sequence
+    # length for c_flank -- would be pure waste on every (row,
+    # occurrence) pair a large protein scan checks. A slice shorter than
+    # the flank (near a sequence edge) still fails endswith/startswith
+    # correctly, matching the documented "longer than available" case.
+    if cached_n:
+        upstream = str(sequence[max(0, offset - len(cached_n)):offset]).upper()
+        if not upstream.endswith(cached_n):
+            return False
+    if cached_c:
+        downstream = str(
+            sequence[offset + length:offset + length + len(cached_c)]
+        ).upper()
+        if not downstream.startswith(cached_c):
+            return False
     return True
 
 
@@ -1441,14 +1513,16 @@ def _coverage_key(row, name, offset):
     answer" rule).
     """
     allele_set = row.get("allele_set")
-    allele_set = str(allele_set).strip() if is_stated(allele_set) else ""
+    allele_set = _allele_set_key(allele_set)
     return (
         row["peptide"], row["allele"], row["kind"], allele_set,
         name, offset,
     )
 
 
-def _raise_on_uncovered_occurrences(expanded, unmatched_context) -> None:
+def _raise_on_uncovered_occurrences(
+    expanded, unmatched_context, unmatched_counts,
+) -> None:
     """Fail loudly when flank mismatch left a kind with no row.
 
     A peptide whose only cached rows were predicted in a different
@@ -1473,6 +1547,13 @@ def _raise_on_uncovered_occurrences(expanded, unmatched_context) -> None:
     A kind the cache simply does not hold for a peptide is not this
     situation and stays quiet: only rows that were found and then
     excluded are recorded here.
+
+    *unmatched_counts* is consulted rather than ``len(unmatched_context
+    [key])`` because the latter is capped at
+    :data:`_MAX_STORED_MISMATCHES_PER_KEY`: a cache can hold more
+    distinct mismatched flanking contexts for one key than are worth
+    storing to preview, but the message should still say truthfully how
+    many exist rather than silently under-reporting once the cap is hit.
     """
     if not unmatched_context:
         return
@@ -1489,18 +1570,35 @@ def _raise_on_uncovered_occurrences(expanded, unmatched_context) -> None:
     if not uncovered:
         return
     peptide, allele, kind, allele_set, name, offset = uncovered[0]
-    stored = unmatched_context[uncovered[0]][0]
-    extra = _more_suffix(len(uncovered), 1)
+    # The cache's own uniqueness invariant keys on flanks alongside
+    # (peptide, allele, kind, allele_set), so every stored row under one
+    # coverage key is a genuinely distinct flanking context -- none of
+    # these can be the same pair twice.
+    stored_rows = unmatched_context[uncovered[0]]
+    contexts = [
+        f"n_flank={_flank_key(row.get('n_flank'))!r}, "
+        f"c_flank={_flank_key(row.get('c_flank'))!r}"
+        for row in stored_rows
+    ]
+    contexts_extra = _more_suffix(
+        unmatched_counts[uncovered[0]], len(contexts),
+    )
+    if len(contexts) == 1:
+        context_clause = f"a different flanking context ({contexts[0]})"
+    else:
+        joined = "; ".join(contexts)
+        context_clause = (
+            f"different flanking contexts ({joined}){contexts_extra}"
+        )
+    occurrences_extra = _more_suffix(len(uncovered), 1)
     genotype_clause = f" (genotype {allele_set!r})" if allele_set else ""
-    raise KeyError(
+    raise CachedPredictorCoverageError(
         f"CachedPredictor: {peptide!r} occurs in {name!r} at offset "
         f"{offset}, but the only cached {kind!r} prediction(s) for it and "
-        f"allele {allele!r}{genotype_clause} were made in a different "
-        f"flanking context "
-        f"(n_flank={_flank_key(stored.get('n_flank'))!r}, "
-        f"c_flank={_flank_key(stored.get('c_flank'))!r}), so their scores "
-        f"are not predictions about this occurrence{extra}.  Re-predict "
-        f"these sequences, or use a cache built without flank context."
+        f"allele {allele!r}{genotype_clause} were made in {context_clause}, "
+        f"so their scores are not predictions about this "
+        f"occurrence{occurrences_extra}.  Re-predict these sequences, or "
+        f"use a cache built without flank context."
     )
 
 

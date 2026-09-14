@@ -2,6 +2,7 @@ import pathlib
 
 import pytest
 
+import topiary.cli.script as cli_script
 from topiary.cli.script import main
 
 _FIXTURE_DIR = pathlib.Path(__file__).parent / "data" / "netmhc_fixtures"
@@ -78,3 +79,20 @@ def test_main_reports_cached_predictor_miss_as_a_clean_cli_error(
     assert "\"'CachedPredictor" not in captured.err
     assert "Traceback" not in captured.err
     assert "Namespace(" not in captured.out
+
+
+def test_main_does_not_mask_an_unrelated_keyerror(monkeypatch):
+    """The CLI catches CachedPredictorCoverageError specifically, not
+    bare KeyError, so a genuine programming bug elsewhere in the same
+    call graph -- an ordinary dict lookup that happens to raise
+    KeyError -- still surfaces as a real exception instead of being
+    silently reported as a clean, traceback-free CLI error alongside
+    CachedPredictor's two intentional coverage-gap failures."""
+
+    def _boom(args):
+        raise KeyError("ENSG00000141510")
+
+    monkeypatch.setattr(cli_script, "predict_epitopes_from_args", _boom)
+
+    with pytest.raises(KeyError, match="ENSG00000141510"):
+        main(["--peptide-csv", "unused.csv"])
