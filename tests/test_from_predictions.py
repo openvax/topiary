@@ -8,7 +8,7 @@ migrate: a column added here silently never reaches it (topiary #194).
 
 import pandas as pd
 import pytest
-from mhctools.pred import Prediction
+from mhctools.pred import MeasurementContext, Prediction, value_unit
 
 from topiary import from_predictions
 from topiary.ranking import EvalContext, evaluate_scores, parse
@@ -16,10 +16,25 @@ from topiary.ranking import EvalContext, evaluate_scores, parse
 
 def _prediction(kind="pMHC_affinity", allele="HLA-A*02:01", value=50.0,
                 score=0.9, percentile_rank=0.5, peptide="SIINFEKLA", offset=3):
+    # mhctools requires a unit alongside a set `value`, and a linear
+    # transform with it (3.44.13): a bare number is not a measurement.
+    # value_unit is asked rather than hardcoded so this keeps describing
+    # whatever kind the caller passed -- and a kind with no registered
+    # unit carries no `value` at all, which is mhctools' own rule
+    # (presentation and the other score-only kinds fill `score`).
+    unit = value_unit(kind)
+    if unit is None:
+        value = None
+    context = None
+    if value is not None:
+        context = MeasurementContext(
+            estimate_type="ml_predicted", unit=unit, transform="linear",
+        )
     return Prediction(
         kind=kind, peptide=peptide, allele=allele, value=value, score=score,
         percentile_rank=percentile_rank, predictor_name="mhcflurry",
         predictor_version="2.1.1", source_sequence_name="prot1", offset=offset,
+        measurement_context=context,
     )
 
 

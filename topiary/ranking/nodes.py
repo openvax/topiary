@@ -2390,6 +2390,10 @@ KIND_MHC_DEPENDENCE = MappingProxyType({
     "serum_half_life": "none",
     "blood_half_life": "none",
     "plasma_half_life": "none",
+    # Half-life of the free peptide without a stated assay matrix, which
+    # the matrix-specific three above do state. Still a property of the
+    # peptide alone, so still peptide-level.
+    "peptide_half_life": "none",
     # Pharmacokinetics of the free peptide: an in-vivo elimination
     # half-life, the clearance/volume/exposure trio whose units live in
     # mhctools' MeasurementContext rather than a fixed unit table, and
