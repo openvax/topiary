@@ -567,6 +567,18 @@ def _has_prediction_input(args):
 
 
 def _validate_required_prediction_args(args):
+    if cached_predictor_in_use(args) and getattr(args, "mhc_predictor", None):
+        # The Cached Predictions group already documents these as
+        # mutually exclusive ("the cache supplies predictions"), but
+        # passing both ran the cache and ignored --mhc-predictor without
+        # a word -- so a command naming mhcflurry got NetMHCpan rows from
+        # the file (#321). Say so instead of picking one silently.
+        raise ValueError(
+            "--mhc-predictor and --mhc-cache-file / --mhc-cache-directory "
+            "are mutually exclusive: a cache supplies predictions instead "
+            "of running a predictor. Drop --mhc-predictor to score from "
+            "the cache, or drop the cache flags to run the predictor."
+        )
     missing = []
     if not cached_predictor_in_use(args) and not getattr(args, "mhc_predictor", None):
         missing.append(MHC_SOURCE_ERROR)

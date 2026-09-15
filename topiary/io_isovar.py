@@ -375,7 +375,7 @@ def fragments_from_variants(
 
     Notes
     -----
-    Requires Isovar >=1.8.0 only when *alignment_file* is given. Explicit
+    Requires Isovar >=1.11.0 only when *alignment_file* is given. Explicit
     RNA-only options are rejected without an alignment file. RNA fragments
     record the Isovar version, creator class and available creator settings
     as ``isovar_*`` annotations, preserved by fragment IO and prediction.

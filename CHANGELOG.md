@@ -1,5 +1,59 @@
 # Changelog
 
+## 5.58.0
+
+**Isovar floor raised to 1.11.0, and an osteosarc expectation corrected
+(#327).** The H1-2 deletion in the short-read sample was expected to assemble
+no protein fragment. Isovar 1.11.0 assembles one, and it is right to: the
+curated dataset records that variant as a real in-frame deletion
+(`p.Ala197_Lys201del`), isovar now reports exactly those five residues
+(`p.AAKPK196del`) with three supporting reads and two supporting fragments —
+its own documented minimums — zero mismatches flanking the variant, and every
+supporting read backing the assembled sequence. The fixture's stricter
+sequence, edit-interval and transcript assertions, which the old `None`
+expectation skipped entirely, now run and pass.
+
+So the old expectation encoded a limitation rather than the absence of an
+edit. The behavior changed exactly at 1.11.0 (1.10.2 still assembles nothing,
+checked release by release), so `topiary[isovar]` now requires it and the CI
+matrix pins that floor instead of 1.8.0. Isovar is an optional extra, so this
+raises nothing for installs that do not opt into the RNA path.
+
+
+**Cache mode answers the genotype you asked for, or refuses (#321).** In cache
+mode the CLI never passed `--mhc-alleles` / `--mhc-alleles-file` to
+`CachedPredictor`, so the cache decided the genotype by itself. Asking for
+`HLA-A*02:01` against a cache holding only `HLA-B*07:02` returned B\*07:02
+rows, exit 0, no warning — and for the use this mode exists for, re-scoring a
+cohort per patient genotype from one shared prediction table, that answered
+every patient with whatever the table happened to hold.
+
+An allele the cache cannot cover is now refused with a message naming what was
+asked and what the cache holds, the same way a missed peptide behaves. A
+covered subset is filtered to what was requested, so an unrequested allele
+never comes back. Rows with no allele are always kept: an allele-free kind is
+not a prediction about any allele, so filtering it out alongside the
+unrequested ones would delete evidence the request never excluded. Requested
+alleles are parsed with mhctools' own `mhc_alleles_from_args`, so a spelling
+normalizes here exactly as it does on the live-predictor path.
+
+`--mhc-peptide-lengths` was silently ignored the same way — a cache of 8- and
+9-mers answered a request for 20-mers with its 8- and 9-mers. It now refuses,
+naming the lengths the cache holds.
+
+`--mhc-predictor` alongside a cache flag also ran the cache and ignored the
+predictor, so a command naming mhcflurry got NetMHCpan rows from the file. The
+Cached Predictions group already documented these as mutually exclusive; that
+is now enforced.
+
+**Kept up with mhctools.** 3.44.13 added a `peptide_half_life` kind, now
+classified peptide-level alongside the matrix-specific half-lives, and began
+requiring a unit and a linear transform alongside any set `value`. A test
+factory was building `Prediction`s with a bare `value` and no unit, and
+setting one on a score-only kind; it now asks `value_unit` what the kind
+takes and leaves `value` unset for kinds that have no unit, which is
+mhctools' own rule.
+
 ## 5.57.0
 
 **Declared dependencies now match what the code imports (#315).** `mhcnames`

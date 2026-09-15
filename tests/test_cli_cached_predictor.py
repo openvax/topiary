@@ -401,3 +401,161 @@ class TestCachedPredictorCliAutoSniff:
                 "--peptide-csv", pep_csv,
                 "--mhc-cache-file", str(tsv_path),
             ])
+
+
+# ---------------------------------------------------------------------------
+# #321 — the cache must answer the genotype and lengths that were asked for
+# ---------------------------------------------------------------------------
+
+
+def _topiary_cache_csv(path, rows):
+    """A topiary_output-format cache file built from row dicts."""
+    import pandas as pd
+
+    pd.DataFrame(rows).to_csv(path, index=False)
+    return str(path)
+
+
+def _cache_row(peptide, allele, kind="pMHC_affinity", **extra):
+    row = {
+        "peptide": peptide, "allele": allele, "peptide_length": len(peptide),
+        "kind": kind, "score": 0.5, "affinity": 100.0,
+        "percentile_rank": 2.0, "value": 100.0,
+        "prediction_method_name": "netmhcpan", "predictor_version": "4.2",
+    }
+    row.update(extra)
+    return row
+
+
+class TestCacheHonorsTheRequest:
+    """A cache used to decide the genotype by itself.
+
+    Asking for one allele against a cache holding another returned the
+    cached allele's rows, exit 0, no warning -- which for this mode's
+    reason to exist (re-scoring a cohort per patient genotype from one
+    shared table) answered every patient with whatever the table held.
+    """
+
+    def _peptides(self, tmp_path):
+        return _write_peptide_csv(tmp_path / "pep.csv", "SIINFEKL")
+
+    def test_uncovered_allele_is_refused_not_answered_with_another(
+        self, tmp_path,
+    ):
+        cache = _topiary_cache_csv(
+            tmp_path / "b.csv", [_cache_row("SIINFEKL", "HLA-B*07:02")],
+        )
+        with pytest.raises(ValueError, match="no predictions for"):
+            _run([
+                "--peptide-csv", self._peptides(tmp_path),
+                "--mhc-cache-file", cache,
+                "--mhc-cache-format", "topiary_output",
+                "--mhc-alleles", "HLA-A*02:01",
+            ])
+
+    def test_the_error_names_what_was_asked_and_what_is_covered(
+        self, tmp_path,
+    ):
+        cache = _topiary_cache_csv(
+            tmp_path / "b.csv", [_cache_row("SIINFEKL", "HLA-B*07:02")],
+        )
+        with pytest.raises(ValueError) as excinfo:
+            _run([
+                "--peptide-csv", self._peptides(tmp_path),
+                "--mhc-cache-file", cache,
+                "--mhc-cache-format", "topiary_output",
+                "--mhc-alleles", "HLA-A*02:01",
+            ])
+
+        message = str(excinfo.value)
+        assert "HLA-A*02:01" in message
+        assert "HLA-B*07:02" in message
+
+    def test_a_covered_allele_still_runs(self, tmp_path):
+        cache = _topiary_cache_csv(
+            tmp_path / "b.csv", [_cache_row("SIINFEKL", "HLA-B*07:02")],
+        )
+        df = _run([
+            "--peptide-csv", self._peptides(tmp_path),
+            "--mhc-cache-file", cache,
+            "--mhc-cache-format", "topiary_output",
+            "--mhc-alleles", "HLA-B*07:02",
+        ])
+
+        assert set(df["allele"]) == {"HLA-B*07:02"}
+
+    def test_an_unrequested_allele_does_not_come_back(self, tmp_path):
+        cache = _topiary_cache_csv(tmp_path / "ab.csv", [
+            _cache_row("SIINFEKL", "HLA-A*02:01"),
+            _cache_row("SIINFEKL", "HLA-B*07:02"),
+        ])
+        df = _run([
+            "--peptide-csv", self._peptides(tmp_path),
+            "--mhc-cache-file", cache,
+            "--mhc-cache-format", "topiary_output",
+            "--mhc-alleles", "HLA-A*02:01",
+        ])
+
+        assert set(df["allele"]) == {"HLA-A*02:01"}
+
+    def test_allele_free_evidence_survives_the_filter(self, tmp_path):
+        """An allele-free kind is not a prediction about any allele, so
+        filtering out the unrequested alleles must not delete it."""
+        cache = _topiary_cache_csv(tmp_path / "ab.csv", [
+            _cache_row("SIINFEKL", "HLA-A*02:01"),
+            _cache_row("SIINFEKL", "HLA-B*07:02"),
+            _cache_row("SIINFEKL", "", kind="antigen_processing"),
+        ])
+        df = _run([
+            "--peptide-csv", self._peptides(tmp_path),
+            "--mhc-cache-file", cache,
+            "--mhc-cache-format", "topiary_output",
+            "--mhc-alleles", "HLA-A*02:01",
+        ])
+
+        assert "antigen_processing" in set(df["kind"])
+        assert "HLA-B*07:02" not in set(df["allele"].fillna(""))
+
+    def test_naming_no_allele_leaves_the_cache_alone(self, tmp_path):
+        """Nothing was asked for, so nothing is withheld."""
+        cache = _topiary_cache_csv(tmp_path / "ab.csv", [
+            _cache_row("SIINFEKL", "HLA-A*02:01"),
+            _cache_row("SIINFEKL", "HLA-B*07:02"),
+        ])
+        df = _run([
+            "--peptide-csv", self._peptides(tmp_path),
+            "--mhc-cache-file", cache,
+            "--mhc-cache-format", "topiary_output",
+        ])
+
+        assert set(df["allele"]) == {"HLA-A*02:01", "HLA-B*07:02"}
+
+    def test_requested_peptide_length_the_cache_lacks_is_refused(
+        self, tmp_path,
+    ):
+        cache = _topiary_cache_csv(
+            tmp_path / "b.csv", [_cache_row("SIINFEKL", "HLA-B*07:02")],
+        )
+        with pytest.raises(ValueError, match="mhc-peptide-lengths"):
+            _run([
+                "--peptide-csv", self._peptides(tmp_path),
+                "--mhc-cache-file", cache,
+                "--mhc-cache-format", "topiary_output",
+                "--mhc-alleles", "HLA-B*07:02",
+                "--mhc-peptide-lengths", "20",
+            ])
+
+    def test_predictor_alongside_a_cache_is_refused(self, tmp_path):
+        """The Cached Predictions group already calls these mutually
+        exclusive; passing both ran the cache and ignored the predictor."""
+        cache = _topiary_cache_csv(
+            tmp_path / "b.csv", [_cache_row("SIINFEKL", "HLA-B*07:02")],
+        )
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            _run([
+                "--peptide-csv", self._peptides(tmp_path),
+                "--mhc-cache-file", cache,
+                "--mhc-cache-format", "topiary_output",
+                "--mhc-alleles", "HLA-B*07:02",
+                "--mhc-predictor", "mhcflurry",
+            ])

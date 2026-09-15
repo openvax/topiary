@@ -22,7 +22,11 @@ pre-computed prediction files without invoking a live MHC predictor:
 Supported formats mirror :class:`CachedPredictor`'s ``from_*`` loaders.
 """
 
+from mhctools.cli import mhc_alleles_from_args
+from mhctools.allele_normalization import normalize_allele_name_or_raw
+
 from ..cached import CachedPredictor
+from ..ranking import is_stated, stated_values
 
 
 _CACHE_FORMATS = (
@@ -168,8 +172,101 @@ def cached_predictor_from_args(args) -> CachedPredictor:
 
     Assumes :func:`cached_predictor_in_use` returned True.  Raises
     ``ValueError`` with an actionable message on any missing required
-    flag for the chosen format.
+    flag for the chosen format, or when the cache cannot answer for the
+    genotype or peptide lengths the command asked for.
     """
+    cache = _build_cached_predictor(args)
+    _require_requested_peptide_lengths(cache, args)
+    return _restrict_to_requested_alleles(cache, args)
+
+
+def _requested_alleles(args):
+    """The alleles the command asked for, or ``[]`` if it named none.
+
+    Parsed by mhctools' own ``mhc_alleles_from_args`` so a spelling
+    normalizes here exactly as it does on the live-predictor path -- a
+    second copy of that rule would let ``HLA-A*02:01`` match a cache on
+    one path and miss it on the other.
+    """
+    if not getattr(args, "mhc_alleles", "") and not getattr(
+        args, "mhc_alleles_file", None
+    ):
+        return []
+    return list(mhc_alleles_from_args(args))
+
+
+def _require_requested_peptide_lengths(cache, args):
+    """Refuse a run whose requested lengths the cache cannot answer for.
+
+    ``--mhc-peptide-lengths`` is a request on the live path and was
+    silently ignored here: a cache of 8- and 9-mers answered a request
+    for 20-mers with its 8- and 9-mers, exit 0 (#321). The cache's
+    coverage is a fact about the file, so the honest response is to say
+    the request cannot be met rather than to quietly answer a different
+    one.
+    """
+    requested = getattr(args, "mhc_peptide_lengths", None)
+    if not requested:
+        return
+    available = set(cache.default_peptide_lengths or ())
+    missing = sorted(set(requested) - available)
+    if missing:
+        raise ValueError(
+            f"--mhc-peptide-lengths asked for {missing}, which this cache "
+            f"does not contain; it holds {sorted(available)}. A cache can "
+            f"only answer for the lengths it was built with -- re-predict "
+            f"at the lengths you need, or drop the flag to use what the "
+            f"cache holds."
+        )
+
+
+def _restrict_to_requested_alleles(cache, args):
+    """Hold the cache to the genotype the command asked for.
+
+    The cache used to decide the genotype by itself: asking for
+    ``HLA-A*02:01`` against a cache holding only ``HLA-B*07:02`` returned
+    B*07:02 rows, exit 0, no warning (#321). For the use this mode exists
+    for -- re-scoring a cohort per patient from one shared table -- that
+    silently answers every patient with whatever the table happens to
+    hold.
+
+    An uncovered allele is refused rather than dropped, matching how a
+    missed peptide behaves. A covered subset is filtered to what was
+    asked for, so an unrequested allele never comes back.
+
+    Rows with no allele are always kept: an allele-free kind
+    (antigen_processing, the half-lives) is not a prediction about any
+    allele, so filtering it out with the unrequested ones would delete
+    evidence the request never excluded.
+    """
+    requested = _requested_alleles(args)
+    if not requested:
+        return cache
+
+    available = {str(a): normalize_allele_name_or_raw(str(a))
+                 for a in cache.alleles if is_stated(a)}
+    wanted = set(requested)
+    covered_raw = {raw for raw, norm in available.items() if norm in wanted}
+    missing = sorted(wanted - {available[raw] for raw in covered_raw})
+    if missing:
+        raise ValueError(
+            f"This cache has no predictions for {missing}; it covers "
+            f"{sorted(set(available.values()))}. Re-predict for the "
+            f"requested allele(s), or ask only for alleles the cache "
+            f"holds -- answering with the alleles it happens to contain "
+            f"would report predictions the command did not request."
+        )
+
+    frame = cache.to_dataframe()
+    keep = frame["allele"].isin(covered_raw) | ~stated_values(frame["allele"])
+    if bool(keep.all()):
+        return cache
+    return CachedPredictor(frame[keep], fallback=cache.fallback)
+
+
+def _build_cached_predictor(args) -> CachedPredictor:
+    """Load the cache named by the CLI args, without applying the
+    request-coverage checks :func:`cached_predictor_from_args` adds."""
     cache_dir = getattr(args, "mhc_cache_directory", None)
     cache_file = getattr(args, "mhc_cache_file", None)
 
