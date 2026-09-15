@@ -67,9 +67,6 @@ from .ranking import EvalContext, is_stated, stated_values
 #: it never fixed.
 RNA_ALIGNMENT = "rna_alignment"
 
-#: Deprecated alias for :data:`RNA_ALIGNMENT`.
-RNA_READS = RNA_ALIGNMENT
-
 #: depth x VAF, rounded — arithmetic, not counted.
 RNA_DEPTH_X_VAF = "rna_depth_x_vaf"
 
@@ -520,7 +517,7 @@ def attach_rna_evidence(
     supporting : pandas.Series, optional
         Reads supporting the assembled protein sequence.
     supporting_method : str, optional
-        Which derivation *supporting* is — :data:`RNA_READS` when it
+        Which derivation *supporting* is — :data:`RNA_ALIGNMENT` when it
         counts reads carrying the variant, :data:`CDS_OVERLAP_READS`
         when it counts reads overlapping the peptide's CDS instead.
     expression : pandas.Series, optional

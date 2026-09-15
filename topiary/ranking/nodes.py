@@ -414,7 +414,7 @@ class _PeptideAlleleLookup:
             # one" — where an empty frame-wide sequence is a mistake, so
             # it must not go through the frame-level check.
             return ()
-        return _normalize_alleles(declared) or ()
+        return _validate_declared_alleles(declared) or ()
 
     def check_all_used(self):
         """Raise if a mapping entry named a peptide the frame lacks."""
@@ -433,11 +433,23 @@ class _PeptideAlleleLookup:
             )
 
 
-def _normalize_alleles(alleles):
+def _validate_declared_alleles(alleles):
     """Validate a declared allele set and return it as a list (or None).
 
     A mapping or callable is per-peptide and is kept as-is; only the
     flat "same set for every peptide" form is materialized here.
+
+    Checks the declaration's *shape*, and rejects a blank name, but
+    never rewrites one: the names come back exactly as the caller
+    spelled them.  It is deliberately not the allele-name
+    canonicalization that :mod:`topiary.io_pvacseq` and
+    :mod:`topiary.io_lens` do through mhcgnomes — those normalize a
+    reader's alleles while the frame is being built, whereas these are
+    matched against whatever spelling the frame already carries, so
+    canonicalizing one side alone would stop equal alleles comparing
+    equal.  Named apart from that pair, which share the name
+    ``_normalize_alleles``, because this one was called that too and the
+    collision invited the opposite conclusion.
     """
     if alleles is None:
         return None
@@ -589,7 +601,7 @@ def describe_default_versions(df):
     )
     for (kind_value, method), group in grouped:
         known = group["predictor_version"][
-            _known_versions(group["predictor_version"])
+            known_versions(group["predictor_version"])
         ]
         versions = {str(v).strip() for v in known.unique()}
         if len(versions) < 2:
@@ -618,9 +630,6 @@ def describe_default_versions(df):
 NULL_TEXT = frozenset({"nan", "none", "<na>", "nat", "null"})
 
 NOT_STATED = NULL_TEXT | {""}
-
-#: Deprecated alias for :data:`NOT_STATED`. Versions were never special.
-NOT_STATED_VERSIONS = NOT_STATED
 
 _CONTAINER_TYPES = (pd.Series, pd.Index, np.ndarray, list, tuple, set)
 
@@ -733,11 +742,6 @@ def known_versions(values) -> pd.Series:
     return stated_values(values)
 
 
-def _known_versions(values) -> pd.Series:
-    """Deprecated internal alias for :func:`known_versions`."""
-    return stated_values(values)
-
-
 def _version_sort_key(version):
     """PEP 440 order where possible, deterministic where not.
 
@@ -829,7 +833,7 @@ def validate_default_versions(df, default_versions):
             continue
         available = sorted({
             str(v).strip() for v in rows["predictor_version"][
-                _known_versions(rows["predictor_version"])
+                known_versions(rows["predictor_version"])
             ].unique()
         })
         if version not in available:
@@ -1029,7 +1033,7 @@ class EvalContext:
         # :class:`BestAlleleField`) can warn or branch on it. Shape:
         # ``{model_key: {kind_value: {"mhc_dependence", "mhc_class"}}}``.
         self.kind_support = kind_support
-        self.alleles = _normalize_alleles(alleles)
+        self.alleles = _validate_declared_alleles(alleles)
         self._group_index = None
         self._key_frame = None
         self._group_tuples_cache = None
@@ -1847,7 +1851,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
             # be addressed as "nan" — the same conflation the ambiguity
             # check and resolve_default_versions were fixed for, and the
             # two must not disagree about it.
-            named = _known_versions(sub[col])
+            named = known_versions(sub[col])
             version_mask = named & (
                 sub[col].astype(str).str.strip() == str(version).strip()
             )
@@ -1921,7 +1925,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
             candidate = next(iter(wanted))
             versions = sub["predictor_version"]
             matched = sub[
-                _known_versions(versions)
+                known_versions(versions)
                 & (versions.astype(str).str.strip() == candidate)
             ]
             if not matched.empty:
@@ -1938,7 +1942,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
         # neither is one version plus rows that record none — otherwise
         # every reader that leaves predictor_version empty would start
         # raising, with nothing the caller could pass to resolve it.
-        named = sub[_known_versions(sub["predictor_version"])]
+        named = sub[known_versions(sub["predictor_version"])]
         pairs = named[
             ["prediction_method_name", "predictor_version"]
         ].astype(str)

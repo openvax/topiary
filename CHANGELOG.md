@@ -1,5 +1,58 @@
 # Changelog
 
+## 5.57.0
+
+**Declared dependencies now match what the code imports (#315).** `mhcnames`
+was a hard dependency with no importer since 2018, when `lazy_ligandome_dict`
+was deleted; allele parsing uses `mhcgnomes`. It is dropped. `mhcgnomes` and
+`pyensembl` were both imported directly while arriving only through mhctools
+and varcode. Both are declared now, with floors matching what mhctools already
+guarantees, so resolution is unchanged; the `pyensembl<3.0.0` cap matches
+mhctools and vaxrank, since leaving it open here could resolve a 3.x that
+breaks them.
+
+Two ad hoc `ImportError` guards are gone with them, for `gtfparse` in
+`topiary/rna/expression_loader.py` and `pyensembl` in
+`topiary/self_proteome.py`. Not because they were unreachable — `import
+topiary` pulls in neither `topiary.rna` nor `topiary.sources`, so both
+could fire — but because a declared dependency that is missing is a broken
+install rather than a supported configuration, and `ModuleNotFoundError`
+already says so precisely. Genuinely optional integrations still go through
+`require_optional_dependency`, which names the extra to install.
+
+**GTF expression files load again.** `gtfparse` 2.x returns polars by default
+and `expression_loader._load_gtf` treats the result as pandas, so every GTF
+read through `load_expression` or the CLI's `--transcript-expression` raised
+`expected 17 values when selecting columns by boolean mask` from polars. This
+predates the dependency work above; it stayed hidden because `topiary.rna.gtf`
+reads GTFs by a second path that does handle polars, and only that path had a
+test. `_load_gtf` now asks for pandas explicitly, the untested path has a
+regression test, and the `gtfparse` floor moves to 2.7 — the release the
+`result_type` keyword arrives in, and the floor pyensembl already pins.
+
+**Dead surface removed (#314).** `_dsl_filter_to_string` and
+`CachedPredictor._row_key` had no callers. A `cache_kinds` local in
+`predict_peptides_dataframe` was computed and never read; removing it orphaned
+`_cache_kinds`, which is now the one definition of "which kinds does this cache
+hold" — `kind_support` was recomputing the same set inline.
+
+The version predicate had three names for one rule. `_known_versions`,
+documented as a deprecated internal alias, was what internal code actually
+called, while the public `known_versions` had no internal users. The five call
+sites now use `known_versions`, which is what they mean (every one reads a
+`predictor_version` column), and the private alias is gone.
+
+`NOT_STATED_VERSIONS` and `RNA_READS`, both deprecated aliases exported in
+`__all__`, are removed. Neither has a consumer in topiary, vaxrank, isovar,
+pirlygenes or tsarina; the only uses were tests asserting the alias equals its
+target. An `attach_rna_evidence` docstring that still cited `RNA_READS` as the
+current name now points at `RNA_ALIGNMENT`. This is the minor bump.
+
+The CLI module docstring advertised five flags the parser does not define
+(`--rna-gene-fpkm-file`, `--rna-transcript-fpkm-file`, `--filter-ic50`,
+`--filter-percentile`, `--output`). The example now uses real flags, and its
+`--filter-by` expression parses — the first version written for this changelog
+did not, since the DSL spells conjunction `&` rather than `and`.
 ## 5.56.3
 
 **Eight pharmacokinetic kinds classified.** mhctools 3.44.10 added

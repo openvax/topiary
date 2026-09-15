@@ -14,7 +14,6 @@ import pytest
 
 from topiary import (
     NOT_STATED,
-    NOT_STATED_VERSIONS,
     NULL_TEXT,
     ProteinFragment,
     fragment_from_effect,
@@ -77,14 +76,14 @@ def test_the_naive_rule_a_consumer_would_write_disagrees():
 def test_the_scalar_and_vector_forms_agree():
     """One rule with two shapes, not two rules.
 
-    The spellings come from NOT_STATED_VERSIONS rather than a hand-written
+    The spellings come from NOT_STATED rather than a hand-written
     list, so adding a token to the rule cannot leave this test checking the
     old set.
     """
     values = (
         ["4.1b", " 4.2 ", "1", None, np.nan]
-        + sorted(NOT_STATED_VERSIONS)
-        + [t.upper() for t in sorted(NOT_STATED_VERSIONS) if t]
+        + sorted(NOT_STATED)
+        + [t.upper() for t in sorted(NOT_STATED) if t]
     )
     series = pd.Series(values, dtype=object)
 
@@ -95,7 +94,7 @@ def test_the_scalar_and_vector_forms_agree():
 
 def test_every_not_stated_token_is_unnamed():
     """The constant and the predicate cannot disagree about their own set."""
-    assert not any(is_named_version(token) for token in NOT_STATED_VERSIONS)
+    assert not any(is_named_version(token) for token in NOT_STATED)
 
 
 def test_a_container_is_refused_rather_than_answered():
@@ -294,10 +293,6 @@ def test_the_version_helpers_are_the_general_rule():
     ]
     series = pd.Series(values, dtype=object)
     assert known_versions(series).tolist() == stated_values(series).tolist()
-
-
-def test_the_deprecated_alias_still_points_at_the_rule():
-    assert NOT_STATED_VERSIONS is NOT_STATED
 
 
 def test_a_stringified_missing_allele_is_not_an_allele():
