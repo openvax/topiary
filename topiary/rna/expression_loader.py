@@ -137,13 +137,7 @@ def load_expression(filepath, id_col=None, val_cols=None):
 
 def _load_gtf(filepath, id_col=None, val_cols=None):
     """Load expression data from a StringTie GTF file."""
-    try:
-        import gtfparse
-    except ImportError:
-        raise ImportError(
-            "gtfparse is required to read GTF expression files. "
-            "Install with: pip install gtfparse"
-        )
+    import gtfparse
 
     df = gtfparse.read_gtf(filepath)
     # Filter to transcript features only

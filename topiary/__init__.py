@@ -35,7 +35,6 @@ from .ranking import (
     stated_values,
     NOT_STATED,
     NULL_TEXT,
-    NOT_STATED_VERSIONS,
     resolve_default_versions,
     validate_default_methods,
     validate_default_versions,
@@ -128,7 +127,6 @@ from .evidence import (
     RNA_DEPTH_X_SOURCE_VAF,
     RNA_DEPTH_X_VAF,
     RNA_ALIGNMENT,
-    RNA_READS,
     SEQUENCE_SOURCES,
     FRAGMENTS,
     READS,
@@ -174,7 +172,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.56.3"
+__version__ = "5.57.0"
 
 __all__ = [
     "normalize_python_types",
@@ -224,7 +222,6 @@ __all__ = [
     "stated_values",
     "NOT_STATED",
     "NULL_TEXT",
-    "NOT_STATED_VERSIONS",
     "resolve_default_versions",
     "validate_default_methods",
     "validate_default_versions",
@@ -301,7 +298,6 @@ __all__ = [
     "from_wide",
     "to_wide",
     "RNA_ALIGNMENT",
-    "RNA_READS",
     "RNA_DEPTH_X_SOURCE_VAF",
     "RNA_DEPTH_X_VAF",
     "CDS_OVERLAP_READS",

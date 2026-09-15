@@ -16,14 +16,13 @@ and (optionally) tumor RNA-seq data.
 
 Example usage:
     topiary \
-        --mhc-predictor netmhcpan
-        --mhc-alleles-file HLA.txt
-        --vcf somatic.vcf
-        --rna-gene-fpkm-file genes.fpkm_tracking
-        --rna-transcript-fpkm-file isoforms.fpkm_tracking
-        --filter-ic50 500
-        --filter-percentile 2
-        --output results.csv
+        --mhc-predictor netmhcpan \
+        --mhc-alleles-file HLA.txt \
+        --vcf somatic.vcf \
+        --gene-expression genes.fpkm_tracking \
+        --transcript-expression isoforms.fpkm_tracking \
+        --filter-by "(affinity.value <= 500) & (affinity.rank <= 2)" \
+        --output-csv results.csv
 """
 
 import sys
@@ -55,20 +54,15 @@ def main(args_list=None):
         OSError, ValueError, PredictorSetupError,
         CachedPredictorCoverageError,
     ) as e:
-        # Each of these names something the user can act on, so each
-        # gets a one-line message instead of a traceback: a missing or
-        # unreadable input file, a bad argument or malformed input,
-        # predictor setup still to finish, or a cache that cannot answer
-        # for a peptide or occurrence (#296, #302, #304).
+        # Each of these names something the caller can act on: a
+        # missing input file, a bad argument, predictor setup still to
+        # finish, or a cache that cannot answer for this peptide.
         #
-        # All four are narrow on purpose. Bare KeyError would swallow an
-        # unrelated dict-lookup bug; bare RuntimeError is worse, since
+        # All four are narrow deliberately. Bare KeyError would swallow
+        # an unrelated dict-lookup bug, and bare RuntimeError is worse:
         # NotImplementedError and RecursionError subclass it, so an
-        # abstract method left unimplemented would print as a clean user
+        # unimplemented abstract method would print as a clean user
         # error. Those must keep reaching the user as tracebacks.
-        #
-        # CachedPredictorCoverageError defines __str__, so its message
-        # arrives unquoted and this needs no per-type formatting.
         message = str(e) or type(e).__name__
         arg_parser.error(message)
     write_outputs(df, args)

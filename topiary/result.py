@@ -545,15 +545,6 @@ def _combine_filter_str(old, new):
     return f"({old}) & ({new})"
 
 
-def _dsl_filter_to_string(node):
-    """Convert a DSLNode into a parseable string via its to_expr_string."""
-    from .ranking import DSLNode
-
-    if isinstance(node, DSLNode):
-        return node.to_expr_string()
-    return repr(node)
-
-
 def _with_self(result, others):
     """Build a merge input list for instance methods."""
     if len(others) == 1 and isinstance(others[0], (list, tuple)):

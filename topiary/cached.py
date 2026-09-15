@@ -503,19 +503,6 @@ class CachedPredictor:
         return row["prediction_method_name"], row["predictor_version"]
 
     @staticmethod
-    def _row_key(row):
-        """Composite cache key for one normalized prediction row."""
-        return CachedPredictor._row_key_from_values(
-            row["peptide"],
-            row["allele"],
-            row["peptide_length"],
-            row["kind"],
-            row.get("n_flank"),
-            row.get("c_flank"),
-            row.get("allele_set"),
-        )
-
-    @staticmethod
     def _row_key_from_values(
         peptide,
         allele,
@@ -629,7 +616,7 @@ class CachedPredictor:
         use the legacy ``single_allele`` / class I default; exact model
         configuration cannot be reconstructed from kind names alone.
         """
-        cached_kinds = sorted({str(k) for k in self._df["kind"].unique().tolist()})
+        cached_kinds = self._cache_kinds()
         fallback_support = {}
         if self.fallback is not None and hasattr(self.fallback, "kind_support"):
             fallback_support = dict(self.fallback.kind_support())
@@ -670,10 +657,6 @@ class CachedPredictor:
                 set(query_alleles)
                 | set(getattr(self.fallback, "alleles", []))
             )
-
-        # The cache's kind set — typically one or two entries per
-        # predictor.  Multi-kind predictors produce the full set.
-        cache_kinds = self._cache_kinds()
 
         # Identify peptides with at least one missing (peptide, allele)
         # across any known kind.  Resolving at peptide granularity keeps
@@ -718,10 +701,15 @@ class CachedPredictor:
         return self._df.iloc[row_positions].to_dict("records")
 
     def _cache_kinds(self):
-        """Distinct kinds present in the cache."""
-        if len(self._df) == 0:
-            return []
-        return sorted(set(self._df["kind"].unique().tolist()))
+        """Distinct kinds present in the cache, sorted.
+
+        The one definition, so :meth:`kind_support` and anything else
+        asking "which kinds does this cache hold" cannot answer it
+        differently.  ``_normalize`` already casts the column to ``str``;
+        the coercion here is insurance for a frame that reached this
+        some other way.
+        """
+        return sorted({str(k) for k in self._df["kind"].unique().tolist()})
 
     # mhctools compat: some code paths probe for ``predict_dataframe``.
     predict_dataframe = predict_peptides_dataframe

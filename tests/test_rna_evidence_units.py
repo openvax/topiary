@@ -261,12 +261,6 @@ def test_an_alignment_derived_count_names_its_source_not_a_unit(
     assert isovar_fragment.rna_evidence_subject() == FRAGMENTS
 
 
-def test_the_old_method_name_still_resolves():
-    from topiary import RNA_ALIGNMENT, RNA_READS
-
-    assert RNA_READS == RNA_ALIGNMENT
-
-
 @pytest.mark.parametrize("reader,path,method", [
     (read_pvacseq, "tests/data/pvacseq/mhc_i_all_epitopes.tsv",
      "rna_depth_x_vaf"),

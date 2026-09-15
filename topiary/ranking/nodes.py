@@ -589,7 +589,7 @@ def describe_default_versions(df):
     )
     for (kind_value, method), group in grouped:
         known = group["predictor_version"][
-            _known_versions(group["predictor_version"])
+            known_versions(group["predictor_version"])
         ]
         versions = {str(v).strip() for v in known.unique()}
         if len(versions) < 2:
@@ -618,9 +618,6 @@ def describe_default_versions(df):
 NULL_TEXT = frozenset({"nan", "none", "<na>", "nat", "null"})
 
 NOT_STATED = NULL_TEXT | {""}
-
-#: Deprecated alias for :data:`NOT_STATED`. Versions were never special.
-NOT_STATED_VERSIONS = NOT_STATED
 
 _CONTAINER_TYPES = (pd.Series, pd.Index, np.ndarray, list, tuple, set)
 
@@ -733,11 +730,6 @@ def known_versions(values) -> pd.Series:
     return stated_values(values)
 
 
-def _known_versions(values) -> pd.Series:
-    """Deprecated internal alias for :func:`known_versions`."""
-    return stated_values(values)
-
-
 def _version_sort_key(version):
     """PEP 440 order where possible, deterministic where not.
 
@@ -829,7 +821,7 @@ def validate_default_versions(df, default_versions):
             continue
         available = sorted({
             str(v).strip() for v in rows["predictor_version"][
-                _known_versions(rows["predictor_version"])
+                known_versions(rows["predictor_version"])
             ].unique()
         })
         if version not in available:
@@ -1847,7 +1839,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
             # be addressed as "nan" — the same conflation the ambiguity
             # check and resolve_default_versions were fixed for, and the
             # two must not disagree about it.
-            named = _known_versions(sub[col])
+            named = known_versions(sub[col])
             version_mask = named & (
                 sub[col].astype(str).str.strip() == str(version).strip()
             )
@@ -1921,7 +1913,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
             candidate = next(iter(wanted))
             versions = sub["predictor_version"]
             matched = sub[
-                _known_versions(versions)
+                known_versions(versions)
                 & (versions.astype(str).str.strip() == candidate)
             ]
             if not matched.empty:
@@ -1938,7 +1930,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
         # neither is one version plus rows that record none — otherwise
         # every reader that leaves predictor_version empty would start
         # raising, with nothing the caller could pass to resolve it.
-        named = sub[_known_versions(sub["predictor_version"])]
+        named = sub[known_versions(sub["predictor_version"])]
         pairs = named[
             ["prediction_method_name", "predictor_version"]
         ].astype(str)

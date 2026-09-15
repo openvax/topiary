@@ -509,12 +509,7 @@ class SelfProteome:
           ``ValueError`` explaining that pirlygenes tissue data is
           human-only.
         """
-        try:
-            from pyensembl import EnsemblRelease
-        except ImportError as e:
-            raise ImportError(
-                "pyensembl is required for SelfProteome.from_ensembl"
-            ) from e
+        from pyensembl import EnsemblRelease
 
         genome = EnsemblRelease(release=release, species=species)
         include_label, gene_filter = _resolve_ensembl_scope(
