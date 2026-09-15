@@ -2,6 +2,24 @@
 
 ## 5.58.0
 
+**Isovar floor raised to 1.11.0, and an osteosarc expectation corrected
+(#327).** The H1-2 deletion in the short-read sample was expected to assemble
+no protein fragment. Isovar 1.11.0 assembles one, and it is right to: the
+curated dataset records that variant as a real in-frame deletion
+(`p.Ala197_Lys201del`), isovar now reports exactly those five residues
+(`p.AAKPK196del`) with three supporting reads and two supporting fragments —
+its own documented minimums — zero mismatches flanking the variant, and every
+supporting read backing the assembled sequence. The fixture's stricter
+sequence, edit-interval and transcript assertions, which the old `None`
+expectation skipped entirely, now run and pass.
+
+So the old expectation encoded a limitation rather than the absence of an
+edit. The behavior changed exactly at 1.11.0 (1.10.2 still assembles nothing,
+checked release by release), so `topiary[isovar]` now requires it and the CI
+matrix pins that floor instead of 1.8.0. Isovar is an optional extra, so this
+raises nothing for installs that do not opt into the RNA path.
+
+
 **Cache mode answers the genotype you asked for, or refuses (#321).** In cache
 mode the CLI never passed `--mhc-alleles` / `--mhc-alleles-file` to
 `CachedPredictor`, so the cache decided the genotype by itself. Asking for

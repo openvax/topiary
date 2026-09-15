@@ -1046,7 +1046,7 @@ def test_osteosarc_peptide_size_and_floor_match_the_explicit_creator(
 @pytest.mark.isovar
 @pytest.mark.parametrize("sample,gene,length", [
     ("bulk_star_t0", "EXOC4", 49), ("ont_t1", "EXOC4", 25),
-    ("bulk_star_t0", "H1-2", None), ("ont_t1", "H1-2", 30),
+    ("bulk_star_t0", "H1-2", 24), ("ont_t1", "H1-2", 30),
     ("bulk_star_t0", "GTF3C5", 49), ("ont_t1", "GTF3C5", 29),
     ("bulk_star_t0", "PIP5K1A", None), ("ont_t1", "PIP5K1A", 46),
     ("bulk_star_t0", "MAP2", None), ("ont_t1", "MAP2", None),
