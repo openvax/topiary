@@ -213,7 +213,7 @@ def support(fragment):
 `pip install 'topiary[isovar]'`; only `fragments_from_variants` with an
 `alignment_file` needs it.
 
-The extra requires Isovar 1.8.0 or newer for peptide-aware RNA context and
+The extra requires Isovar 1.11.0 or newer for peptide-aware RNA context and
 independent support controls. Upgrade with
 `pip install --upgrade 'topiary[isovar]'`.
 
