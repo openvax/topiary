@@ -147,7 +147,7 @@ def write_outputs(
         df.to_csv(destination, index=True, index_label="#", sep=args.output_csv_sep)
 
     if not args.output_csv and not args.output_html and len(df):
-        print(df.loc[:, preview_columns].head(_PREVIEW_ROWS).to_string(index=False))
+        print(df.head(_PREVIEW_ROWS).loc[:, preview_columns].to_string(index=False))
         if len(df) > _PREVIEW_ROWS:
             print(
                 f"Showing {_PREVIEW_ROWS} of {len(df)} prediction rows "
