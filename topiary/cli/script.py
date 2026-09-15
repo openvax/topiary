@@ -10,7 +10,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
+r"""
 Script to generate epitope predictions from somatic cancer variants
 and (optionally) tumor RNA-seq data.
 
@@ -21,7 +21,8 @@ Example usage:
         --vcf somatic.vcf \
         --gene-expression genes.fpkm_tracking \
         --transcript-expression isoforms.fpkm_tracking \
-        --filter-by "(affinity.value <= 500) & (affinity.rank <= 2)" \
+        --ic50-cutoff 500 \
+        --percentile-cutoff 2 \
         --output-csv results.csv
 """
 
@@ -63,6 +64,11 @@ def main(args_list=None):
         # NotImplementedError and RecursionError subclass it, so an
         # unimplemented abstract method would print as a clean user
         # error. Those must keep reaching the user as tracebacks.
+        #
+        # str(e) suits all four: CachedPredictorCoverageError defines
+        # __str__, so its message arrives without KeyError's repr
+        # quoting and no per-type formatting is needed here. Removing
+        # that __str__ would bring the quoting back (#296, #302, #304).
         message = str(e) or type(e).__name__
         arg_parser.error(message)
     write_outputs(df, args)

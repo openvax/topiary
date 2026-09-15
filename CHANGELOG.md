@@ -5,18 +5,30 @@
 **Declared dependencies now match what the code imports (#315).** `mhcnames`
 was a hard dependency with no importer since 2018, when `lazy_ligandome_dict`
 was deleted; allele parsing uses `mhcgnomes`. It is dropped. `mhcgnomes` and
-`pyensembl` were both imported directly — `pyensembl` at module scope in
-`topiary/sources.py`, so it was never optional — while arriving only through
-mhctools and varcode. Both are declared now, with floors matching what mhctools
-already guarantees, so resolution is unchanged; the `pyensembl<3.0.0` cap
-matches mhctools and vaxrank, since leaving it open here could resolve a 3.x
-that breaks them.
+`pyensembl` were both imported directly while arriving only through mhctools
+and varcode. Both are declared now, with floors matching what mhctools already
+guarantees, so resolution is unchanged; the `pyensembl<3.0.0` cap matches
+mhctools and vaxrank, since leaving it open here could resolve a 3.x that
+breaks them.
 
-Two unreachable `ImportError` guards are gone with it. `gtfparse` is a declared
-dependency imported unconditionally in `topiary/rna/gtf.py`, and `pyensembl` in
-`topiary/sources.py`, so neither guard's advice could ever print. Genuinely
-optional integrations still go through `require_optional_dependency`, which
-names the right extra to install.
+Two ad hoc `ImportError` guards are gone with them, for `gtfparse` in
+`topiary/rna/expression_loader.py` and `pyensembl` in
+`topiary/self_proteome.py`. Not because they were unreachable — `import
+topiary` pulls in neither `topiary.rna` nor `topiary.sources`, so both
+could fire — but because a declared dependency that is missing is a broken
+install rather than a supported configuration, and `ModuleNotFoundError`
+already says so precisely. Genuinely optional integrations still go through
+`require_optional_dependency`, which names the extra to install.
+
+**GTF expression files load again.** `gtfparse` 2.x returns polars by default
+and `expression_loader._load_gtf` treats the result as pandas, so every GTF
+read through `load_expression` or the CLI's `--transcript-expression` raised
+`expected 17 values when selecting columns by boolean mask` from polars. This
+predates the dependency work above; it stayed hidden because `topiary.rna.gtf`
+reads GTFs by a second path that does handle polars, and only that path had a
+test. `_load_gtf` now asks for pandas explicitly, the untested path has a
+regression test, and the `gtfparse` floor moves to 2.7 — the release the
+`result_type` keyword arrives in, and the floor pyensembl already pins.
 
 **Dead surface removed (#314).** `_dsl_filter_to_string` and
 `CachedPredictor._row_key` had no callers. A `cache_kinds` local in

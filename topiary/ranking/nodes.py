@@ -439,15 +439,17 @@ def _validate_declared_alleles(alleles):
     A mapping or callable is per-peptide and is kept as-is; only the
     flat "same set for every peptide" form is materialized here.
 
-    Checks the *shape* of the declaration and nothing about the allele
-    names, which are returned exactly as the caller spelled them.  It is
-    deliberately not the allele-name normalization that
-    :mod:`topiary.io_pvacseq` and :mod:`topiary.io_lens` do through
-    mhcgnomes — those canonicalize a reader's alleles as the frame is
-    built, while these are matched against whatever spelling the frame
-    already carries.  Canonicalizing one side only would stop equal
-    alleles comparing equal.  Named apart from those two for that
-    reason: all three were once ``_normalize_alleles``.
+    Checks the declaration's *shape*, and rejects a blank name, but
+    never rewrites one: the names come back exactly as the caller
+    spelled them.  It is deliberately not the allele-name
+    canonicalization that :mod:`topiary.io_pvacseq` and
+    :mod:`topiary.io_lens` do through mhcgnomes — those normalize a
+    reader's alleles while the frame is being built, whereas these are
+    matched against whatever spelling the frame already carries, so
+    canonicalizing one side alone would stop equal alleles comparing
+    equal.  Named apart from that pair, which share the name
+    ``_normalize_alleles``, because this one was called that too and the
+    collision invited the opposite conclusion.
     """
     if alleles is None:
         return None
