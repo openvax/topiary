@@ -1,5 +1,40 @@
 # Changelog
 
+## 5.56.3
+
+**Eight pharmacokinetic kinds classified.** mhctools 3.44.10 added
+`plasma_half_life`, `systemic_elimination_half_life`, `systemic_clearance`,
+`distribution_volume`, `systemic_exposure`, `cpp_classification`,
+`cellular_uptake` and `tissue_concentration`. All describe the free peptide,
+not a peptide-MHC pair, so all are peptide-level — the same answer the ex-vivo
+half-lives already get. Without an entry each one has no declared MHC
+dependence, which is what decides whether a score may be projected across a
+patient's alleles, so `test_every_known_kind_is_classified` fails rather than
+letting an unclassified kind reach that decision.
+
+
+**The whole-peptide test fixture builds its snapshots from the artifact lists
+mhctools declares.** mhctools 3.44.5 and 3.44.6 began verifying a backend's
+assets before constructing it: the exact log-scale model directory has to
+exist, every named artifact has to be present, a pinned ESM2 snapshot has to
+resolve, and checksums have to match. The fixture's synthetic snapshots
+satisfied none of that, so CI went red on `mhctools 3.44.6` within twenty
+minutes of its release — the whole-peptide tests erred at setup with
+`training_classifiers/half_life/transformer_wt_log not found`.
+
+Chasing that file by file would not have held: the required set grew three
+times in a week. The fixture now reads `_PEPTIVERSE_ARTIFACTS`,
+`_ESM2_ARTIFACTS`, `_ESM2_WEIGHT_ARTIFACTS`, `_PLIFEPRED2_ARTIFACTS` and
+`_PFEATURE_ARTIFACTS` from the installed mhctools and creates exactly those
+paths, falling back to the older hardcoded sets when a list is absent.
+Verified against both the published 3.44.6 and a newer local checkout.
+
+Asset verification is neutralized for the fixture rather than opted out of per
+model with `allow_unverified_assets=True`, because topiary also constructs
+these models from a class or a bare name and cannot pass per-model flags on
+those paths — nor should it hardcode one. What these tests cover is topiary's
+transport of whole-peptide predictions, not mhctools' asset verification.
+
 ## 5.56.2
 
 **`CachedPredictorCoverageError` formats its own message, so every caller gets

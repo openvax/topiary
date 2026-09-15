@@ -758,20 +758,73 @@ def half_life_models(tmp_path, monkeypatch):
     """
     from mhctools import PeptiVerse, PlifePred2
 
+    # Build each snapshot from the artifact lists mhctools declares,
+    # rather than a hardcoded copy of them. Those lists grew three times
+    # in a week -- the exact log-scale model directory, then a pinned
+    # ESM2 snapshot, then a third Pfeature resource -- and each growth
+    # broke this fixture with a FileNotFoundError naming one file at a
+    # time. Reading them keeps the fixture right for whatever version is
+    # installed; `or` fallbacks cover versions predating a given list.
+    from mhctools import peptiverse as _peptiverse
+    from mhctools import plifepred2 as _plifepred2
+
+    def _touch_all(root, relative_paths):
+        for relative in relative_paths:
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.touch()
+
     peptiverse = tmp_path / "peptiverse"
-    (peptiverse / "training_classifiers" / "half_life").mkdir(parents=True)
-    (peptiverse / "inference.py").touch()
+    _touch_all(peptiverse, getattr(
+        _peptiverse, "_PEPTIVERSE_ARTIFACTS", {"inference.py": None},
+    ))
+    # The model directory is checked for existence separately from its
+    # contents, and is empty on versions that declare no artifacts.
+    (peptiverse / getattr(
+        _peptiverse, "_MODEL_DIRECTORY", "training_classifiers/half_life",
+    )).mkdir(parents=True, exist_ok=True)
+    esm = peptiverse / "esm2_t33_650M_UR50D"
+    _touch_all(esm, getattr(_peptiverse, "_ESM2_ARTIFACTS", {}))
+    _touch_all(esm, getattr(_peptiverse, "_ESM2_WEIGHT_ARTIFACTS", {}))
+    esm.mkdir(parents=True, exist_ok=True)
+
     plifepred2 = tmp_path / "plifepred2"
-    (plifepred2 / "models").mkdir(parents=True)
-    (plifepred2 / "models" / "plifepred2_natural_model.sav").touch()
+    _touch_all(plifepred2, getattr(
+        _plifepred2, "_PLIFEPRED2_ARTIFACTS",
+        {"models/plifepred2_natural_model.sav": None},
+    ))
     pfeature = tmp_path / "pfeature"
-    (pfeature / "Data").mkdir(parents=True)
-    (pfeature / "pfeature_comp.py").touch()
-    for name in ("Schneider-Wrede.csv", "Grantham.csv"):
-        (pfeature / "Data" / name).touch()
-    for key, path in (("PEPTIVERSE_HOME", peptiverse), ("PLIFEPRED2_HOME", plifepred2),
+    _touch_all(pfeature, getattr(
+        _plifepred2, "_PFEATURE_ARTIFACTS",
+        {"pfeature_comp.py": None, "Data/Schneider-Wrede.csv": None,
+         "Data/Grantham.csv": None},
+    ))
+    (pfeature / "Data").mkdir(parents=True, exist_ok=True)
+
+    for key, path in (("PEPTIVERSE_HOME", peptiverse),
+                      ("PEPTIVERSE_ESM_HOME", esm),
+                      ("PLIFEPRED2_HOME", plifepred2),
                       ("PFEATURE_HOME", pfeature)):
         monkeypatch.setenv(key, str(path))
+
+    # mhctools >=3.44.5 refuses to construct a backend whose artifacts
+    # do not match its pinned checksums, which empty files never will.
+    # Neutralized here rather than by passing allow_unverified_assets,
+    # because topiary also builds these models from a class or a bare
+    # name -- the doors
+    # test_whole_peptide_model_construction_and_scanning_boundary
+    # exercises -- and cannot pass per-model flags on those paths, nor
+    # should it hardcode one. Under test is topiary's transport of
+    # whole-peptide predictions, not mhctools' asset verification.
+    try:
+        from mhctools.optional_backend import BackendInventory
+    except ImportError:
+        pass
+    else:
+        monkeypatch.setattr(
+            BackendInventory, "require_usable",
+            lambda self, allow_unverified=False: self,
+        )
 
     def synthetic_output(model, peptides):
         # Opposite preference between matrices proves that they stay distinct.
