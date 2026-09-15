@@ -172,7 +172,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.58.0"
+__version__ = "5.59.0"
 
 __all__ = [
     "normalize_python_types",

@@ -13,6 +13,7 @@ supported" has something that runs behind it.
 """
 
 import warnings
+from io import StringIO
 from enum import Enum
 
 import numpy as np
@@ -55,6 +56,153 @@ PVACSEQ = "tests/data/pvacseq/mhc_i_all_epitopes.tsv"
 PVACSEQ_PRESENTATION = (
     "tests/data/pvacseq/mhc_i_all_epitopes_presentation.tsv"
 )
+
+
+@pytest.fixture
+def cli_output_request(tmp_path, monkeypatch):
+    """A real input/cache pair with two peptides and three kinds of evidence."""
+    from pathlib import Path
+
+    monkeypatch.chdir(tmp_path)
+    # Subprocesses must run this checkout even if an older wheel is installed.
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1]))
+    peptides = tmp_path / "peptides.csv"
+    peptides.write_text("name,peptide\nfirst,SIINFEKL\nsecond,GILGFVFTL\n")
+    rows = []
+    for peptide, affinity in (("SIINFEKL", 50.0), ("GILGFVFTL", 500.0)):
+        for kind in ("pMHC_affinity", "pMHC_presentation", "antigen_processing"):
+            rows.append(dict(
+                peptide=peptide, peptide_length=len(peptide), kind=kind,
+                allele="" if kind == "antigen_processing" else "HLA-A*02:01",
+                value=affinity if kind == "pMHC_affinity" else None,
+                value_unit="nM" if kind == "pMHC_affinity" else None,
+                affinity=affinity if kind == "pMHC_affinity" else None,
+                score=0.5, percentile_rank=1.0,
+                prediction_method_name="synthetic", predictor_version="1",
+            ))
+    cache = tmp_path / "cache.csv"
+    pd.DataFrame(rows).to_csv(cache, index=False)
+    return [
+        "--peptide-csv", str(peptides), "--mhc-cache-file", str(cache),
+        "--mhc-cache-format", "topiary_output",
+    ]
+
+
+def test_cli_default_preview_shows_the_filtered_and_ranked_results(
+    cli_output_request, capsys,
+):
+    from topiary.cli.script import main
+
+    main(cli_output_request + ["--sort-by", "ba", "--sort-direction", "desc"])
+    captured = capsys.readouterr()
+    assert "SIINFEKL" in captured.out and "GILGFVFTL" in captured.out
+    assert captured.out.index("GILGFVFTL") < captured.out.index("SIINFEKL")
+    assert "antigen_processing" in captured.out
+    assert "6 prediction rows (2 unique peptides, 1 named allele)" in captured.err
+
+    main(cli_output_request + ["--filter-by", "ba <= 100"])
+    captured = capsys.readouterr()
+    assert "SIINFEKL" in captured.out and "GILGFVFTL" not in captured.out
+    assert "3 prediction rows (1 unique peptide, 1 named allele)" in captured.err
+
+
+@pytest.mark.parametrize("separator", [",", "\t"])
+def test_cli_csv_stdout_and_file_carry_the_same_selected_results(
+    cli_output_request, tmp_path, capsys, separator,
+):
+    from topiary.cli.script import main
+
+    options = cli_output_request + [
+        "--filter-by", "ba <= 100", "--output-csv-sep", separator,
+        "--subset-output-columns", "peptide", "kind", "value",
+        "--rename-output-column", "value", "measurement", "--print-columns",
+    ]
+    output = tmp_path / "results.csv"
+    main(options + ["--output-csv", str(output)])
+    capsys.readouterr()
+    main(options + ["--output-csv", "-"])
+    captured = capsys.readouterr()
+    assert captured.out == output.read_text()
+    frame = pd.read_csv(StringIO(captured.out), sep=separator, index_col="#")
+    assert list(frame.columns) == ["peptide", "kind", "measurement"]
+    assert list(frame.peptide) == ["SIINFEKL"] * 3
+    assert "Columns:" in captured.err
+    assert "3 prediction rows (1 unique peptide, 1 named allele)" in captured.err
+    assert not (tmp_path / "-").exists()
+
+
+def test_cli_distinguishes_empty_input_from_filtered_results(
+    cli_output_request, capsys, caplog,
+):
+    from pathlib import Path
+    from topiary.cli.script import main
+
+    main(cli_output_request + ["--filter-by", "ba < 1"])
+    captured = capsys.readouterr()
+    assert "No prediction rows" in captured.err
+    assert "No peptides found" not in caplog.text
+
+    Path(cli_output_request[1]).write_text("name,peptide\n")
+    assert main(cli_output_request) == 0
+    assert "No peptides found in the input" in caplog.text
+    assert "No prediction rows" in capsys.readouterr().err
+
+
+def test_cli_csv_can_be_consumed_by_another_process(cli_output_request):
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-c", "from topiary.cli.script import main; main()",
+         *cli_output_request, "--output-csv", "-"],
+        capture_output=True, text=True, check=True,
+    )
+    frame = pd.read_csv(StringIO(result.stdout), index_col="#")
+    assert len(frame) == 6
+    assert set(frame.peptide) == {"SIINFEKL", "GILGFVFTL"}
+    assert "6 prediction rows" in result.stderr
+
+
+def test_predictor_progress_does_not_pollute_csv(cli_output_request, monkeypatch, capsys):
+    from topiary.cli import script
+
+    predict = script.predict_epitopes_from_args
+
+    def noisy_predict(args):
+        print("Predictor progress")
+        return predict(args)
+
+    monkeypatch.setattr(script, "predict_epitopes_from_args", noisy_predict)
+    script.main(cli_output_request + ["--output-csv", "-"])
+    captured = capsys.readouterr()
+    assert len(pd.read_csv(StringIO(captured.out))) == 6
+    assert "Predictor progress" in captured.err
+
+
+def test_cli_csv_consumer_can_close_the_pipe_early(cli_output_request):
+    from pathlib import Path
+    import subprocess
+    import sys
+
+    Path(cli_output_request[1]).write_text(
+        "name,peptide\n" + "".join(f"sample_{i},SIINFEKL\n" for i in range(1500))
+    )
+    html = Path(cli_output_request[1]).with_name("results.html")
+    with subprocess.Popen(
+        [sys.executable, "-c", "from topiary.cli.script import main; main()",
+         *cli_output_request, "--output-csv", "-", "--output-html", str(html)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    ) as process:
+        assert "peptide" in process.stdout.readline()
+        process.stdout.close()
+        process.stdout = None
+        _, stderr = process.communicate(timeout=30)
+        assert process.returncode == 0
+        assert "BrokenPipeError" not in stderr
+        assert "Traceback" not in stderr
+    # Closing one destination must not discard the other requested output.
+    assert "sample_1499" in html.read_text()
+    assert html.read_text().count("<tr>") == 4500
 
 
 @pytest.mark.parametrize("scenario, allowed", [

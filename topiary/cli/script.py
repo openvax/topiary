@@ -26,11 +26,14 @@ Example usage:
         --output-csv results.csv
 """
 
+from contextlib import redirect_stdout
+import os
 import sys
 
 import argcomplete
 
 from ..cached import CachedPredictorCoverageError, PredictorSetupError
+from ..ranking import stated_values
 from .args import arg_parser, predict_epitopes_from_args
 
 from .outputs import write_outputs
@@ -50,7 +53,10 @@ def main(args_list=None):
     """
     args = parse_args(args_list)
     try:
-        df = predict_epitopes_from_args(args)
+        # Predictor and input-reader progress belongs with diagnostics; stdout
+        # is reserved for the result table, including parseable CSV pipelines.
+        with redirect_stdout(sys.stderr):
+            df = predict_epitopes_from_args(args)
     except (
         OSError, ValueError, PredictorSetupError,
         CachedPredictorCoverageError,
@@ -71,6 +77,24 @@ def main(args_list=None):
         # that __str__ would bring the quoting back (#296, #302, #304).
         message = str(e) or type(e).__name__
         arg_parser.error(message)
-    write_outputs(df, args)
-    print("Total count: %d" % len(df))
+    try:
+        write_outputs(df, args)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # A consumer such as `head` may stop before all rows are written.
+        # Redirect the descriptor so Python's final flush cannot fail again.
+        with open(os.devnull, "w") as sink:
+            os.dup2(sink.fileno(), sys.stdout.fileno())
+        return 0
+
+    counts = []
+    for column, label in (("peptide", "unique peptide"), ("allele", "named allele")):
+        count = df.loc[stated_values(df[column]), column].nunique() if column in df else 0
+        counts.append(f"{count} {label}{'' if count == 1 else 's'}")
+    print(
+        f"{len(df)} prediction row{'' if len(df) == 1 else 's'} "
+        f"({', '.join(counts)})", file=sys.stderr,
+    )
+    if df.empty:
+        print("No prediction rows to display or save.", file=sys.stderr)
     return 0

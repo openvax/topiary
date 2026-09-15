@@ -15,6 +15,7 @@ Common commandline arguments used by scripts
 """
 
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+import logging
 
 import pandas as pd
 from mhctools.cli import add_mhc_args, predictors_from_args
@@ -629,6 +630,11 @@ def predict_epitopes_from_args(args):
     # Check for direct peptide/sequence inputs first
     direct_input, is_peptides = _get_direct_input(args)
     if direct_input is not None:
+        if not direct_input:
+            logging.warning(
+                "No %s found in the input; there is nothing to predict.",
+                "peptides" if is_peptides else "protein sequences",
+            )
         if is_peptides:
             df = predictor.predict_from_named_peptides(direct_input)
         else:
