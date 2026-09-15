@@ -414,7 +414,7 @@ class _PeptideAlleleLookup:
             # one" — where an empty frame-wide sequence is a mistake, so
             # it must not go through the frame-level check.
             return ()
-        return _normalize_alleles(declared) or ()
+        return _validate_declared_alleles(declared) or ()
 
     def check_all_used(self):
         """Raise if a mapping entry named a peptide the frame lacks."""
@@ -433,11 +433,21 @@ class _PeptideAlleleLookup:
             )
 
 
-def _normalize_alleles(alleles):
+def _validate_declared_alleles(alleles):
     """Validate a declared allele set and return it as a list (or None).
 
     A mapping or callable is per-peptide and is kept as-is; only the
     flat "same set for every peptide" form is materialized here.
+
+    Checks the *shape* of the declaration and nothing about the allele
+    names, which are returned exactly as the caller spelled them.  It is
+    deliberately not the allele-name normalization that
+    :mod:`topiary.io_pvacseq` and :mod:`topiary.io_lens` do through
+    mhcgnomes — those canonicalize a reader's alleles as the frame is
+    built, while these are matched against whatever spelling the frame
+    already carries.  Canonicalizing one side only would stop equal
+    alleles comparing equal.  Named apart from those two for that
+    reason: all three were once ``_normalize_alleles``.
     """
     if alleles is None:
         return None
@@ -1021,7 +1031,7 @@ class EvalContext:
         # :class:`BestAlleleField`) can warn or branch on it. Shape:
         # ``{model_key: {kind_value: {"mhc_dependence", "mhc_class"}}}``.
         self.kind_support = kind_support
-        self.alleles = _normalize_alleles(alleles)
+        self.alleles = _validate_declared_alleles(alleles)
         self._group_index = None
         self._key_frame = None
         self._group_tuples_cache = None
