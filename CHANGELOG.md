@@ -2,6 +2,17 @@
 
 ## 5.56.3
 
+**Eight pharmacokinetic kinds classified.** mhctools 3.44.10 added
+`plasma_half_life`, `systemic_elimination_half_life`, `systemic_clearance`,
+`distribution_volume`, `systemic_exposure`, `cpp_classification`,
+`cellular_uptake` and `tissue_concentration`. All describe the free peptide,
+not a peptide-MHC pair, so all are peptide-level — the same answer the ex-vivo
+half-lives already get. Without an entry each one has no declared MHC
+dependence, which is what decides whether a score may be projected across a
+patient's alleles, so `test_every_known_kind_is_classified` fails rather than
+letting an unclassified kind reach that decision.
+
+
 **The whole-peptide test fixture builds its snapshots from the artifact lists
 mhctools declares.** mhctools 3.44.5 and 3.44.6 began verifying a backend's
 assets before constructing it: the exact log-scale model directory has to

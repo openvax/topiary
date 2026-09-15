@@ -2385,6 +2385,20 @@ KIND_MHC_DEPENDENCE = MappingProxyType({
     "tap_transport": "none",
     "serum_half_life": "none",
     "blood_half_life": "none",
+    "plasma_half_life": "none",
+    # Pharmacokinetics of the free peptide: an in-vivo elimination
+    # half-life, the clearance/volume/exposure trio whose units live in
+    # mhctools' MeasurementContext rather than a fixed unit table, and
+    # cell-penetration and tissue-distribution readouts. None of them
+    # describes a peptide-MHC pair, so all are peptide-level, the same
+    # answer the ex-vivo half-lives above get.
+    "systemic_elimination_half_life": "none",
+    "systemic_clearance": "none",
+    "distribution_volume": "none",
+    "systemic_exposure": "none",
+    "cpp_classification": "none",
+    "cellular_uptake": "none",
+    "tissue_concentration": "none",
 })
 
 
