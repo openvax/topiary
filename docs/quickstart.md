@@ -112,7 +112,7 @@ data transport, **not biological accuracy or suitability for long vaccines**.
 The external models and their runtime environments are not bundled. PlifePred2
 has upstream [workspace-safety](https://github.com/openvax/mhctools/issues/310)
 and [unit/assay validation](https://github.com/openvax/mhctools/issues/311)
-issues addressed in mhctools 3.39.0, now required by Topiary. Its native
+issues addressed in mhctools 3.39.0 (included in Topiary's current minimum). Its native
 output is not a verified half-life in hours by default.
 
 These models do not supply per-bond extracellular peptidase maps. Site-level

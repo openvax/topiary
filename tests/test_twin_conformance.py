@@ -97,6 +97,22 @@ CACHE_LENGTH_TWINS = (
 )
 
 
+CACHE_PROVENANCE_TWINS = (
+    ("dataframe", CachedPredictor.from_dataframe),
+    ("topiary_output", CachedPredictor.from_topiary_output),
+    ("tsv", CachedPredictor.from_tsv),
+    ("directory", CachedPredictor.from_directory),
+)
+
+
+def mhcflurry_version_twins():
+    """Both public entry points must apply the same installed-model rule."""
+    from mhctools import mhcflurry_composite_version as upstream
+    from topiary import mhcflurry_composite_version as downstream
+
+    return (("mhctools", upstream), ("topiary", downstream))
+
+
 def fragments_with_creator_options(variants, alignment_file, **options):
     """Public convenience options, with result filters disabled for the test."""
     return fragments_from_variants(
@@ -505,6 +521,37 @@ def _cache_row(**overrides):
     )
     row.update(overrides)
     return row
+
+
+@pytest.mark.parametrize("recorded, supplied, accepted", [
+    (None, "2.10", True),
+    ("", "2.10", True),
+    ("<NA>", "2.10", True),
+    ("2.10", "2.10", True),
+    ("2.10", None, True),
+    ("2.10", "2.11", False),
+    (None, None, False),
+    (None, " ", False),
+])
+def test_cache_loader_doors_agree_on_provenance(recorded, supplied, accepted, tmp_path):
+    frame = pd.DataFrame([_cache_row(predictor_version=recorded)])
+    original = frame.copy(deep=True)
+    path = tmp_path / "cache.tsv"
+    frame.to_csv(path, sep="\t", index=False)
+    outcomes = {}
+    versions = {}
+    for name, loader in CACHE_PROVENANCE_TWINS:
+        source = frame if name == "dataframe" else tmp_path if name == "directory" else path
+        try:
+            cache = loader(source, predictor_version=supplied)
+            outcomes[name] = True
+            versions[name] = cache.predictor_version
+        except ValueError:
+            outcomes[name] = False
+    assert set(outcomes.values()) == {accepted}, outcomes
+    if accepted:
+        assert set(versions.values()) == {"2.10"}, versions
+    pd.testing.assert_frame_equal(frame, original)
 
 
 CACHE_CASES = {

@@ -54,8 +54,9 @@ def add_cached_predictor_args(arg_parser):
         "--mhc-cache-file",
         default=None,
         help=(
-            "Path to a pre-computed prediction file.  Requires "
-            "--mhc-cache-format.  Alternative to --mhc-cache-directory."
+            "Path to a pre-computed prediction file. Format is detected "
+            "when possible; generic TSVs require --mhc-cache-format tsv. "
+            "Alternative to --mhc-cache-directory."
         ),
     )
     group.add_argument(
@@ -85,23 +86,27 @@ def add_cached_predictor_args(arg_parser):
             "CSVs have 'mhcflurry_*' columns, topiary's own output has "
             "'prediction_method_name' + 'predictor_version'.  Only the "
             "'tsv' format requires an explicit --mhc-cache-format "
-            "(generic tables can't be auto-detected)."
+            "(generic tables can't be auto-detected). TSV files must carry "
+            "a 'kind' column on every row (e.g. pMHC_affinity), either "
+            "directly or mapped with --mhc-cache-tsv-column kind=FILE_COLUMN."
         ),
     )
     group.add_argument(
         "--mhc-cache-predictor-name",
         default=None,
         help=(
-            "Override the prediction_method_name column value.  Required "
-            "for 'tsv' format when the file doesn't carry this column."
+            "Fill missing prediction_method_name values in 'tsv', "
+            "'topiary_output', or directory shards. Existing stated values "
+            "must agree. Other formats already identify their predictor."
         ),
     )
     group.add_argument(
         "--mhc-cache-predictor-version",
         default=None,
         help=(
-            "Override the predictor_version column value.  Required for "
-            "'tsv' format when the file doesn't carry this column; "
+            "Supply predictor version provenance. For 'tsv', 'topiary_output', "
+            "and directory shards, fills missing cells; existing stated "
+            "values must agree. Required when those files lack a version; "
             "optional for the NetMHC-family formats (auto-parsed from "
             "the stdout preamble when omitted) and for 'mhcflurry' "
             "(auto-composed from the local install via "
@@ -116,7 +121,9 @@ def add_cached_predictor_args(arg_parser):
         help=(
             "Column-name mapping for 'tsv' format.  Repeatable.  Example: "
             "--mhc-cache-tsv-column affinity=IC50 "
-            "--mhc-cache-tsv-column percentile_rank=Rank"
+            "--mhc-cache-tsv-column percentile_rank=Rank. A 'kind' column "
+            "is required; map a differently named one with "
+            "--mhc-cache-tsv-column kind=FILE_COLUMN."
         ),
     )
     group.add_argument(
@@ -124,12 +131,6 @@ def add_cached_predictor_args(arg_parser):
         default="\t",
         help="Column separator for 'tsv' format.  Default is tab.",
     )
-    # Generic TSV files must carry a 'kind' column per row (one of
-    # pMHC_affinity / pMHC_presentation / pMHC_stability /
-    # antigen_processing).  The loader reads it directly; no CLI
-    # knob needed.  The DSL's Affinity.* / Presentation.* / etc.
-    # scopes dispatch on kind, so getting it right in the source TSV
-    # is load-bearing.
     group.add_argument(
         "--mhc-cache-netmhc-version",
         default="4",
@@ -264,7 +265,11 @@ def _build_cached_predictor(args) -> CachedPredictor:
 
     if cache_dir is not None:
         pattern = getattr(args, "mhc_cache_directory_pattern", None) or "*"
-        return CachedPredictor.from_directory(cache_dir, pattern=pattern)
+        return CachedPredictor.from_directory(
+            cache_dir, pattern=pattern,
+            prediction_method_name=args.mhc_cache_predictor_name,
+            predictor_version=args.mhc_cache_predictor_version,
+        )
 
     fmt = getattr(args, "mhc_cache_format", None)
     if not fmt:
@@ -277,7 +282,17 @@ def _build_cached_predictor(args) -> CachedPredictor:
             )
 
     if fmt == "topiary_output":
-        return CachedPredictor.from_topiary_output(cache_file)
+        return CachedPredictor.from_topiary_output(
+            cache_file,
+            prediction_method_name=args.mhc_cache_predictor_name,
+            predictor_version=args.mhc_cache_predictor_version,
+        )
+
+    if fmt != "tsv" and args.mhc_cache_predictor_name is not None:
+        raise ValueError(
+            "--mhc-cache-predictor-name is only supported for topiary_output, "
+            f"tsv, and directory shards; {fmt!r} identifies its own predictor."
+        )
 
     if fmt == "mhcflurry":
         return CachedPredictor.from_mhcflurry(
@@ -360,19 +375,13 @@ def _sniff_format(path):
     4. ``prediction_method_name`` + ``predictor_version`` columns in
        the first text line → ``topiary_output``.
     """
-    try:
-        with open(path, "rb") as f:
-            magic = f.read(4)
-    except OSError:
-        return None
+    with open(path, "rb") as f:
+        magic = f.read(4)
     if magic == b"PAR1":
         return "topiary_output"
 
-    try:
-        with open(path, "r", errors="replace") as f:
-            head = f.read(10000)
-    except OSError:
-        return None
+    with open(path, "r", errors="replace") as f:
+        head = f.read(10000)
 
     # NetMHC-family preamble detection.  Order matters: more specific
     # tool names come first so e.g. "NetMHCstabpan" doesn't get
