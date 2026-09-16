@@ -32,6 +32,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from itertools import repeat
+from numbers import Integral
 from pathlib import Path
 from typing import Callable, Iterable, List, Mapping, Optional, Union
 
@@ -310,13 +311,13 @@ class CachedPredictor:
 
     Notes
     -----
-    **Peptide-length coverage.**  ``default_peptide_lengths`` is derived
-    from the lengths actually present in the cache (union with the
-    fallback's lengths when one is set).  A cache loaded from a file
-    that only contains 9-mers will silently scan only 9-mer windows in
-    ``predict_proteins_dataframe``.  If your source table was intended
-    to cover multiple lengths but doesn't, you won't notice it here —
-    check ``cache.default_peptide_lengths`` after loading.
+    **Peptide-length coverage.** ``available_peptide_lengths`` reports
+    lengths present in the cache or advertised by its fallback.
+    ``default_peptide_lengths`` initially uses all of them; assign a
+    covered subset to scan only those lengths. This controls protein
+    windows, not explicit peptide lookups, and does not delete stored rows.
+    Individual missing peptides still raise a coverage error or use the
+    fallback, even when their length is available.
 
     **Thread safety.**  :meth:`predict_peptides_dataframe` and
     :meth:`predict_proteins_dataframe` mutate internal state (the
@@ -334,6 +335,7 @@ class CachedPredictor:
         also_accept_versions: Optional[Iterable[str]] = None,
     ):
         self.fallback = fallback
+        self._requested_peptide_lengths = None
         self.also_accept_versions = (
             frozenset(also_accept_versions) if also_accept_versions else frozenset()
         )
@@ -599,11 +601,67 @@ class CachedPredictor:
         return sorted(a)
 
     @property
-    def default_peptide_lengths(self):
+    def available_peptide_lengths(self):
+        """Lengths stored in the cache or advertised by its fallback.
+
+        Returns
+        -------
+        list of int
+            Sorted unique lengths, independent of the selected scan lengths.
+            An empty cache contributes no lengths. This is not a guarantee
+            that every peptide, allele, or context at each length is covered;
+            individual queries still check coverage.
+        """
         lengths = set(int(x) for x in self._df["peptide_length"].unique().tolist())
         if self.fallback is not None:
             lengths.update(getattr(self.fallback, "default_peptide_lengths", []))
         return sorted(lengths)
+
+    @property
+    def default_peptide_lengths(self):
+        """Selected protein-window lengths, initially all available lengths.
+
+        Returns
+        -------
+        list of int
+            A fresh list of lengths used by :meth:`predict_proteins_dataframe`.
+
+        Notes
+        -----
+        Assign an iterable of positive integers to select a covered subset;
+        an empty iterable, invalid length, or unavailable length raises
+        ``ValueError``. Assign ``None`` to restore all available lengths.
+        Selection leaves stored rows and scores intact. Explicit peptides
+        passed to :meth:`predict_peptides_dataframe` are still queried as-is,
+        irrespective of the protein-window selection. Saving a cache persists
+        its rows, not this per-run selection.
+        """
+        if self._requested_peptide_lengths is None:
+            return self.available_peptide_lengths
+        return list(self._requested_peptide_lengths)
+
+    @default_peptide_lengths.setter
+    def default_peptide_lengths(self, lengths):
+        if lengths is None:
+            self._requested_peptide_lengths = None
+            return
+        requested = list(lengths)
+        if not requested or any(
+            isinstance(length, bool) or not isinstance(length, Integral) or length <= 0
+            for length in requested
+        ):
+            raise ValueError("Peptide lengths must be a non-empty iterable of positive integers.")
+        requested = sorted(set(int(length) for length in requested))
+        available = self.available_peptide_lengths
+        missing = sorted(set(requested) - set(available))
+        if missing:
+            raise ValueError(
+                f"Requested peptide lengths {missing} are not available; "
+                f"the cache and its fallback cover {available}. "
+                "Re-predict at the lengths you need, or omit the length "
+                "selection to use the available lengths."
+            )
+        self._requested_peptide_lengths = tuple(requested)
 
     def kind_support(self):
         """MHC context for kinds present in the cache.
@@ -723,8 +781,9 @@ class CachedPredictor:
         """
         unique_peptides = set()
         per_peptide_positions: dict[str, list[tuple[str, int, int]]] = {}
+        peptide_lengths = self.default_peptide_lengths
         for name, seq in name_to_sequence.items():
-            for length in self.default_peptide_lengths:
+            for length in peptide_lengths:
                 if length > len(seq):
                     continue
                 for offset in range(len(seq) - length + 1):

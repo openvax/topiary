@@ -559,3 +559,15 @@ class TestCacheHonorsTheRequest:
                 "--mhc-alleles", "HLA-B*07:02",
                 "--mhc-predictor", "mhcflurry",
             ])
+
+    def test_length_coverage_is_checked_for_the_requested_alleles(self, tmp_path):
+        cache = _topiary_cache_csv(tmp_path / "ab.csv", [
+            _cache_row("SIINFEKL", "HLA-A*02:01"),
+            _cache_row("SIINFEKLA", "HLA-B*07:02"),
+        ])
+        with pytest.raises(ValueError, match=r"lengths \[9\].*cover \[8\]"):
+            _run([
+                "--peptide-csv", self._peptides(tmp_path),
+                "--mhc-cache-file", cache, "--mhc-alleles", "HLA-A*02:01",
+                "--mhc-peptide-lengths", "9",
+            ])

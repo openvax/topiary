@@ -37,6 +37,57 @@ The cache does not yet identify different chemistry, assay conditions or model
 settings beyond the stored method/version: do not mix those experiments in one
 cache ([#288](https://github.com/openvax/topiary/issues/288)).
 
+## Selecting lengths and retrieving different values
+
+A cache replays stored measurements. Different peptide, allele, prediction-kind,
+or stored context entries can have different scores. Selecting a different set
+of entries does not recompute those scores. For example, a table containing
+`SIINFEKL → 11`, `IINFEKLA → 22`, and `SIINFEKLA → 33` returns the first two
+values when scanning 8-mers and the last value when scanning 9-mers. These
+numbers are illustrative test data, not biological predictions.
+
+```python
+cache = CachedPredictor.from_topiary_output("predictions.csv")
+print(cache.available_peptide_lengths)  # lengths in the table or its fallback
+cache.default_peptide_lengths = [9]
+predictor = TopiaryPredictor(models=cache)
+df = predictor.predict_from_named_sequences({"protein": "SIINFEKLA"})
+cache.default_peptide_lengths = None   # restore all available lengths
+```
+
+Length selection limits the protein windows generated before cache lookup.
+An unavailable requested length raises an error; available lengths do not
+guarantee that every peptide/allele/context is covered. An individual miss
+still raises a coverage error or uses the configured fallback.
+
+The selection leaves the cache table intact, including measurements at other
+lengths. Explicit peptide inputs (`--peptide-csv`, `--peptide-fasta`, or
+`predict_from_named_peptides`) query the supplied peptides as-is. Saving and
+reloading a cache preserves its measurements; scan-length selection is a
+per-run setting and must be applied again after loading.
+
+From the CLI:
+
+```bash
+topiary --fasta proteins.fasta --mhc-cache-file predictions.csv \
+    --mhc-peptide-lengths 9 --mhc-alleles 'HLA-A*02:01' \
+    --subset-output-columns peptide allele kind value score percentile_rank \
+    --output-csv -
+```
+
+Omitting the length flag uses all available lengths. The legacy
+`--mhc-epitope-lengths` flag also works; `--mhc-peptide-lengths` takes precedence
+if both are supplied. Requested length coverage is checked after selecting
+the requested alleles.
+
+To inspect other metrics, select columns such as `value`, `score`, and
+`percentile_rank` when present; `kind` identifies which prediction each row
+describes. Filters and ranking select or reorder results from the stored
+measurements. To obtain new predictions for an existing entry, run the intended
+live predictor and save a new table, then load that table as the cache.
+`--mhc-cache-predictor-version` is a provenance label, not a request to run a
+different model. CLI cache flags and `--mhc-predictor` are mutually exclusive.
+
 ## Loaders
 
 ### From topiary's own prediction output
@@ -368,8 +419,8 @@ Full flag reference:
 | `--mhc-cache-netmhciipan-version V` | `legacy`, `4`, or `4.3` for NetMHCIIpan. Default `4.3`. |
 | `--mhc-cache-netmhciipan-mode MODE` | `binding_affinity` or `elution_score` (default) for NetMHCIIpan 4+. |
 
-`--mhc-predictor` and `--mhc-alleles` become optional when a cache is
-in use — the cache supplies the predictions and its allele set.
+`--mhc-predictor` is mutually exclusive with cache flags. `--mhc-alleles`
+is optional: omit it to use the cache's allele set, or supply a covered subset.
 
 ## When *not* to use
 

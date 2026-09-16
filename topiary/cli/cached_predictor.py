@@ -175,9 +175,20 @@ def cached_predictor_from_args(args) -> CachedPredictor:
     flag for the chosen format, or when the cache cannot answer for the
     genotype or peptide lengths the command asked for.
     """
-    cache = _build_cached_predictor(args)
-    _require_requested_peptide_lengths(cache, args)
-    return _restrict_to_requested_alleles(cache, args)
+    cache = _restrict_to_requested_alleles(_build_cached_predictor(args), args)
+    # Match mhctools' live-predictor precedence for the legacy length flag.
+    requested = (
+        getattr(args, "mhc_peptide_lengths", None)
+        or getattr(args, "mhc_epitope_lengths", None)
+    )
+    if requested:
+        try:
+            cache.default_peptide_lengths = requested
+        except ValueError as error:
+            raise ValueError(
+                f"--mhc-peptide-lengths / --mhc-epitope-lengths: {error}"
+            ) from error
+    return cache
 
 
 def _requested_alleles(args):
@@ -193,31 +204,6 @@ def _requested_alleles(args):
     ):
         return []
     return list(mhc_alleles_from_args(args))
-
-
-def _require_requested_peptide_lengths(cache, args):
-    """Refuse a run whose requested lengths the cache cannot answer for.
-
-    ``--mhc-peptide-lengths`` is a request on the live path and was
-    silently ignored here: a cache of 8- and 9-mers answered a request
-    for 20-mers with its 8- and 9-mers, exit 0 (#321). The cache's
-    coverage is a fact about the file, so the honest response is to say
-    the request cannot be met rather than to quietly answer a different
-    one.
-    """
-    requested = getattr(args, "mhc_peptide_lengths", None)
-    if not requested:
-        return
-    available = set(cache.default_peptide_lengths or ())
-    missing = sorted(set(requested) - available)
-    if missing:
-        raise ValueError(
-            f"--mhc-peptide-lengths asked for {missing}, which this cache "
-            f"does not contain; it holds {sorted(available)}. A cache can "
-            f"only answer for the lengths it was built with -- re-predict "
-            f"at the lengths you need, or drop the flag to use what the "
-            f"cache holds."
-        )
 
 
 def _restrict_to_requested_alleles(cache, args):
