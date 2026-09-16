@@ -104,7 +104,7 @@ cache = CachedPredictor.from_topiary_output("run.parquet")
 ```
 
 Live MHCflurry output now records its package and official model release when
-the weights are loaded (mhctools 3.44.25+, required by Topiary). That identity
+the weights are loaded (mhctools 3.44.26+, required by Topiary). That identity
 survives replay without consulting the MHCflurry installation on the machine
 reading the cache. Custom or injected weights need an explicit
 `predictor_version` when constructing the MHCflurry wrapper; they are not labeled

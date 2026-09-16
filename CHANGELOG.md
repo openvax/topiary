@@ -2,7 +2,7 @@
 
 ## 5.59.2
 
-- Require mhctools 3.44.25 so live MHCflurry output records model provenance
+- Require mhctools 3.44.26 so live MHCflurry output records model provenance
   and reloads as a cache (#323); reuse its public version-composition rule.
 - Honor missing-provenance arguments for topiary output and directory shards,
   refusing conflicts with recorded method/version values. Preserve lexical
