@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.59.0
+
+- Show a compact table of the first 20 filtered, ranked prediction rows when
+  the CLI has no output path, with an explicit count of omitted rows (#325).
+- Support `--output-csv -` for complete CSV on stdout. Column selection,
+  renaming, and separators match CSV file output; progress, column listings,
+  and summaries stay on stderr. Consumers may close the pipe early.
+- Name prediction-row, unique-peptide, and named-allele counts explicitly.
+  Report empty results and warn when direct inputs contain no sequences.
+
 ## 5.58.0
 
 **Isovar floor raised to 1.11.0, and an osteosarc expectation corrected

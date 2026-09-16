@@ -516,8 +516,26 @@ Remove peptides found in reference proteomes — for tumor-specific or pathogen-
 
 ## Output
 
+With no output path, the CLI prints a compact preview of the first 20 prediction
+rows after filtering and ranking, and reports how many rows were omitted.
+`--subset-output-columns` and `--rename-output-column` also apply to this preview.
+The summary on stderr counts prediction rows, unique peptide sequences, and
+named alleles in those rows. Multiple prediction kinds can give several rows
+for one peptide. Empty input and empty results are reported explicitly.
+
+Use `--output-csv -` to send every result row to stdout for a shell pipeline;
+progress messages, `--print-columns`, and the summary then go to stderr:
+
+```bash
+topiary --peptide-csv peptides.csv --mhc-predictor netmhcpan41 \
+  --mhc-alleles 'HLA-A*02:01' --output-csv - > results.csv
+```
+
+Explicit CSV/HTML paths save all rows and suppress the automatic preview:
+
 ```bash
 --output-csv results.csv
+--output-csv -
 --output-html results.html
 --output-csv-sep "\t"
 --subset-output-columns peptide allele affinity
