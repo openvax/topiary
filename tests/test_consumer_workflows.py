@@ -331,6 +331,242 @@ def test_live_and_cached_predictors_agree_on_scan_vs_explicit_lengths(lengths):
             assert set(outputs[1].peptide) == set(explicit)
 
 
+@pytest.fixture(params=["topiary_output", "directory", "tsv"])
+def cache_loading_request(cli_output_request, tmp_path, request):
+    directory = tmp_path / "archive"
+    directory.mkdir()
+    sep = "\t" if request.param == "tsv" else ","
+    path = directory / ("predictions.tsv" if sep == "\t" else "predictions.csv")
+    frame = pd.read_csv(cli_output_request[3])
+    frame["predictor_version"] = "bundle-1"
+    if request.param == "directory":
+        args = ["--mhc-cache-directory", str(directory)]
+    else:
+        args = ["--mhc-cache-file", str(path), "--mhc-cache-format", request.param]
+    return path, sep, frame, [*cli_output_request[:2], *args]
+
+
+@pytest.mark.parametrize("missing", ["column", "null", "mixed", "stated"])
+def test_cache_loading_fills_missing_provenance_without_changing_measurements(
+    cache_loading_request, missing, capsys,
+):
+    from topiary.cli.script import main
+
+    path, sep, stored, args = cache_loading_request
+    frame = stored.copy()
+    identity = ["prediction_method_name", "predictor_version"]
+    if missing == "column":
+        frame = frame.drop(columns=identity)
+    elif missing == "null":
+        frame[identity] = None
+    elif missing == "mixed":
+        frame.loc[0, identity] = " "
+        frame.loc[1, identity] = None
+    frame.to_csv(path, sep=sep, index=False)
+    contents = path.read_bytes()
+    assert main(args + [
+        "--mhc-cache-predictor-name", "synthetic",
+        "--mhc-cache-predictor-version", "bundle-1", "--output-csv", "-",
+    ]) == 0
+    result = pd.read_csv(StringIO(capsys.readouterr().out), index_col="#")
+    assert set(result.prediction_method_name) == {"synthetic"}
+    assert set(result.predictor_version) == {"bundle-1"}
+    columns = ["peptide", "kind", "affinity", "score", "percentile_rank"]
+    pd.testing.assert_frame_equal(
+        result[columns].sort_values(["peptide", "kind"]).reset_index(drop=True),
+        stored[columns].sort_values(["peptide", "kind"]).reset_index(drop=True),
+    )
+    assert path.read_bytes() == contents
+
+
+@pytest.mark.parametrize("column,flag", [
+    ("prediction_method_name", "--mhc-cache-predictor-name"),
+    ("predictor_version", "--mhc-cache-predictor-version"),
+])
+def test_cache_loading_refuses_to_relabel_stated_provenance(
+    cache_loading_request, column, flag, capsys,
+):
+    from topiary.cli.script import main
+
+    path, sep, frame, args = cache_loading_request
+    frame.to_csv(path, sep=sep, index=False)
+    with pytest.raises(SystemExit) as error:
+        main(args + [flag, "different"])
+    assert error.value.code == 2
+    message = capsys.readouterr().err
+    assert column in message and "conflict" in message
+    assert "different" in message
+
+
+def test_tsv_kind_mapping_and_missing_kind_guidance(tmp_path, capsys):
+    from topiary.cli.script import main
+
+    peptides = tmp_path / "peptides.csv"
+    peptides.write_text("peptide\nSIINFEKL\n")
+    path = tmp_path / "measurements.tsv"
+    frame = pd.DataFrame([dict(
+        peptide="SIINFEKL", allele="HLA-A*02:01", IC50=12.5, assay="pMHC_affinity",
+    )])
+    frame.to_csv(path, sep="\t", index=False)
+    args = [
+        "--peptide-csv", str(peptides), "--mhc-cache-file", str(path),
+        "--mhc-cache-format", "tsv", "--mhc-cache-predictor-name", "laboratory",
+        "--mhc-cache-predictor-version", "experiment-1",
+        "--mhc-cache-tsv-column", "affinity=IC50", "--output-csv", "-",
+    ]
+    with pytest.raises(SystemExit) as error:
+        main(args)
+    assert error.value.code == 2
+    message = capsys.readouterr().err.split("topiary: error:", 1)[-1]
+    assert str(path) in message
+    assert "kind" in message and "--mhc-cache-tsv-column kind=" in message
+    assert "predictor_name / predictor_version" not in message
+    assert main(args + ["--mhc-cache-tsv-column", "kind=assay"]) == 0
+    result = pd.read_csv(StringIO(capsys.readouterr().out), index_col="#")
+    assert result.kind.tolist() == ["pMHC_affinity"]
+    assert result.affinity.tolist() == [12.5]
+
+
+@pytest.mark.parametrize("explicit_format", [False, True])
+def test_cache_missing_file_reports_the_path_not_format_detection(
+    cli_output_request, tmp_path, capsys, explicit_format,
+):
+    from topiary.cli.script import main
+
+    missing = tmp_path / "absent-cache.csv"
+    args = [*cli_output_request[:2], "--mhc-cache-file", str(missing)]
+    if explicit_format:
+        args += ["--mhc-cache-format", "topiary_output"]
+    with pytest.raises(SystemExit) as error:
+        main(args)
+    assert error.value.code == 2
+    message = capsys.readouterr().err.split("topiary: error:", 1)[-1]
+    assert str(missing) in message and "No such file" in message
+    assert "auto-detect" not in message
+
+
+@pytest.mark.parametrize("mode", ["rb", "r"])
+def test_cache_unreadable_file_reports_permission_error(
+    cli_output_request, monkeypatch, capsys, mode,
+):
+    import builtins
+    import errno
+    from topiary.cli.script import main
+
+    original_open = builtins.open
+    path = cli_output_request[3]
+
+    def denied(file, open_mode="r", *args, **kwargs):
+        if str(file) == path and open_mode == mode:
+            raise PermissionError(errno.EACCES, "Permission denied", path)
+        return original_open(file, open_mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", denied)
+    with pytest.raises(SystemExit) as error:
+        main(cli_output_request[:4])  # exercise automatic detection
+    assert error.value.code == 2
+    message = capsys.readouterr().err.split("topiary: error:", 1)[-1]
+    assert path in message and "Permission denied" in message
+    assert "auto-detect" not in message
+
+
+def test_bad_cache_directory_shard_names_the_file_and_expected_format(
+    cli_output_request, tmp_path, capsys,
+):
+    from topiary.cli.script import main
+
+    directory = tmp_path / "bad-shards"
+    directory.mkdir()
+    bad = directory / "netmhc.out"
+    bad.write_text("# NetMHCpan version 4.1\none,two,three\nfour,five,six,seven\n")
+    with pytest.raises(SystemExit) as error:
+        main([*cli_output_request[:2], "--mhc-cache-directory", str(directory)])
+    assert error.value.code == 2
+    message = capsys.readouterr().err.split("topiary: error:", 1)[-1]
+    assert str(bad) in message and "topiary_output" in message
+
+
+@pytest.mark.parametrize("predictor_name", ["mhcflurry", "mhcflurry-affinity"])
+@pytest.mark.parametrize("input_kind", ["peptide", "protein"])
+def test_live_mhcflurry_cli_output_replays_with_identical_provenance_and_values(
+    predictor_name, input_kind, tmp_path, monkeypatch, capsys,
+):
+    """Only the numerical backend is stubbed; wrappers, CLI and files are real."""
+    import sys
+    import types
+    from mhctools import mhcflurry as wrapper
+    from topiary.cli.script import main
+
+    def affinity(peptides, alleles, **kwargs):
+        return pd.DataFrame(dict(
+            peptide=peptides, allele=alleles,
+            prediction=[11.0 if p == "SIINFEKLA" else 22.0 for p in peptides],
+            prediction_percentile=[1.0] * len(peptides),
+        ))
+
+    def presentation(peptides, **kwargs):
+        return pd.DataFrame(dict(
+            peptide=peptides, peptide_num=range(len(peptides)),
+            best_allele=["HLA-A*02:01"] * len(peptides),
+            presentation_score=[0.7] * len(peptides),
+            presentation_percentile=[2.0] * len(peptides),
+            processing_score=[0.3] * len(peptides),
+        ))
+
+    aff = types.SimpleNamespace(
+        supported_alleles=["HLA-A*02:01"], predict_to_dataframe=affinity,
+    )
+    backend = types.SimpleNamespace(
+        supported_alleles=aff.supported_alleles, affinity_predictor=aff,
+        predict=presentation,
+    )
+    package = types.ModuleType("mhcflurry")
+    package.__version__ = "2.2.1"
+    package.Class1PresentationPredictor = types.SimpleNamespace(load=lambda path: backend)
+    package.Class1AffinityPredictor = types.SimpleNamespace(load=lambda path: aff)
+    downloads = types.ModuleType("mhcflurry.downloads")
+    downloads.get_current_release = lambda: "2.2.0"
+    downloads.get_path = lambda *args, **kwargs: str(tmp_path / "official")
+    downloads.get_default_class1_models_dir = lambda **kwargs: downloads.get_path()
+    downloads.get_default_class1_presentation_models_dir = lambda **kwargs: downloads.get_path()
+    package.downloads = downloads
+    monkeypatch.setitem(sys.modules, "mhcflurry", package)
+    monkeypatch.setitem(sys.modules, "mhcflurry.downloads", downloads)
+    monkeypatch.setattr(wrapper, "_model_cache", {})
+
+    source = tmp_path / "input.fasta"
+    source.write_text(">first\nSIINFEKLA\n>second\nGILGFVFTL\n")
+    inputs = ["--peptide-fasta" if input_kind == "peptide" else "--fasta", str(source)]
+    live = tmp_path / "live.csv"
+    assert main([
+        *inputs, "--mhc-predictor", predictor_name, "--mhc-alleles", "HLA-A*02:01",
+        "--mhc-peptide-lengths", "9", "--output-csv", str(live),
+    ]) == 0
+    capsys.readouterr()
+    stored = pd.read_csv(live, index_col="#")
+    assert set(stored.predictor_version) == {"2.2.1+release-2.2.0"}
+    assert set(stored.loc[stored.kind == "pMHC_affinity", "value"]) == {11.0, 22.0}
+
+    # Replay must not consult whichever MHCflurry happens to be installed now.
+    monkeypatch.setitem(sys.modules, "mhcflurry", None)
+    monkeypatch.setitem(sys.modules, "mhcflurry.downloads", None)
+    assert main([*inputs, "--mhc-cache-file", str(live), "--output-csv", "-"]) == 0
+    replayed = pd.read_csv(StringIO(capsys.readouterr().out), index_col="#")
+    columns = [
+        "peptide", "kind", "allele", "value", "score", "percentile_rank",
+        "prediction_method_name", "predictor_version", "n_flank", "c_flank",
+    ]
+    if "allele_set" in stored:
+        columns.append("allele_set")
+    else:
+        assert replayed.allele_set.isna().all()  # no genotype context on affinity-only rows
+    order = ["peptide", "kind", "allele"]
+    pd.testing.assert_frame_equal(
+        stored[columns].sort_values(order).reset_index(drop=True),
+        replayed[columns].sort_values(order).reset_index(drop=True),
+    )
+
+
 @pytest.mark.parametrize("scenario, allowed", [
     ("absent", True), ("published", False), ("timeout", False),
     ("http_error", False), ("bad_metadata", False), ("wrong_version", False),

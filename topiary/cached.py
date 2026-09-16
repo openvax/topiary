@@ -382,8 +382,9 @@ class CachedPredictor:
         if missing:
             raise ValueError(
                 f"CachedPredictor rows missing required columns: "
-                f"{sorted(missing)}.  Provide them in the DataFrame or "
-                f"pass predictor_name / predictor_version to the loader."
+                f"{sorted(missing)}. Provide these columns in the input; "
+                "only prediction_method_name and predictor_version can be "
+                "supplied through the loader's same-named arguments."
             )
         # Reject null / empty identity columns before coercing to str.
         # known_versions is the one definition of "was this stated at
@@ -397,7 +398,7 @@ class CachedPredictor:
                     f"string on every row (got {int(na_mask.sum())} "
                     f"null/empty value(s)).  Silent None/NaN would mask "
                     f"the version invariant — supply a value via the "
-                    f"loader's predictor_name / predictor_version args."
+                    f"loader's prediction_method_name / predictor_version args."
                 )
         # Reject null / empty kind the same way — multi-kind cache
         # keys on (peptide, allele, length, kind); NaN/missing kind
@@ -1011,20 +1012,50 @@ class CachedPredictor:
         fallback=None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
-        """Construct from an in-memory DataFrame.
+        """Construct a cache, filling missing provenance without relabeling it.
 
-        ``prediction_method_name`` / ``predictor_version`` backfill
-        columns when the DataFrame doesn't already carry them — one of
-        the two sources (column or argument) must populate each of the
-        required columns.
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Prediction rows. An empty frame requires a fallback predictor.
+            The caller's frame is not modified.
+        prediction_method_name, predictor_version : str, optional
+            Provenance supplied by the caller for absent columns or unstated
+            cells. Existing stated values must agree; conflicts raise
+            ``ValueError`` rather than hiding mixed methods or versions.
+            No identity is inferred from the currently installed software.
+        fallback : predictor, optional
+            Predictor to query for entries absent from the cache.
+        also_accept_versions : iterable of str, optional
+            Additional fallback versions explicitly accepted by the caller.
+
+        Returns
+        -------
+        CachedPredictor
+            Cache retaining the stored measurements and their provenance.
         """
         df = df.copy()
-        if ("prediction_method_name" not in df.columns
-                and prediction_method_name is not None):
-            df["prediction_method_name"] = prediction_method_name
-        if ("predictor_version" not in df.columns
-                and predictor_version is not None):
-            df["predictor_version"] = predictor_version
+        for column, supplied in (
+            ("prediction_method_name", prediction_method_name),
+            ("predictor_version", predictor_version),
+        ):
+            if supplied is None:
+                continue
+            if not is_stated(supplied):
+                raise ValueError(f"{column} must be a non-empty provenance value.")
+            supplied = str(supplied)
+            if column not in df.columns:
+                df[column] = supplied
+                continue
+            stated = stated_values(df[column])
+            recorded = set(df.loc[stated, column].astype(str))
+            if recorded - {supplied}:
+                raise ValueError(
+                    f"Supplied {column} {supplied!r} conflicts with recorded "
+                    f"values {sorted(recorded)!r}. Provenance arguments fill "
+                    "missing cells; they do not relabel recorded predictions."
+                )
+            df[column] = df[column].where(stated, supplied)
         if "peptide_length" not in df.columns and "length" in df.columns:
             df = df.rename(columns={"length": "peptide_length"})
         if "peptide_length" not in df.columns and "peptide" in df.columns:
@@ -1036,23 +1067,53 @@ class CachedPredictor:
     @classmethod
     def from_topiary_output(
         cls, path, *, fallback=None,
+        prediction_method_name: Optional[str] = None,
+        predictor_version: Optional[str] = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
-        """Load a DataFrame previously written by topiary's prediction
-        output (Parquet or TSV/CSV).  The expected columns match
-        topiary's ``_predict_raw*`` schema; extraneous columns are
-        dropped."""
+        """Load saved prediction rows without inferring their historical identity.
+
+        Parameters
+        ----------
+        path : str or path-like
+            Topiary output in Parquet, CSV, TSV, or compressed TSV format.
+            Extra pipeline columns are ignored; stored measurements are kept.
+        prediction_method_name, predictor_version : str, optional
+            Fill absent provenance as in :meth:`from_dataframe`. Existing
+            stated values must agree; the current installation is not evidence
+            of which model generated an archived file.
+        fallback : predictor, optional
+            Predictor to query for entries absent from the cache. An empty
+            table without a fallback is rejected.
+        also_accept_versions : iterable of str, optional
+            Additional fallback versions explicitly accepted by the caller.
+
+        Returns
+        -------
+        CachedPredictor
+            Loaded predictions. Invalid tables raise ``ValueError`` naming
+            the input path; file-access errors propagate unchanged.
+        """
         path_str = str(path)
-        if path_str.endswith((".parquet", ".pq")):
-            df = pd.read_parquet(path_str)
-        elif path_str.endswith((".tsv", ".tsv.gz")):
-            df = pd.read_csv(path_str, sep="\t")
-        else:
-            df = pd.read_csv(path_str)
-        return cls.from_dataframe(
-            df, fallback=fallback,
-            also_accept_versions=also_accept_versions,
-        )
+        try:
+            if path_str.endswith((".parquet", ".pq")):
+                df = pd.read_parquet(path_str)
+            else:
+                df = pd.read_csv(
+                    path_str,
+                    sep="\t" if path_str.endswith((".tsv", ".tsv.gz")) else ",",
+                    converters={"prediction_method_name": str, "predictor_version": str},
+                )
+            return cls.from_dataframe(
+                df, fallback=fallback,
+                prediction_method_name=prediction_method_name,
+                predictor_version=predictor_version,
+                also_accept_versions=also_accept_versions,
+            )
+        except ValueError as error:
+            raise ValueError(
+                f"Could not load cache file {path_str!r} as topiary_output: {error}"
+            ) from error
 
     @classmethod
     def from_tsv(
@@ -1084,9 +1145,21 @@ class CachedPredictor:
         (e.g. affinity + presentation in the same file) work out of
         the box.
         """
-        df = pd.read_csv(path, sep=sep)
+        # Versions are identities, not numbers: 2.10 must not become 2.1.
+        # Converters also leave missing-value interpretation to stated_values.
+        df = pd.read_csv(path, sep=sep, converters={
+            (columns or {}).get(column, column): str
+            for column in ("prediction_method_name", "predictor_version")
+        })
         if columns:
             df = df.rename(columns={v: k for k, v in columns.items()})
+        if "kind" not in df.columns:
+            raise ValueError(
+                f"Cache TSV {str(path)!r} requires a 'kind' column on every row "
+                "(for example, pMHC_affinity). Add the column or map an existing "
+                "one with columns={'kind': 'FILE_COLUMN'}; on the CLI use "
+                "--mhc-cache-tsv-column kind=FILE_COLUMN."
+            )
         return cls.from_dataframe(
             df,
             prediction_method_name=prediction_method_name,
@@ -1421,15 +1494,35 @@ class CachedPredictor:
         pattern: str = "*",
         on_overlap: Union[str, Callable] = "raise",
         fallback=None,
+        prediction_method_name: Optional[str] = None,
+        predictor_version: Optional[str] = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
-        """Load every matching cache file in a directory and concat.
+        """Load matching topiary-output shards and concatenate them.
 
-        ``pattern`` is a glob passed to :meth:`pathlib.Path.glob`.
-        Files are loaded via :meth:`from_topiary_output` (any
-        extension it handles — Parquet, TSV, TSV.gz, CSV — works).
-        All files must share ``(name, version)`` per the core
-        invariant.  ``on_overlap`` follows :meth:`concat` semantics.
+        Parameters
+        ----------
+        path : str or path-like
+            Directory of saved Topiary predictions, not raw predictor output.
+            A missing directory or a pattern matching no files raises
+            ``ValueError``. Malformed tables name the offending shard.
+        pattern : str, optional
+            Glob passed to :meth:`pathlib.Path.glob`; defaults to all files.
+        on_overlap : str or callable, optional
+            Duplicate-key policy, following :meth:`concat` semantics.
+        prediction_method_name, predictor_version : str, optional
+            Fill missing provenance in each shard via :meth:`from_topiary_output`.
+            Conflicting recorded values are refused, not overwritten.
+        fallback : predictor, optional
+            Predictor to query for entries absent from the combined cache.
+        also_accept_versions : iterable of str, optional
+            Additional fallback versions explicitly accepted by the caller.
+
+        Returns
+        -------
+        CachedPredictor
+            Combined cache. All shards must agree on method and version;
+            separate files do not relax the single-identity invariant.
         """
         directory = Path(path)
         if not directory.is_dir():
@@ -1445,7 +1538,10 @@ class CachedPredictor:
                 f"CachedPredictor.from_directory: no files matching "
                 f"{pattern!r} in {path!r}."
             )
-        shards = [cls.from_topiary_output(f) for f in files]
+        shards = [cls.from_topiary_output(
+            f, prediction_method_name=prediction_method_name,
+            predictor_version=predictor_version,
+        ) for f in files]
         return cls.concat(
             shards,
             on_overlap=on_overlap,
@@ -1845,12 +1941,12 @@ def mhcflurry_composite_version() -> str:
 
     Returns a string like ``"2.2.1+release-2.2.0"`` — the Python
     package version joined to the mhcflurry model-data release
-    currently installed via ``mhcflurry-downloads fetch``.  Two
-    systems whose :func:`mhcflurry_composite_version` outputs match
-    should produce interchangeable mhcflurry predictions.
+    currently configured via ``mhcflurry-downloads fetch``. This is
+    official-release provenance, not a checksum of the weights.
 
-    The helper introspects the locally-installed mhcflurry; the user
-    never has to enumerate model bundles manually.
+    Delegates to mhctools' public implementation, also used when loading
+    live models. Custom/default-overridden model paths require explicit
+    provenance rather than inheriting the official release label.
 
     Raises
     ------
@@ -1858,33 +1954,9 @@ def mhcflurry_composite_version() -> str:
         If mhcflurry isn't installed, or no model release is configured
         (run ``mhcflurry-downloads fetch`` first).
     """
+    from mhctools import mhcflurry_composite_version as compose_version
+
     try:
-        import mhcflurry
-        import mhcflurry.downloads
-    except ImportError as e:
-        raise PredictorSetupError(
-            "mhcflurry is not installed — cannot derive a composite "
-            "version.  Install mhcflurry or pass predictor_version "
-            "explicitly."
-        ) from e
-    pkg = getattr(mhcflurry, "__version__", None)
-    if not pkg:
-        raise PredictorSetupError(
-            "mhcflurry is installed but exposes no __version__; cannot "
-            "derive a composite version — pass predictor_version "
-            "explicitly."
-        )
-    try:
-        release = mhcflurry.downloads.get_current_release()
-    except Exception as e:
-        raise PredictorSetupError(
-            f"Could not read mhcflurry's current model release: {e!r}.  "
-            f"Pass predictor_version explicitly."
-        ) from e
-    if not release:
-        raise PredictorSetupError(
-            "mhcflurry has no active model release.  Run "
-            "`mhcflurry-downloads fetch` or pass predictor_version "
-            "explicitly."
-        )
-    return f"{pkg}+release-{release}"
+        return compose_version()
+    except RuntimeError as error:
+        raise PredictorSetupError(str(error)) from error

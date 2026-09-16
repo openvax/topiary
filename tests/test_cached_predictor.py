@@ -116,6 +116,19 @@ def _key(peptide, allele="HLA-A*02:01", length=9, kind="pMHC_affinity",
 
 
 class TestConstruction:
+    def test_tsv_mapped_identity_preserves_lexical_values(self, tmp_path):
+        frame = _df([_row(predictor_name="007", predictor_version="2.10")])
+        frame = frame.rename(columns={
+            "prediction_method_name": "Method", "predictor_version": "Version",
+        })
+        path = tmp_path / "mapped.tsv"
+        frame.to_csv(path, sep="\t", index=False)
+        cache = CachedPredictor.from_tsv(path, columns={
+            "prediction_method_name": "Method", "predictor_version": "Version",
+        })
+        assert cache.prediction_method_name == "007"
+        assert cache.predictor_version == "2.10"
+
     def test_from_dataframe_minimal(self):
         cache = CachedPredictor.from_dataframe(_df([_row()]))
         assert cache.prediction_method_name == "random"
@@ -535,24 +548,46 @@ class TestMhcflurryCompositeVersion:
         fake_mhcflurry.__version__ = version
         fake_downloads = types.ModuleType("mhcflurry.downloads")
         fake_downloads.get_current_release = lambda: release
+        fake_downloads.get_path = lambda *args, **kwargs: "/models/official"
+        fake_downloads.get_default_class1_presentation_models_dir = \
+            lambda **kwargs: "/models/official"
         fake_mhcflurry.downloads = fake_downloads
         monkeypatch.setitem(sys.modules, "mhcflurry", fake_mhcflurry)
         monkeypatch.setitem(sys.modules, "mhcflurry.downloads", fake_downloads)
 
     def test_returns_composite_string(self, monkeypatch):
+        from tests.test_twin_conformance import mhcflurry_version_twins
+
         self._stub_mhcflurry(monkeypatch, version="2.2.1", release="2.2.0")
-        assert mhcflurry_composite_version() == "2.2.1+release-2.2.0"
+        assert {compose() for _, compose in mhcflurry_version_twins()} == {"2.2.1+release-2.2.0"}
 
     def test_raises_when_mhcflurry_missing(self, monkeypatch):
         import sys
+        from tests.test_twin_conformance import mhcflurry_version_twins
+
         monkeypatch.setitem(sys.modules, "mhcflurry", None)
-        with pytest.raises(RuntimeError, match="not installed"):
-            mhcflurry_composite_version()
+        for _, compose in mhcflurry_version_twins():
+            with pytest.raises(RuntimeError, match="not installed"):
+                compose()
 
     def test_raises_when_release_missing(self, monkeypatch):
+        from tests.test_twin_conformance import mhcflurry_version_twins
+
         self._stub_mhcflurry(monkeypatch, release="")
-        with pytest.raises(RuntimeError, match="no active model release"):
-            mhcflurry_composite_version()
+        for _, compose in mhcflurry_version_twins():
+            with pytest.raises(RuntimeError, match="no active model release"):
+                compose()
+
+    def test_both_refuse_default_directory_overridden_with_custom_weights(self, monkeypatch):
+        import sys
+        from tests.test_twin_conformance import mhcflurry_version_twins
+
+        self._stub_mhcflurry(monkeypatch)
+        sys.modules["mhcflurry.downloads"].get_default_class1_presentation_models_dir = \
+            lambda **kwargs: "/models/custom"
+        for _, compose in mhcflurry_version_twins():
+            with pytest.raises(RuntimeError, match="custom"):
+                compose()
 
     def test_from_mhcflurry_autocomposes_version(self, monkeypatch, tmp_path):
         self._stub_mhcflurry(monkeypatch, version="2.2.1", release="2.2.0")

@@ -62,6 +62,16 @@ class TestCachedPredictorCliErrors:
 
 @pytest.mark.skipif(not _HAS_FIXTURES, reason="NetMHC fixtures missing")
 class TestCachedPredictorCliHappyPath:
+    def test_known_format_refuses_a_method_name_override(self, tmp_path):
+        csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
+        with pytest.raises(ValueError, match="--mhc-cache-predictor-name"):
+            _run([
+                "--peptide-csv", csv,
+                "--mhc-cache-file", str(_FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A0201.out"),
+                "--mhc-cache-format", "netmhcpan",
+                "--mhc-cache-predictor-name", "different-model",
+            ])
+
     def test_netmhcpan_stdout_wires_cli_to_loader(self, tmp_path):
         fixture = _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A0201.out"
         csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")

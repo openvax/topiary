@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.59.2
+
+- Require mhctools 3.44.26 so live MHCflurry output records model provenance
+  and reloads as a cache (#323); reuse its public version-composition rule.
+- Honor missing-provenance arguments for topiary output and directory shards,
+  refusing conflicts with recorded method/version values. Preserve lexical
+  versions such as `2.10` across text loading (#332).
+- Explain the generic TSV `kind` requirement and mapping in CLI help/errors.
+  Preserve missing/unreadable file errors and name malformed cache shards.
+
 ## 5.59.1
 
 - Honor requested peptide lengths in cached protein scans before generating

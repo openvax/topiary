@@ -103,6 +103,31 @@ first_run_df.to_parquet("run.parquet", index=False)
 cache = CachedPredictor.from_topiary_output("run.parquet")
 ```
 
+Live MHCflurry output now records its package and official model release when
+the weights are loaded (mhctools 3.44.26+, required by Topiary). That identity
+survives replay without consulting the MHCflurry installation on the machine
+reading the cache. Custom or injected weights need an explicit
+`predictor_version` when constructing the MHCflurry wrapper; they are not labeled
+as the default release.
+
+For older output missing provenance, supply the identity of the **original
+run**, not whichever model is installed now:
+
+```bash
+topiary --peptide-csv peptides.csv --mhc-cache-file old-run.csv \
+    --mhc-cache-format topiary_output \
+    --mhc-cache-predictor-version '2.2.1+release-2.2.0' \
+    --output-csv replay.csv
+```
+
+The version above is an example: use it only if it describes the generating
+run. `--mhc-cache-predictor-name` likewise fills missing method names. These
+arguments fill absent columns and unstated cells; conflicting recorded values
+raise an error, never silently relabel the predictions. The library loaders
+accept the same `prediction_method_name` and `predictor_version` arguments,
+including `from_directory`. Numeric-looking versions stay text: `2.10` is not
+changed into `2.1`.
+
 Schema: every column `_predict_raw*` produces is preserved. Topiary
 overlay columns (`fragment_id`, `wt_peptide`, etc.) are kept in the
 file but ignored on lookup — the cache is the predictor output, not
@@ -152,7 +177,8 @@ The loader maps mhcflurry's `mhcflurry_affinity` /
 columns onto topiary's canonical `affinity` / `percentile_rank` /
 `score`. `predictor_version` is auto-composed from the installed
 mhcflurry — see [mhcflurry version composition](#mhcflurry-version-composition)
-below.
+below. Automatic composition is appropriate only when that installation and
+bundle generated the file; otherwise pass its original `predictor_version`.
 
 ### Generic TSV / CSV with column mapping
 
@@ -175,7 +201,12 @@ cache = CachedPredictor.from_tsv(
 
 `columns` maps canonical cache columns to the column names in your
 file. `prediction_method_name` and `predictor_version` are required
-when the file doesn't embed that identity.
+when the file doesn't embed that identity. They also fill unstated cells and
+reject conflicts with recorded values.
+
+Every row must carry `kind`, such as `pMHC_affinity`, either under that name
+or mapped from another column (`columns={"kind": "Assay"}`). The loader does
+not guess the kind from a score column or predictor label.
 
 Pass `sep=","` for CSV files.
 
@@ -197,6 +228,8 @@ cache = CachedPredictor.from_directory(
 Every shard must share the same
 `(prediction_method_name, predictor_version)` — the core invariant
 applies across shards the same way it applies inside one.
+Malformed shards report their filename and the required `topiary_output`
+format. Missing or unreadable files report the underlying file-access error.
 
 **Overlap resolution** (`on_overlap=`):
 
@@ -381,16 +414,18 @@ topiary --peptide-csv peptides.csv \
 ```
 
 Generic TSV with column mapping (`--mhc-cache-format tsv` is required
-here since generic tables can't be auto-detected):
+here since generic tables can't be auto-detected). This example requires an
+`Assay` column containing the kind of each measurement, e.g. `pMHC_affinity`:
 
 ```bash
 topiary --peptide-csv peptides.csv \
     --mhc-cache-file third_party.tsv \
     --mhc-cache-format tsv \
-    --mhc-cache-predictor-name netchop \
+    --mhc-cache-predictor-name my-affinity-model \
     --mhc-cache-predictor-version 3.1 \
     --mhc-cache-tsv-column affinity=IC50_nM \
     --mhc-cache-tsv-column percentile_rank=Rank \
+    --mhc-cache-tsv-column kind=Assay \
     --output-csv results.csv
 ```
 
@@ -411,8 +446,8 @@ Full flag reference:
 | `--mhc-cache-directory PATH` | Directory of shards; each file loaded via `from_topiary_output` and concatenated. Alternative to `--mhc-cache-file`. |
 | `--mhc-cache-directory-pattern GLOB` | Pattern for `--mhc-cache-directory`. Default `*`. |
 | `--mhc-cache-format FORMAT` | Optional — sniffed from file content when omitted (see above). One of `topiary_output`, `mhcflurry`, `tsv`, `netmhcpan`, `netmhc`, `netmhccons`, `netmhciipan`, `netmhcstabpan`. Only `tsv` strictly requires the explicit flag. |
-| `--mhc-cache-predictor-name NAME` | Override `prediction_method_name` (required for `tsv` when not in the file). |
-| `--mhc-cache-predictor-version V` | Override `predictor_version`. Auto-inferred for NetMHC stdout captures (parsed from preamble) and mhcflurry (composite from local install). |
+| `--mhc-cache-predictor-name NAME` | Fill missing `prediction_method_name` in generic TSV, topiary output or directory shards; recorded values must agree. Other formats already identify their predictor. |
+| `--mhc-cache-predictor-version V` | Supply version provenance. For generic TSV, topiary output and shards, fills missing values and rejects conflicts. NetMHC stdout defaults to its preamble; raw MHCflurry defaults to the configured official local bundle. |
 | `--mhc-cache-tsv-column CANONICAL=FILE_COL` | Repeatable. Column-name mapping for `tsv` format. |
 | `--mhc-cache-tsv-sep SEP` | Separator for `tsv`. Default tab. |
 | `--mhc-cache-netmhc-version V` | `3`, `4`, or `4.1` for classic NetMHC output. Default `4`. |
