@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.59.1
+
+- Honor requested peptide lengths in cached protein scans before generating
+  windows (#329). The legacy `--mhc-epitope-lengths` flag follows the same
+  precedence as live predictors; missing lengths are checked after allele
+  selection.
+- Expose available lengths separately from the selected scan lengths on
+  `CachedPredictor`. Selection preserves stored measurements and explicit
+  peptide lookups; assigning `None` restores scans across available lengths.
+
 ## 5.59.0
 
 - Show a compact table of the first 20 filtered, ranked prediction rows when

@@ -30,6 +30,7 @@ from typing import Callable, Dict, Tuple
 import pandas as pd
 import pytest
 from packaging.requirements import Requirement
+from mhctools import RandomBindingPredictor
 
 from topiary.evidence import (
     RENAMED_COLUMNS,
@@ -37,7 +38,7 @@ from topiary.evidence import (
     attach_rna_evidence,
 )
 from topiary import (
-    APPROXIMATED, MEASURED, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
+    APPROXIMATED, MEASURED, CachedPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
     read_fragments, read_pvacseq, write_fragments,
 )
 from topiary.io_isovar import _check_isovar
@@ -83,6 +84,16 @@ TWINS = (
         # `depth`; they are the same quantity per assay.
         shared={"overlapping": "depth", "vaf": "vaf"},
     ),
+)
+
+
+# Protein windows obey the selected lengths; explicit peptide lists do not.
+# The consumer workflow drives each registered live/cache pair identically.
+CACHE_LENGTH_TWINS = (
+    ("protein windows", RandomBindingPredictor.predict_proteins_dataframe,
+     CachedPredictor.predict_proteins_dataframe),
+    ("explicit peptides", RandomBindingPredictor.predict_dataframe,
+     CachedPredictor.predict_dataframe),
 )
 
 

@@ -205,6 +205,132 @@ def test_cli_csv_consumer_can_close_the_pipe_early(cli_output_request):
     assert html.read_text().count("<tr>") == 4500
 
 
+@pytest.fixture(params=["file", "directory"])
+def cached_length_request(tmp_path, request):
+    """Distinct stored measurements make selection errors visible (#329)."""
+    proteins = tmp_path / "proteins.fasta"
+    proteins.write_text(">protein\nSIINFEKLA\n")
+    rows = []
+    for peptide, value in (("SIINFEKL", 11.0), ("IINFEKLA", 22.0), ("SIINFEKLA", 33.0)):
+        for kind, allele, measurement in (
+            ("pMHC_affinity", "HLA-A*02:01", value),
+            ("antigen_processing", "", value / 100),
+        ):
+            rows.append(dict(
+                peptide=peptide, peptide_length=len(peptide), kind=kind,
+                allele=allele, value=measurement, score=measurement / 100,
+                affinity=value if allele else None, percentile_rank=value / 10,
+                prediction_method_name="synthetic", predictor_version="1",
+            ))
+    frame = pd.DataFrame(rows)
+    if request.param == "file":
+        cache = tmp_path / "cache.csv"
+        frame.to_csv(cache, index=False)
+        cache_args = ["--mhc-cache-file", str(cache)]
+    else:
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        for length, shard in frame.groupby("peptide_length"):
+            shard.to_csv(cache / f"{length}.csv", index=False)
+        cache_args = ["--mhc-cache-directory", str(cache)]
+    return ["--fasta", str(proteins), *cache_args], frame
+
+
+@pytest.mark.parametrize("length_args,peptides", [
+    ([], {"SIINFEKL", "IINFEKLA", "SIINFEKLA"}),
+    (["--mhc-peptide-lengths", "8"], {"SIINFEKL", "IINFEKLA"}),
+    (["--mhc-peptide-lengths", "9"], {"SIINFEKLA"}),
+    (["--mhc-epitope-lengths", "9"], {"SIINFEKLA"}),
+    (["--mhc-peptide-lengths", "9", "--mhc-epitope-lengths", "8"], {"SIINFEKLA"}),
+])
+def test_cached_scan_selects_lengths_without_changing_stored_values(
+    cached_length_request, length_args, peptides, tmp_path, capsys,
+):
+    from topiary.cli.script import main
+
+    args, stored = cached_length_request
+    files_before = {path: path.read_bytes() for path in tmp_path.rglob("*.csv")}
+    assert main(args + length_args + ["--mhc-alleles", "HLA-A*02:01", "--output-csv", "-"]) == 0
+    result = pd.read_csv(StringIO(capsys.readouterr().out), index_col="#")
+    assert set(result.peptide) == peptides
+    assert set(result.kind) == {"pMHC_affinity", "antigen_processing"}
+    columns = ["peptide", "kind", "value", "affinity", "percentile_rank", "score"]
+    expected = stored[stored.peptide.isin(peptides)]
+    pd.testing.assert_frame_equal(
+        result[columns].sort_values(["peptide", "kind"]).reset_index(drop=True),
+        expected[columns].sort_values(["peptide", "kind"]).reset_index(drop=True),
+    )
+    assert all(path.read_bytes() == contents for path, contents in files_before.items())
+
+
+def test_cached_scan_does_not_look_up_unrequested_windows(tmp_path):
+    from topiary.cli.args import arg_parser, predict_epitopes_from_args
+
+    fasta = tmp_path / "proteins.fasta"
+    fasta.write_text(">protein\nSIINFEKLA\n")
+    cache = tmp_path / "cache.csv"
+    pd.DataFrame([
+        dict(peptide=peptide, peptide_length=len(peptide), allele="HLA-A*02:01",
+             kind="pMHC_affinity", value=value, affinity=value,
+             prediction_method_name="synthetic", predictor_version="1")
+        for peptide, value in (("AAAAAAAA", 11.0), ("SIINFEKLA", 33.0))
+    ]).to_csv(cache, index=False)
+    args = ["--fasta", str(fasta), "--mhc-cache-file", str(cache)]
+    # The stored 8-mer advertises that length, but covers neither 8-mer in
+    # this protein. Restriction must happen before lookup, not on its output.
+    result = predict_epitopes_from_args(arg_parser.parse_args(
+        args + ["--mhc-peptide-lengths", "9"],
+    ))
+    assert list(result.peptide) == ["SIINFEKLA"]
+    assert list(result.value) == [33.0]
+
+
+@pytest.mark.parametrize("flag", ["--mhc-peptide-lengths", "--mhc-epitope-lengths"])
+def test_cached_scan_refuses_missing_requested_lengths(cached_length_request, flag):
+    from topiary.cli.args import arg_parser, predict_epitopes_from_args
+
+    args, _ = cached_length_request
+    with pytest.raises(ValueError, match="lengths"):
+        predict_epitopes_from_args(arg_parser.parse_args(args + [flag, "8,9,10"]))
+
+
+def test_cached_peptides_and_filters_preserve_stored_measurements(cached_length_request, tmp_path):
+    from topiary.cli.args import arg_parser, predict_epitopes_from_args
+
+    args, _ = cached_length_request
+    peptides = tmp_path / "peptides.csv"
+    peptides.write_text("peptide\nSIINFEKL\nSIINFEKLA\n")
+    args = ["--peptide-csv", str(peptides), *args[2:], "--mhc-peptide-lengths", "9"]
+    before = predict_epitopes_from_args(arg_parser.parse_args(args))
+    after = predict_epitopes_from_args(arg_parser.parse_args(args + ["--filter-by", "ba < 20"]))
+    assert set(before.peptide) == {"SIINFEKL", "SIINFEKLA"}  # explicit inputs, not windows
+    assert set(after.peptide) == {"SIINFEKL"}
+    assert after.loc[after.kind == "pMHC_affinity", "value"].tolist() == [11.0]
+
+
+@pytest.mark.parametrize("lengths", [[8], [9], [8, 9]])
+def test_live_and_cached_predictors_agree_on_scan_vs_explicit_lengths(lengths):
+    from mhctools import RandomBindingPredictor
+    from tests.test_twin_conformance import CACHE_LENGTH_TWINS
+
+    proteins = {"protein": "SIINFEKLA"}
+    explicit = ["SIINFEKL", "SIINFEKLA"]
+    live = RandomBindingPredictor(alleles=["HLA-A*02:01"], default_peptide_lengths=[8, 9])
+    original = TopiaryPredictor(models=live).predict_from_named_sequences(proteins)
+    original["predictor_version"] = "test"
+    cache = CachedPredictor.from_dataframe(original)
+    live.default_peptide_lengths = lengths
+    cache.default_peptide_lengths = lengths
+    for mode, live_call, cache_call in CACHE_LENGTH_TWINS:
+        inputs = proteins if mode == "protein windows" else explicit
+        outputs = [call(model, inputs) for call, model in ((live_call, live), (cache_call, cache))]
+        assert sorted(outputs[0].peptide) == sorted(outputs[1].peptide)
+        if mode == "protein windows":
+            assert set(outputs[1].peptide.str.len()) == set(lengths)
+        else:
+            assert set(outputs[1].peptide) == set(explicit)
+
+
 @pytest.mark.parametrize("scenario, allowed", [
     ("absent", True), ("published", False), ("timeout", False),
     ("http_error", False), ("bad_metadata", False), ("wrong_version", False),

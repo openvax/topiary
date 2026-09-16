@@ -48,6 +48,54 @@ def _df(rows):
     return pd.DataFrame(rows)
 
 
+def test_scan_length_selection_can_be_changed_and_reset_without_losing_rows(tmp_path):
+    cache = CachedPredictor(_df([_row(peptide="SIINFEKL"), _row(peptide="SIINFEKLA")]))
+    original = cache.to_dataframe()
+    requested = [9, 9]
+    cache.default_peptide_lengths = requested
+    requested.append(10)
+    reported = cache.default_peptide_lengths
+    reported.append(11)
+    assert cache.default_peptide_lengths == [9]
+    assert cache.available_peptide_lengths == [8, 9]
+    path = tmp_path / "cache.csv"
+    cache.save(path)
+    restored = CachedPredictor.from_topiary_output(path)
+    assert restored.default_peptide_lengths == [8, 9]
+    pd.testing.assert_frame_equal(
+        restored.to_dataframe()[["peptide", "affinity"]],
+        original[["peptide", "affinity"]],
+    )
+    cache.default_peptide_lengths = [8]
+    assert cache.default_peptide_lengths == [8]
+    cache.default_peptide_lengths = None
+    assert cache.default_peptide_lengths == [8, 9]
+    pd.testing.assert_frame_equal(original, cache.to_dataframe())
+
+
+@pytest.mark.parametrize("lengths", [[], [0], [-9], [9.5], [True], ["9"], [10]])
+def test_invalid_scan_lengths_leave_the_previous_selection_intact(lengths):
+    cache = CachedPredictor(_df([_row()]))
+    cache.default_peptide_lengths = [9]
+    with pytest.raises(ValueError, match="lengths"):
+        cache.default_peptide_lengths = lengths
+    assert cache.default_peptide_lengths == [9]
+
+
+def test_selected_lengths_can_use_fallback_coverage_without_losing_existing_values():
+    cache = CachedPredictor(
+        _df([_row(peptide="SIINFEKL", affinity=11.0)]),
+        fallback=_matched_fallback(name="random", version="1.0"),
+    )
+    cache.default_peptide_lengths = [9]
+    assert cache.available_peptide_lengths == [8, 9]
+    scanned = cache.predict_proteins_dataframe({"protein": "SIINFEKLA"})
+    assert list(scanned.peptide) == ["SIINFEKLA"]
+    replayed = cache.predict_peptides_dataframe(["SIINFEKL"])
+    assert replayed.affinity.tolist() == [11.0]
+    assert cache.default_peptide_lengths == [9]
+
+
 # ---------------------------------------------------------------------------
 # Construction + invariant
 # ---------------------------------------------------------------------------
