@@ -1,0 +1,280 @@
+{
+  "upstream_commit": "db233f251b4dd965451db7cb3207162465c83c4a",
+  "evidence_sha256": "2d0a0ca3bf36a3ab71a4f652188397dd7cd4de3fcf355c1cc5fe01e6a45d433d",
+  "source_receipts": {
+    "T1-ONT-tagged": {
+      "id": "T1-ONT-tagged",
+      "sample": "T1",
+      "product": "ONT-tagged",
+      "url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT.tagged.bam",
+      "command": [
+        "samtools",
+        "view",
+        "--no-PG",
+        "-b",
+        "-M",
+        "-X",
+        "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT.tagged.bam",
+        "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT.tagged.bam.bai",
+        "chr9:133055893-133059893",
+        "chr17:80325830-80329830",
+        "chr9:3854149-3858149",
+        "chr14:55625965-55629965",
+        "chr10:77845921-77935452",
+        "chr2:99663095-99673223",
+        "chr19:10487683-10497894",
+        "chr6:29610906-29614906",
+        "chr6:44216908-44220908",
+        "chr15:31741670-31745670",
+        "chr15:33041479-33045479",
+        "chr7:66203522-66207522",
+        "chr7:66125704-66129704",
+        "chr6:108609245-108613245",
+        "chr17:63743980-63747980",
+        "chr2:205308103-205312103",
+        "chr9:22005648-22009648",
+        "-o",
+        "/private/tmp/osteosarc-rna-footprints-20260917/inputs/T1-ONT-tagged/regions.bam"
+      ],
+      "regions": [
+        "chr9:133055893-133059893",
+        "chr17:80325830-80329830",
+        "chr9:3854149-3858149",
+        "chr14:55625965-55629965",
+        "chr10:77845921-77935452",
+        "chr2:99663095-99673223",
+        "chr19:10487683-10497894",
+        "chr6:29610906-29614906",
+        "chr6:44216908-44220908",
+        "chr15:31741670-31745670",
+        "chr15:33041479-33045479",
+        "chr7:66203522-66207522",
+        "chr7:66125704-66129704",
+        "chr6:108609245-108613245",
+        "chr17:63743980-63747980",
+        "chr2:205308103-205312103",
+        "chr9:22005648-22009648"
+      ],
+      "assembly": "GRCh38",
+      "acquired_at": "2026-09-17T04:44:18.426775+00:00",
+      "bam_sha256": "aacc5a2c97c497372625e25cf310739b7f9ec0a443c8e75a191d8bea403d4bb1",
+      "index_sha256": "abd5bd5c11ecc2985f80377fbc6763e5537bf137816952385d5c97623817464d"
+    },
+    "T2-ONT-tagged": {
+      "id": "T2-ONT-tagged",
+      "sample": "T2",
+      "product": "ONT-tagged",
+      "url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT.tagged.bam",
+      "command": [
+        "samtools",
+        "view",
+        "--no-PG",
+        "-b",
+        "-M",
+        "-X",
+        "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT.tagged.bam",
+        "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT.tagged.bam.bai",
+        "chr9:133055893-133059893",
+        "chr17:80325830-80329830",
+        "chr9:3854149-3858149",
+        "chr14:55625965-55629965",
+        "chr10:77845921-77935452",
+        "chr2:99663095-99673223",
+        "chr19:10487683-10497894",
+        "chr6:29610906-29614906",
+        "chr6:44216908-44220908",
+        "chr15:31741670-31745670",
+        "chr15:33041479-33045479",
+        "chr7:66203522-66207522",
+        "chr7:66125704-66129704",
+        "chr6:108609245-108613245",
+        "chr17:63743980-63747980",
+        "chr2:205308103-205312103",
+        "chr9:22005648-22009648",
+        "-o",
+        "/private/tmp/osteosarc-rna-footprints-20260917/inputs/T2-ONT-tagged/regions.bam"
+      ],
+      "regions": [
+        "chr9:133055893-133059893",
+        "chr17:80325830-80329830",
+        "chr9:3854149-3858149",
+        "chr14:55625965-55629965",
+        "chr10:77845921-77935452",
+        "chr2:99663095-99673223",
+        "chr19:10487683-10497894",
+        "chr6:29610906-29614906",
+        "chr6:44216908-44220908",
+        "chr15:31741670-31745670",
+        "chr15:33041479-33045479",
+        "chr7:66203522-66207522",
+        "chr7:66125704-66129704",
+        "chr6:108609245-108613245",
+        "chr17:63743980-63747980",
+        "chr2:205308103-205312103",
+        "chr9:22005648-22009648"
+      ],
+      "assembly": "GRCh38",
+      "acquired_at": "2026-09-17T04:44:47.418965+00:00",
+      "bam_sha256": "b8bda5b225fbc151bc038e5ff6897cd426d4839296067a0ae569b6ffeccfac36",
+      "index_sha256": "9dbd47cc9e5d2c27ddec445335326d871dd634c32e85ea39d15eaa03edb97a11"
+    }
+  },
+  "observed_paths": [
+    {
+      "event": "GABBR1--SLC29A1",
+      "source": "T1-ONT-tagged",
+      "read_id": "9f9fd832-b616-4134-91d0-660448f66d32_0",
+      "cell_umi": "ACGGGTCTCAGATAAG/TTTTTCGCCT",
+      "sam_sha256": [
+        "f96be085330ce5bca01d553d057f138353d9a52e096de4771d32f99276b614a3",
+        "1c9c9507bcbb43644cbc55a48e5531d7de9a7c2568b260758848a657a3ac0b2d"
+      ]
+    },
+    {
+      "event": "GABBR1--SLC29A1",
+      "source": "T1-ONT-tagged",
+      "read_id": "afbb06a2-2607-4635-9b85-1ac6339178fa_0",
+      "cell_umi": "AGCCTAAGTGAGTATA/CCTACACGGA",
+      "sam_sha256": [
+        "cb53b669354cb0f0bf6b9382ebd289e6b07bb6dfa371ae462f4b74d1bf8883c6",
+        "99395703098d0e5555fef72a7eca6491cbe38b026f977c96d4b5d4f6143529c7"
+      ]
+    },
+    {
+      "event": "GABBR1--SLC29A1",
+      "source": "T2-ONT-tagged",
+      "read_id": "7feafd66-f5c2-4092-af05-e32bc1f82159_0",
+      "cell_umi": "GGTGATGAGCCCTAGG/CGCCCTGAACAC",
+      "sam_sha256": [
+        "44c9bfdefc75109ff3237dccf739507085b54ba2bd791e11525ba5b34e451b9e",
+        "ce4d5910c11650412c2d38b690e7ff665de044134ffcc0c7636a0808a1033f27"
+      ]
+    },
+    {
+      "event": "GABBR1--SLC29A1",
+      "source": "T2-ONT-tagged",
+      "read_id": "2c50c840-cc7b-41e8-9f38-cf6da4713686_0",
+      "cell_umi": "AGCCGTCCACTCTCCG/GCTTAACCTCGG",
+      "sam_sha256": [
+        "860226fcb80021d76ca301996e1fbebe018a547a07933dbf7825d1b2429ce247",
+        "904af8b458956cb34fd35f05dd0d863bfedef3bb44c3dfe04fc11f4f168e4dd4"
+      ]
+    },
+    {
+      "event": "GABBR1--SLC29A1",
+      "source": "T2-ONT-tagged",
+      "read_id": "bac37e67-ac68-41eb-bde6-11648a5ec873_0",
+      "cell_umi": "ATCCGCACAGCTGACC/TTAAAATTAAGT",
+      "sam_sha256": [
+        "b3e9f8c6137fa7d84533c2c8f3da1edc1a23fa3721e1301f41ad5a6168159fe6",
+        "d19076c594e6cf414d046fe6ac5739f65de55b9184be567cd883df1b07c8b037"
+      ]
+    },
+    {
+      "event": "OTUD7A--FMN1",
+      "source": "T2-ONT-tagged",
+      "read_id": "80c1382b-55e1-4d21-897c-813937bfdfbe_0",
+      "cell_umi": "GTAGTAAAGGCTGGAA/GGAGCCTTTATC",
+      "sam_sha256": [
+        "0b3eda2d1bd9c4521c47dd77cf5c2560cdcf21e1f11851a2cf22ef973eac67ce",
+        "3f32c99a8e12257c0121cc23424c9b4bf7e1b34ebd0d14f3c2294e5b96aafa7a"
+      ]
+    },
+    {
+      "event": "OTUD7A--FMN1",
+      "source": "T2-ONT-tagged",
+      "read_id": "abd909d0-0095-47d8-85da-3423bd432d32_0",
+      "cell_umi": "AGTCGGGCACGCCAAC/AGCAATCTTGCT",
+      "sam_sha256": [
+        "7975be6fbb641fa1fb7144a3d0143e2564377846a1812a5f9fb752003c1ebe3a",
+        "b614afd746cf5949c8914e916d196a37bdd6ecdc2c453747fce32782f1c6d129"
+      ]
+    },
+    {
+      "event": "OTUD7A--FMN1",
+      "source": "T2-ONT-tagged",
+      "read_id": "11f12b39-61a1-43ff-b35c-3c0a23c79e45_0",
+      "cell_umi": "CGATTCAAGAAGGCTG/TGCGATTTCAGG",
+      "sam_sha256": [
+        "cdc1799ce1b455e2f8a58ae2cfb1e3bda22289d913991d8e046b2c05c17c0656",
+        "52c48ccb35d18d1c8377933eda7af4dd77ba80516bec1374189baf0f1bdd2f2a"
+      ]
+    },
+    {
+      "event": "OTUD7A--FMN1",
+      "source": "T2-ONT-tagged",
+      "read_id": "bb02c4d0-0407-4a40-9a1a-387f02599d15_0",
+      "cell_umi": "ATCTTGGAGATCTGCA/CCCCGCCGCTGC",
+      "sam_sha256": [
+        "c5f59d96d99a348592e56083ff08dffe19e6320f26dd989247d6cbce4f3d566e",
+        "abe6bdecc0efda8bb53d0acce109ba6b26f89bc80db0e64935b955eaa21f3f49"
+      ]
+    },
+    {
+      "event": "OTUD7A--FMN1",
+      "source": "T2-ONT-tagged",
+      "read_id": "4b1ae566-964c-4611-af1f-ee7dda93ba0f_1",
+      "cell_umi": "GGTTCAGGTCACGGCG/GGGGCTCTTGTC",
+      "sam_sha256": [
+        "1c573190904d7f5d43b92790bda1dd33a7cb43f740dcf9a6e90585594da6d471",
+        "603fe61459d5d225c4cbdfb9e7f21e83863d45e2fc4bf157e2902a28adb5cb84"
+      ]
+    },
+    {
+      "event": "OTUD7A--FMN1",
+      "source": "T2-ONT-tagged",
+      "read_id": "ef97d0a0-163a-446e-825e-cf5601b946d5_0",
+      "cell_umi": "ATCTTGGAGATCTGCA/CCCCGCCGCTGC",
+      "sam_sha256": [
+        "2b022276cdf50b29884f5f8bfe06f8ad6cdc77130d06bf31042cebc42d374fad",
+        "82e2bb2b83f70ab18827cf413466065665a788eb4c3cec8b5023d85f73b0383f"
+      ]
+    },
+    {
+      "event": "OTUD7A--FMN1",
+      "source": "T2-ONT-tagged",
+      "read_id": "d5a69eb3-cdff-4ece-9226-089fc510d630_0",
+      "cell_umi": "GTAGTAAAGGCTGGAA/GGAGCCTTTATC",
+      "sam_sha256": [
+        "4df8c773f48587913f822c16febdbede682e71571f045c61e01a699aeb552ad6",
+        "82bf0f082f782683a7ec13edf9298a82955ae848cffaddb440c61c8ffa929613"
+      ]
+    },
+    {
+      "event": "OTUD7A--FMN1",
+      "source": "T2-ONT-tagged",
+      "read_id": "485edf94-a4d6-4dce-8455-02da2ee2eb4b_0",
+      "cell_umi": "AGACGCAAGAAGTACA/TGCATGCGTCGA",
+      "sam_sha256": [
+        "15a776be2a8eb072dd8b18fdb799adaab8cb709356b58517d68621e550a8d98b",
+        "6c1d229256b12bdcb651f3a4313e88ebb2f03f8923e5e0652ac80726c4677eb5"
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "file": "GABBR1--SLC29A1-T1.json.gz",
+      "sha256": "8de0ce095686f5845795e2ad229658f762c4eb3e4caeca537c4c4888fdb55d54",
+      "input_sha256": "fb4e52da64c3146872c9e3abde03448daf4f2d8275ceabd444dccebc55e0020e",
+      "event": "GABBR1--SLC29A1",
+      "sample": "T1",
+      "selected_paths": 2
+    },
+    {
+      "file": "GABBR1--SLC29A1-T2.json.gz",
+      "sha256": "dec239010f9d6d2eb0f95c22b92a2db424c927475b98d7356480053c62995d24",
+      "input_sha256": "2294014f57ea4b410749a416d28e66d2b3de9d9c3844f7d35420d7cbbdeb74e4",
+      "event": "GABBR1--SLC29A1",
+      "sample": "T2",
+      "selected_paths": 3
+    },
+    {
+      "file": "OTUD7A--FMN1-T2.json.gz",
+      "sha256": "59d83961b6c3a0f3a0f014af40c09e2c6bdf2b4b7db6b92ea00f2bd9d3173b42",
+      "input_sha256": "002c7dbf456f6f31b01dc2ff6134857ac4773fcc2b6f7906d6a6ac66f308f060",
+      "event": "OTUD7A--FMN1",
+      "sample": "T2",
+      "selected_paths": 4
+    }
+  ]
+}

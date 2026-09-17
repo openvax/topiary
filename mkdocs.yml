@@ -19,6 +19,7 @@ nav:
   - Protein Fragments: fragments.md
   - Cached Predictions: cached.md
   - Reading pVACseq: pvacseq.md
+  - Osteosarc RNA Audit: osteosarc-rna-audit.md
   - Cross-reactivity: self_proteome.md
   - Ranking DSL: ranking.md
   - Peptide Properties: properties.md
