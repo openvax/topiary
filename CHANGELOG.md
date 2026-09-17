@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.60.1
+
+- Pin compact, original-row fixtures covering all 21 osteosarc pVACseq reports
+  and their 20 represented alleles. Check selected columns through import,
+  algorithm expansion and save/reload; compare paired report flavors and
+  demonstrate that predictor/threshold choices change downstream selection.
+- Preserve missing RNA annotations as missing. Pin the pre-prediction input
+  that already lacks RNA depth, VAF and expression, and document what is still
+  needed to diagnose the historical VCF annotation gap.
+
 ## 5.60.0
 
 - Require Isovar 1.17.0 for the optional RNA integration, preserving sequenced

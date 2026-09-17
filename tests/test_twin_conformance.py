@@ -44,6 +44,7 @@ from topiary import (
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
 import topiary.optional_dependencies as optional_dependencies
+from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_REPORTS, ROOT as PVACSEQ_ROOT
 
 
 @dataclass(frozen=True)
@@ -85,6 +86,38 @@ TWINS = (
         shared={"overlapping": "depth", "vaf": "vaf"},
     ),
 )
+
+
+# Real aggregated/all-epitopes doors, paired by original run and MHC view.
+PVACSEQ_CORPUS_TWINS = tuple(
+    (aggregate, next(report for report in PVACSEQ_REPORTS
+                     if report["pair"] == aggregate["pair"] and
+                     report["category"] == "all_epitopes"))
+    for aggregate in PVACSEQ_REPORTS if aggregate["category"] == "aggregated"
+)
+
+
+@pytest.mark.parametrize("aggregate,all_epitopes", PVACSEQ_CORPUS_TWINS,
+                         ids=[a["pair"] for a, _ in PVACSEQ_CORPUS_TWINS])
+def test_real_pvacseq_flavors_agree_on_selected_candidate(aggregate, all_epitopes):
+    import numpy as np
+
+    left = read_pvacseq(PVACSEQ_ROOT / aggregate["file"]).df
+    right = read_pvacseq(PVACSEQ_ROOT / all_epitopes["file"]).df
+    left = left[left.kind.eq("pMHC_affinity") & left.prediction_method_name.eq("pvacseq")]
+    right = right[right.kind.eq("pMHC_affinity") & right.prediction_method_name.eq("pvacseq")]
+    keys = ["peptide", "allele", "transcript", "gene"]
+    # April 25 has repeated NAV2 candidates under distinct pVAC input indexes.
+    # Check every matching row, rather than silently dropping duplicates.
+    matched = left.merge(right, on=keys, how="left", indicator=True,
+                         suffixes=("_agg", "_all"), validate="one_to_many")
+    assert len(left) > 0 and matched["_merge"].eq("both").all()
+    for column in ("value", "wt_value", "percentile_rank", "wt_percentile_rank",
+                  "pvacseq_tumor_rna_depth", "pvacseq_tumor_rna_vaf",
+                  "pvacseq_tumor_dna_vaf", "gene_expression"):
+        np.testing.assert_allclose(matched[column + "_agg"].astype(float),
+                                   matched[column + "_all"].astype(float),
+                                   rtol=1e-12, atol=1e-12, equal_nan=True, err_msg=column)
 
 
 # Protein windows obey the selected lengths; explicit peptide lists do not.

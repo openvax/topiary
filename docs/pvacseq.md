@@ -336,6 +336,17 @@ apply_filter(r.df, my_filter, kind_support=r.extra["kind_support"])
   individual algorithms' scores as well.
 - **No CLI flag.** The library API is the supported entry point; the existing `topiary` CLI is variant-pipeline-focused and doesn't surface `--pvacseq-input`. Pipelines that want CLI integration should wrap `read_pvacseq()` in their own script.
 
+## Real-report regression coverage
+
+The [offline osteosarc corpus](https://github.com/openvax/topiary/blob/master/tests/data/pvacseq/osteosarc/README.md) covers
+all 21 published final report schemas and their 20 represented genomic alleles.
+CI checks selected source columns through import, algorithm expansion and
+save/reload, plus paired report flavors and method-sensitive DSL filtering.
+This is not coverage of every variant on the website. Historical RNA depth,
+RNA VAF and expression are absent already in the retained pre-prediction input;
+the corpus documents the upstream annotation gap without replacing missing
+values with counts from differently identified RNA samples.
+
 ## See also
 
 - [Ranking DSL](ranking.md) — filter and sort expressions, including `Column.eq` / `.isin` / `class_i` / `class_ii`

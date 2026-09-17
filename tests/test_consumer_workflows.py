@@ -50,12 +50,57 @@ from topiary import (
     write_fragments,
 )
 from topiary.ranking import parse
+from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_CORPUS_ROOT
 
 LENS = "tests/data/lens/sample_v1_4.tsv"
 PVACSEQ = "tests/data/pvacseq/mhc_i_all_epitopes.tsv"
 PVACSEQ_PRESENTATION = (
     "tests/data/pvacseq/mhc_i_all_epitopes_presentation.tsv"
 )
+
+
+@pytest.mark.parametrize("report", PVACSEQ_CORPUS, ids=lambda r: r["file"])
+def test_real_pvacseq_selected_columns_survive_import_melt_save_reload(report, tmp_path):
+    from topiary import melt_pvacseq_algorithms, read_tsv
+    from .pvacseq_corpus_helpers import assert_selected_columns
+
+    path = PVACSEQ_CORPUS_ROOT / report["file"]
+    raw = pd.read_csv(path, sep="\t", na_values=["X"])
+    imported = melt_pvacseq_algorithms(read_pvacseq(path, tag=report["file"]))
+    saved = tmp_path / "topiary.tsv"
+    imported.to_tsv(saved)
+    restored = read_tsv(saved, tag=report["file"])
+    assert imported.sources == restored.sources
+    assert imported.extra == restored.extra
+    assert len(imported) == len(restored)
+    for result in (imported, restored):
+        assert_selected_columns(raw, result.df, report["category"] == "aggregated")
+        # A release was not recorded in these source reports. Do not invent it.
+        assert result.df.predictor_version.isna().all()
+
+
+def test_real_pvacseq_saved_cache_method_and_threshold_change_selection(tmp_path):
+    from topiary import Affinity, melt_pvacseq_algorithms, read_tsv
+
+    path = PVACSEQ_CORPUS_ROOT / "2025.04.27.mhc_class_i.all_epitopes.tsv"
+    result = melt_pvacseq_algorithms(read_pvacseq(path))
+    saved = tmp_path / "predictions.tsv"
+    result.to_tsv(saved)
+    restored = read_tsv(saved)
+
+    def selected(frame, method, threshold):
+        kept = apply_filter(frame, Affinity[method].value <= threshold)
+        return set(kept[["peptide", "allele"]].itertuples(index=False, name=None))
+
+    for frame in (result.df, restored.df):
+        stringent = selected(frame, "mhcflurry", 100)
+        permissive = selected(frame, "mhcflurry", 500)
+        other_model = selected(frame, "netmhcpan", 500)
+        assert stringent and stringent < permissive
+        assert other_model and other_model != permissive
+    for method in ("mhcflurry", "netmhcpan"):
+        for threshold in (100, 500):
+            assert selected(result.df, method, threshold) == selected(restored.df, method, threshold)
 
 
 @pytest.fixture
