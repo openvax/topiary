@@ -20,6 +20,7 @@ nav:
   - Cached Predictions: cached.md
   - Reading pVACseq: pvacseq.md
   - Osteosarc RNA Audit: osteosarc-rna-audit.md
+  - Osteosarc RNA Overlay: osteosarc-rna-overlay.md
   - Cross-reactivity: self_proteome.md
   - Ranking DSL: ranking.md
   - Peptide Properties: properties.md

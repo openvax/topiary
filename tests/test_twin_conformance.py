@@ -97,6 +97,29 @@ PVACSEQ_CORPUS_TWINS = tuple(
 )
 
 
+# Both source-flavor doors receive the same new RNA evidence; neither can
+# reinterpret counts/TPM or attach a different transcript's annotation.
+PVACSEQ_RNA_OVERLAY_TWINS = PVACSEQ_CORPUS_TWINS
+
+
+@pytest.mark.parametrize("aggregate,all_epitopes", PVACSEQ_RNA_OVERLAY_TWINS,
+                         ids=[a["pair"] for a, _ in PVACSEQ_RNA_OVERLAY_TWINS])
+def test_pvacseq_flavors_agree_on_new_rna_overlay(aggregate, all_epitopes):
+    import pandas as pd
+    from .osteosarc_overlay_helpers import add_rna
+
+    frames = []
+    for report in (aggregate, all_epitopes):
+        path = PVACSEQ_ROOT / report["file"]
+        result = add_rna(read_pvacseq(path), pd.read_csv(path, sep="\t"))
+        frames.append(result.df)
+    keys = ["rna_t2_allele_key", "transcript"]
+    columns = [c for c in frames[0] if c.startswith("rna_t2_") and c not in keys]
+    left, right = [df[keys + columns].drop_duplicates().set_index(keys).sort_index()
+                   for df in frames]
+    pd.testing.assert_frame_equal(left, right.loc[left.index], check_dtype=False)
+
+
 @pytest.mark.parametrize("aggregate,all_epitopes", PVACSEQ_CORPUS_TWINS,
                          ids=[a["pair"] for a, _ in PVACSEQ_CORPUS_TWINS])
 def test_real_pvacseq_flavors_agree_on_selected_candidate(aggregate, all_epitopes):

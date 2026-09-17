@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.61.0
+
+- Add `join_annotations` for explicit, namespaced, many-to-one evidence joins
+  that preserve historical predictions and carry source provenance through TSV.
+- Add a reproducible January-2025 RNA overlay for all 21 osteosarc pVAC reports:
+  locally cached expression, reference-checked allele counts from indexed BAM
+  slices, and offline round-trip/filtering regression tests. New evidence stays
+  separate from the historical missing fields (#342; provenance history #339).
+
 ## 5.60.3
 
 - Pin observed GABBR1–SLC29A1 and OTUD7A–FMN1 RNA inputs, checked against original

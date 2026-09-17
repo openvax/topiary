@@ -1,0 +1,313 @@
+{
+  "sources": {
+    "t2.genes.results": {
+      "url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/processed/RSEM/sj.rna.2025.01.resection.ucla.align.tcga.protocol.dr32.rsem.genes.results",
+      "source_sha256": "b7064702259887d82c0badc6ff992d2d13412727289e86c6a09c50ae59a9144b",
+      "source_bytes": 7132300,
+      "sha256": "1ce3174b7b559e08490f242523d9954937cbf4351320e487685ebda15a9f25ab",
+      "bytes": 6176,
+      "source_data_rows": [
+        280,
+        4212,
+        4491,
+        5764,
+        6469,
+        7378,
+        8386,
+        9072,
+        10932,
+        11946,
+        12358,
+        12368,
+        12678,
+        13587,
+        15865,
+        16554,
+        17311,
+        17925,
+        20166,
+        35241,
+        39551
+      ],
+      "selection": "Unchanged source lines matching the 63-row pVAC input"
+    },
+    "t2.isoforms.results": {
+      "url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/processed/RSEM/sj.rna.2025.01.resection.ucla.align.tcga.protocol.dr32.rsem.isoforms.results",
+      "source_sha256": "ddaff13873fd00ce3ab8d7a196bf7464ecb246c9e634bcd8b3fd4c39c7260772",
+      "source_bytes": 16044318,
+      "sha256": "a9cab90452a69db393dde21a99759488487942c93b13dc1e58d5a06e36eba870",
+      "bytes": 4617,
+      "source_data_rows": [
+        3064,
+        43110,
+        43111,
+        43118,
+        46110,
+        56256,
+        56257,
+        62686,
+        62687,
+        70868,
+        70869,
+        70873,
+        80409,
+        80410,
+        80412,
+        80415,
+        86197,
+        86198,
+        86199,
+        86200,
+        101914,
+        101915,
+        101919,
+        109698,
+        109699,
+        109700,
+        109701,
+        109703,
+        109705,
+        109710,
+        109713,
+        113358,
+        113359,
+        113360,
+        113448,
+        113449,
+        115932,
+        115933,
+        115935,
+        115937,
+        115938,
+        115944,
+        115945,
+        115947,
+        115948,
+        122080,
+        122096,
+        135563,
+        135564,
+        135567,
+        135571,
+        135573,
+        135575,
+        139917,
+        144498,
+        148602,
+        153693,
+        186632,
+        186633,
+        186635,
+        186638,
+        197620,
+        197626
+      ],
+      "selection": "Unchanged source lines matching the 63-row pVAC input"
+    }
+  },
+  "references": [
+    {
+      "allele_key": "chr1:23362762:G>C",
+      "file": "chr1_23362762_G_C.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr1;start=23362761;end=23362762",
+      "sha256": "d00a40c64ec7e85ef8ba74d6f2d868adde5911d046fd47cee128cd84c8c0f07a",
+      "sequence": "G"
+    },
+    {
+      "allele_key": "chr1:151185547:T>C",
+      "file": "chr1_151185547_T_C.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr1;start=151185546;end=151185547",
+      "sha256": "895d5e81d9929e0be5b55ad032cf5c9442b43f6e2a663641fccd8d631338b87b",
+      "sequence": "T"
+    },
+    {
+      "allele_key": "chr1:151242178:AG>A",
+      "file": "chr1_151242178_AG_A.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr1;start=151242177;end=151242179",
+      "sha256": "a63a66dead6e99bc60328679f50516955ce0660abd232c51c480e8fc5a683742",
+      "sequence": "AG"
+    },
+    {
+      "allele_key": "chr2:171813470:A>G",
+      "file": "chr2_171813470_A_G.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr2;start=171813469;end=171813470",
+      "sha256": "271d1fbb4bd51b3533973e33869b50358163bb97e2fc966c6956565ed221d093",
+      "sequence": "A"
+    },
+    {
+      "allele_key": "chr3:15645183:T>G",
+      "file": "chr3_15645183_T_G.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr3;start=15645182;end=15645183",
+      "sha256": "5dd5e475be5fbb66bfc050b1ba4629093c0d7c5a6982c2388e3253134ceb3602",
+      "sequence": "T"
+    },
+    {
+      "allele_key": "chr3:77607853:C>A",
+      "file": "chr3_77607853_C_A.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr3;start=77607852;end=77607853",
+      "sha256": "61d70fd1bbca87604b26ee7b8938e513820ad4e0be2ad5737b629d9dcbd9a4d1",
+      "sequence": "C"
+    },
+    {
+      "allele_key": "chr5:168399513:T>G",
+      "file": "chr5_168399513_T_G.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr5;start=168399512;end=168399513",
+      "sha256": "acb3b3a4d1c057d7b5d78129b54becf759a17d513580034e6afc10e1aee3680a",
+      "sequence": "T"
+    },
+    {
+      "allele_key": "chr6:26055824:ACCTTGGGCTTAGCGG>A",
+      "file": "chr6_26055824_ACCTTGGGCTTAGCGG_A.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr6;start=26055823;end=26055839",
+      "sha256": "d0fdd478f4b62275d0d33d64e52517934bf7845d33f740902a7473f5193f336c",
+      "sequence": "ACCTTGGGCTTAGCGG"
+    },
+    {
+      "allele_key": "chr6:110228838:G>C",
+      "file": "chr6_110228838_G_C.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr6;start=110228837;end=110228838",
+      "sha256": "2aadd5904bb8a83fa649b49b5fa616d00928dcf3675377bd32d854da4d054119",
+      "sequence": "G"
+    },
+    {
+      "allele_key": "chr7:98241127:TG>T",
+      "file": "chr7_98241127_TG_T.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr7;start=98241126;end=98241128",
+      "sha256": "31655d8fe5c82c16fdf13c74bfd1312d2ce7f9f9e69237cd20624af48ca99266",
+      "sequence": "TG"
+    },
+    {
+      "allele_key": "chr7:133274996:G>T",
+      "file": "chr7_133274996_G_T.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr7;start=133274995;end=133274996",
+      "sha256": "1a9835060a9d6436ed3990c64a5d21d11157eb52b0e54121ba59010080eea2ac",
+      "sequence": "G"
+    },
+    {
+      "allele_key": "chr8:22192067:T>A",
+      "file": "chr8_22192067_T_A.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr8;start=22192066;end=22192067",
+      "sha256": "2ad348c203967de25fe32f28c4758e4282786c186fb68a9f3882d354be721041",
+      "sequence": "T"
+    },
+    {
+      "allele_key": "chr9:70298024:G>A",
+      "file": "chr9_70298024_G_A.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr9;start=70298023;end=70298024",
+      "sha256": "655cc17cc90f7f0896b78677ba55eeaeacdc313d1c6e62e02dea573b42f668c1",
+      "sequence": "G"
+    },
+    {
+      "allele_key": "chr9:97910412:C>T",
+      "file": "chr9_97910412_C_T.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr9;start=97910411;end=97910412",
+      "sha256": "a930fc7cb9b9c66cae140902fbed0750575f151b166ff974191e54bdd78772b9",
+      "sequence": "C"
+    },
+    {
+      "allele_key": "chr9:133057893:GGAGGAGGAGGAA>G",
+      "file": "chr9_133057893_GGAGGAGGAGGAA_G.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr9;start=133057892;end=133057905",
+      "sha256": "3acae3ce0a99f2712f3e76edb7eb6de71f40c9ce9bec1c2711a7955b16cee19d",
+      "sequence": "GGAGGAGGAGGAA"
+    },
+    {
+      "allele_key": "chr11:20080142:C>T",
+      "file": "chr11_20080142_C_T.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr11;start=20080141;end=20080142",
+      "sha256": "d0c8f920a8bfa3e46e92df779dd12a9137d95ed0d905d6d036f25938c2fc4db6",
+      "sequence": "C"
+    },
+    {
+      "allele_key": "chr14:101980529:G>A",
+      "file": "chr14_101980529_G_A.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr14;start=101980528;end=101980529",
+      "sha256": "b19eaeb5cf7a5b269effef46be93c8862d7a3ff94023726d1fa4a142bbad1f8f",
+      "sequence": "G"
+    },
+    {
+      "allele_key": "chr17:51154443:G>A",
+      "file": "chr17_51154443_G_A.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr17;start=51154442;end=51154443",
+      "sha256": "685cbb88e2d06c0a093b5bbf5b63f06aa5394da013015424fa2709f39a482950",
+      "sequence": "G"
+    },
+    {
+      "allele_key": "chr17:80327830:ATAC>A",
+      "file": "chr17_80327830_ATAC_A.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr17;start=80327829;end=80327833",
+      "sha256": "548653accb2fe9aaaf9777aca4851809f8abb2cfc3e50e3e7968007e3ece1680",
+      "sequence": "ATAC"
+    },
+    {
+      "allele_key": "chrX:46501045:G>A",
+      "file": "chrX_46501045_G_A.json",
+      "url": "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chrX;start=46501044;end=46501045",
+      "sha256": "e6abd80a63d8c8f6dd11b959ade1190949b275a92db8a697eea7e2beca21e0b6",
+      "sequence": "G"
+    }
+  ],
+  "alignment": {
+    "url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/processed/STAR/25.03.23.rna.ucla.2025.01.resection.tcga.d32.protocolAligned.sorted.bam",
+    "command": [
+      "samtools",
+      "view",
+      "--no-PG",
+      "-b",
+      "-M",
+      "-X",
+      "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/processed/STAR/25.03.23.rna.ucla.2025.01.resection.tcga.d32.protocolAligned.sorted.bam",
+      ".cache/osteosarc-rna-overlay-2026-09-17/source/source.bai",
+      "chr1:23362662-23362863",
+      "chr1:151185447-151185648",
+      "chr1:151242078-151242280",
+      "chr2:171813370-171813571",
+      "chr3:15645083-15645284",
+      "chr3:77607753-77607954",
+      "chr5:168399413-168399614",
+      "chr6:26055724-26055940",
+      "chr6:110228738-110228939",
+      "chr7:98241027-98241229",
+      "chr7:133274896-133275097",
+      "chr8:22191967-22192168",
+      "chr9:70297924-70298125",
+      "chr9:97910312-97910513",
+      "chr9:133057793-133058006",
+      "chr11:20080042-20080243",
+      "chr14:101980429-101980630",
+      "chr17:51154343-51154544",
+      "chr17:80327730-80327934",
+      "chrX:46500945-46501146",
+      "-o",
+      ".cache/osteosarc-rna-overlay-2026-09-17/source/t2-pvac-regions.bam"
+    ],
+    "regions": [
+      "chr1:23362662-23362863",
+      "chr1:151185447-151185648",
+      "chr1:151242078-151242280",
+      "chr2:171813370-171813571",
+      "chr3:15645083-15645284",
+      "chr3:77607753-77607954",
+      "chr5:168399413-168399614",
+      "chr6:26055724-26055940",
+      "chr6:110228738-110228939",
+      "chr7:98241027-98241229",
+      "chr7:133274896-133275097",
+      "chr8:22191967-22192168",
+      "chr9:70297924-70298125",
+      "chr9:97910312-97910513",
+      "chr9:133057793-133058006",
+      "chr11:20080042-20080243",
+      "chr14:101980429-101980630",
+      "chr17:51154343-51154544",
+      "chr17:80327730-80327934",
+      "chrX:46500945-46501146"
+    ],
+    "sha256": "8cd776f481d84e51389a67393069c8455ec5c5660a41546943ee4c94d71ac512",
+    "index_sha256": "c95ad2b2cab34dbb8ea7c513743dd69e9fe3cb8feacf5fdd13663566e0d47b8a",
+    "header_sha256": "d6c614f17b38860f56622f9722a62843b51fd901e3519000c93b56c5f2dc0b8f",
+    "bytes": 700324,
+    "acquired_at": "2026-09-17T18:24:36.806709+00:00"
+  },
+  "fixture_note": "Regional BAM retained byte-for-byte. Expression tables are unchanged selected original rows. BAM index is rebuilt in the test temporary directory; the full source index remains in the local cache."
+}

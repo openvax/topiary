@@ -60,6 +60,41 @@ PVACSEQ_PRESENTATION = (
 
 
 @pytest.mark.parametrize("report", PVACSEQ_CORPUS, ids=lambda r: r["file"])
+def test_real_pvacseq_rna_overlay_preserves_history_and_changes_filtering(report, tmp_path):
+    from topiary import melt_pvacseq_algorithms, read_tsv
+    from .osteosarc_overlay_helpers import add_rna
+
+    path = PVACSEQ_CORPUS_ROOT / report["file"]
+    raw = pd.read_csv(path, sep="\t")
+    original = melt_pvacseq_algorithms(read_pvacseq(path, tag=report["file"]))
+    enriched = add_rna(original, raw)
+    pd.testing.assert_frame_equal(enriched.df[original.columns], original.df)
+    saved = tmp_path / "enriched.tsv"
+    enriched.to_tsv(saved)
+    restored = read_tsv(saved, tag=report["file"])
+    pd.testing.assert_frame_equal(restored.df.isna(), enriched.df.isna())
+    pd.testing.assert_frame_equal(
+        restored.df.astype(object).where(restored.df.notna(), None),
+        enriched.df.astype(object).where(enriched.df.notna(), None),
+        check_dtype=False, rtol=1e-12, atol=1e-12)
+    assert restored.extra == enriched.extra
+    if not len(enriched):
+        return  # the historical filtered files must remain empty
+    selections = []
+    for result in (enriched, restored):
+        assert result.df.gene_expression.isna().all()
+        assert result.df.pvacseq_tumor_rna_depth.isna().all()
+        assert result.df.rna_t2_gene_tpm.notna().all()
+        permissive = result.filter_by("rna_t2_alt_reads >= 1")
+        stricter = result.filter_by("(rna_t2_alt_reads >= 3) & (rna_t2_gene_tpm >= 1)")
+        low = set(permissive.df.rna_t2_allele_key)
+        high = set(stricter.df.rna_t2_allele_key)
+        assert high < low
+        selections.append((low, high))
+    assert selections[0] == selections[1]
+
+
+@pytest.mark.parametrize("report", PVACSEQ_CORPUS, ids=lambda r: r["file"])
 def test_real_pvacseq_selected_columns_survive_import_melt_save_reload(report, tmp_path):
     from topiary import melt_pvacseq_algorithms, read_tsv
     from .pvacseq_corpus_helpers import assert_selected_columns

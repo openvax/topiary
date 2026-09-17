@@ -14,6 +14,10 @@ prediction input. Recovering the original annotated VCF and checking sample
 FORMAT tags and gene/transcript matching is tracked in
 [Topiary #339](https://github.com/openvax/topiary/issues/339).
 See [pVACseq coverage](pvacseq.md) for the offline selected-column tests.
+New January-2025 RNA counts and expression can now be used alongside the
+historical predictions through the [separate RNA overlay](osteosarc-rna-overlay.md).
+It preserves the original missing values and does not depend on resolving the
+old annotation-step history.
 
 ## Exact small indels
 

@@ -1,0 +1,3 @@
+# These are checksummed original responses/records, including source whitespace.
+source/* -text
+source/chr*.json whitespace=-blank-at-eol
