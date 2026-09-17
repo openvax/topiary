@@ -178,6 +178,24 @@ ISOVAR_RECONSTRUCTION_TWINS = Twin(
     )},
 )
 
+
+def fragments_from_original_rna(variants, alignment_file, **kwargs):
+    """Diagnostic reconstruction with the public Topiary convenience API."""
+    return fragments_from_variants(
+        variants, alignment_file, filter_thresholds={}, filter_flags=[], **kwargs)
+
+
+def fragments_from_upstream_rna(variants, alignment_file, **kwargs):
+    """The upstream Isovar result and public adapter must agree."""
+    from isovar import run_isovar
+    from topiary import fragments_from_isovar_results
+
+    return fragments_from_isovar_results(run_isovar(
+        variants, alignment_file, filter_thresholds={}, filter_flags=[], **kwargs))
+
+
+ISOVAR_HANDOFF_TWINS = (fragments_from_original_rna, fragments_from_upstream_rna)
+
 FRAME = pd.DataFrame({"x": [1, 2]}, index=[10, 11])
 
 

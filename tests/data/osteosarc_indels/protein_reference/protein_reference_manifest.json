@@ -1,0 +1,27 @@
+{
+  "transcripts": {
+    "GLIS3": "ENST00000324333",
+    "KTN1": "ENST00000395308"
+  },
+  "reference_name": "GRCh38-osteosarc-two-indel-subset",
+  "files": {
+    "reference.gtf.gz": {
+      "source_url": "https://ftp.ensembl.org/pub/release-87/gtf/homo_sapiens/Homo_sapiens.GRCh38.87.gtf.gz",
+      "source_sha256": "9e8643982742980f81277865b5a1d543a02fa2bfe889acffaf797436950d9ebe",
+      "subset_sha256": "4bbab34abfbeb94cf328c2798d9e3e56a7e1e1f9bfea99b65b49cfc9072ac947",
+      "uncompressed_sha256": "510e391e004665a706bb59887d5651e17b0135b8b0a15c2b49c913bcf8d071e5"
+    },
+    "reference.cdna.fa.gz": {
+      "source_url": "https://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz",
+      "source_sha256": "9d77df788bc30aa86d6aa8d4b8d5bbe9d9c2a0ae6c0a8eda600524685aa11875",
+      "subset_sha256": "6ac125a2c1a2afe3a2306f61d12214bb14340572b76f5138219189e26a028ed7",
+      "uncompressed_sha256": "c321cb2fc1028c832d175b9412e893b8e7e72328e26d82d0aff7e8d76d729949"
+    },
+    "reference.pep.fa.gz": {
+      "source_url": "https://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/pep/Homo_sapiens.GRCh38.pep.all.fa.gz",
+      "source_sha256": "d873c199d5dbf20869db3f2cbd6ac726259215d91c2782f9f1ddcad4bb117cf9",
+      "subset_sha256": "a8a83d476e9cf8f90182b5f17306cf3a21af672150869ec27537f5807b688f29",
+      "uncompressed_sha256": "71de936ce43681a04b4720696bb3738b4f6e4a4d88363ae6a660eade63ee4025"
+    }
+  }
+}

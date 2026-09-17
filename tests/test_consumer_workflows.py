@@ -103,6 +103,99 @@ def test_real_pvacseq_saved_cache_method_and_threshold_change_selection(tmp_path
             assert selected(result.df, method, threshold) == selected(restored.df, method, threshold)
 
 
+@pytest.mark.isovar
+@pytest.mark.parametrize("assembly", [False, True])
+@pytest.mark.parametrize("secondary", [False, True])
+@pytest.mark.parametrize("gene,sample", [
+    ("GLIS3", "T1-ONT-dedup"), ("GLIS3", "T2-ONT-dedup"),
+    ("GLIS3", "T1-short"), ("GLIS3", "T2-short"),
+    ("KTN1", "T1-ONT-dedup"), ("KTN1", "T2-ONT-dedup"),
+    ("KTN1", "T1-short"), ("KTN1", "T2-short"),
+])
+def test_missing_indel_rna_to_prediction_is_source_grounded(
+    additional_indel_rna, gene, sample, secondary, assembly, tmp_path,
+):
+    import pysam
+    from isovar import ProteinSequenceCreator, ReadCollector
+    from .osteosarc_helpers import assert_expected_fragment
+    from .test_twin_conformance import ISOVAR_HANDOFF_TWINS
+
+    variants, bams, expected = additional_indel_rna
+    observed = []
+    for door in ISOVAR_HANDOFF_TWINS:
+        with pysam.AlignmentFile(bams[gene + "." + sample]) as bam:
+            fragments = door(
+                [variants[gene]], bam,
+                read_collector=ReadCollector(use_secondary_alignments=secondary),
+                protein_sequence_creator=ProteinSequenceCreator(
+                    variant_sequence_assembly=assembly,
+                    protein_context_peptide_length=25))
+        observed.append([f.to_dict() for f in fragments])
+        if (gene, sample) not in {("GLIS3", "T1-short"), ("KTN1", "T2-ONT-dedup"),
+                                  ("KTN1", "T2-short")}:
+            assert fragments == []
+            continue
+        fragment, = fragments
+        assert len(fragment.sequence) == {
+            ("GLIS3", "T1-short"): 46,
+            ("KTN1", "T2-ONT-dedup"): 29,
+            ("KTN1", "T2-short"): 18,
+        }[gene, sample]
+        assert_expected_fragment(fragment, expected[gene])
+        path = tmp_path / "fragment.json"
+        write_fragments(fragments, path)
+        restored, = read_fragments(path)
+        assert restored.to_dict() == fragment.to_dict()
+        frame = _isovar_prediction_frame(restored)
+        assert not frame.empty and frame.contains_mutant_residues.all()
+        for row in frame.itertuples():
+            assert row.peptide == fragment.sequence[row.peptide_offset:row.peptide_offset + 9]
+            start, end = fragment.target_intervals[0]
+            assert row.peptide_offset < end and row.peptide_offset + 9 > start
+    # Only the convenience API knows the creator settings. A bare IsovarResult
+    # cannot retrospectively supply them; compare all biology/evidence and
+    # explicitly check the legitimate provenance-only difference.
+    provenance = {
+        "isovar_version", "isovar_creator", "isovar_protein_sequence_length",
+        "isovar_protein_context_peptide_length", "isovar_protein_sequence_preference",
+        "isovar_min_protein_sequence_support_fraction", "isovar_min_variant_sequence_coverage",
+        "isovar_variant_sequence_assembly", "isovar_min_assembly_overlap_size",
+        "isovar_min_transcript_prefix_length", "isovar_max_transcript_mismatches",
+        "isovar_count_mismatches_after_variant", "isovar_max_protein_sequences_per_variant",
+    }
+    for direct, adapted in zip(observed[0], observed[1]):
+        assert set(direct["annotations"]) - set(adapted["annotations"]) == provenance
+        assert direct["annotations"]["isovar_variant_sequence_assembly"] == assembly
+        assert direct["annotations"]["isovar_min_variant_sequence_coverage"] == 2
+        direct["annotations"] = {k: v for k, v in direct["annotations"].items() if k not in provenance}
+    assert observed[0] == observed[1]
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("gene,sample,secondary,rejected", [
+    ("GLIS3", "T1-short", True, False), ("GLIS3", "T1-short", False, False),
+    ("KTN1", "T2-ONT-dedup", True, True), ("KTN1", "T2-ONT-dedup", False, True),
+    ("KTN1", "T2-short", True, True), ("KTN1", "T2-short", False, False),
+])
+def test_missing_indel_default_filter_is_not_confused_with_reconstruction(
+    additional_indel_rna, gene, sample, secondary, rejected,
+):
+    import pysam
+    from isovar import ProteinSequenceCreator, ReadCollector, run_isovar
+
+    variants, bams, _ = additional_indel_rna
+    options = dict(read_collector=ReadCollector(use_secondary_alignments=secondary),
+                   protein_sequence_creator=ProteinSequenceCreator(protein_context_peptide_length=25))
+    with pysam.AlignmentFile(bams[gene + "." + sample]) as bam:
+        upstream, = run_isovar([variants[gene]], bam, **options)
+    assert upstream.has_mutant_protein_sequence_from_rna
+    failed = {name for name, passed in upstream.filter_values.items() if not passed}
+    assert failed == ({"min_ratio_alt_to_other_fragments"} if rejected else set())
+    with pysam.AlignmentFile(bams[gene + "." + sample]) as bam:
+        fragments = fragments_from_variants([variants[gene]], bam, **options)
+    assert len(fragments) == (0 if rejected else 1)
+
+
 @pytest.fixture
 def cli_output_request(tmp_path, monkeypatch):
     """A real input/cache pair with two peptides and three kinds of evidence."""
