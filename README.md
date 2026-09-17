@@ -40,9 +40,8 @@ For RNA-assembled protein fragments from Isovar:
 pip install 'topiary[isovar]'
 ```
 
-This extra requires Isovar 1.7.10 or newer for corrected mutation intervals,
-long-insertion assembly, and shared RNA support counts. Isovar is not needed
-for other input sources.
+This installs Isovar 1.8.0 or newer. Isovar is not needed for other input
+sources.
 
 **MHC predictors** (NetMHCpan, mhcflurry, etc.) are installed
 separately — topiary calls them through
@@ -101,15 +100,6 @@ Specify one or more predictors with `--mhc-predictor` and alleles with `--mhc-al
 ```
 
 All predictors come from [mhctools](https://github.com/openvax/mhctools).
-
-With `mhctools 3.7.0+`, upstream predictor parsing supports multiple
-predictors in one CLI invocation, so commands like
-`--mhc-predictor netmhcpan42 bigmhc-el` are supported directly. Topiary keeps
-its higher-level `--filter-by` / `--sort-by` DSL on top of that lower-level
-predictor interface. Topiary's ranking/filtering DSL is also compatible with
-the simplified `mhctools 3.7.0+` kind constants API. NetChop and Pepsickle
-behavior follows the upstream changes as well: improved NetChop error handling
-and Pepsickle's epitope-focused model selection.
 
 | CLI name | Predicts |
 |----------|----------|
@@ -251,7 +241,7 @@ In CLI strings, bare names work directly:
 --sort-by "affinity.logistic(350, 150) + 0.1 * gene_tpm.log1p()"
 ```
 
-The explicit `column(name)` syntax also works: `gene_tpm >= 5`.
+The explicit `column(name)` syntax also works: `column(gene_tpm) >= 5`.
 
 Misspelled column names get a helpful error at evaluation time: `Column 'hydrophobicty' not found. Did you mean: ['hydrophobicity']?`
 
@@ -348,7 +338,7 @@ The join keys are implicit: gene-level data joins on `gene_id`, transcript-level
 
 ### Transcript selection
 
-When transcript-level expression data is provided, Topiary uses it to select the highest-expressed transcript per variant (instead of the default priority-based selection). This matches the behavior of the legacy `--rna-transcript-fpkm-tracking-file` flag.
+When transcript-level expression data is provided, Topiary uses it to select the highest-expressed transcript per variant (instead of the default priority-based selection).
 
 ### Auto-detected formats
 
@@ -640,7 +630,7 @@ Merge shards from parallel prediction jobs:
 cache = CachedPredictor.from_directory("caches/", pattern="*.parquet")
 ```
 
-Every cache holds exactly one `(predictor_name, predictor_version)`
+Every cache holds exactly one `(prediction_method_name, predictor_version)`
 pair — mixing versions is rejected. See
 [docs/cached.md](docs/cached.md) for full detail, including
 mhcflurry composite versions, cache-plus-fallback mode, and
@@ -680,11 +670,3 @@ python -m pytest tests --collect-only
 pip install '.[isovar]' pytest pytest-cov pytest-xdist
 ./test.sh -m isovar --strict-markers
 ```
-
-CI saves each Python version's coverage as a separate artifact, then combines
-all of them in one upload job. If coverage publication fails, use GitHub's
-**Re-run failed jobs**; successful test jobs and their artifacts are reused.
-Each attempt has a separate Coveralls build number, with no parallel-build
-finalization step. Reporter downloads use a pinned version and SHA-256 digest;
-update both together in `.github/workflows/tests.yml`. Download, checksum,
-missing-artifact, and upload errors all fail CI.
