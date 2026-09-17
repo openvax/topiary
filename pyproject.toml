@@ -36,7 +36,7 @@ namespaces = false
 topiary = "topiary.cli.script:main"
 
 [project.optional-dependencies]
-isovar = ["isovar>=1.11.0"]
+isovar = ["isovar>=1.17.0"]
 pirlygenes = ["pirlygenes>=5.1.0"]
 
 [tool.ruff.lint]
