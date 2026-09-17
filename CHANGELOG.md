@@ -1,5 +1,16 @@
 # Changelog
 
+## 5.60.0
+
+- Require Isovar 1.17.0 for the optional RNA integration, preserving sequenced
+  read identity rather than counting competing placements as extra support
+  (#336). Base installations still do not depend on Isovar.
+- Correct the bulk H1-2 regression contract: one unambiguous template is below
+  the unchanged default coverage floor. Retain the independent sequence,
+  edit-interval and transcript checks in an explicit coverage-one diagnostic.
+  This supersedes the support-count conclusion in the 5.58.0 note; the curated
+  deletion itself and its independently checked translation are unchanged.
+
 ## 5.59.2
 
 - Require mhctools 3.44.26 so live MHCflurry output records model provenance

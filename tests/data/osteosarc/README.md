@@ -37,3 +37,14 @@ silently appended. No-alt results remain absent RNA fragments, not claims
 that mutant expression is absent. Explicit reference fallback has its own
 padding and never inherits measured RNA counts or reconstruction provenance.
 Tests perform no downloads and do not import sibling repositories.
+
+Isovar 1.17.0 corrects the bulk T0 H1-2 support count: competing primary and
+secondary placements no longer supply definitive deletion evidence. One
+unambiguous template (two paired reads) remains, below the unchanged default
+coverage floor of two. Both public RNA reconstruction entry points must return
+no fragment by default. An explicit coverage-one diagnostic still checks the
+sequence, genomic edit interval and transcript against the independent oracle,
+and preserves that diagnostic setting through serialization and prediction.
+See https://github.com/openvax/isovar/pull/283 and
+https://github.com/openvax/topiary/issues/336. This does not invalidate the
+curated DNA deletion or turn one template into two independent molecules.

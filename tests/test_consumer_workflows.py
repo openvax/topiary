@@ -1556,7 +1556,7 @@ def test_osteosarc_peptide_size_and_floor_match_the_explicit_creator(
 @pytest.mark.isovar
 @pytest.mark.parametrize("sample,gene,length", [
     ("bulk_star_t0", "EXOC4", 49), ("ont_t1", "EXOC4", 25),
-    ("bulk_star_t0", "H1-2", 24), ("ont_t1", "H1-2", 30),
+    ("bulk_star_t0", "H1-2", None), ("ont_t1", "H1-2", 30),
     ("bulk_star_t0", "GTF3C5", 49), ("ont_t1", "GTF3C5", 29),
     ("bulk_star_t0", "PIP5K1A", None), ("ont_t1", "PIP5K1A", 46),
     ("bulk_star_t0", "MAP2", None), ("ont_t1", "MAP2", None),
@@ -1584,6 +1584,50 @@ def test_osteosarc_real_edits_survive_context_and_prediction(
     for row in frame.itertuples():
         assert row.peptide == fragment.sequence[row.peptide_offset:row.peptide_offset + 9]
         assert row.peptide_offset < end and row.peptide_offset + 9 > start
+
+
+@pytest.mark.isovar
+def test_osteosarc_h1_read_identity_preserves_default_floor_and_diagnostic(
+    osteosarc_rna, tmp_path,
+):
+    """A real deletion is not proof of two independent supporting templates.
+
+    Isovar 1.17 no longer treats competing primary/secondary placements as
+    definitive deletion support. One unambiguous paired template remains.
+    An explicitly labelled coverage-one diagnostic keeps the stricter
+    independent translation checks alive without relaxing the default.
+    """
+    import pysam
+    from tests.osteosarc_helpers import assert_expected_fragment
+    from tests.test_twin_conformance import ISOVAR_RECONSTRUCTION_TWINS
+
+    variants, bams, expected = osteosarc_rna
+    observed = []
+    for door in (ISOVAR_RECONSTRUCTION_TWINS.left, ISOVAR_RECONSTRUCTION_TWINS.right):
+        options = dict(protein_context_peptide_length=25)
+        with pysam.AlignmentFile(bams["bulk_star_t0"]) as bam:
+            assert door([variants["H1-2"]], bam, **options) == []
+        with pysam.AlignmentFile(bams["bulk_star_t0"]) as bam:
+            fragment, = door(
+                [variants["H1-2"]], bam,
+                min_variant_sequence_coverage=1, **options,
+            )
+        assert_expected_fragment(fragment, expected["H1-2"])
+        assert fragment.n_rna_alt_reads == 2
+        assert fragment.n_rna_alt_fragments == 1
+        assert fragment.n_rna_alt_reads_supporting_protein_sequence == 2
+        assert fragment.n_rna_alt_fragments_supporting_protein_sequence == 1
+        assert fragment.annotations["isovar_min_variant_sequence_coverage"] == 1
+        path = tmp_path / "h1-diagnostic.tsv"
+        write_fragments([fragment], path)
+        restored, = read_fragments(path)
+        assert restored.to_dict() == fragment.to_dict()
+        frame = _isovar_prediction_frame(restored)
+        assert not frame.empty
+        assert frame.isovar_min_variant_sequence_coverage.eq(1).all()
+        assert frame.n_rna_alt_fragments_supporting_protein_sequence.eq(1).all()
+        observed.append(fragment.to_dict())
+    assert observed[0] == observed[1]
 
 
 @pytest.mark.isovar
