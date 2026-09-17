@@ -6,6 +6,14 @@ from tests.optional_dependencies import require_integration
 
 
 @pytest.fixture(scope="module")
+def additional_indel_rna(tmp_path_factory):
+    """Load the pinned GLIS3/KTN1 records only when an integration test runs."""
+    from .osteosarc_helpers import load_osteosarc
+
+    return load_osteosarc(tmp_path_factory.mktemp("two-indels"), "osteosarc_indels")
+
+
+@pytest.fixture(scope="module")
 def cancer_test_variants():
     """Real BRAF V600E and TP53 R248W variants, constructed only on demand."""
     from varcode import Variant, VariantCollection

@@ -1,0 +1,18 @@
+{
+  "variants": [
+    {
+      "gene": "GLIS3",
+      "chrom": "chr9",
+      "pos": 3856149,
+      "ref": "CTGATGTGG",
+      "alt": "C"
+    },
+    {
+      "gene": "KTN1",
+      "chrom": "chr14",
+      "pos": 55627965,
+      "ref": "G",
+      "alt": "GTT"
+    }
+  ]
+}

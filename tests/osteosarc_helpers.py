@@ -40,7 +40,7 @@ def transcript_offset(exons, strand, position):
 
 
 def reference_expectations(reference, metadata, selection):
-    """Apply only the pinned SNVs/deletions to independently verified cDNA."""
+    """Apply the pinned SNVs/anchored indels to independently verified cDNA."""
     import pysam
 
     with pysam.FastxFile(str(reference / "reference.cdna.fa.gz")) as records:
@@ -76,12 +76,18 @@ def reference_expectations(reference, metadata, selection):
         assert translate(cdna[cds_start:]) == proteins[transcript]
         position, ref, alt = int(variant["pos"]), variant["ref"], variant["alt"]
         if len(ref) != len(alt):
-            assert len(alt) == 1 and ref.startswith(alt)
-            position, ref, alt = position + 1, ref[1:], ""
-        offsets = sorted(transcript_offset(exons, strand, p)
-                         for p in range(position, position + len(ref)))
-        offset = offsets[0]
-        assert offsets == list(range(offset, offset + len(ref)))
+            assert ref[0] == alt[0] and min(len(ref), len(alt)) == 1
+            anchor = ref[0] if strand == "+" else ref[0].translate(str.maketrans("ACGT", "TGCA"))
+            assert cdna[transcript_offset(exons, strand, position)] == anchor
+            position, ref, alt = position + 1, ref[1:], alt[1:]
+        if ref:
+            offsets = sorted(transcript_offset(exons, strand, p)
+                             for p in range(position, position + len(ref)))
+            offset = offsets[0]
+            assert offsets == list(range(offset, offset + len(ref)))
+        else:
+            # Insertion is before this genomic base: after it on minus strand.
+            offset = transcript_offset(exons, strand, position) + (strand == "-")
         if strand == "-":
             ref = ref.translate(str.maketrans("ACGT", "TGCA"))[::-1]
             alt = alt.translate(str.maketrans("ACGT", "TGCA"))[::-1]
@@ -98,13 +104,13 @@ def reference_expectations(reference, metadata, selection):
     return expected
 
 
-def load_osteosarc(directory):
+def load_osteosarc(directory, dataset="osteosarc"):
     """Verify the original assets, then build private temporary indices."""
     import pysam
     from pyensembl import Genome
     from varcode import Variant
 
-    data = Path(__file__).parent / "data" / "osteosarc"
+    data = Path(__file__).parent / "data" / dataset
     selection = json.loads((data / "selection.json").read_text())
     manifest = json.loads((data / "manifest.json").read_text())
     reference = data / "protein_reference"
@@ -114,7 +120,7 @@ def load_osteosarc(directory):
         assert sha256(contents).hexdigest() == checksums["subset_sha256"]
         assert sha256(gzip.decompress(contents)).hexdigest() == checksums["uncompressed_sha256"]
     genome = Genome(
-        reference_name="GRCh38-osteosarc-six-transcript-subset",
+        reference_name=metadata.get("reference_name", "GRCh38-osteosarc-six-transcript-subset"),
         annotation_name="osteosarc-ensembl-subset", annotation_version=87,
         gtf_path_or_url=str(reference / "reference.gtf.gz"),
         transcript_fasta_paths_or_urls=[str(reference / "reference.cdna.fa.gz")],

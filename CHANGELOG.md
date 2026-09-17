@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.60.2
+
+- Add original-read, offline GLIS3/KTN1 regression fixtures with exact GRCh38
+  alleles and independent Ensembl 87 coding-sequence oracles. Exercise both
+  reconstruction APIs, assembly modes, alignment-placement policies, fragment
+  serialization and mutation-overlapping prediction inputs.
+- Preserve the distinction between diagnostic reconstruction and default
+  acceptance: KTN1's alternate-to-other-template ratio can reject a successfully
+  reconstructed context. No evidence filter or reconstruction default changes.
+
 ## 5.60.1
 
 - Pin compact, original-row fixtures covering all 21 osteosarc pVACseq reports

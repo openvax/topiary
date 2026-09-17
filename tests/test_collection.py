@@ -35,14 +35,19 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
         # subset in a temporary directory. No reference access at all is
         # allowed during collection, and full-genome lookup/download stays
         # forbidden in both modes.
-        reference = Path("tests/data/osteosarc/protein_reference/reference.gtf.gz").resolve()
+        references = {
+            "GRCh38-osteosarc-six-transcript-subset":
+                Path("tests/data/osteosarc/protein_reference/reference.gtf.gz").resolve(),
+            "GRCh38-osteosarc-two-indel-subset":
+                Path("tests/data/osteosarc_indels/protein_reference/reference.gtf.gz").resolve(),
+        }
         original_db = pyensembl.Genome.db.fget
         original_index = pyensembl.Genome.index
 
         def require_pinned_reference(genome):
             assert "--collect-only" not in sys.argv, "Reference access during collection"
-            assert genome.reference_name == "GRCh38-osteosarc-six-transcript-subset"
-            assert Path(genome.to_dict()["gtf_path_or_url"]).resolve() == reference
+            assert genome.reference_name in references
+            assert Path(genome.to_dict()["gtf_path_or_url"]).resolve() == references[genome.reference_name]
 
         def pinned_db(genome):
             require_pinned_reference(genome)
