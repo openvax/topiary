@@ -1,4 +1,5 @@
 from .serialization import normalize_python_types
+from .annotations import join_annotations
 from .release import pypi_release_exists
 from .predictor import (
     TopiaryPredictor,
@@ -172,7 +173,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.60.3"
+__version__ = "5.61.0"
 
 __all__ = [
     "normalize_python_types",
@@ -283,6 +284,7 @@ __all__ = [
     "write_fragments",
     "iter_fragments",
     "Metadata",
+    "join_annotations",
     "derive_mhc_class",
     "detect_lens_version",
     "detect_pvacseq_format",
