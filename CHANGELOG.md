@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.60.3
+
+- Pin observed GABBR1–SLC29A1 and OTUD7A–FMN1 RNA inputs, checked against original
+  tagged-BAM records, and guard their unresolved coding status in offline CI.
+  Document all-path versus selected-window counts, the oriented RNA insertion,
+  sample/provenance boundaries and the remaining larger-deletion investigations.
+
 ## 5.60.2
 
 - Add original-read, offline GLIS3/KTN1 regression fixtures with exact GRCh38
