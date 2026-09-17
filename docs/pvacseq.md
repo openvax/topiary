@@ -338,7 +338,7 @@ apply_filter(r.df, my_filter, kind_support=r.extra["kind_support"])
 
 ## Real-report regression coverage
 
-The [offline osteosarc corpus](../tests/data/pvacseq/osteosarc/README.md) covers
+The [offline osteosarc corpus](https://github.com/openvax/topiary/blob/master/tests/data/pvacseq/osteosarc/README.md) covers
 all 21 published final report schemas and their 20 represented genomic alleles.
 CI checks selected source columns through import, algorithm expansion and
 save/reload, plus paired report flavors and method-sensitive DSL filtering.
