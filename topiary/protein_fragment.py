@@ -864,6 +864,52 @@ def make_fragment_id(
 # =============================================================================
 
 
+def unique_fragments(fragments: Iterable[ProteinFragment]) -> list:
+    """Coalesce identical records and reject contradictory fragment identities.
+
+    Parameters
+    ----------
+    fragments : iterable of ProteinFragment
+        Records to validate. Empty iterables return an empty list; ``None``
+        is not an iterable. Single-occurrence IDs need no serialization.
+
+    Returns
+    -------
+    list of ProteinFragment
+        The first record for each ID, in input order. Repeated IDs must have
+        identical normalized, key-sorted JSON, including all evidence,
+        provenance and annotations. This deliberately does not use fragment
+        equality, which compares only IDs. Inputs are not mutated.
+
+    Raises
+    ------
+    ValueError
+        A repeated ID has conflicting content, or its content cannot be
+        serialized to establish agreement. Give distinct observations (e.g.
+        samples or analysis policies) distinct IDs even when sequences match;
+        silently picking one would discard the other observation's evidence.
+    """
+    by_id = {}
+    for fragment in fragments:
+        previous = by_id.get(fragment.fragment_id)
+        if previous is None:
+            by_id[fragment.fragment_id] = fragment
+            continue
+        try:
+            agrees = previous.to_json(sort_keys=True) == fragment.to_json(sort_keys=True)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"Cannot compare repeated fragment_id {fragment.fragment_id!r}: "
+                "duplicate records must be JSON-serializable"
+            ) from error
+        if not agrees:
+            raise ValueError(
+                f"Conflicting records for fragment_id {fragment.fragment_id!r}; "
+                "use distinct IDs for distinct observations"
+            )
+    return list(by_id.values())
+
+
 def collect_annotations(fragments: Iterable[ProteinFragment]) -> set:
     """Return the union of annotation keys across *fragments*.  Useful
     for TSV writers deciding whether to expand known keys into columns."""

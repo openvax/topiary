@@ -176,6 +176,82 @@ def fragments_from_isovar_results(isovar_results):
     return fragments
 
 
+def describe_isovar_result(isovar_result):
+    """Describe reconstruction and filter outcomes, including empty results.
+
+    Parameters
+    ----------
+    isovar_result : isovar.IsovarResult
+        A completed result from ``run_isovar``. Acquisition failures and
+        exceptions are not results and must be reported separately by callers.
+
+    Returns
+    -------
+    dict
+        JSON-compatible variant identity, native RNA counts, protein sequence,
+        mutation interval, transcript IDs, named failed filters and ``status``.
+        Status distinguishes ``passing``, ``filtered``, ``no_usable_reads``,
+        ``no_alt_reads``, ``no_predicted_coding_change`` and
+        ``no_protein_sequence``; a protein with unknown filter disposition has
+        ``filter_status_unavailable``. Counts unavailable on an object remain null,
+        not zero. ``passing`` means only that the supplied result has a protein
+        and passes its recorded filters; it is not a clinical or presentation
+        judgment, and does not imply the caller used default filters.
+
+    Notes
+    -----
+    Fragment-producing APIs intentionally omit empty results. Use this function
+    on every upstream result to retain the reason a variant yielded no accepted
+    fragment. A reconstructed but filtered sequence remains visible for audit;
+    it must not silently become an accepted prediction input. Native read and
+    fragment counts remain separate and are not independent-molecule counts.
+    """
+    result = isovar_result
+    variant = getattr(result, "variant", None)
+    protein = getattr(result, "top_protein_sequence", None)
+    sequence = getattr(protein, "amino_acids", None) or None
+    counts = {
+        f"num_{category}_{unit}": _as_count(getattr(result, f"num_{category}_{unit}", None))
+        for unit in ("reads", "fragments")
+        for category in ("total", "ref", "alt", "other")
+    }
+    filters = dict(getattr(result, "filter_values", {}) or {})
+    passing = normalize_python_types(getattr(result, "passes_all_filters", None))
+    effect = getattr(result, "predicted_effect", None)
+    if sequence:
+        status = ("filter_status_unavailable" if passing is None else
+                  "passing" if passing else "filtered")
+    elif counts["num_total_reads"] == 0:
+        status = "no_usable_reads"
+    elif counts["num_alt_reads"] == 0:
+        status = "no_alt_reads"
+    elif getattr(effect, "modifies_protein_sequence", None) is False:
+        status = "no_predicted_coding_change"
+    else:
+        status = "no_protein_sequence"
+    return normalize_python_types(dict(
+        status=status,
+        variant=str(variant) if variant is not None else None,
+        reference_name=getattr(variant, "reference_name", None),
+        contig=getattr(variant, "contig", None),
+        start=getattr(variant, "start", None),
+        ref=getattr(variant, "ref", None),
+        alt=getattr(variant, "alt", None),
+        **counts,
+        passes_all_filters=passing,
+        filter_values=filters,
+        failed_filters=sorted(name for name, passed in filters.items() if not passed),
+        predicted_effect_class=type(effect).__name__ if effect is not None else None,
+        predicted_effect=getattr(effect, "short_description", None),
+        protein_sequence=sequence,
+        mutation_start=getattr(protein, "mutation_start_idx", None),
+        mutation_end=getattr(protein, "mutation_end_idx", None),
+        transcript_ids=list(getattr(protein, "transcript_ids", ()) or ()),
+        protein_supporting_reads=_as_count(getattr(protein, "num_supporting_reads", None)),
+        protein_supporting_fragments=_as_count(getattr(protein, "num_supporting_fragments", None)),
+    ))
+
+
 #: Historical context length, retained for explicit callers and reference
 #: padding. The RNA default is now derived by Isovar from the desired peptide
 #: size: the default 11-aa ligand objective still requests 21 aa. Available

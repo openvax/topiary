@@ -209,8 +209,8 @@ def test_missing_indel_rna_to_prediction_is_source_grounded(
 @pytest.mark.isovar
 @pytest.mark.parametrize("gene,sample,secondary,rejected", [
     ("GLIS3", "T1-short", True, False), ("GLIS3", "T1-short", False, False),
-    ("KTN1", "T2-ONT-dedup", True, True), ("KTN1", "T2-ONT-dedup", False, True),
-    ("KTN1", "T2-short", True, True), ("KTN1", "T2-short", False, False),
+    ("KTN1", "T2-ONT-dedup", True, False), ("KTN1", "T2-ONT-dedup", False, False),
+    ("KTN1", "T2-short", True, False), ("KTN1", "T2-short", False, False),
 ])
 def test_missing_indel_default_filter_is_not_confused_with_reconstruction(
     additional_indel_rna, gene, sample, secondary, rejected,
@@ -1921,3 +1921,25 @@ def test_osteosarc_no_alt_reference_fallback_is_explicit_and_separate(osteosarc_
 def test_invalid_rna_settings_fail_before_reading_alignments(option):
     with pytest.raises(ValueError):
         fragments_from_variants([], alignment_file=object(), **option)
+
+
+def test_same_peptide_different_rna_observations_survive_prediction_and_filtering(tmp_path):
+    """Identical peptide does not mean identical sample/policy evidence (#345)."""
+    from mhctools import RandomBindingPredictor
+    from topiary import ProteinFragment, TopiaryPredictor, TopiaryResult, make_fragment_id, read_tsv
+
+    sequence = "SIINFEKLL"
+    fragments = [ProteinFragment(
+        fragment_id=make_fragment_id(sample, sequence, variant="same-allele"),
+        sequence=sequence, n_rna_alt_fragments=count,
+        annotations={"sample": sample}) for sample, count in (("T1", 9), ("T2", 2))]
+    predictor = TopiaryPredictor(models=RandomBindingPredictor(
+        alleles=["HLA-A*01:01"], default_peptide_lengths=[9]), only_novel_epitopes=False)
+    frame = predictor.predict_from_fragments(fragments)
+    assert len(frame) == 2 and set(frame.peptide) == {sequence}
+    assert dict(zip(frame["sample"], frame.n_rna_alt_fragments)) == {"T1": 9, "T2": 2}
+    path = tmp_path / "observations.tsv"
+    TopiaryResult(frame).to_tsv(path)
+    restored = read_tsv(path)
+    assert set(restored.filter_by("n_rna_alt_fragments >= 2").df["sample"]) == {"T1", "T2"}
+    assert set(restored.filter_by("n_rna_alt_fragments >= 3").df["sample"]) == {"T1"}

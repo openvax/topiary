@@ -29,12 +29,16 @@ not proven independent molecules. RNA products and samples are not pooled.
 | GTF3C5 | chr9:133057893 GGAGGAGGAGGAA>G | Present in historical pVAC reports and existing RNA regression fixtures. Additional default-policy T1/T2 ONT support is 117/128; short-read support 7/12. |
 | RNF213 | chr17:80327830 ATAC>A | Present in historical pVAC reports. Additional T1/T2 ONT support 5/14; short-read support 42/11. |
 | GLIS3 | chr9:3856149 CTGATGTGG>C | Absent from historical pVAC reports. Nine alternate T1 short-read templates; independently checked 46-aa RNA context. |
-| KTN1 | chr14:55627965 G>GTT | Absent from historical pVAC reports. T2 ONT 10 alternate templates, 29-aa context; T2 short reads 2 by default or 3 under primary-only collection, 18-aa context. |
+| KTN1 | chr14:55627965 G>GTT | Absent from historical pVAC reports. T2 ONT 10 alternate templates, 29-aa context; T2 short reads 3 under both placement policies, 18-aa context (Isovar 1.18.1). |
 
-GLIS3 passes default result filters. KTN1 ONT fails the alternate-to-other
-template ratio (10/8), as do default-policy KTN1 short reads (2/1).
-Primary-only short-read collection passes (3/0). A reconstructed sequence is
-therefore not automatically an accepted pipeline result. A short context can
+GLIS3 and these KTN1 reconstructions pass default result filters. Isovar
+[1.18.1](https://github.com/openvax/isovar/pull/300) fixes insertion-boundary
+assignments on the unchanged input records: KTN1 ONT alternate/other becomes
+10/3 rather than 10/8, and default short RNA becomes 3/0 rather than 2/1.
+The earlier rejections were consequences of that counting defect. A
+reconstructed sequence is nevertheless not automatically an accepted result;
+the [full-index audit](osteosarc-variant-outcomes.md) retains filtered examples.
+A short context can
 supply mutation-overlapping 9-mers without being long enough for a 25-mer.
 No default threshold has been relaxed.
 

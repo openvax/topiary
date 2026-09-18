@@ -1,0 +1,15 @@
+{
+  "isovar_version": "1.18.1",
+  "collection_policy": {
+    "use_secondary_alignments": false,
+    "use_duplicate_reads": false,
+    "min_mapping_quality": 20,
+    "use_soft_clipped_bases": false,
+    "merge_overlapping_fragments": true
+  },
+  "protein_context_peptide_length": 25,
+  "variant_sequence_assembly": true,
+  "bam_sha256": "290d6e56a52946a09d2a6077d1dcd093dd6f6327280860e9b68948f6fc17dea8",
+  "inventory_sha256": "e61c71dda2e6d390e579de8d475f1f072d832badb06ad185a18a20be03e8526e",
+  "reference_sha256": "cd74762f076032480d7c600ca2064aeeb1d8d87ba9ee730465544b3e786a2647"
+}

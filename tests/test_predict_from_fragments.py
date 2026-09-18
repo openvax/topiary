@@ -1,6 +1,7 @@
 """Tests for TopiaryPredictor.predict_from_fragments."""
 
 import math
+from dataclasses import replace
 
 import pandas as pd
 import pytest
@@ -570,6 +571,22 @@ class TestWtPeptide:
 
 
 class TestMultipleFragments:
+
+    @pytest.mark.parametrize("changes", [
+        {"sequence": "GILGFVFTL"},
+        {"n_rna_alt_reads": 9},
+        {"annotations": {"sample": "T2"}},
+        {"field_provenance": {"sequence": "measured"}},
+        {"target_intervals": [(1, 2)]},
+    ])
+    def test_contradictory_identity_rejected_before_prediction(self, changes, monkeypatch):
+        fragment = ProteinFragment(fragment_id="GLIS3", sequence="SIINFEKLL")
+        predictor = _predictor()
+        called = []
+        monkeypatch.setattr(predictor, "_predict_raw", lambda _: called.append(True))
+        with pytest.raises(ValueError, match="GLIS3"):
+            predictor.predict_from_fragments([fragment, replace(fragment, **changes)])
+        assert not called
     def test_fragment_id_groups_preserved(self):
         f1 = ProteinFragment(
             fragment_id="frag_one__00000001", source_type="erv",

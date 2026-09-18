@@ -9,10 +9,10 @@ import pytest
     ("GLIS3", "T2-ONT-dedup", (1, 0, 1), (1, 0, 1)),
     ("GLIS3", "T1-short", (32, 9, 1), (31, 9, 1)),
     ("GLIS3", "T2-short", (0, 0, 0), (0, 0, 0)),
-    ("KTN1", "T1-ONT-dedup", (637, 0, 4), (637, 0, 4)),
-    ("KTN1", "T2-ONT-dedup", (1388, 10, 8), (1388, 10, 8)),
+    ("KTN1", "T1-ONT-dedup", (636, 0, 1), (636, 0, 1)),
+    ("KTN1", "T2-ONT-dedup", (1388, 10, 3), (1388, 10, 3)),
     ("KTN1", "T1-short", (843, 0, 0), (842, 0, 0)),
-    ("KTN1", "T2-short", (302, 2, 1), (292, 3, 0)),
+    ("KTN1", "T2-short", (301, 3, 0), (290, 3, 0)),
 ])
 def test_original_indel_records_preserve_sample_and_placement_policy(
     additional_indel_rna, gene, sample, default_counts, primary_counts,

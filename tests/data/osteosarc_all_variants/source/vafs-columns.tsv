@@ -1,0 +1,27 @@
+column	description
+variant_id	Stable variant identifier (gene-chrom-pos), for grouping/joining
+gene	Gene symbol the variant falls in
+chrom	Chromosome (GRCh38)
+pos	1-based position (GRCh38)
+chr_pos	Convenience locus string chrom:pos
+ref	Reference allele (VCF-style; '-' for some pure indels)
+alt	Alternate allele
+change	Genomic change ref>alt
+protein_change	HGVS protein change where annotated (blank if none/non-coding)
+consequence	VEP-style consequence (missense_variant, stop_gained, ...)
+variant_type	snv / mnv / insertion / deletion (derived from ref/alt lengths)
+on_variants_page	true if this variant is among those shown on /variants
+pipeline_only	true if the variant was added from the DRAGEN/oncoanalyser calls
+bam_file	BAM filename the counts come from
+sample_label	Human-readable sample name
+data_source	Biological data provider (BostonGene/UCLA/Personalis/Tempus/UCSF)
+pipeline	Processing pipeline/aligner where known (oncoanalyser/DRAGEN/Sarek); blank = provider-native
+assay_type	WGS / WES / RNA / scRNA / scRNA_ONT / PacBio
+timepoint	T0 / T1 / T2 / T3 / T1-organoid
+tissue	tumor or blood (germline normal)
+sample_date	Sample collection/sequencing month (YYYY-MM)
+ref_reads	Reads supporting the reference allele at the locus
+alt_reads	Reads supporting the alternate allele
+other_reads	Reads supporting neither ref nor alt (third allele / errors)
+total_reads	Read depth at the locus (ref+alt+other)
+vaf	alt_reads / total_reads; blank when total_reads is 0 (no coverage)

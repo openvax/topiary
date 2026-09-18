@@ -38,7 +38,7 @@ from .io import _model_version_str
 from mhctools.pred import COLUMNS as _PRED_COLUMNS
 from mhctools.wrapper_base import AlleleFreePredictor
 
-from .protein_fragment import ProteinFragment
+from .protein_fragment import ProteinFragment, unique_fragments
 from .evidence import VARCODE_TRANSLATION
 from .sequence_helpers import (
     check_padding_around_mutation,
@@ -1538,6 +1538,11 @@ class TopiaryPredictor(object):
         populated when ``TopiaryPredictor(predict_wt=True)``.  Rows
         without a length-compatible WT peptide keep NaN WT prediction
         values.
+
+        Repeated fragment IDs must describe identical records; conflicting
+        sequence, evidence or metadata raises before prediction. See
+        :func:`unique_fragments`. Distinct sample/policy observations need
+        distinct IDs, even when their amino-acid sequences match.
         """
         fragments = list(fragments)
         return self._finalize_rows(
@@ -1552,7 +1557,7 @@ class TopiaryPredictor(object):
         legacy variant path rebasing ``peptide_offset`` to absolute
         protein coords) can intercept here and filter afterwards.
         """
-        fragments = list(fragments)
+        fragments = unique_fragments(fragments)
         if not fragments:
             return pd.DataFrame()
 

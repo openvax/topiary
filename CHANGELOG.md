@@ -1,5 +1,21 @@
 # Changelog
 
+## 5.62.0
+
+- Account for all 182 osteosarc website entries plus ACSL6 and KTN1 with
+  source-pinned offline fixtures: 174 reference-verified literal alleles and
+  ten explicit incomplete inputs. Check original-RNA reconstruction, independent
+  translation, unchanged filters and prediction/save/reload/filter workflows.
+- Add `describe_isovar_result` so empty and filtered RNA results retain native
+  counts and named failure reasons instead of disappearing from audits (#344).
+- Reject contradictory fragment IDs before prediction instead of silently
+  overwriting sequence/evidence. Expose `unique_fragments` and preserve distinct
+  sample/policy observations through the complete consumer workflow (#345).
+- Require optional Isovar >=1.18.1 for corrected insertion-boundary evidence.
+  On unchanged KTN1 reads, false other assignments disappear and a falsely
+  conflicted alternate template is recovered; both T2 contexts now pass the
+  unchanged filters. Re-audit counts rather than preserving defective pins.
+
 ## 5.61.0
 
 - Add `join_annotations` for explicit, namespaced, many-to-one evidence joins

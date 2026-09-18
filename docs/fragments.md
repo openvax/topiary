@@ -1,5 +1,24 @@
 # Protein Fragments
 
+## Identity and RNA outcomes
+
+`fragment_id` identifies a complete observation, not just an amino-acid
+sequence. Use different IDs for different samples or analysis policies.
+`unique_fragments(records)` preserves the first identical record per ID and
+raises on conflicting sequence, evidence, provenance or annotations. Prediction
+uses this check before running models, preventing silent last-record overwrites.
+Repeated records must have identical normalized, key-sorted JSON; unsupported
+duplicate annotations fail explicitly rather than being guessed equivalent.
+
+`describe_isovar_result(result)` returns a JSON-compatible diagnostic record for
+every completed upstream result, including empty or filtered reconstructions.
+It preserves separate read/template counts, unknowns as null, sequence/edit
+interval, transcript IDs and named failed filters. `passing` means the supplied
+result has a protein and passes its recorded filters, not clinical eligibility
+or proof that default filters were used. Fragment adapters remain diagnostic:
+do not promote a reconstructed but filtered sequence into accepted inputs.
+Acquisition errors must be reported separately, never as biological negatives.
+
 `ProteinFragment` is a universal record for a protein / peptide sequence with source-type, target-region, and comparator metadata. It's the substrate that lets Topiary handle antigens from any origin — somatic variants, structural variants, ERVs, CTAs, viral proteins, allergens, autoantigens, synthetic constructs — through one pipeline, and threads identity through predictions so downstream tools (vaxrank, vaccine-window selection) can group peptides back to their source.
 
 ## The dataclass
