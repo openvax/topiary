@@ -9,9 +9,14 @@ import textwrap
 import pytest
 
 
+# One all-variant corpus case exercises that corpus's pinned reference fixture
+# exactly as all 174 do; running the rest again here only repeats Isovar work.
+ONE_CORPUS_CASE = "not every_literal_allele or ABI3BP-chr3-100850671"
+
+
 @pytest.mark.parametrize("selection", [
     ["--collect-only"],
-    ["-m", "isovar", "--strict-markers"],
+    ["-m", "isovar", "--strict-markers", "-k", ONE_CORPUS_CASE],
 ])
 def test_collection_and_marker_selection_without_reference_data(tmp_path, selection):
     """Run the whole collection, with empty caches and forbidden I/O."""
@@ -78,9 +83,7 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
     result = subprocess.run(
         [sys.executable, "-c", code, *selection],
         cwd=Path(__file__).resolve().parents[1], env=env,
-        # The full 174-locus corpus includes deep mitochondrial RNA (~3 min
-        # without coverage locally), in addition to the earlier small fixtures.
-        text=True, capture_output=True, timeout=360,
+        text=True, capture_output=True, timeout=180,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert not list(cache.rglob("*")), "Collection/Isovar selection wrote reference data"

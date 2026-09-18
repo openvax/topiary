@@ -5,9 +5,8 @@ source bytes are cached with receipts. No historical pVAC prediction is changed.
 """
 
 import argparse
-from collections import defaultdict
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
-import csv
 import gzip
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -17,6 +16,8 @@ from pathlib import Path
 import re
 import subprocess
 
+import numpy as np
+import pandas as pd
 import requests
 
 from scripts.osteosarc_rna_overlay import BAM, digest, write_json
@@ -94,7 +95,10 @@ class VariantIndex(HTMLParser):
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         if tag == "tr" and "data-vaccines" in attrs:
-            self.current = {"vaccine_count": int(attrs["data-vaccines"])}
+            vaccines = (attrs["data-vaccines"] or "").strip()
+            if not vaccines.isdigit():
+                raise ValueError(f"Website variant table schema changed: data-vaccines={vaccines!r}")
+            self.current = {"vaccine_count": int(vaccines)}
             self.cells = []
         elif self.current is not None:
             if tag == "td":
@@ -118,41 +122,130 @@ class VariantIndex(HTMLParser):
             self.current = None
 
 
+#: Columns the long VAF table must provide. A missing one means the source
+#: schema changed, which no per-entry status can describe.
+VAF_ALLELE_COLUMNS = ["variant_id", "chrom", "pos", "ref", "alt"]
+
+
+def literal_alleles(vafs_text):
+    """Distinct candidate alleles per website ID, parsed as a typed table.
+
+    Every cell is read as text and nothing is coerced while parsing, so one
+    malformed row cannot abort the others. ``position`` is ``pos`` as an
+    integer only where ``pos`` is a positive whole number written in digits,
+    and missing otherwise. ``literal`` also requires ``ref`` and ``alt`` to be
+    ACGT bases. Rows that are not literal remain, so their entries can be
+    reported with an explicit status instead of disappearing.
+
+    Raises
+    ------
+    ValueError
+        A required column is missing.
+    """
+    table = pd.read_csv(io.StringIO(vafs_text), sep="\t", dtype=str, keep_default_na=False)
+    missing = [column for column in VAF_ALLELE_COLUMNS if column not in table.columns]
+    if missing:
+        raise ValueError(f"VAF table schema changed: missing columns {missing}")
+    alleles = table[VAF_ALLELE_COLUMNS].apply(lambda column: column.str.strip()).drop_duplicates()
+    digits = alleles["pos"].str.fullmatch(r"[1-9][0-9]*")
+    alleles["position"] = pd.to_numeric(alleles["pos"].where(digits)).astype("Int64")
+    alleles["literal"] = (digits & alleles["ref"].str.fullmatch("[ACGT]+")
+                          & alleles["alt"].str.fullmatch("[ACGT]+"))
+    return alleles.sort_values(
+        ["variant_id", "chrom", "position", "pos", "ref", "alt"], na_position="last")
+
+
 def variant_inventory(index_html, vafs_text):
     """Resolve literal alleles without discarding ambiguous or unavailable inputs.
 
     Returns one dictionary per website entry. A complete, consistent GRCh38
     allele has ``input_status=ready``. Otherwise the original entry and its
     candidate alleles remain available for investigation, with an explicit
-    non-ready status. Protein labels never substitute for a nucleotide allele.
+    non-ready status: ``missing_literal_allele``, ``ambiguous_literal_allele``,
+    ``non_literal_allele`` (including an unusable position) or
+    ``conflicting_coordinates``. Protein labels never substitute for a
+    nucleotide allele.
     """
     index = VariantIndex()
     index.feed(index_html)
     if not index.rows or len({r["variant_id"] for r in index.rows}) != len(index.rows):
         raise ValueError("Missing or duplicate website variant IDs")
-    alleles = defaultdict(set)
-    for row in csv.DictReader(io.StringIO(vafs_text), delimiter="\t"):
-        alleles[row["variant_id"]].add((row["chrom"], int(row["pos"]), row["ref"], row["alt"]))
+    alleles = literal_alleles(vafs_text)
+    candidates = alleles.groupby("variant_id", sort=False)
+    entries = pd.DataFrame(index.rows)
+    entries["n_candidates"] = entries["variant_id"].map(candidates.size()).fillna(0).astype(int)
+    only = alleles[alleles["variant_id"].map(candidates.size()).eq(1)].set_index("variant_id")
+    entries = entries.join(only, on="variant_id")
+    entries["input_status"] = np.select(
+        [entries["n_candidates"].eq(0), entries["n_candidates"].gt(1),
+         ~entries["literal"].eq(True),
+         entries["source_location"].ne(entries["chrom"] + ":" + entries["pos"])],
+        ["missing_literal_allele", "ambiguous_literal_allele", "non_literal_allele",
+         "conflicting_coordinates"],
+        default="ready",
+    )
+
+    # A candidate's position is an integer where usable, else the source text.
+    listed = {
+        variant_id: [
+            [a["chrom"], a["pos"] if pd.isna(a["position"]) else int(a["position"]), a["ref"], a["alt"]]
+            for a in group.to_dict("records")
+        ]
+        for variant_id, group in candidates
+    }
     result = []
-    for entry in index.rows:
-        matches = sorted(alleles[entry["variant_id"]])
+    for entry, status in zip(index.rows, entries["input_status"]):
         record = dict(entry, source_url=f"https://osteosarc.com/variant/{entry['variant_id']}/",
-                      assembly="GRCh38", candidate_alleles=matches)
-        if not matches:
-            record["input_status"] = "missing_literal_allele"
-        elif len(matches) != 1:
-            record["input_status"] = "ambiguous_literal_allele"
-        else:
-            chrom, pos, ref, alt = matches[0]
+                      assembly="GRCh38", candidate_alleles=listed.get(entry["variant_id"], []))
+        if len(record["candidate_alleles"]) == 1:
+            chrom, pos, ref, alt = record["candidate_alleles"][0]
             record.update(chrom=chrom, pos=pos, ref=ref, alt=alt)
-            if not (pos > 0 and re.fullmatch("[ACGT]+", ref) and re.fullmatch("[ACGT]+", alt)):
-                record["input_status"] = "non_literal_allele"
-            elif entry["source_location"] != f"{chrom}:{pos}":
-                record["input_status"] = "conflicting_coordinates"
-            else:
-                record.update(input_status="ready", allele_key=f"GRCh38:{chrom}:{pos}:{ref}>{alt}")
+        record["input_status"] = str(status)
+        if status == "ready":
+            record["allele_key"] = f"GRCh38:{record['chrom']}:{record['pos']}:{record['ref']}>{record['alt']}"
         result.append(record)
     return result
+
+
+def ensembl_contig(chrom):
+    """The Ensembl contig for a UCSC chromosome name; ``chrM`` is ``MT``."""
+    return "MT" if chrom == "chrM" else chrom.removeprefix("chr")
+
+
+def audit_variant(record, genome):
+    """The varcode variant for one checked inventory record.
+
+    The one place a record becomes a variant, so every stage (audit,
+    diagnosis, tests) uses the same contig naming.
+    """
+    from varcode import Variant
+
+    return Variant(ensembl_contig(record["chrom"]), record["pos"], record["ref"],
+                   record["alt"], ensembl=genome)
+
+
+def check_mutation_windows(frame, fragments):
+    """Verify each prediction is a window of its fragment covering the edit.
+
+    Checked from the fragments' own sequences and target intervals, not from
+    the predictor's ``contains_mutant_residues``, which already selected these
+    rows and so cannot catch its own mistake.
+
+    Raises
+    ------
+    ValueError
+        A row's peptide is not its fragment's sequence at that offset, or the
+        window does not overlap the fragment's mutation interval.
+    """
+    by_id = {fragment.fragment_id: fragment for fragment in fragments}
+    rows = frame[["fragment_id", "peptide", "peptide_offset", "peptide_length"]]
+    for fragment_id, peptide, offset, length in rows.itertuples(index=False):
+        fragment = by_id[fragment_id]
+        start, end = int(offset), int(offset) + int(length)
+        if fragment.sequence[start:end] != peptide:
+            raise ValueError(f"{peptide} is not {fragment_id}[{start}:{end}]")
+        if not any(start < high and low < end for low, high in fragment.target_intervals or ()):
+            raise ValueError(f"A non-mutant peptide escaped selection: {peptide} in {fragment_id}")
 
 
 def inventory(root):
@@ -222,8 +315,8 @@ def build_reference(root, ensembl):
     by_contig = defaultdict(list)
     for record in variants:
         if record["input_status"] == "ready":
-            contig = "MT" if record["chrom"] == "chrM" else record["chrom"].removeprefix("chr")
-            by_contig[contig].append((record["pos"], record["pos"] + len(record["ref"]) - 1))
+            by_contig[ensembl_contig(record["chrom"])].append(
+                (record["pos"], record["pos"] + len(record["ref"]) - 1))
     transcripts, genes = set(), set()
     gtf = ensembl / "Homo_sapiens.GRCh38.87.gtf.gz"
     with gzip.open(gtf, "rt") as handle:
@@ -297,7 +390,6 @@ def audit(root):
     """Run unchanged result filters and keep one outcome for every input entry."""
     import isovar
     import pysam
-    from varcode import Variant
     from topiary import describe_isovar_result, fragment_from_isovar_result, write_fragments
     from scripts.osteosarc_rna_overlay import POLICY
 
@@ -332,8 +424,7 @@ def audit(root):
         if record["input_status"] != "ready":
             write_json(path, dict(input=record, status=record["input_status"], rna=None))
             continue
-        contig = "MT" if record["chrom"] == "chrM" else record["chrom"].removeprefix("chr")
-        variant = Variant(contig, record["pos"], record["ref"], record["alt"], ensembl=genome)
+        variant = audit_variant(record, genome)
         print("AUDIT", record["variant_id"], flush=True)
         with pysam.AlignmentFile(bam_path) as bam:
             result, = isovar.run_isovar([variant], bam, read_collector=collector,
@@ -347,7 +438,7 @@ def audit(root):
             fragment.annotations.update(audit_variant_id=record["variant_id"],
                                         audit_filter_status=description["status"],
                                         audit_sample="T2 January 2025 UCLA resection")
-            write_fragments([fragment], destination / (record["variant_id"] + ".json"))
+            write_fragments([fragment], destination / (record["variant_id"] + ".tsv"))
         write_json(path, dict(input=record, status=description["status"], rna=description,
                              isovar_version=isovar.__version__, collection_policy=POLICY))
         print("RESULT", record["variant_id"], description["status"], flush=True)
@@ -365,17 +456,18 @@ def predict(root, hla_input):
 
     configuration = yaml.safe_load(hla_input.read_text())
     alleles, lengths = configuration["alleles"], configuration["epitope_lengths"]
-    files = sorted((root / "accepted").glob("*.json"))
+    files = sorted((root / "accepted").glob("*.tsv"))
     fragments = [fragment for path in files for fragment in read_fragments(path)]
     if not fragments:
-        raise ValueError("No accepted RNA fragments to predict")
+        raise ValueError(
+            f"No accepted RNA fragment TSVs in {root / 'accepted'} (audits before "
+            "topiary 5.63 named these TSV files *.json)")
     model = MHCflurry_Affinity(alleles=alleles, default_peptide_lengths=lengths)
     if not model.predictor_version:
         raise ValueError("MHCflurry model provenance is unknown")
     predictor = TopiaryPredictor(models=model, only_novel_epitopes=True)
     frame = predictor.predict_from_fragments(fragments)
-    if not frame.contains_mutant_residues.all():
-        raise ValueError("A non-mutant peptide escaped selection")
+    check_mutation_windows(frame, fragments)
     observed = set(frame.audit_variant_id)
     expected = {f.annotations["audit_variant_id"] for f in fragments}
     if observed != expected:
@@ -401,7 +493,6 @@ def diagnose_untranslated(root):
     """Record which public reconstruction stage returns no coding sequence."""
     import isovar
     import pysam
-    from varcode import Variant
     from scripts.osteosarc_rna_overlay import POLICY
 
     class TracedCreator(isovar.ProteinSequenceCreator):
@@ -431,7 +522,7 @@ def diagnose_untranslated(root):
         if outcome["status"] not in ("no_protein_sequence", "no_predicted_coding_change"):
             continue
         record = outcome["input"]
-        variant = Variant(record["chrom"].removeprefix("chr"), record["pos"], record["ref"], record["alt"], ensembl=genome)
+        variant = audit_variant(record, genome)
         creator = TracedCreator()
         with pysam.AlignmentFile(root / "source/t2-all-variant-regions.bam") as bam:
             result, = isovar.run_isovar([variant], bam, read_collector=isovar.ReadCollector(**POLICY),
@@ -455,8 +546,9 @@ def additional_indels(root, hla_input):
     """Replay the already pinned T1/T2 GLIS3/KTN1 libraries without pooling them."""
     import isovar
     import pysam
-    from dataclasses import replace
-    from topiary import describe_isovar_result, fragment_from_isovar_result, write_fragments, make_fragment_id
+    from topiary import (
+        describe_isovar_result, fragment_from_isovar_result, fragments_for_sample, write_fragments,
+    )
     from tests.osteosarc_helpers import load_osteosarc, assert_expected_fragment
 
     output = root / "additional-indels"
@@ -478,14 +570,14 @@ def additional_indels(root, hla_input):
             fragment = fragment_from_isovar_result(result)
             if fragment is not None:
                 assert_expected_fragment(fragment, expected[gene])
-                fragment = replace(fragment, fragment_id=make_fragment_id(
-                    identifier, fragment.sequence, variant=fragment.variant))
+                # Each library and placement policy is its own observation.
+                fragment, = fragments_for_sample([fragment], f"{sample}.{policy}")
                 destination = output / ("accepted" if result.passes_all_filters else "filtered")
                 destination.mkdir(exist_ok=True)
                 fragment.annotations.update(audit_variant_id=identifier, audit_sample=sample,
                                             audit_filter_status=description["status"],
                                             audit_placement_policy=policy)
-                write_fragments([fragment], destination / (identifier + ".json"))
+                write_fragments([fragment], destination / (identifier + ".tsv"))
             rows.append(dict(case_id=identifier, gene=gene, sample=sample, placement_policy=policy,
                              status=description["status"], rna=description))
     source = Path(__file__).resolve().parents[1] / "tests/data/osteosarc_indels/manifest.json"
@@ -499,14 +591,18 @@ def additional_indels(root, hla_input):
 
 def report(root):
     """Render one source-linked outcome per inventory entry, without hiding gaps."""
-    from collections import Counter
-
     variants = json.loads((root / "checked-inventory.json").read_text())["variants"]
     outcomes = [json.loads((root / "outcomes" / (r["variant_id"] + ".json")).read_text()) for r in variants]
     diagnostics = {r["variant_id"]: r["reason"] for r in json.loads((root / "untranslated-diagnostics.json").read_text())}
     predictions = json.loads((root / "prediction-receipt.json").read_text())
+    extras = [r["gene"] for r in variants if r.get("membership") == "additional_candidate_report"]
+    statuses = Counter(r["input_status"] for r in variants)
+    ready = statuses.pop("ready", 0)
     lines = ["# Osteosarc: accountable variant outcomes", "",
-             "All 182 website entries plus ACSL6 and KTN1. All 174 supplied literal alleles are GRCh38-reference-verified; ten entries lack complete literal alleles.",
+             f"All {len(variants) - len(extras)} website entries plus {' and '.join(extras) or 'no others'}. "
+             f"{ready} literal alleles are GRCh38-reference-verified; the other {sum(statuses.values())} "
+             "entries keep explicit input statuses: "
+             + (", ".join(f"{count} {status}" for status, count in sorted(statuses.items())) or "none") + ".",
              "This main pass uses January-2025 UCLA T2 STAR RNA only; a negative here is not a negative across timepoints.",
              "Read counts are sequenced segments, not independent molecules. Recorded filters are unchanged.",
              "Reference: Ensembl 87, with original GTF/cDNA/protein records and regional BAM retained locally.",
@@ -558,7 +654,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.stage == "inventory":
         records = inventory(args.root)
-        from collections import Counter
         print(len(records), dict(Counter(r["input_status"] for r in records)))
     elif args.stage == "acquire":
         if args.index is None:

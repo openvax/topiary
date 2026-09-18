@@ -259,11 +259,49 @@ def test_fragment_identity_doors_coalesce_identical_records():
         assert len(door([])) == 0
 
 
-def test_fragment_identity_doors_refuse_unverifiable_duplicates():
+def test_fragment_identity_doors_accept_one_object_but_not_unstorable_copies():
     first = ProteinFragment(fragment_id="same", sequence="SIINFEKLL", annotations={"custom": object()})
+    copy = dataclasses.replace(first)
     for door in FRAGMENT_IDENTITY_TWINS:
-        with pytest.raises(ValueError, match="same.*JSON-serializable"):
-            door([first, first])
+        assert len(door([first, first])) == 1
+        with pytest.raises(ValueError, match="same.*annotations.*cannot store"):
+            door([first, copy])
+
+
+@pytest.mark.parametrize("annotations", [
+    {"count": 5}, {"nested": {"pair": (1, 2)}}, {"missing": float("nan")}, {},
+])
+def test_fragment_identity_doors_coalesce_a_record_with_its_saved_copy(annotations, tmp_path):
+    """A record and its own fragment-IO round trip are the same observation.
+
+    Saving turns expression ``5`` into ``5.0``, NaN into ``None`` and tuples
+    into lists. None of those is a conflict, so a cached fragment file can be
+    merged with freshly built fragments.
+    """
+    fresh = ProteinFragment(
+        fragment_id="same", sequence="SIINFEKLL", gene_expression=5,
+        transcript_expression=float("nan"), n_rna_alt_reads=3,
+        target_intervals=[(1, 2)], annotations=annotations)
+    path = tmp_path / "fragments.tsv"
+    write_fragments([fresh], path)
+    restored, = read_fragments(path)
+    for door in FRAGMENT_IDENTITY_TWINS:
+        assert len(door([fresh, restored])) == len(door([restored, fresh])) == 1
+
+
+def test_fragment_identity_doors_compare_mapping_keys_as_stored():
+    first = ProteinFragment(fragment_id="same", sequence="SIINFEKLL", annotations={1: "a", "b": 2})
+    for door in FRAGMENT_IDENTITY_TWINS:
+        assert len(door([first, dataclasses.replace(first)])) == 1
+        assert len(door([first, dataclasses.replace(first, annotations={"1": "a", "b": 2})])) == 1
+
+
+def test_fragment_identity_conflicts_name_every_differing_field():
+    first = ProteinFragment(fragment_id="same", sequence="SIINFEKLL", n_rna_alt_reads=3)
+    second = dataclasses.replace(first, n_rna_alt_reads=4, gene="GLIS3")
+    for door in FRAGMENT_IDENTITY_TWINS:
+        with pytest.raises(ValueError, match="differ in gene, n_rna_alt_reads"):
+            door([first, second])
 
 FRAME = pd.DataFrame({"x": [1, 2]}, index=[10, 11])
 
@@ -285,6 +323,17 @@ PVACSEQ_PRESENTATION_TWINS = (
 )
 
 
+@pytest.fixture
+def without_installed_metadata(monkeypatch):
+    """Isolate import/API checks from whatever release this machine has."""
+    from importlib.metadata import PackageNotFoundError
+
+    def absent(name):
+        raise PackageNotFoundError(name)
+
+    monkeypatch.setattr(optional_dependencies, "version", absent)
+
+
 # ---------------------------------------------------------------------------
 # Optional integrations
 #
@@ -295,14 +344,14 @@ PVACSEQ_PRESENTATION_TWINS = (
 OPTIONAL_DEPENDENCY_TWINS = (
     (
         "isovar",
-        "run_isovar",
+        ("run_isovar", "ProteinSequenceCreator"),
         _check_isovar,
         "assembling protein fragments from RNA alignments",
         ">=1.18.1",
     ),
     (
         "pirlygenes",
-        "pan_cancer_expression",
+        ("pan_cancer_expression",),
         lambda: _check_pirlygenes("pan_cancer_expression"),
         "cancer-testis antigen and tissue-expression gene lists",
         ">=5.1.0",
@@ -563,7 +612,7 @@ def test_optional_dependency_broken_import_errors_match(
     ids=lambda value: value if isinstance(value, str) else None,
 )
 def test_optional_dependency_capability_errors_match(
-    monkeypatch, dependency, required_api, check, feature, specifier,
+    monkeypatch, without_installed_metadata, dependency, required_api, check, feature, specifier,
 ):
     del feature, specifier
     monkeypatch.setattr(
@@ -577,7 +626,7 @@ def test_optional_dependency_capability_errors_match(
 
     message = str(raised.value)
     assert "installed but does not provide the API" in message
-    assert required_api in message
+    assert all(name in message for name in required_api)
     assert f"pip install --upgrade 'topiary[{dependency}]'" in message
 
 
@@ -587,14 +636,45 @@ def test_optional_dependency_capability_errors_match(
     ids=lambda value: value if isinstance(value, str) else None,
 )
 def test_optional_dependency_capabilities_load_through_both_doors(
-    monkeypatch, dependency, required_api, check, feature, specifier,
+    monkeypatch, without_installed_metadata, dependency, required_api, check, feature, specifier,
 ):
     del dependency, feature, specifier
-    module = SimpleNamespace(**{required_api: lambda: None})
+    module = SimpleNamespace(**{name: lambda: None for name in required_api})
     monkeypatch.setattr(
         optional_dependencies, "import_module", lambda module_name: module,
     )
 
+    assert check() is module
+
+
+@pytest.mark.parametrize(
+    ("dependency", "required_api", "check", "feature", "specifier"),
+    OPTIONAL_DEPENDENCY_TWINS,
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_optional_dependency_floors_refuse_older_releases_through_both_doors(
+    monkeypatch, dependency, required_api, check, feature, specifier,
+):
+    """An older release imports fine and answers wrongly; both doors refuse it.
+
+    The floor is read from Topiary's own metadata, the one place it is
+    declared, so the runtime check cannot drift from the installer's.
+    """
+    module = SimpleNamespace(**{name: lambda: None for name in required_api})
+    monkeypatch.setattr(optional_dependencies, "import_module", lambda module_name: module)
+    floor = specifier.removeprefix(">=")
+    installed = {}
+    monkeypatch.setattr(optional_dependencies, "version", lambda name: installed[name])
+
+    installed[dependency] = "0.0.1"
+    with pytest.raises(ImportError) as raised:
+        check()
+    message = str(raised.value)
+    assert f"{dependency} 0.0.1 is installed" in message
+    assert feature in message and specifier in message
+    assert f"pip install --upgrade 'topiary[{dependency}]'" in message
+
+    installed[dependency] = floor
     assert check() is module
 
 
