@@ -72,7 +72,8 @@ def upstream_structural_evidence(root):
     base = ("https://raw.githubusercontent.com/openvax/isovar/"
             "fa44889fcf1e946450d91875fcaf5886b1723e79/")
     names = ["tests/data/osteosarc/figure_comparisons/" + suffix for suffix in (
-        "EXTENDED_RNA.md", "CORPUS_OUTCOMES.md", "corpus/dlg5-manifest.json", "corpus/dlg5.json.gz",
+        "EXTENDED_RNA.md", "CORPUS_OUTCOMES.md", "SOFT_CLIPS.md",
+        "corpus/dlg5-manifest.json", "corpus/dlg5.json.gz",
         "corpus/extended-footprints-manifest.json", "corpus/extended-footprints.json.gz",
         "corpus/insertion-boundaries-manifest.json", "corpus/insertion-boundaries.json.gz",
         "dlg5.py", "extended_footprints.py")]

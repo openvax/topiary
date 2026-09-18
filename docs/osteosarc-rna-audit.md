@@ -104,8 +104,10 @@ python tests/data/osteosarc_rearrangements/regenerate.py /path/to/2026-09-17_05-
 
 DLG5's event affects the canonical start region; its full DNA junction contains
 additional sequence, so the nominal 79.5-kb deletion is insufficient to specify
-the complete allele. The sequence-resolved follow-up is
-[Isovar #292](https://github.com/openvax/isovar/issues/292).
+the complete allele. The completed
+[sequence-resolved follow-up](https://github.com/openvax/isovar/pull/298)
+supports the DNA junction but leaves the mutant RNA junction and coding frame
+unresolved; the expanded audit queried 14 RNA products without pooling them.
 AFF3's 128-bp and KEAP1's 211-bp deletions do not overlap coding-transcript exons
 in the Ensembl 87 models checked. Ordinary RNA splice skips across those
 intronic intervals do not distinguish deleted from wild-type alleles.

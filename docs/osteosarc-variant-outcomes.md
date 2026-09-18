@@ -64,6 +64,9 @@ and selection assertions; it does not claim those scores validate binding.
   10 / 8 rejections reflected a counting bug. Protein sequences stay 18 and
   29 aa. The shorter context supplies 9–12mers, not a 25mer; no threshold is
   relaxed to make it pass.
+  With matched primary-only/MAPQ20 collection, T2 oncoanalyser still has two
+  alternate templates while the main T2 STAR product has none. The products
+  are not pooled and this discrepancy is not explained away as a MAPQ cutoff.
 - **GABBR1–SLC29A1 and OTUD7A–FMN1:** actual RNA paths are pinned in the
   [RNA path audit](osteosarc-rna-audit.md). Their coding frames remain unresolved;
   no protein is invented from a frame guessed at the breakpoint.
