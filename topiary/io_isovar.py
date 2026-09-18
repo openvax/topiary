@@ -17,18 +17,23 @@ from __future__ import annotations
 from numbers import Integral
 from typing import Optional
 
-from .protein_fragment import ProteinFragment
+from .protein_fragment import ProteinFragment, fragments_for_sample
 from .evidence import ISOVAR_ASSEMBLY, RNA_ALIGNMENT
 from .optional_dependencies import require_optional_dependency
 from .serialization import normalize_python_types
 
 
 def _check_isovar():
-    """Load the Isovar API used to assemble variants from RNA reads."""
+    """Load the Isovar API used to assemble variants from RNA reads.
+
+    Refuses an installed release older than the ``isovar`` extra's floor:
+    older releases run, but can return wrong evidence (1.17.x miscounts
+    reads at insertion boundaries), which is worse than failing.
+    """
     return require_optional_dependency(
         "isovar",
         feature="assembling protein fragments from RNA alignments",
-        required_callables=("run_isovar",),
+        required_callables=("run_isovar", "ProteinSequenceCreator"),
     )
 
 
@@ -73,76 +78,35 @@ def fragment_from_isovar_result(
     ... ]
     >>> fragments = [f for f in fragments if f is not None]  # doctest: +SKIP
     """
-    protein_sequence = getattr(isovar_result, "top_protein_sequence", None)
-    if protein_sequence is None:
+    extracted = _extract_isovar_result(isovar_result)
+    amino_acids = extracted["protein_sequence"]
+    if amino_acids is None:
         return None
-
-    amino_acids = getattr(protein_sequence, "amino_acids", "") or ""
-    if not amino_acids:
-        return None
-
-    start = getattr(protein_sequence, "mutation_start_idx", None)
-    end = getattr(protein_sequence, "mutation_end_idx", None)
-    variant = getattr(isovar_result, "variant", None)
-
-    transcript_ids = list(getattr(protein_sequence, "transcript_ids", ()) or ())
-    transcript_names = list(
-        getattr(protein_sequence, "transcript_names", ()) or ()
-    )
 
     # isovar reports both units for every count, so carry both under
     # names that say which is which. Putting the fragment count in a
     # field named for reads was the same mistake as the CDS-overlap
     # column: a real count of one thing under a name for another.
-    counts = dict(
-        n_rna_overlapping_reads=_as_count(
-            getattr(isovar_result, "num_total_reads", None)
-        ),
-        n_rna_alt_reads=_as_count(
-            getattr(isovar_result, "num_alt_reads", None)
-        ),
-        n_rna_ref_reads=_as_count(
-            getattr(isovar_result, "num_ref_reads", None)
-        ),
-        n_rna_other_reads=_as_count(
-            getattr(isovar_result, "num_other_reads", None)
-        ),
-        n_rna_alt_reads_supporting_protein_sequence=_as_count(
-            getattr(protein_sequence, "num_supporting_reads", None)
-        ),
-        n_rna_overlapping_fragments=_as_count(
-            getattr(isovar_result, "num_total_fragments", None)
-        ),
-        n_rna_alt_fragments=_as_count(
-            getattr(isovar_result, "num_alt_fragments", None)
-        ),
-        n_rna_ref_fragments=_as_count(
-            getattr(isovar_result, "num_ref_fragments", None)
-        ),
-        n_rna_other_fragments=_as_count(
-            getattr(isovar_result, "num_other_fragments", None)
-        ),
-        n_rna_alt_fragments_supporting_protein_sequence=_as_count(
-            getattr(protein_sequence, "num_supporting_fragments", None)
-        ),
-    )
+    counts = {
+        field: extracted[key] for field, key in _FRAGMENT_COUNT_SOURCES.items()
+    }
     provenance = {
         name: "measured" for name, value in counts.items() if value is not None
     }
-
-    target_intervals = None
-    if start is not None and end is not None:
-        lo = max(0, min(int(start), len(amino_acids)))
-        hi = max(lo, min(int(end), len(amino_acids)))
-        target_intervals = [(lo, hi)]
+    start, end = extracted["mutation_start"], extracted["mutation_end"]
+    transcript_ids = extracted["transcript_ids"]
+    transcript_names = extracted["transcript_names"]
+    variant = getattr(isovar_result, "variant", None)
 
     return ProteinFragment(
         fragment_id=_fragment_id(variant, amino_acids),
         source_type="variant:rna_assembled",
         sequence=amino_acids,
-        target_intervals=target_intervals,
+        target_intervals=None if start is None else [(start, end)],
         variant=str(variant) if variant is not None else None,
-        gene=getattr(protein_sequence, "gene_name", None),
+        gene=extracted["gene"],
+        # Isovar's supporting transcripts are an unordered set; the
+        # first after sorting is a reproducible choice, not a ranking.
         transcript_id=transcript_ids[0] if transcript_ids else None,
         transcript_name=transcript_names[0] if transcript_names else None,
         gene_expression=gene_expression,
@@ -207,18 +171,12 @@ def describe_isovar_result(isovar_result):
     fragment counts remain separate and are not independent-molecule counts.
     """
     result = isovar_result
+    extracted = _extract_isovar_result(result)
     variant = getattr(result, "variant", None)
-    protein = getattr(result, "top_protein_sequence", None)
-    sequence = getattr(protein, "amino_acids", None) or None
-    counts = {
-        f"num_{category}_{unit}": _as_count(getattr(result, f"num_{category}_{unit}", None))
-        for unit in ("reads", "fragments")
-        for category in ("total", "ref", "alt", "other")
-    }
-    filters = dict(getattr(result, "filter_values", {}) or {})
-    passing = normalize_python_types(getattr(result, "passes_all_filters", None))
+    counts = {key: extracted[key] for key in _ISOVAR_COUNT_KEYS}
+    passing = extracted["passes_all_filters"]
     effect = getattr(result, "predicted_effect", None)
-    if sequence:
+    if extracted["protein_sequence"]:
         status = ("filter_status_unavailable" if passing is None else
                   "passing" if passing else "filtered")
     elif counts["num_total_reads"] == 0:
@@ -229,6 +187,7 @@ def describe_isovar_result(isovar_result):
         status = "no_predicted_coding_change"
     else:
         status = "no_protein_sequence"
+    filters = extracted["filter_values"]
     return normalize_python_types(dict(
         status=status,
         variant=str(variant) if variant is not None else None,
@@ -243,13 +202,89 @@ def describe_isovar_result(isovar_result):
         failed_filters=sorted(name for name, passed in filters.items() if not passed),
         predicted_effect_class=type(effect).__name__ if effect is not None else None,
         predicted_effect=getattr(effect, "short_description", None),
+        protein_sequence=extracted["protein_sequence"],
+        mutation_start=extracted["mutation_start"],
+        mutation_end=extracted["mutation_end"],
+        transcript_ids=extracted["transcript_ids"],
+        protein_supporting_reads=extracted["protein_supporting_reads"],
+        protein_supporting_fragments=extracted["protein_supporting_fragments"],
+    ))
+
+
+#: Isovar's native count attributes, in the order outcomes report them.
+_ISOVAR_COUNT_KEYS = tuple(
+    f"num_{category}_{unit}"
+    for unit in ("reads", "fragments")
+    for category in ("total", "ref", "alt", "other")
+)
+
+#: Fragment count field → the extracted value that fills it.
+_FRAGMENT_COUNT_SOURCES = {
+    "n_rna_overlapping_reads": "num_total_reads",
+    "n_rna_alt_reads": "num_alt_reads",
+    "n_rna_ref_reads": "num_ref_reads",
+    "n_rna_other_reads": "num_other_reads",
+    "n_rna_alt_reads_supporting_protein_sequence": "protein_supporting_reads",
+    "n_rna_overlapping_fragments": "num_total_fragments",
+    "n_rna_alt_fragments": "num_alt_fragments",
+    "n_rna_ref_fragments": "num_ref_fragments",
+    "n_rna_other_fragments": "num_other_fragments",
+    "n_rna_alt_fragments_supporting_protein_sequence": "protein_supporting_fragments",
+}
+
+
+def _extract_isovar_result(result):
+    """Everything topiary reads from one result, read one way.
+
+    The single reader behind :func:`describe_isovar_result` and
+    :func:`fragment_from_isovar_result`, so the outcome report and the
+    fragment cannot disagree about a count, interval or transcript.
+    Attributes are read by name, so duck-typed results work; a missing
+    attribute is ``None`` (unknown), never zero.
+
+    The mutation interval is clamped to the sequence, and dropped when
+    either end is missing. Supporting transcripts are sorted by ID
+    (Isovar keeps them as a set, whose order varies between processes),
+    with each name kept parallel to its ID (``None`` when unavailable). Filter disposition is Isovar's
+    ``passes_all_filters`` when the result states it, otherwise Isovar's
+    own rule over ``filter_values`` (every recorded filter passed), and
+    ``None`` when neither is available.
+    """
+    protein = getattr(result, "top_protein_sequence", None)
+    sequence = getattr(protein, "amino_acids", None) or None
+    start = getattr(protein, "mutation_start_idx", None)
+    end = getattr(protein, "mutation_end_idx", None)
+    if sequence is None or start is None or end is None:
+        start = end = None
+    else:
+        start = max(0, min(int(start), len(sequence)))
+        end = max(start, min(int(end), len(sequence)))
+    ids = list(getattr(protein, "transcript_ids", ()) or ())
+    names = list(getattr(protein, "transcript_names", ()) or ())
+    if len(names) != len(ids):
+        names = [None] * len(ids)
+    transcripts = sorted(zip(ids, names), key=lambda pair: str(pair[0]))
+    filters = dict(getattr(result, "filter_values", None) or {})
+    if hasattr(result, "passes_all_filters"):
+        passing = normalize_python_types(result.passes_all_filters)
+        passing = None if passing is None else bool(passing)
+    elif hasattr(result, "filter_values"):
+        passing = all(filters.values())
+    else:
+        passing = None
+    return dict(
+        {key: _as_count(getattr(result, key, None)) for key in _ISOVAR_COUNT_KEYS},
         protein_sequence=sequence,
-        mutation_start=getattr(protein, "mutation_start_idx", None),
-        mutation_end=getattr(protein, "mutation_end_idx", None),
-        transcript_ids=list(getattr(protein, "transcript_ids", ()) or ()),
+        gene=getattr(protein, "gene_name", None),
+        mutation_start=start,
+        mutation_end=end,
+        transcript_ids=[transcript_id for transcript_id, _ in transcripts],
+        transcript_names=[name for _, name in transcripts],
         protein_supporting_reads=_as_count(getattr(protein, "num_supporting_reads", None)),
         protein_supporting_fragments=_as_count(getattr(protein, "num_supporting_fragments", None)),
-    ))
+        filter_values=filters,
+        passes_all_filters=passing,
+    )
 
 
 #: Historical context length, retained for explicit callers and reference
@@ -358,6 +393,7 @@ def fragments_from_variants(
     transcript_expression=None,
     transcript_id_whitelist=None,
     filter_thresholds=None,
+    sample_name: Optional[str] = None,
     **isovar_kwargs,
 ):
     """Fragments for *variants*, assembled from RNA when RNA is available.
@@ -439,6 +475,14 @@ def fragments_from_variants(
         transcript selection.
     transcript_id_whitelist, filter_thresholds
         Passed to :func:`isovar.run_isovar`.
+    sample_name : str, optional
+        Label every returned fragment as this sample's observation, through
+        :func:`~topiary.fragments_for_sample`: the ID is namespaced and
+        ``annotations["sample_name"]`` fills the prediction frame's
+        ``sample_name`` column. Needed to combine fragments from more than
+        one alignment (or one alignment under two settings) in a single
+        prediction; unlabelled, the same variant would get the same ID
+        with different evidence, which prediction refuses.
     **isovar_kwargs
         Passed to ``run_isovar``, for example ``read_collector`` and
         ``filter_flags``. Creator options above are not passed here. Rejected when no
@@ -451,7 +495,9 @@ def fragments_from_variants(
 
     Notes
     -----
-    Requires Isovar >=1.17.0 only when *alignment_file* is given. Explicit
+    Needs the ``isovar`` extra (``pip install 'topiary[isovar]'``) only
+    when *alignment_file* is given; an installed Isovar older than the
+    extra's floor is refused rather than trusted. Explicit
     RNA-only options are rejected without an alignment file. RNA fragments
     record the Isovar version, creator class and available creator settings
     as ``isovar_*`` annotations, preserved by fragment IO and prediction.
@@ -501,12 +547,12 @@ def fragments_from_variants(
                 f"without one there is no isovar run to configure. Drop "
                 f"them, or pass the alignment file."
             )
-        return fragments_from_effects(
+        return _labelled(fragments_from_effects(
             _effects_for(variants),
             padding_around_mutation,
             gene_expression=gene_expression,
             transcript_expression=transcript_expression,
-        )
+        ), sample_name)
 
     isovar = _check_isovar()
     creator = protein_sequence_creator
@@ -516,14 +562,8 @@ def fragments_from_variants(
             "configure RNA reconstruction; pass one configuration source."
         )
     if creator is None:
-        creator_module = require_optional_dependency(
-            "isovar.protein_sequence_creator",
-            feature="assembling protein fragments from RNA alignments",
-            extra="isovar",
-            required_callables=("ProteinSequenceCreator",),
-        )
         creator_options.setdefault("protein_context_peptide_length", max(epitope_lengths))
-        creator = creator_module.ProteinSequenceCreator(
+        creator = isovar.ProteinSequenceCreator(
             # Preserve Topiary's overlap-assembly policy; Isovar still
             # enforces the support floor on the retained RNA context.
             variant_sequence_assembly=True,
@@ -558,8 +598,9 @@ def fragments_from_variants(
     fragments = []
     unsupported = []
     for result in results:
-        if require_passing_filters and not getattr(
-            result, "passes_all_filters", True
+        # A result whose filter disposition is unknown is not shown to pass.
+        if require_passing_filters and (
+            _extract_isovar_result(result)["passes_all_filters"] is not True
         ):
             unsupported.append(getattr(result, "variant", None))
             continue
@@ -584,7 +625,12 @@ def fragments_from_variants(
             gene_expression=gene_expression,
             transcript_expression=transcript_expression,
         ))
-    return fragments
+    return _labelled(fragments, sample_name)
+
+
+def _labelled(fragments, sample_name):
+    """*fragments*, labelled with *sample_name* when one was given."""
+    return fragments if sample_name is None else fragments_for_sample(fragments, sample_name)
 
 
 def _effects_for(variants):

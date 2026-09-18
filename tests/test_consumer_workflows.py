@@ -12,6 +12,7 @@ here walks a documented workflow from input to answer, so a claim that "X is
 supported" has something that runs behind it.
 """
 
+import glob
 import warnings
 from io import StringIO
 from enum import Enum
@@ -207,14 +208,20 @@ def test_missing_indel_rna_to_prediction_is_source_grounded(
 
 
 @pytest.mark.isovar
-@pytest.mark.parametrize("gene,sample,secondary,rejected", [
-    ("GLIS3", "T1-short", True, False), ("GLIS3", "T1-short", False, False),
-    ("KTN1", "T2-ONT-dedup", True, False), ("KTN1", "T2-ONT-dedup", False, False),
-    ("KTN1", "T2-short", True, False), ("KTN1", "T2-short", False, False),
+@pytest.mark.parametrize("gene,sample,secondary", [
+    ("GLIS3", "T1-short", True), ("GLIS3", "T1-short", False),
+    ("KTN1", "T2-ONT-dedup", True), ("KTN1", "T2-ONT-dedup", False),
+    ("KTN1", "T2-short", True), ("KTN1", "T2-short", False),
 ])
 def test_missing_indel_default_filter_is_not_confused_with_reconstruction(
-    additional_indel_rna, gene, sample, secondary, rejected,
+    additional_indel_rna, gene, sample, secondary,
 ):
+    """Since Isovar 1.18.1 no reconstructed indel here fails a default filter.
+
+    Rejection by default filters on real reads is covered by the nine
+    ``filtered`` loci of the all-variant corpus, and synthetically by
+    ``test_isovar_run``; this pins that these reconstructions pass them.
+    """
     import pysam
     from isovar import ProteinSequenceCreator, ReadCollector, run_isovar
 
@@ -224,11 +231,10 @@ def test_missing_indel_default_filter_is_not_confused_with_reconstruction(
     with pysam.AlignmentFile(bams[gene + "." + sample]) as bam:
         upstream, = run_isovar([variants[gene]], bam, **options)
     assert upstream.has_mutant_protein_sequence_from_rna
-    failed = {name for name, passed in upstream.filter_values.items() if not passed}
-    assert failed == ({"min_ratio_alt_to_other_fragments"} if rejected else set())
+    assert {name for name, passed in upstream.filter_values.items() if not passed} == set()
     with pysam.AlignmentFile(bams[gene + "." + sample]) as bam:
         fragments = fragments_from_variants([variants[gene]], bam, **options)
-    assert len(fragments) == (0 if rejected else 1)
+    assert len(fragments) == 1
 
 
 @pytest.fixture
@@ -1926,20 +1932,70 @@ def test_invalid_rna_settings_fail_before_reading_alignments(option):
 def test_same_peptide_different_rna_observations_survive_prediction_and_filtering(tmp_path):
     """Identical peptide does not mean identical sample/policy evidence (#345)."""
     from mhctools import RandomBindingPredictor
-    from topiary import ProteinFragment, TopiaryPredictor, TopiaryResult, make_fragment_id, read_tsv
+    from topiary import (
+        ProteinFragment, TopiaryPredictor, TopiaryResult, fragments_for_sample,
+        make_fragment_id, read_tsv,
+    )
+    from topiary.evidence import RNA_ALIGNMENT
 
     sequence = "SIINFEKLL"
-    fragments = [ProteinFragment(
-        fragment_id=make_fragment_id(sample, sequence, variant="same-allele"),
-        sequence=sequence, n_rna_alt_fragments=count,
-        annotations={"sample": sample}) for sample, count in (("T1", 9), ("T2", 2))]
+    fragments = [
+        fragment
+        for sample, count in (("T1", 9), ("T2", 2))
+        for fragment in fragments_for_sample([ProteinFragment(
+            fragment_id=make_fragment_id("same-allele", sequence, variant="same-allele"),
+            sequence=sequence, n_rna_alt_fragments=count,
+            annotations={"rna_evidence_method": RNA_ALIGNMENT})], sample)
+    ]
     predictor = TopiaryPredictor(models=RandomBindingPredictor(
         alleles=["HLA-A*01:01"], default_peptide_lengths=[9]), only_novel_epitopes=False)
     frame = predictor.predict_from_fragments(fragments)
     assert len(frame) == 2 and set(frame.peptide) == {sequence}
-    assert dict(zip(frame["sample"], frame.n_rna_alt_fragments)) == {"T1": 9, "T2": 2}
+    assert dict(zip(frame["sample_name"], frame.n_rna_alt_fragments)) == {"T1": 9, "T2": 2}
     path = tmp_path / "observations.tsv"
     TopiaryResult(frame).to_tsv(path)
     restored = read_tsv(path)
-    assert set(restored.filter_by("n_rna_alt_fragments >= 2").df["sample"]) == {"T1", "T2"}
-    assert set(restored.filter_by("n_rna_alt_fragments >= 3").df["sample"]) == {"T1"}
+    assert set(restored.filter_by("n_rna_alt_fragments >= 2").df["sample_name"]) == {"T1", "T2"}
+    assert set(restored.filter_by("n_rna_alt_fragments >= 3").df["sample_name"]) == {"T1"}
+    # Sample-scoped IDs name observations, so pooling names the candidate.
+    pooled = aggregate_evidence_across_samples(
+        restored.df, group_keys=["peptide", "peptide_offset", "allele"])
+    assert pooled[["n_samples", "n_rna_alt"]].values.tolist() == [[2, 11]]
+
+
+READER_FRAMES = [
+    *((read_lens, path) for path in sorted(glob.glob("tests/data/lens/*.tsv"))),
+    *((read_pvacseq, path) for path in sorted(glob.glob("tests/data/pvacseq/*.tsv"))),
+]
+
+
+@pytest.mark.parametrize("reader,path", READER_FRAMES, ids=lambda value: getattr(value, "__name__", value))
+def test_every_reader_frame_reaches_predictions_with_its_own_evidence(reader, path):
+    """The documented reader path, run whole, on every fixture.
+
+    LENS reports RNA evidence per peptide, and several peptides share one
+    context. Each reported peptide's evidence must reach its own prediction
+    rows, not be merged with, or overwritten by, a neighbour's.
+    """
+    from mhctools import RandomBindingPredictor
+
+    frame = _long(reader, path)
+    fragments = fragments_from_dataframe(frame)
+    # The shortest reported peptide is 8 aa; every fragment yields a window.
+    predictor = TopiaryPredictor(models=RandomBindingPredictor(
+        alleles=["HLA-A*02:01"], default_peptide_lengths=[8]), only_novel_epitopes=False)
+    predictions = predictor.predict_from_fragments(fragments)
+
+    assert not predictions.empty
+    assert set(predictions.fragment_id) == {f.fragment_id for f in fragments}
+    for fragment in fragments:
+        reported = fragment.annotations.get("reported_peptide")
+        if reported is None:
+            continue
+        rows = frame[(frame["peptide"] == reported) & (frame["pep_context"] == fragment.sequence)]
+        stated = set(rows["n_rna_overlapping"].dropna())
+        own = fragment.n_rna_overlapping_reads
+        assert own in stated if stated else own is None
+        attached = predictions.loc[predictions.fragment_id == fragment.fragment_id]
+        if own is not None:
+            assert set(attached["n_rna_overlapping_reads"]) == {own}

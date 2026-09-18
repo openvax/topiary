@@ -11,11 +11,14 @@ def require_integration(dependency):
 
     A transitive ``ModuleNotFoundError`` or any other import failure is a
     broken installation, not an absent optional dependency, so it propagates
-    unchanged. Setting ``TOPIARY_TEST_REQUIRE_<DEPENDENCY>`` to ``1`` in
-    CI's dedicated integration job makes absence an error too.
+    unchanged. So does an installed release below the extra's floor: the
+    library refuses it through the same check, and a test run against it
+    would report the old release's answers as Topiary regressions. Setting
+    ``TOPIARY_TEST_REQUIRE_<DEPENDENCY>`` to ``1`` in CI's dedicated
+    integration job makes absence an error too.
     """
     try:
-        return import_module(dependency)
+        module = import_module(dependency)
     except ModuleNotFoundError as error:
         if error.name != dependency:
             raise
@@ -26,3 +29,7 @@ def require_integration(dependency):
                 pytrace=False,
             )
         pytest.skip(f"{dependency} optional integration is not installed")
+    from topiary.optional_dependencies import check_declared_version
+
+    check_declared_version(dependency, feature=f"running Topiary's {dependency} integration tests")
+    return module

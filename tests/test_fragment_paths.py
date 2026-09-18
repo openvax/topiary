@@ -21,6 +21,7 @@ from topiary import (
     ProteinFragment,
     fragment_from_effect,
     fragment_from_isovar_result,
+    fragments_for_sample,
     fragments_from_dataframe,
     fragments_from_isovar_results,
     provenance_for_method,
@@ -234,6 +235,89 @@ def test_an_empty_frame_yields_no_fragments():
 
 
 # ---------------------------------------------------------------------------
+# Identity: an ID derives from everything the rows are grouped by
+# ---------------------------------------------------------------------------
+
+CONTEXT = "MRKPAAGFLPSLLKVLLLPLAPAAAQ"
+
+
+def _context_rows(*rows, **shared):
+    """Reader-shaped rows sharing one context, one row per reported peptide."""
+    return pd.DataFrame([
+        {"source_sequence_name": "CTA:ACRBP", "pep_context": CONTEXT,
+         "rna_evidence_subject": "reads", **shared, **row}
+        for row in rows
+    ])
+
+
+@pytest.mark.parametrize("absent", [
+    None, float("nan"), pd.NA, "", "  ", "nan", "None", "<NA>",
+], ids=repr)
+def test_an_unstated_variant_never_reaches_an_id(absent):
+    """``NaN or "fallback"`` is NaN: the absence must be decided once, first."""
+    frame = _context_rows(
+        {"peptide": "FLPSLLKVL", "n_rna_overlapping": 47},
+        {"peptide": "LLLPLAPAA", "n_rna_overlapping": 51},
+        variant=absent,
+    )
+
+    fragments = fragments_from_dataframe(frame)
+
+    assert len({f.fragment_id for f in fragments}) == 2
+    assert all(f.fragment_id.startswith("CTA:ACRBP__") for f in fragments)
+    assert all(f.variant is None for f in fragments)
+
+
+def test_each_reported_peptide_keeps_its_own_evidence():
+    """LENS reports evidence per peptide; a shared context must not merge it."""
+    frame = _context_rows(
+        {"peptide": "FLPSLLKVL", "n_rna_overlapping": 47, "allele": "A"},
+        {"peptide": "FLPSLLKVL", "n_rna_overlapping": 47, "allele": "B"},
+        {"peptide": "LLLPLAPAA", "n_rna_overlapping": 51, "allele": "A"},
+    )
+
+    fragments = fragments_from_dataframe(frame)
+
+    assert {f.annotations["reported_peptide"]: f.n_rna_overlapping_reads
+            for f in fragments} == {"FLPSLLKVL": 47, "LLLPLAPAA": 51}
+    assert {f.sequence for f in fragments} == {CONTEXT}
+
+
+def test_rows_describing_one_fragment_must_agree():
+    frame = _context_rows(
+        {"peptide": "FLPSLLKVL", "n_rna_overlapping": 47},
+        {"peptide": "FLPSLLKVL", "n_rna_overlapping": 66},
+    )
+
+    with pytest.raises(ValueError, match="differ in n_rna_overlapping_reads"):
+        fragments_from_dataframe(frame)
+
+
+@pytest.mark.parametrize("column,value", [
+    ("n_rna_alt", "abc"), ("n_rna_alt", 2.5), ("n_rna_alt", -1),
+    ("gene_expression", "high"),
+])
+def test_a_stated_cell_that_is_not_a_number_is_refused(column, value):
+    frame = _context_rows({"peptide": "FLPSLLKVL", column: value})
+
+    with pytest.raises(ValueError, match=column):
+        fragments_from_dataframe(frame)
+
+
+def test_a_frame_sample_labels_its_fragments():
+    frame = _context_rows(
+        {"peptide": "FLPSLLKVL", "n_rna_overlapping": 47, "sample_name": "T1"},
+        {"peptide": "FLPSLLKVL", "n_rna_overlapping": 12, "sample_name": "T2"},
+    )
+
+    fragments = fragments_from_dataframe(frame)
+
+    assert {f.annotations["sample_name"]: f.n_rna_overlapping_reads
+            for f in fragments} == {"T1": 47, "T2": 12}
+    assert {f.fragment_id.split(":")[0] for f in fragments} == {"T1", "T2"}
+
+
+# ---------------------------------------------------------------------------
 # The property that makes the abstraction worth having
 # ---------------------------------------------------------------------------
 
@@ -288,3 +372,28 @@ def test_the_method_to_provenance_map_is_single_valued():
     whether depth x VAF counts as measured. It does not."""
     assert provenance_for_method(RNA_ALIGNMENT) == "measured"
     assert provenance_for_method(RNA_DEPTH_X_VAF) == "approximated"
+
+
+def test_a_sample_label_namespaces_the_id_and_is_idempotent():
+    fragment = ProteinFragment(fragment_id="v__1", sequence="SIINFEKLL")
+
+    labelled, = fragments_for_sample([fragment], "T2 short-read")
+    again, = fragments_for_sample([labelled], "T2 short-read")
+
+    assert labelled.fragment_id == "T2_short-read:v__1"
+    assert labelled.annotations == {"sample_name": "T2 short-read"}
+    assert again is labelled
+    assert fragment.annotations == {}
+
+
+@pytest.mark.parametrize("sample_name", [None, "", "  ", "nan", "///", 3])
+def test_a_missing_sample_label_is_refused(sample_name):
+    with pytest.raises(ValueError, match="sample_name"):
+        fragments_for_sample([ProteinFragment(fragment_id="v", sequence="S")], sample_name)
+
+
+def test_one_samples_evidence_is_never_relabelled_as_anothers():
+    labelled = fragments_for_sample([ProteinFragment(fragment_id="v", sequence="S")], "T1")
+
+    with pytest.raises(ValueError, match="already labelled with sample 'T1'"):
+        fragments_for_sample(labelled, "T2")

@@ -3,10 +3,18 @@
 ## Fragment identity and RNA outcomes
 
 `unique_fragments(fragments)` returns records in first-occurrence order,
-coalescing repeated IDs only when normalized serialized content is identical.
-Conflicting or unverifiable duplicate IDs raise `ValueError`. Prediction uses
-the same validation before model execution. Different samples/policies need
-different IDs even if the peptide sequence is identical.
+coalescing repeated IDs only when their content agrees as fragment IO stores
+it (a record and its saved copy agree). Conflicting or uncomparable duplicate
+IDs raise `ValueError` naming the differing fields. Prediction uses the same
+validation before model execution. Different samples/policies need different
+IDs even if the peptide sequence is identical.
+
+`fragments_for_sample(fragments, sample_name)` gives them one: it namespaces
+each ID as `<sample_name>:<id>` and records `annotations["sample_name"]`, which
+fills the prediction frame's `sample_name` column. `fragments_from_variants`
+accepts the same `sample_name`, and `fragments_from_dataframe` applies a
+frame's `sample_name` column. `make_fragment_id(..., qualifiers=[...])` hashes
+any further values a producer groups records by.
 
 `describe_isovar_result(result)` returns a JSON-compatible outcome dictionary
 for a completed Isovar result: variant, separate native read/template counts,

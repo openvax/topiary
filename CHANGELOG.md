@@ -1,5 +1,72 @@
 # Changelog
 
+## 5.63.0
+
+Fixes found by reviewing 5.62.0, grouped by cause.
+
+**Fragment identity is decided by the producer, from everything it groups by.**
+
+- `predict_from_fragments(fragments_from_dataframe(read_lens(p).df))` works
+  again on every LENS report; 5.62.0 raised on all three bundled fixtures. The
+  frame path grouped rows by reported peptide but hashed only the context into
+  the ID, and a missing variant became the prefix `"nan"`. Every cell is now
+  read once under the one absence rule (`stated_values`), and the ID hashes the
+  whole grouping key. A context reported for several peptides is one fragment
+  per peptide carrying that peptide's evidence and
+  `annotations["reported_peptide"]`, so LENS predictions repeat the shared
+  context per peptide; before 5.62 the peptides silently shared the last one's
+  evidence. pVACseq fragment IDs change accordingly. Rows that describe the
+  same fragment but disagree raise, and stated counts or expression that are
+  not numbers (or, for counts, whole and non-negative) raise instead of being
+  truncated or dropped.
+- New `fragments_for_sample(fragments, sample_name)` and
+  `fragments_from_variants(..., sample_name=)`: combining the same variant
+  from two alignments, or one alignment under two settings, no longer requires
+  hand-built IDs. The label namespaces the ID and fills the prediction frame's
+  `sample_name` column (mhctools' blank column used to swallow it).
+  `fragments_from_dataframe` applies a frame's `sample_name` column the same way.
+  `make_fragment_id` gains `qualifiers=` for further grouping values.
+- `unique_fragments` compares content as fragment IO stores it: a record and
+  its own saved copy (`5` vs `5.0`, NaN vs `None`, tuples vs lists, mixed key
+  types) coalesce instead of conflicting. Conflicts name the differing fields;
+  the same object repeated is accepted. Prediction deduplicates once, before
+  every downstream pass.
+
+**One reader for each Isovar result.**
+
+- `describe_isovar_result` and `fragment_from_isovar_result` share one
+  extractor, so the outcome report and the fragment agree on counts, the
+  clamped mutation interval and transcripts. Supporting transcripts are sorted
+  (Isovar keeps a set whose order varied between processes), so
+  `transcript_id` is reproducible.
+- One filter disposition: a result without `passes_all_filters` is judged by
+  its recorded `filter_values`, as Isovar does, and a result with neither is not
+  shown to pass. `fragments_from_variants` used to accept it by default.
+- The Isovar floor is enforced at run time from Topiary's own metadata (the one
+  place it is declared): an installed 1.17.x, which miscounts insertion
+  boundaries, is refused with an upgrade instruction instead of trusted. The
+  test gate uses the same check, so a stale environment reports its version
+  instead of count mismatches.
+
+**Audit and oracle.**
+
+- The osteosarc inventory parses the VAF table as typed text: an unusable
+  position (blank, `NA`, `10.0`, ...) is that entry's `non_literal_allele`
+  status rather than an exception that aborts the inventory. A missing column
+  or unreadable vaccine count is a named schema error.
+- One `audit_variant` builds every stage's variant (the diagnosis stage mapped
+  `chrM` to `M`, missing the `MT` annotation). Accepted and filtered fragment
+  files are named `.tsv`, which is what they contain. The report computes its
+  counts from the inventory. `check_mutation_windows` verifies predictions
+  against the fragments' own intervals instead of re-reading the column that
+  selected them.
+- The independent translation oracle places insertions after varcode's anchor
+  base; it was one base off, hidden only because no corpus insertion reaches
+  protein. A synthetic test covers both strands and spliced models.
+- The coverage test compares every re-derived allele and status, not just IDs.
+  A pinned-count mismatch names the pinned and installed Isovar versions. The
+  collection test runs one all-variant case in its child instead of all 174.
+
 ## 5.62.0
 
 - Account for all 182 osteosarc website entries plus ACSL6 and KTN1 with

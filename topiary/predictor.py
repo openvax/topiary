@@ -1541,10 +1541,12 @@ class TopiaryPredictor(object):
 
         Repeated fragment IDs must describe identical records; conflicting
         sequence, evidence or metadata raises before prediction. See
-        :func:`unique_fragments`. Distinct sample/policy observations need
-        distinct IDs, even when their amino-acid sequences match.
+        :func:`unique_fragments`. Distinct observations need distinct IDs,
+        even when their amino-acid sequences match:
+        :func:`fragments_for_sample` gives them one, and a fragment's
+        ``annotations["sample_name"]`` fills the ``sample_name`` column.
         """
-        fragments = list(fragments)
+        fragments = unique_fragments(fragments)
         return self._finalize_rows(
             self._build_fragment_rows(fragments), fragments=fragments,
         )
@@ -1553,11 +1555,12 @@ class TopiaryPredictor(object):
         """Run models on *fragments* and overlay all fragment-derived
         columns, without applying filter / sort / ``only_novel_epitopes``.
 
+        *fragments* must already have unique IDs (see
+        :func:`unique_fragments`); every public entry point ensures it.
         Callers that need backward-compat post-processing (e.g. the
         legacy variant path rebasing ``peptide_offset`` to absolute
         protein coords) can intercept here and filter afterwards.
         """
-        fragments = unique_fragments(fragments)
         if not fragments:
             return pd.DataFrame()
 
@@ -1661,14 +1664,24 @@ class TopiaryPredictor(object):
             df["wt_peptide"].notna(), other=None,
         )
 
+        # mhctools stamps a blank sample_name on every row; a fragment's
+        # sample label is what that column exists to hold.
+        samples = df["fragment_id"].map(
+            lambda fid: by_id[fid].annotations.get("sample_name")
+        )
+        if samples.notna().any():
+            blank = df["sample_name"] if "sample_name" in df.columns else ""
+            df["sample_name"] = samples.where(samples.notna(), blank)
+
         all_annotation_keys = set()
         for f in fragments:
             all_annotation_keys.update(f.annotations.keys())
-        for key in sorted(all_annotation_keys):
+        # Keys order by their text, so a non-string key cannot break sorting.
+        for key in sorted(all_annotation_keys, key=str):
             # Underscore-prefixed keys are reserved for internal plumbing
             # (e.g. the variant path stashes subsequence/mutation offsets
             # here before rebasing); never surface them as output columns.
-            if key.startswith("_"):
+            if str(key).startswith("_"):
                 continue
             if key in df.columns:
                 continue
@@ -1778,6 +1791,7 @@ class TopiaryPredictor(object):
         # Build raw rows first so the legacy post-processing (peptide_offset
         # rebase + mutation_start/end_in_peptide + expression join) can
         # run before user filter / sort / only_novel_epitopes evaluate.
+        fragments = unique_fragments(fragments)
         df = self._build_fragment_rows(fragments)
         logging.info(
             "MHC predictor returned %d peptide binding predictions" % (len(df))

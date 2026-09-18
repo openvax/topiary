@@ -67,6 +67,7 @@ class _FakeIsovar:
     """Stands in for the isovar module, recording how it was called."""
 
     __version__ = "test-version"
+    ProteinSequenceCreator = _FakeCreator
 
     def __init__(self, results):
         self._results = results
@@ -80,12 +81,6 @@ class _FakeIsovar:
 def _fake(monkeypatch, results):
     module = _FakeIsovar(results)
     monkeypatch.setattr("topiary.io_isovar._check_isovar", lambda: module)
-    import sys
-    import types
-    stub = types.ModuleType("isovar.protein_sequence_creator")
-    stub.ProteinSequenceCreator = _FakeCreator
-    monkeypatch.setitem(sys.modules, "isovar", types.ModuleType("isovar"))
-    monkeypatch.setitem(sys.modules, "isovar.protein_sequence_creator", stub)
     return module
 
 
@@ -227,6 +222,77 @@ def test_a_filtered_out_result_can_fall_back_to_reference(monkeypatch):
     )
 
     assert [f.fragment_id for f in fragments] == ["ref"]
+
+
+_ABSENT = object()
+
+
+@pytest.mark.parametrize("passes", [True, False, _ABSENT], ids=["passes", "fails", "unstated"])
+@pytest.mark.parametrize("filters", [
+    {}, {"min_ratio_alt_to_other_fragments": True},
+    {"min_ratio_alt_to_other_fragments": False}, _ABSENT,
+], ids=["no-filters", "passed-filter", "failed-filter", "no-filter-record"])
+def test_the_outcome_report_and_the_fragment_door_agree_on_filters(monkeypatch, passes, filters):
+    """One filter disposition, whichever door reads it.
+
+    A result with no stated disposition is not shown to pass: the report
+    says ``filter_status_unavailable`` and the default door drops it.
+    """
+    from topiary import describe_isovar_result
+
+    result = _Result()
+    del result.passes_all_filters
+    if passes is not _ABSENT:
+        result.passes_all_filters = passes
+    if filters is not _ABSENT:
+        result.filter_values = filters
+    _fake(monkeypatch, [result])
+
+    status = describe_isovar_result(result)["status"]
+    accepted = fragments_from_variants(["v"], alignment_file=object())
+
+    assert status in {"passing", "filtered", "filter_status_unavailable"}
+    assert bool(accepted) == (status == "passing")
+
+
+def test_two_alignments_of_one_variant_stay_two_observations(monkeypatch):
+    """Same variant and sequence, different RNA: a sample label keeps both."""
+    from mhctools import RandomBindingPredictor
+    from topiary import TopiaryPredictor
+
+    other = _Result()
+    other.num_alt_reads = 7
+    predictor = TopiaryPredictor(models=RandomBindingPredictor(
+        alleles=["HLA-A*02:01"], default_peptide_lengths=[9]), only_novel_epitopes=False)
+
+    def observed(sample_name=None):
+        fragments = []
+        for label, result in (("T1", _Result()), ("T2", other)):
+            _fake(monkeypatch, [result])
+            fragments += fragments_from_variants(
+                ["v"], alignment_file=object(),
+                sample_name=None if sample_name is None else label)
+        return fragments
+
+    with pytest.raises(ValueError, match="differ in n_rna_alt_reads.*fragments_for_sample"):
+        predictor.predict_from_fragments(observed())
+    frame = predictor.predict_from_fragments(observed(sample_name=True))
+    assert frame.groupby("sample_name")["n_rna_alt_reads"].unique().map(list).to_dict() == {
+        "T1": [58], "T2": [7]}
+
+
+def test_a_sample_label_reaches_reference_fallback_fragments(monkeypatch):
+    _fake(monkeypatch, [_Result(passes=False, variant="v")])
+    monkeypatch.setattr(
+        "topiary.io_isovar.fragments_from_effects",
+        lambda effects, padding, **kw: [ProteinFragment(fragment_id="ref", sequence="MKTV")],
+    )
+    monkeypatch.setattr("topiary.io_isovar._effects_for", lambda variants: [])
+
+    fragment, = fragments_from_variants(
+        ["v"], alignment_file=object(), allow_reference_fallback=True, sample_name="T1")
+
+    assert (fragment.fragment_id, fragment.annotations["sample_name"]) == ("T1:ref", "T1")
 
 
 # ---------------------------------------------------------------------------

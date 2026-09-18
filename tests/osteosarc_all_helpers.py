@@ -62,6 +62,26 @@ def reference_models(root):
     return result
 
 
+def edit_offset(exons, strand, variant):
+    """Transcript offset at which a varcode variant's edit begins.
+
+    Varcode keeps variants minimally trimmed (asserted here, not assumed). A
+    substitution or deletion begins at the first reference base it replaces.
+    An insertion replaces nothing: varcode's ``start`` is the base *before*
+    the inserted bases, so the edit begins between ``start`` and
+    ``start + 1`` — at whichever of the two comes later in the transcript.
+    """
+    start, ref, alt = variant.start, variant.ref, variant.alt
+    assert not (ref and alt and (ref[0] == alt[0] or ref[-1] == alt[-1])), "untrimmed variant"
+    if ref:
+        offsets = sorted(transcript_offset(exons, strand, p) for p in range(start, start + len(ref)))
+        assert offsets == list(range(offsets[0], offsets[0] + len(ref))), "edit spans an intron"
+        return offsets[0]
+    before, after = (transcript_offset(exons, strand, p) for p in (start, start + 1))
+    assert abs(before - after) == 1, "insertion at an exon boundary"
+    return max(before, after)
+
+
 def validate_rna_protein(result, models):
     """Verify frame, literal RNA translation, stop and mutation interval.
 
@@ -73,27 +93,14 @@ def validate_rna_protein(result, models):
     if protein is None:
         return
     variant = result.variant
-    position, ref, alt = variant.start, variant.ref, variant.alt
-    # Varcode stores minimally trimmed variants, but verify rather than rely on
-    # an anchored source spelling matching the internal coordinate convention.
-    while ref and alt and ref[0] == alt[0]:
-        position, ref, alt = position + 1, ref[1:], alt[1:]
+    ref, alt = variant.ref, variant.alt
     for translation in protein.translations:
         orf = translation.variant_orf
         checked = 0
         for transcript in translation.reference_context.transcripts:
             model = models[transcript.id]
             reverse = model["strand"] == "-"
-            if ref:
-                offsets = sorted(transcript_offset(model["exons"], model["strand"], p)
-                                 for p in range(position, position + len(ref)))
-                assert offsets == list(range(offsets[0], offsets[0] + len(ref)))
-                variant_offset = offsets[0]
-            else:
-                left, right = [transcript_offset(model["exons"], model["strand"], p)
-                               for p in (position - 1, position)]
-                assert abs(left - right) == 1
-                variant_offset = max(left, right)
+            variant_offset = edit_offset(model["exons"], model["strand"], variant)
             oriented_ref = ref.translate(str.maketrans("ACGT", "TGCA"))[::-1] if reverse else ref
             oriented_alt = alt.translate(str.maketrans("ACGT", "TGCA"))[::-1] if reverse else alt
             assert model["cdna"][variant_offset:variant_offset + len(ref)] == oriented_ref

@@ -3,12 +3,30 @@
 ## Identity and RNA outcomes
 
 `fragment_id` identifies a complete observation, not just an amino-acid
-sequence. Use different IDs for different samples or analysis policies.
-`unique_fragments(records)` preserves the first identical record per ID and
-raises on conflicting sequence, evidence, provenance or annotations. Prediction
-uses this check before running models, preventing silent last-record overwrites.
-Repeated records must have identical normalized, key-sorted JSON; unsupported
-duplicate annotations fail explicitly rather than being guessed equivalent.
+sequence. The producers give every distinct observation its own ID:
+
+- `fragments_from_dataframe` derives the ID from everything it groups rows by
+  (sample, source, variant, reported peptide and sequence). A LENS context
+  reported for several peptides becomes one fragment per peptide, each with
+  that peptide's evidence and `annotations["reported_peptide"]`. Rows that
+  describe the same fragment but disagree about its evidence raise.
+- `fragments_from_variants(..., sample_name="T1")` labels RNA observations,
+  so the same variant assembled from two alignments (or one alignment under
+  two settings) stays two records.
+- `fragments_for_sample(fragments, "T1")` applies the same label to fragments
+  from any source: the ID becomes `T1:<id>` and `annotations["sample_name"]`
+  fills the prediction frame's `sample_name` column. Because the ID names the
+  observation, pool one candidate across samples with
+  `aggregate_evidence_across_samples(df, group_keys=["variant", "peptide",
+  "peptide_offset", "allele"])` rather than the default fragment-ID identity.
+
+`unique_fragments(records)` keeps the first record per ID, coalesces repeats
+that hold the same content, and raises on conflicting sequence, evidence,
+provenance or annotations, naming the fields that differ. Content is compared
+as fragment IO stores it, so a record and its own `write_fragments` round trip
+agree (`5` and `5.0`, NaN and `None`, tuples and lists). A value IO cannot
+store cannot be compared, and fails explicitly. Prediction runs this check
+before any model, preventing silent last-record overwrites.
 
 `describe_isovar_result(result)` returns a JSON-compatible diagnostic record for
 every completed upstream result, including empty or filtered reconstructions.
@@ -124,7 +142,7 @@ Four paths, one shape. They differ only in which fields they can fill:
 |---|---|---|---|
 | isovar | `fragment_from_isovar_result(result)` | assembled from RNA reads | **counted** (`measured`) |
 | varcode | `fragment_from_effect(effect, padding)` | translated from the reference | none |
-| LENS | `fragments_from_dataframe(read_lens(p).df)` | the peptide's context | overlapping counted; support is CDS-overlap (`approximated`) |
+| LENS | `fragments_from_dataframe(read_lens(p).df)` | each reported peptide's context | overlapping counted; support is CDS-overlap (`approximated`) |
 | pVACseq | `fragments_from_dataframe(read_pvacseq(p).df)` | the peptide itself | depth × VAF (`approximated`) |
 
 ```python
@@ -391,7 +409,7 @@ invoke custom deep-copy hooks that could alter values before encoding.
 
 ## Identity
 
-`fragment_id` is canonical. Two fragments with the same id are equal and hash-equal, regardless of other content. Use `make_fragment_id(prefix, sequence, variant=...)` for a deterministic content-derived id with a readable prefix:
+`fragment_id` is canonical. Two fragments with the same id are equal and hash-equal, regardless of other content — so records that must stay apart need different ids (see [Identity and RNA outcomes](#identity-and-rna-outcomes)). Use `make_fragment_id(prefix, sequence, variant=..., qualifiers=...)` for a deterministic content-derived id with a readable prefix:
 
 ```
 BRAF_p.Val600Glu__a1b2c3d4
@@ -401,7 +419,7 @@ HPV16_E6__5f6a1c23
 __4f9c2a8e                  # no metadata → hash-only fallback
 ```
 
-Prefix is sanitized to `[A-Za-z0-9._:-]`; runs of other characters collapse to `_`. Hash is 8 hex chars of SHA-1 over `sequence` + optional `variant`.
+Prefix is sanitized to `[A-Za-z0-9._:-]`; runs of other characters collapse to `_`. Hash is 8 hex chars of SHA-1 over `sequence`, the optional `variant` and any `qualifiers` — the other values a producer groups records by, such as a reported peptide. Without qualifiers the id is unchanged from earlier releases.
 
 ## What's not in this release
 

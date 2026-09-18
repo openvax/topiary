@@ -110,6 +110,7 @@ from .protein_fragment import (
     SYNTHESIZED,
     ProteinFragment,
     SEMANTIC_CORE,
+    fragments_for_sample,
     fragments_from_dataframe,
     make_fragment_id,
     unique_fragments,
@@ -175,7 +176,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.62.0"
+__version__ = "5.63.0"
 
 __all__ = [
     "normalize_python_types",
@@ -272,6 +273,7 @@ __all__ = [
     "ProteinFragment",
     "make_fragment_id",
     "unique_fragments",
+    "fragments_for_sample",
     "SEMANTIC_CORE",
     "fragments_from_dataframe",
     "fragment_from_isovar_result",
