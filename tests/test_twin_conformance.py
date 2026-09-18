@@ -39,7 +39,8 @@ from topiary.evidence import (
 )
 from topiary import (
     APPROXIMATED, MEASURED, CachedPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
-    read_fragments, read_pvacseq, write_fragments,
+    read_fragments, read_pvacseq, write_fragments, unique_fragments,
+    describe_isovar_result, fragment_from_isovar_result,
 )
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
@@ -219,6 +220,51 @@ def fragments_from_upstream_rna(variants, alignment_file, **kwargs):
 
 ISOVAR_HANDOFF_TWINS = (fragments_from_original_rna, fragments_from_upstream_rna)
 
+# Diagnostic adapter and outcome report must agree on the sequence/evidence,
+# including filtered reconstructions. Driven by every original-BAM corpus case.
+ISOVAR_RESULT_TWINS = (describe_isovar_result, fragment_from_isovar_result)
+
+
+def predict_fragment_records(fragments):
+    return TopiaryPredictor(models=RandomBindingPredictor(
+        alleles=["HLA-A*01:01"], default_peptide_lengths=[9]),
+        only_novel_epitopes=False).predict_from_fragments(fragments)
+
+
+FRAGMENT_IDENTITY_TWINS = (unique_fragments, predict_fragment_records)
+
+
+@pytest.mark.parametrize("changes", [
+    {"sequence": "GILGFVFTL"}, {"n_rna_alt_reads": 9},
+    {"annotations": {"sample": "T2"}}, {"target_intervals": [(1, 2)]},
+    {"field_provenance": {"sequence": "measured"}},
+])
+def test_fragment_identity_doors_reject_the_same_conflicts(changes):
+    first = ProteinFragment(fragment_id="same", sequence="SIINFEKLL")
+    second = dataclasses.replace(first, **changes)
+    for door in FRAGMENT_IDENTITY_TWINS:
+        for records in ([first, second], [second, first]):
+            with pytest.raises(ValueError, match="Conflicting.*same"):
+                door(iter(records))
+
+
+def test_fragment_identity_doors_coalesce_identical_records():
+    import numpy as np
+
+    first = ProteinFragment(fragment_id="same", sequence="SIINFEKLL",
+                            annotations={"a": np.int64(3), "b": [float("nan")]})
+    second = dataclasses.replace(first, annotations={"b": [float("nan")], "a": 3})
+    for door in FRAGMENT_IDENTITY_TWINS:
+        assert len(door(iter([first, second, first]))) == 1
+        assert len(door([])) == 0
+
+
+def test_fragment_identity_doors_refuse_unverifiable_duplicates():
+    first = ProteinFragment(fragment_id="same", sequence="SIINFEKLL", annotations={"custom": object()})
+    for door in FRAGMENT_IDENTITY_TWINS:
+        with pytest.raises(ValueError, match="same.*JSON-serializable"):
+            door([first, first])
+
 FRAME = pd.DataFrame({"x": [1, 2]}, index=[10, 11])
 
 
@@ -252,7 +298,7 @@ OPTIONAL_DEPENDENCY_TWINS = (
         "run_isovar",
         _check_isovar,
         "assembling protein fragments from RNA alignments",
-        ">=1.17.0",
+        ">=1.18.1",
     ),
     (
         "pirlygenes",

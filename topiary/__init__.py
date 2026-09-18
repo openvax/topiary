@@ -97,6 +97,7 @@ from .cached import (
 )
 from .io_isovar import (
     DEFAULT_PROTEIN_SEQUENCE_LENGTH,
+    describe_isovar_result,
     fragment_from_isovar_result,
     fragments_from_isovar_results,
     fragments_from_effects,
@@ -111,6 +112,7 @@ from .protein_fragment import (
     SEMANTIC_CORE,
     fragments_from_dataframe,
     make_fragment_id,
+    unique_fragments,
 )
 from .self_proteome import SelfProteome
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
@@ -173,7 +175,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.61.0"
+__version__ = "5.62.0"
 
 __all__ = [
     "normalize_python_types",
@@ -269,9 +271,11 @@ __all__ = [
     "protein_subsequences_around_mutations",
     "ProteinFragment",
     "make_fragment_id",
+    "unique_fragments",
     "SEMANTIC_CORE",
     "fragments_from_dataframe",
     "fragment_from_isovar_result",
+    "describe_isovar_result",
     "fragments_from_isovar_results",
     "fragments_from_effects",
     "fragments_from_variants",

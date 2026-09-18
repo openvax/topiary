@@ -41,15 +41,19 @@ Coordinate and translation sources:
 | GLIS3 T2 ONT | 1 / 0 / 1 | 1 / 0 / 1 | none |
 | GLIS3 T1 short | 32 / 9 / 1 | 31 / 9 / 1 | 46 aa |
 | GLIS3 T2 short | 0 / 0 / 0 | 0 / 0 / 0 | none |
-| KTN1 T1 ONT | 637 / 0 / 4 | 637 / 0 / 4 | none |
-| KTN1 T2 ONT | 1388 / 10 / 8 | 1388 / 10 / 8 | 29 aa |
+| KTN1 T1 ONT | 636 / 0 / 1 | 636 / 0 / 1 | none |
+| KTN1 T2 ONT | 1388 / 10 / 3 | 1388 / 10 / 3 | 29 aa |
 | KTN1 T1 short | 843 / 0 / 0 | 842 / 0 / 0 | none |
-| KTN1 T2 short | 302 / 2 / 1 | 292 / 3 / 0 | 18 aa |
+| KTN1 T2 short | 301 / 3 / 0 | 290 / 3 / 0 | 18 aa |
 
 Counts are RG/QNAME templates, not proven independent molecules. Zero alternate
 support in a queried library does not establish absence in the tumor.
-The primary-only KTN1 short-read count differs because a competing placement
-makes one template ambiguous under the default secondary-inclusive policy.
+Isovar 1.18.1 corrects insertion-boundary assignments: one-sided reads cannot
+prove the reference, and aligned bases across CIGAR D cannot prove an insertion.
+This removes false reference/other evidence and recovers a falsely conflicted
+KTN1 alternate template. Earlier 1.17 counts were 637/0/4 and 1388/10/8 for
+T1/T2 ONT, and 302/2/1 (default) or 292/3/0 (primary-only) for T2 short RNA.
+These are corrections on unchanged original SAMs, not newly acquired evidence.
 
 Both assembly modes reconstruct the same independently checked contexts with
 the unchanged absolute coverage floor of two and a 25-aa context objective.
@@ -59,12 +63,12 @@ short-read context is too short for a 25-mer, but supplies mutation-overlapping
 Topiary peptide selection; a random predictor tests transport, not MHC affinity.
 
 **Reconstruction is not acceptance.** GLIS3 T1 short passes the normal filters.
-KTN1 T2 ONT fails the default alternate-to-other-template ratio (10 versus 8);
-KTN1 T2 short fails under the default policy (2 versus 1), but passes under
-explicit primary-only collection (3 versus 0). Diagnostic tests disable result
-filters explicitly to inspect reconstruction; separate tests prove that the
-default public pipeline still rejects those failing results. No default is
-weakened, and no sample counts are backfilled into historical pVAC reports.
+With the corrected 1.18.1 counts, KTN1 T2 ONT and T2 short also pass (10 versus
+3 and 3 versus 0 alternate/other templates respectively) under both placement
+policies. Earlier rejections reflected the counting defect, not a biological
+contradiction. Diagnostic and default-acceptance tests remain separate; the
+full-index corpus also checks nine genuinely filtered reconstructions. No
+default is weakened and no counts are backfilled into historical pVAC reports.
 
 ## Recreate the assets
 

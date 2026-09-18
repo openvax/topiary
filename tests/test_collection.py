@@ -18,6 +18,7 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
     cache = tmp_path / "ensembl"
     cache.mkdir()
     code = textwrap.dedent("""
+        import hashlib
         import sys
         from pathlib import Path
 
@@ -40,6 +41,10 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
                 Path("tests/data/osteosarc/protein_reference/reference.gtf.gz").resolve(),
             "GRCh38-osteosarc-two-indel-subset":
                 Path("tests/data/osteosarc_indels/protein_reference/reference.gtf.gz").resolve(),
+            "GRCh38-osteosarc-all-" + hashlib.sha256(
+                Path("tests/data/osteosarc_all_variants/reference/manifest.json").read_bytes()
+            ).hexdigest()[:16]:
+                Path("tests/data/osteosarc_all_variants/reference/reference.gtf.gz").resolve(),
         }
         original_db = pyensembl.Genome.db.fget
         original_index = pyensembl.Genome.index
@@ -73,7 +78,9 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
     result = subprocess.run(
         [sys.executable, "-c", code, *selection],
         cwd=Path(__file__).resolve().parents[1], env=env,
-        text=True, capture_output=True, timeout=120,
+        # The full 174-locus corpus includes deep mitochondrial RNA (~3 min
+        # without coverage locally), in addition to the earlier small fixtures.
+        text=True, capture_output=True, timeout=360,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert not list(cache.rglob("*")), "Collection/Isovar selection wrote reference data"

@@ -1,5 +1,22 @@
 # API Reference
 
+## Fragment identity and RNA outcomes
+
+`unique_fragments(fragments)` returns records in first-occurrence order,
+coalescing repeated IDs only when normalized serialized content is identical.
+Conflicting or unverifiable duplicate IDs raise `ValueError`. Prediction uses
+the same validation before model execution. Different samples/policies need
+different IDs even if the peptide sequence is identical.
+
+`describe_isovar_result(result)` returns a JSON-compatible outcome dictionary
+for a completed Isovar result: variant, separate native read/template counts,
+protein and edit interval, transcript IDs, filter values and failed-filter
+names. Missing counts stay null. Status is `passing`, `filtered`,
+`filter_status_unavailable`, `no_usable_reads`, `no_alt_reads`,
+`no_predicted_coding_change` or `no_protein_sequence`. This reports recorded
+filters, not clinical suitability. Acquisition failures are not biological
+results. See [the all-variant audit](osteosarc-variant-outcomes.md).
+
 ## Amino-acid data
 
 Topiary exposes one encoding shared by sequence consumers:
