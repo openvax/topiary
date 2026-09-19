@@ -70,6 +70,9 @@ jobs:
       - name: Verify Isovar is absent from the base environment
         run: |
           python -c "import importlib.util; assert importlib.util.find_spec('isovar') is None, 'base CI unexpectedly installed Isovar'"
+      - name: Verify Osteosarc is absent from the base environment
+        run: |
+          python -c "import importlib.util; assert importlib.util.find_spec('osteosarc') is None, 'base CI unexpectedly installed Osteosarc'"
       - name: Lint with ruff
         run: |
           ./lint.sh

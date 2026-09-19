@@ -61,6 +61,9 @@ def test_reference_build_to_report_keeps_annotation_gaps(tmp_path, annotated_lat
         assert handle.get_reference_length("chr3") == 198295559
 
     build_reference(tmp_path, source)
+    if annotated_later:
+        assert (tmp_path / "reference/manifest.json").read_bytes() == (
+            DATA.parent / "osteosarc_shared/continuity-reference.json").read_bytes()
     # Real FAM157A annotation existed in the source and was legitimately not
     # selected at this locus; the contig still belongs to the alignment.
     assert b'gene_name "FAM157A"' not in gzip.decompress((tmp_path / "reference/reference.gtf.gz").read_bytes())

@@ -24,6 +24,7 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
     cache.mkdir()
     code = textwrap.dedent("""
         import hashlib
+        import json
         import sys
         from pathlib import Path
 
@@ -53,9 +54,18 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
         }
         original_db = pyensembl.Genome.db.fget
         original_index = pyensembl.Genome.index
+        # The continuity workflow actually builds a regional reference. Its
+        # output is content-pinned too, though its path is a new tmp directory.
+        generated_bytes = Path("tests/data/osteosarc_shared/continuity-reference.json").read_bytes()
+        generated_name = "GRCh38-osteosarc-all-" + hashlib.sha256(generated_bytes).hexdigest()[:16]
+        generated_files = json.loads(generated_bytes)["files"]
 
         def require_pinned_reference(genome):
             assert "--collect-only" not in sys.argv, "Reference access during collection"
+            if genome.reference_name == generated_name:
+                gtf = Path(genome.to_dict()["gtf_path_or_url"])
+                assert hashlib.sha256(gtf.read_bytes()).hexdigest() == generated_files[gtf.name]["sha256"]
+                return
             assert genome.reference_name in references
             assert Path(genome.to_dict()["gtf_path_or_url"]).resolve() == references[genome.reference_name]
 
