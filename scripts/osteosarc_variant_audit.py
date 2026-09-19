@@ -9,17 +9,15 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import csv
 import gzip
-from datetime import datetime, timezone
 from html.parser import HTMLParser
 import io
 import json
 from pathlib import Path
 import re
-import subprocess
+import shutil
 
 import numpy as np
 import pandas as pd
-import requests
 
 from scripts.osteosarc_rna_overlay import BAM, digest, write_json
 
@@ -43,8 +41,13 @@ EXTRA_INDELS = [
 ]
 
 
-def fetch_snapshot(url, path):
-    """Cache unmodified source bytes and refuse mismatched existing receipts."""
+def fetch_snapshot(url, path, *, cache=None):
+    """Acquire through Osteosarc, retaining audit-local bytes and receipts.
+
+    Existing audit receipts still pin exactly their historical bytes. New
+    acquisitions use the shared OpenVax cache; importing a saved local source
+    is explicit through Osteosarc's ``Cache.import_file`` API.
+    """
     path = Path(path)
     receipt_path = path.with_name(path.name + ".receipt.json")
     if path.exists() or receipt_path.exists():
@@ -55,15 +58,16 @@ def fetch_snapshot(url, path):
     partial = path.with_name(path.name + ".partial")
     if partial.exists():
         raise ValueError(f"Inspect unfinished acquisition before retrying: {partial}")
+    from osteosarc import Cache
+
+    cache = cache if cache is not None else Cache()
+    acquired = cache.fetch(url)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with requests.get(url, stream=True, timeout=(15, 60)) as response:
-        response.raise_for_status()
-        with partial.open("xb") as handle:
-            for block in response.iter_content(1024 * 1024):
-                handle.write(block)
-        receipt = dict(url=url, sha256=digest(partial), bytes=partial.stat().st_size,
-                       acquired_at=datetime.now(timezone.utc).isoformat(),
-                       etag=response.headers.get("ETag"))
+    with cache.path(acquired).open("rb") as source, partial.open("xb") as output:
+        shutil.copyfileobj(source, output)
+    receipt = dict(url=url, sha256=acquired.sha256, bytes=acquired.size,
+                   acquired_at=acquired.retrieved_at, etag=acquired.etag,
+                   osteosarc_receipt=acquired.to_dict())
     partial.rename(path)
     write_json(receipt_path, receipt)
     return receipt
@@ -298,8 +302,16 @@ def inventory(root):
     return variants
 
 
-def acquire(root, index_path):
-    """Verify reference alleles and fetch a union of original regional RNA records."""
+def acquire(root, index_path=None, *, cache=None, alignment_source=BAM):
+    """Verify alleles and use Osteosarc's indexed union of original RNA records.
+
+    ``alignment_source`` is one explicit processing product (or a local indexed
+    BAM for offline regeneration). Alleles come from the pinned audit inventory,
+    so changing acquisition cannot silently apply Osteosarc's MAP2 correction.
+    """
+    from osteosarc import Cache, Region, extract_reads
+
+    cache = cache if cache is not None else Cache()
     variants = json.loads((root / "inventory.json").read_text())["variants"]
     source = root / "source"
 
@@ -310,7 +322,7 @@ def acquire(root, index_path):
         url = (f"https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom={chrom}"
                f";start={pos - 1};end={pos - 1 + len(ref)}")
         path = source / "reference" / (record["variant_id"] + ".json")
-        receipt = fetch_snapshot(url, path)
+        receipt = fetch_snapshot(url, path, cache=cache)
         sequence = json.loads(path.read_text())["dna"].upper()
         return dict(record, reference_check=receipt, observed_reference=sequence,
                     input_status="ready" if sequence == ref else "reference_mismatch")
@@ -324,20 +336,21 @@ def acquire(root, index_path):
     receipt_path = source / "bam.receipt.json"
     if receipt_path.exists():
         receipt = json.loads(receipt_path.read_text())
-        if (receipt["regions"] != regions or receipt["sha256"] != digest(bam)
+        if (receipt["url"] != str(alignment_source) or receipt["regions"] != regions or receipt["sha256"] != digest(bam)
                 or receipt["index_sha256"] != digest(str(bam) + ".bai")):
             raise ValueError("Regional alignment scope or bytes changed")
         return
     if bam.exists():
         raise ValueError("Inspect unreceipted BAM before retrying")
-    command = ["samtools", "view", "--no-PG", "-b", "-M", "-X", BAM,
-               str(index_path), *regions, "-o", str(bam)]
-    subprocess.run(command, check=True)
-    subprocess.run(["samtools", "index", str(bam)], check=True)
-    write_json(receipt_path, dict(url=BAM, command=command, regions=regions,
+    subset = extract_reads(alignment_source,
+                           [Region.from_samtools(region, assembly="GRCh38") for region in regions],
+                           index=index_path, cache=cache)
+    shutil.copyfile(subset.path, bam)
+    shutil.copyfile(subset.index_path, str(bam) + ".bai")
+    write_json(receipt_path, dict(url=str(alignment_source), regions=regions,
                                  sha256=digest(bam), index_sha256=digest(str(bam) + ".bai"),
-                                 source_index_sha256=digest(index_path), bytes=bam.stat().st_size,
-                                 acquired_at=datetime.now(timezone.utc).isoformat()))
+                                 bytes=bam.stat().st_size,
+                                 osteosarc_extraction=subset.receipt))
 
 
 def build_reference(root, ensembl):
@@ -398,7 +411,11 @@ def build_reference(root, ensembl):
 
 
 def reference_genome(root, cache=None):
-    """Load the pinned subset into its own cache without mutating shared indices."""
+    """Load the pinned subset, or return None when no transcripts were selected.
+
+    An empty regional annotation is a valid result of reference selection,
+    not an empty gene table to pad with invented features.
+    """
     from pyensembl import Genome
 
     reference = root / "reference"
@@ -406,6 +423,8 @@ def reference_genome(root, cache=None):
     for name, receipt in manifest["files"].items():
         if digest(reference / name) != receipt["sha256"]:
             raise ValueError(f"Reference checksum mismatch: {name}")
+    if not manifest["transcripts"]:
+        return None
     genome = Genome(
         reference_name="GRCh38-osteosarc-all-" + digest(reference / "manifest.json")[:16],
         annotation_name="osteosarc-ensembl-subset", annotation_version=87,
@@ -425,12 +444,16 @@ def audit(root):
     from scripts.osteosarc_rna_overlay import POLICY
 
     genome = reference_genome(root)
+    annotated_contigs = set(genome.contigs()) if genome is not None else set()
     variants = json.loads((root / "checked-inventory.json").read_text())["variants"]
     bam_path = root / "source/t2-all-variant-regions.bam"
     receipt = json.loads((root / "source/bam.receipt.json").read_text())
     if (digest(bam_path) != receipt["sha256"]
             or digest(str(bam_path) + ".bai") != receipt["index_sha256"]):
         raise ValueError("Regional BAM checksum mismatch")
+    with pysam.AlignmentFile(bam_path) as bam:
+        alignment_contigs = {ensembl_contig(name): length
+                             for name, length in zip(bam.references, bam.lengths)}
     outcomes = root / "outcomes"
     outcomes.mkdir(exist_ok=True)
     for kind in ("accepted", "filtered"):
@@ -438,6 +461,7 @@ def audit(root):
     creator = isovar.ProteinSequenceCreator(protein_context_peptide_length=25, variant_sequence_assembly=True)
     collector = isovar.ReadCollector(**POLICY)
     run = dict(isovar_version=isovar.__version__, collection_policy=POLICY,
+               audit_schema_version=2,
                protein_context_peptide_length=25, variant_sequence_assembly=True,
                bam_sha256=receipt["sha256"],
                inventory_sha256=digest(root / "checked-inventory.json"),
@@ -456,6 +480,20 @@ def audit(root):
             continue
         if record["input_status"] != "ready":
             write_json(path, dict(input=record, status=record["input_status"], rna=None))
+            continue
+        contig = ensembl_contig(record["chrom"])
+        status, reason = None, None
+        if contig not in alignment_contigs:
+            status, reason = "alignment_contig_unavailable", "Contig absent from the pinned alignment header"
+        elif not 1 <= record["pos"] <= record["pos"] + len(record["ref"]) - 1 <= alignment_contigs[contig]:
+            status, reason = "outside_alignment_contig", "Allele interval outside the pinned alignment contig"
+        elif contig not in annotated_contigs:
+            status, reason = "no_regional_annotation", (
+                "Contig is present in the alignment but absent from the selected Ensembl annotation; "
+                "RNA collection/reconstruction was not run (Isovar #295). RNA support is unknown.")
+        if status is not None:
+            write_json(path, dict(input=record, status=status, reason=reason, rna=None,
+                                 isovar_version=isovar.__version__, collection_policy=POLICY))
             continue
         variant = audit_variant(record, genome)
         print("AUDIT", record["variant_id"], flush=True)
@@ -624,8 +662,10 @@ def report(root):
     """Render one source-linked outcome per inventory entry, without hiding gaps."""
     variants = json.loads((root / "checked-inventory.json").read_text())["variants"]
     outcomes = [json.loads((root / "outcomes" / (r["variant_id"] + ".json")).read_text()) for r in variants]
-    diagnostics = {r["variant_id"]: r["reason"] for r in json.loads((root / "untranslated-diagnostics.json").read_text())}
-    predictions = json.loads((root / "prediction-receipt.json").read_text())
+    diagnostic_path = root / "untranslated-diagnostics.json"
+    diagnostics = {r["variant_id"]: r["reason"] for r in json.loads(diagnostic_path.read_text())} if diagnostic_path.exists() else {}
+    prediction_path = root / "prediction-receipt.json"
+    predictions = json.loads(prediction_path.read_text()) if prediction_path.exists() else None
     extras = [r["gene"] for r in variants if r.get("membership") == "additional_candidate_report"]
     statuses = Counter(r["input_status"] for r in variants)
     ready = statuses.pop("ready", 0)
@@ -640,7 +680,9 @@ def report(root):
              "Public collection labels associate samples; no independent DNA/RNA fingerprint is claimed.", "",
              "## T2 outcomes", "", "| Outcome | Entries |", "| --- | ---: |"]
     lines.extend(f"| {status} | {count} |" for status, count in sorted(Counter(r["status"] for r in outcomes).items()))
-    lines.extend(["", f"New class-I affinity predictions: **{predictions['rows']:,} rows**, model `{predictions['predictor_version']}`.",
+    prediction_summary = (f"New class-I affinity predictions: **{predictions['rows']:,} rows**, model `{predictions['predictor_version']}`."
+                          if predictions else "Prediction stage has not been run; no prediction coverage is claimed.")
+    lines.extend(["", prediction_summary,
                   "These are predictions, not measured presentation, tumor specificity or clinical eligibility.",
                   "MT-ND5 translation assumes mitochondrial origin; NUMTs have not been excluded.",
                   "Historical pVAC scores and tiers remain unchanged in their separate archive.", "",
@@ -649,7 +691,8 @@ def report(root):
     for value in outcomes:
         record, rna = value["input"], value["rna"]
         counts = (" / ".join(str(rna[f"num_{k}_reads"]) for k in ("ref", "alt", "other")) if rna else "unavailable")
-        reason = diagnostics.get(record["variant_id"], "; ".join(rna["failed_filters"]) if rna else "Exact literal allele not supplied")
+        reason = diagnostics.get(record["variant_id"], value.get("reason") or (
+            "; ".join(rna["failed_filters"]) if rna else "Exact literal allele not supplied"))
         length = len(rna["protein_sequence"]) if rna and rna["protein_sequence"] else "—"
         lines.append(f"| [{record['variant_id']}]({record['source_url']}) | {value['status']} | {counts} | {length} | {reason} |")
     supplemental = root / "additional-indels/outcomes.json"

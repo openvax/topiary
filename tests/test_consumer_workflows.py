@@ -2034,3 +2034,90 @@ def test_every_reader_frame_reaches_predictions_with_its_own_evidence(reader, pa
                                    & predictions.sample_name.eq(fragment.sample_name or "")]
         if own is not None:
             assert set(attached["n_rna_overlapping_reads"]) == {own}
+
+
+@pytest.mark.osteosarc
+@pytest.mark.isovar
+def test_shared_osteosarc_reads_reconstruct_and_rank_identically(tmp_path):
+    """Original export and shared cache compose through real RNA reconstruction."""
+    import json
+    import isovar
+    from osteosarc import Cache, Variant, Variants, digest, extract_reads
+    from topiary import (
+        CachedPredictor, CachedPredictorCoverageError, TopiaryPredictor,
+        TopiaryResult, describe_isovar_result, fragment_from_isovar_result,
+        read_fragments, read_tsv, write_fragments,
+    )
+    from scripts.osteosarc_variant_audit import check_mutation_windows, reference_genome
+    from tests.osteosarc_all_helpers import reference_models, validate_rna_protein
+    from tests.test_osteosarc_shared import MANIFEST, ROOT, SOURCE
+    from tests.test_twin_conformance import OSTEOSARC_SOURCE_TWINS
+
+    translated = json.loads((ROOT / "translation-v1.json").read_text())
+    prediction = json.loads((ROOT / "prediction-contract-v1.json").read_text())
+    assert translated["parent_dataset_sha256"] == digest(SOURCE / "manifest.json")
+    assert prediction["parent_translation_sha256"] == digest(ROOT / "translation-v1.json")
+    reference = ROOT.parent / "osteosarc_all_variants"
+    assert translated["reference_manifest_sha256"] == digest(reference / "reference/manifest.json")
+    genome = reference_genome(reference, tmp_path / "reference-index")
+    models = reference_models(reference / "reference")
+    case = next(c for c in MANIFEST["cases"] if c["case_id"] == translated["case_id"])
+    record = case["variant"]
+    native_source = Variants([Variant(
+        id=record["variant_id"], gene=record["gene"], assembly=record["assembly"],
+        alleles=((record["chrom"], record["pos"], record["ref"], record["alt"]),), status="ready",
+    )], source={"dataset_sha256": translated["parent_dataset_sha256"], "case": case})
+    native = native_source.to_varcode(genome=genome, assembly="GRCh38")
+    assert native.metadata[native[0]]["source"]["dataset_sha256"] == translated["parent_dataset_sha256"]
+    cache = Cache(tmp_path / "shared", offline=True)
+    manifest = MANIFEST
+    for asset in manifest["assets"]:
+        cache.import_file(SOURCE / asset["filename"], asset["url"],
+                          sha256=asset["sha256"], size=asset["size_bytes"])
+    answers = []
+    for door in OSTEOSARC_SOURCE_TWINS:
+        paths = door(manifest, SOURCE, cache)
+        # Content-addressed BAM and BAI paths have different hashes, so always
+        # pass the index explicitly; adjacency is not a shared-cache contract.
+        subset = extract_reads(paths[case["bam"]], native_source.regions(padding=100),
+                               index=paths[case["bam"] + ".bai"], cache=cache)
+        with subset.open() as bam:
+            upstream, = isovar.run_isovar(
+                native, bam, read_collector=isovar.ReadCollector(**translated["read_collector"]),
+                protein_sequence_creator=isovar.ProteinSequenceCreator(**translated["protein_sequence_creator"]))
+        assert describe_isovar_result(upstream) == translated["description"]
+        validate_rna_protein(upstream, models)
+        fragment = fragment_from_isovar_result(upstream)
+        assert fragment.to_dict() == translated["fragment"]
+        # Original RNA resolves the adjacent substitution too: this is not
+        # the protein obtained from applying only the nominated A>G to cDNA.
+        assert fragment.sequence == "NKLSKQMVDVSENYQSTLPK"
+        path = tmp_path / (door.__name__ + ".tsv")
+        write_fragments([fragment], path)
+        restored, = read_fragments(path)
+        predictor = CachedPredictor(pd.DataFrame(prediction["rows"]))
+        frame = TopiaryPredictor(models=predictor, only_novel_epitopes=True).predict_from_fragments([restored])
+        check_mutation_windows(frame, [restored])
+        assert sorted(frame.peptide_offset) == list(range(2, 11))
+        assert set(frame.prediction_method_name) == {"synthetic_fixture_affinity"}
+        assert set(frame.predictor_version) == {"fixture-v1"}
+        output = tmp_path / "predictions.tsv"
+        provenance = {"source": translated["parent_dataset_sha256"],
+                      "translation": prediction["parent_translation_sha256"],
+                      "prediction": digest(ROOT / "prediction-contract-v1.json")}
+        TopiaryResult(frame, extra={"osteosarc_shared": provenance}).to_tsv(output)
+        result = read_tsv(output)
+        assert result.extra["osteosarc_shared"] == provenance
+        assert len(result.filter_by("n_rna_alt_reads >= 9")) == 9
+        assert len(result.filter_by("n_rna_alt_reads >= 10")) == 0
+        ranked = result.sort_by("affinity.value")
+        assert list(ranked.df.peptide_offset) == list(range(2, 11))
+        assert len(result.filter_by("affinity.value <= 50")) == 3
+        assert len(result.filter_by("affinity.value <= 80")) == 6
+        answers.append(ranked.df.reset_index(drop=True))
+        # A source hash does not grant coverage for another model version or
+        # missing peptide/context. Cache misses must not turn into zero scores.
+        incomplete = CachedPredictor(pd.DataFrame(prediction["rows"][1:]))
+        with pytest.raises(CachedPredictorCoverageError):
+            TopiaryPredictor(models=incomplete).predict_from_fragments([restored])
+    pd.testing.assert_frame_equal(*answers)

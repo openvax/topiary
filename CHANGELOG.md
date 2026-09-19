@@ -1,5 +1,21 @@
 # Changelog
 
+## 5.65.0
+
+- Regional RNA audits keep an explicit `no_regional_annotation` outcome when
+  a valid alignment contig is absent from the transcript subset, then continue
+  to later variants. RNA evidence stays null, not zero. Entirely unannotated
+  selections and reports before prediction are supported (#348).
+- Adopt Osteosarc 0.1.0 for audit downloads, indexed extraction and shared
+  fixture access. The optional `osteosarc` extra requires Python 3.10+.
+  `osteosarc_fixture_paths` verifies the unchanged 49-case source bundle from
+  an offline export or the shared OpenVax cache. Real NTF3 reconstruction and
+  separately versioned synthetic score fixtures test filtering, ranking and
+  coverage through both paths. Historical alleles, including MAP2, stay pinned
+  until separately reviewed (#349).
+- Include Python workflow scripts in source distributions and check their
+  presence during packaging validation (#353).
+
 ## 5.64.0
 
 Fixes from reviewing 5.63.0. The main change: **a fragment record is identified

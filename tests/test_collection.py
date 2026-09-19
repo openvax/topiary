@@ -23,7 +23,9 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
     cache = tmp_path / "ensembl"
     cache.mkdir()
     code = textwrap.dedent("""
+        import gzip
         import hashlib
+        import json
         import sys
         from pathlib import Path
 
@@ -53,11 +55,28 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
         }
         original_db = pyensembl.Genome.db.fget
         original_index = pyensembl.Genome.index
+        # The continuity workflow actually builds a regional reference. Its
+        # output is content-pinned too, though its path is a new tmp directory.
+        # Pin uncompressed records: valid gzip headers/streams vary by platform.
+        generated = json.loads(Path("tests/data/osteosarc_shared/continuity-reference.json").read_text())
 
         def require_pinned_reference(genome):
             assert "--collect-only" not in sys.argv, "Reference access during collection"
-            assert genome.reference_name in references
-            assert Path(genome.to_dict()["gtf_path_or_url"]).resolve() == references[genome.reference_name]
+            if genome.reference_name in references:
+                assert Path(genome.to_dict()["gtf_path_or_url"]).resolve() == references[genome.reference_name]
+                return
+            root = Path(genome.to_dict()["gtf_path_or_url"]).parent
+            manifest_bytes = (root / "manifest.json").read_bytes()
+            manifest = json.loads(manifest_bytes)
+            assert genome.reference_name == "GRCh38-osteosarc-all-" + hashlib.sha256(manifest_bytes).hexdigest()[:16]
+            assert {k: v for k, v in manifest.items() if k != "files"} == {
+                k: v for k, v in generated.items() if k != "files"}
+            assert manifest["files"].keys() == generated["files"].keys()
+            for name, receipt in manifest["files"].items():
+                packed = (root / name).read_bytes()
+                assert receipt["sha256"] == hashlib.sha256(packed).hexdigest()
+                assert receipt["source_url"] == generated["files"][name]["source_url"]
+                assert hashlib.sha256(gzip.decompress(packed)).hexdigest() == generated["files"][name]["content_sha256"]
 
         def pinned_db(genome):
             require_pinned_reference(genome)

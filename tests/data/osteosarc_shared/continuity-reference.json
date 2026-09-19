@@ -1,0 +1,24 @@
+{
+  "files": {
+    "reference.gtf.gz": {
+      "source_url": "https://ftp.ensembl.org/pub/release-87/gtf/homo_sapiens/Homo_sapiens.GRCh38.87.gtf.gz",
+      "content_sha256": "d7aa38f5d2439b9988e1c9ff1fb5979d511eacaa52240e38f3f82ccc9ab84bbf",
+      "source_content_sha256": "8131ea153a3a1ac27c60ca4fcd5327ab4d6346f28646b5096c60d400d33a5548"
+    },
+    "reference.cdna.fa.gz": {
+      "source_url": "https://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz",
+      "content_sha256": "9310c17299b06b4c06ac834c16658dacc3778824763b643d704893c7411cedbc",
+      "source_content_sha256": "3b37d7033270daca056b68df13b05022f022bdfb4a0c0f563435b2faeb41ea9d"
+    },
+    "reference.pep.fa.gz": {
+      "source_url": "https://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/pep/Homo_sapiens.GRCh38.pep.all.fa.gz",
+      "content_sha256": "8f4f5d7ec266ff781eed27bbd2030628f0fe34d167bbbd016132a6c1ff665d42",
+      "source_content_sha256": "bc4b0e33bf8b7591809280d02c7a87d3f7bc50e779e30c358f43b138ac83919d"
+    }
+  },
+  "transcripts": [
+    "ENST00000360184"
+  ],
+  "assembly": "GRCh38",
+  "ensembl_release": 87
+}

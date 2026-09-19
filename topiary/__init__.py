@@ -103,6 +103,7 @@ from .io_isovar import (
     fragments_from_effects,
     fragments_from_variants,
 )
+from .io_osteosarc import osteosarc_fixture_paths
 from .protein_fragment import (
     APPROXIMATED,
     MEASURED,
@@ -178,9 +179,10 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.64.0"
+__version__ = "5.65.0"
 
 __all__ = [
+    "osteosarc_fixture_paths",
     "normalize_python_types",
     "pypi_release_exists",
     "TopiaryPredictor",
