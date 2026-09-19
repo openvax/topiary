@@ -40,7 +40,8 @@ from topiary.evidence import (
 from topiary import (
     APPROXIMATED, MEASURED, CachedPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
     read_fragments, read_pvacseq, write_fragments, unique_fragments,
-    describe_isovar_result, fragment_from_isovar_result,
+    describe_isovar_result, fragment_from_isovar_result, TopiaryResult,
+    to_tsv, to_csv, read_tsv, read_csv,
 )
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
@@ -86,6 +87,14 @@ TWINS = (
         # `depth`; they are the same quantity per assay.
         shared={"overlapping": "depth", "vaf": "vaf"},
     ),
+)
+
+
+# Both file formats expose a function and a result method. Drive all four
+# through the same metadata validation and write/read battery in test_io.py.
+DELIMITED_IO_TWINS = (
+    ("tsv", to_tsv, TopiaryResult.to_tsv, read_tsv),
+    ("csv", to_csv, TopiaryResult.to_csv, read_csv),
 )
 
 

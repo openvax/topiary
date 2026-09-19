@@ -60,6 +60,39 @@ PVACSEQ_PRESENTATION = (
 )
 
 
+def test_nested_dataset_provenance_survives_filter_sort_and_file_io(tmp_path):
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    # Synthetic review scores exercise metadata transport, not binding claims.
+    frame = pd.DataFrame({
+        "peptide": ["SIINFEKL", "ELAGIGILT", "GILGFVFTL"],
+        "kind": ["review"] * 3, "prediction_method_name": ["fixture"] * 3,
+        "predictor_version": ["1"] * 3, "review_score": [10, 20, 30],
+    })
+    provenance = {"source": "a" * 64, "form": "original reads",
+                  "filter_by": {"minimum_reads": 5}, "sort_by": ["sample", "locus"],
+                  "model:fixture": {"version": "upstream"}}
+    result = TopiaryResult(frame, sources=["original-input"], extra={"dataset": provenance})
+    selected = result.filter_by("review_score <= 20", group_keys=["peptide"]).sort_by(
+        "review_score", group_keys=["peptide"])
+    assert selected.df.peptide.tolist() == ["ELAGIGILT", "SIINFEKL"]
+    assert len(result.filter_by("review_score <= 10", group_keys=["peptide"])) == 1
+    restored_frames = []
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("selected." + suffix)
+        method(selected, path)
+        restored = reader(path, tag="selected")
+        assert restored.extra == {"dataset": provenance}
+        assert restored.sources == ["original-input", "selected"]
+        assert restored.models == {"fixture": "1"}
+        assert restored.filter_by_str == "review_score <= 20"
+        assert restored.sort_by_str == "review_score"
+        assert restored.df.peptide.tolist() == selected.df.peptide.tolist()
+        assert len(restored.filter_by("review_score <= 10", group_keys=["peptide"])) == 1
+        restored_frames.append(restored.df)
+    pd.testing.assert_frame_equal(*restored_frames)
+
+
 @pytest.mark.parametrize("report", PVACSEQ_CORPUS, ids=lambda r: r["file"])
 def test_real_pvacseq_rna_overlay_preserves_history_and_changes_filtering(report, tmp_path):
     from topiary import melt_pvacseq_algorithms, read_tsv

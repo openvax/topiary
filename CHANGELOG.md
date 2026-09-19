@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.65.1
+
+- TSV/CSV writers reject reserved or malformed top-level `extra` metadata
+  keys before opening the output file, preventing custom metadata from being
+  reinterpreted as built-in provenance, model or pipeline metadata on read.
+  Nested fields inside custom metadata remain valid; existing files retain
+  their parsing behavior (#352).
+
 ## 5.65.0
 
 - Regional RNA audits keep an explicit `no_regional_annotation` outcome when
