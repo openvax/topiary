@@ -36,12 +36,21 @@ def _fragment_to_row(f: ProteinFragment) -> dict:
         if col == "target_intervals":
             row[col] = json.dumps([list(p) for p in val]) if val is not None else ""
         elif col in ("annotations", "field_provenance"):
-            row[col] = json.dumps(val or {}, sort_keys=True)
+            row[col] = _json_text(val or {})
         elif val is None:
             row[col] = ""
         else:
             row[col] = val
     return row
+
+
+def _json_text(value) -> str:
+    """JSON with keys sorted after JSON has made every key a string.
+
+    Sorting first fails on mixed key types (``{1: ..., "b": ...}``) that
+    JSON itself stores without complaint.
+    """
+    return json.dumps(json.loads(json.dumps(value)), sort_keys=True)
 
 
 def _row_to_fragment(row: dict) -> ProteinFragment:

@@ -105,6 +105,20 @@ def _migrate_fragment_dict(values: dict, known_fields: set) -> dict:
             if old in provenance:
                 _move(provenance, old, new)
         migrated["field_provenance"] = provenance
+
+    # Topiary 5.63.0 carried the sample label as an annotation.
+    annotations = migrated.get("annotations")
+    if "sample_name" in known_fields and isinstance(annotations, dict) and "sample_name" in annotations:
+        annotations = dict(annotations)
+        label = annotations.pop("sample_name")
+        if _missing(migrated.get("sample_name")):
+            migrated["sample_name"] = label
+        elif not _missing(label) and label != migrated["sample_name"]:
+            raise ValueError(
+                f"Conflicting sample_name field {migrated['sample_name']!r} and "
+                f"annotation {label!r}."
+            )
+        migrated["annotations"] = annotations
     return migrated
 
 
@@ -123,10 +137,12 @@ class ProteinFragment:
     Parameters
     ----------
     fragment_id : str
-        Canonical identity.  Convention is
+        The candidate's identity.  Convention is
         ``{readable_prefix}__{short_hash}`` — see :func:`make_fragment_id`.
-        Two fragments with the same ``fragment_id`` are treated as the
-        same fragment (equality and hash key on this field alone).
+        One record is one *observation* of a candidate: the pair
+        ``(sample_name, fragment_id)``. Equality and hashing use that pair,
+        so the same candidate seen in two samples is two records sharing
+        one ID.
     source_type : str, optional
         Free-form biological category (e.g. ``"variant:snv"``,
         ``"sv:fusion"``, ``"erv"``, ``"viral:hpv16"``,
@@ -220,6 +236,14 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
         reserved for internal plumbing and are **not** surfaced as
         columns — use them for short-lived bookkeeping that should
         not leak into user-facing output.
+    sample_name : str, optional
+        Which observation this record is: a sample, or any separately
+        analysed view of one (a library, an alignment-placement policy).
+        ``None`` for an unlabelled record; blank spellings mean ``None``.
+        Prediction writes it to the ``sample_name`` column, which
+        :func:`~topiary.aggregate_evidence_across_samples` pools across.
+        Records sharing a ``fragment_id`` in different samples must agree
+        on the candidate itself (see :func:`unique_fragments`).
     """
 
     fragment_id: str
@@ -259,6 +283,8 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
 
     annotations: dict = field(default_factory=dict)
 
+    sample_name: Optional[str] = None
+
     def __init__(
         self,
         fragment_id: str,
@@ -288,6 +314,7 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
         n_rna_alt_fragments_supporting_protein_sequence: Optional[int] = None,
         field_provenance: dict = _DEFAULT_FACTORY,
         annotations: dict = _DEFAULT_FACTORY,
+        sample_name: Optional[str] = None,
         **legacy_fields,
     ) -> None:
         """Initialize a fragment, accepting legacy evidence names as keywords.
@@ -346,18 +373,29 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
         return (
             isinstance(other, ProteinFragment)
             and self.fragment_id == other.fragment_id
+            and self.sample_name == other.sample_name
         )
 
     def __hash__(self):
-        return hash(self.fragment_id)
+        return hash((self.sample_name, self.fragment_id))
 
     def __post_init__(self):
         """Reject a provenance mapping that cannot mean anything.
 
         A typo'd field name or an unknown label would sit inert and
         silently stop protecting the field it was written to protect,
-        which is worse than not writing it.
+        which is worse than not writing it. A blank ``sample_name`` is
+        the absence of one, so it becomes ``None``.
         """
+        from .ranking import is_stated
+
+        if self.sample_name is not None:
+            if not isinstance(self.sample_name, str):
+                raise TypeError(
+                    f"sample_name must be a string; got {type(self.sample_name).__name__}."
+                )
+            if not is_stated(self.sample_name):
+                object.__setattr__(self, "sample_name", None)
         known = {f.name for f in dataclasses.fields(self)}
         migrated = _migrate_fragment_dict(
             {"field_provenance": self.field_provenance}, known,
@@ -888,13 +926,12 @@ def make_fragment_id(
 def fragments_for_sample(fragments: Iterable[ProteinFragment], sample_name: str) -> list:
     """Label fragments as one sample's observations.
 
-    The same peptide seen in two samples is two observations with two
-    sets of evidence. Prediction keys its rows on ``fragment_id``, so the
-    observations need different IDs to both survive, and a sample name to
-    be told apart afterwards. This gives them both: each returned
-    fragment's ID becomes ``"{sample_name}:{fragment_id}"`` and its
-    annotations record ``sample_name``, which prediction writes to the
-    ``sample_name`` column.
+    The same candidate seen in two samples is two observations with two
+    sets of evidence. A record is identified by ``(sample_name,
+    fragment_id)``, so labelling keeps both through prediction while the
+    shared ``fragment_id`` still names the one candidate — which is what
+    lets :func:`~topiary.aggregate_evidence_across_samples` pool them with
+    its default keys. Prediction writes the label to ``sample_name``.
 
     Every fragment producer that takes a ``sample_name`` routes through
     this function, so a label means the same thing whichever source the
@@ -907,16 +944,13 @@ def fragments_for_sample(fragments: Iterable[ProteinFragment], sample_name: str)
     sample_name : str
         The observation's label: a sample, or any separately analysed view
         of one (a sequencing library, an alignment-placement policy) whose
-        evidence must not be merged with another's. Characters outside
-        ``[A-Za-z0-9._:-]`` become ``_`` in the ID; the annotation keeps
-        the label exactly.
+        evidence must not be merged with another's. Kept exactly.
 
     Returns
     -------
     list of ProteinFragment
-        New records in input order; inputs are not mutated. A fragment
-        already labelled with this sample is returned unchanged, so
-        labelling twice is harmless.
+        New records in input order, IDs unchanged; inputs are not mutated.
+        A fragment already labelled with this sample is returned as is.
 
     Raises
     ------
@@ -924,125 +958,155 @@ def fragments_for_sample(fragments: Iterable[ProteinFragment], sample_name: str)
         *sample_name* is blank or missing, or a fragment is already
         labelled with a different sample. Relabelling would claim one
         sample's evidence for another.
+    """
+    sample_name = require_sample_name(sample_name)
+    labelled = []
+    for fragment in fragments:
+        if fragment.sample_name == sample_name:
+            labelled.append(fragment)
+            continue
+        if fragment.sample_name is not None:
+            raise ValueError(
+                f"Fragment {fragment.fragment_id!r} is already labelled with sample "
+                f"{fragment.sample_name!r}; refusing to relabel it as {sample_name!r}."
+            )
+        labelled.append(dataclasses.replace(fragment, sample_name=sample_name))
+    return labelled
 
-    Notes
-    -----
-    Because the ID names the observation, rows from two samples do not
-    share a ``fragment_id``. To pool evidence for one candidate across
-    samples, pass :func:`~topiary.aggregate_evidence_across_samples`
-    group keys that identify the candidate without it, for example
-    ``["variant", "peptide", "peptide_offset", "allele"]``.
+
+def require_sample_name(sample_name) -> str:
+    """Return *sample_name* if it names an observation, else raise.
+
+    The one check every ``sample_name`` argument goes through, so a
+    producer can refuse a bad label before doing any work.
+
+    Raises
+    ------
+    ValueError
+        Not a string, or blank (``""``, whitespace, ``"nan"`` and other
+        spellings of absence per :func:`~topiary.is_stated`).
     """
     from .ranking import is_stated
 
     if not isinstance(sample_name, str) or not is_stated(sample_name):
         raise ValueError(f"sample_name must be a non-blank string; got {sample_name!r}.")
-    namespace = _sanitize_prefix(sample_name)
-    if not namespace:
-        raise ValueError(f"sample_name {sample_name!r} has no characters usable in an ID.")
-    labelled = []
-    for fragment in fragments:
-        existing = fragment.annotations.get("sample_name")
-        if existing == sample_name:
-            labelled.append(fragment)
-            continue
-        if existing is not None and is_stated(existing):
-            raise ValueError(
-                f"Fragment {fragment.fragment_id!r} is already labelled with sample "
-                f"{existing!r}; refusing to relabel it as {sample_name!r}."
-            )
-        labelled.append(dataclasses.replace(
-            fragment,
-            fragment_id=f"{namespace}:{fragment.fragment_id}",
-            annotations={**fragment.annotations, "sample_name": sample_name},
-        ))
-    return labelled
+    return sample_name
 
 
-# =============================================================================
-# Iteration helpers
-# =============================================================================
+#: Fields prediction derives peptides, target overlap and WT baselines from.
+#: Records naming one candidate (one ``fragment_id``) in different samples
+#: must agree on these; their evidence and annotations may differ.
+CANDIDATE_FIELDS = ("sequence", "target_intervals", "reference_sequence", "germline_sequence")
 
 
 def unique_fragments(fragments: Iterable[ProteinFragment]) -> list:
-    """Coalesce identical records and reject contradictory fragment identities.
+    """Coalesce identical records and reject contradictory identities.
+
+    A record is identified by ``(sample_name, fragment_id)``: the ID names
+    a candidate, the sample names which observation of it this is.
 
     Parameters
     ----------
     fragments : iterable of ProteinFragment
         Records to validate. Empty iterables return an empty list; ``None``
-        is not an iterable. Single-occurrence IDs need no serialization.
+        is not an iterable. Content is only compared when a key repeats.
 
     Returns
     -------
     list of ProteinFragment
-        The first record for each ID, in input order. Repeated IDs must hold
-        the same content in every field, including evidence, provenance and
-        annotations, compared the way fragment IO stores it: ``5`` and
-        ``5.0`` agree, NaN and ``None`` both mean "not stated", tuples and
-        lists agree, and mapping keys compare as strings. So a record and
-        its own :func:`~topiary.write_fragments` round trip coalesce. This
-        deliberately does not use fragment equality, which compares only
-        IDs. Inputs are not mutated.
+        The first record for each ``(sample_name, fragment_id)``, in input
+        order. A repeated key must hold the same content in every field,
+        compared as :func:`~topiary.write_fragments` stores it — so a record
+        and its own saved copy coalesce. The same object repeated is always
+        accepted. This deliberately does not use fragment equality, which
+        compares only the key. Inputs are not mutated.
 
     Raises
     ------
     ValueError
-        A repeated ID has conflicting content (the message names the fields
-        that differ), or holds a value fragment IO cannot store, so agreement
-        cannot be established. The same object repeated is always accepted.
-        Give distinct observations distinct IDs even when sequences match —
-        :func:`fragments_for_sample` does this for samples, libraries and
-        analysis policies. Silently picking one would discard the other
-        observation's evidence.
+        A repeated key has conflicting content; one ``fragment_id`` names
+        different candidates in different samples (they disagree on a
+        :data:`CANDIDATE_FIELDS` field); or content holds a value fragment
+        IO cannot store, so agreement cannot be established. Messages name
+        the fields that differ. Silently picking one record would discard
+        the other observation's evidence: give distinct observations
+        distinct samples (:func:`fragments_for_sample`) or distinct IDs.
     """
     first = {}
+    candidates = {}
     for fragment in fragments:
-        seen = first.get(fragment.fragment_id)
+        key = (fragment.sample_name, fragment.fragment_id)
+        seen = first.get(key)
         if seen is None:
-            # Content is only needed once an ID repeats.
-            first[fragment.fragment_id] = [fragment, None]
+            first[key] = [fragment, None]
+            other = candidates.setdefault(fragment.fragment_id, fragment)
+            differing = [
+                name for name in CANDIDATE_FIELDS
+                if _as_candidate(getattr(other, name)) != _as_candidate(getattr(fragment, name))
+            ]
+            if differing:
+                raise ValueError(
+                    f"fragment_id {fragment.fragment_id!r} names different candidates in "
+                    f"samples {other.sample_name!r} and {fragment.sample_name!r}: they "
+                    f"differ in {', '.join(differing)}. Use distinct IDs for distinct "
+                    "candidates."
+                )
             continue
         if fragment is seen[0]:
             continue
         if seen[1] is None:
             seen[1] = _stored_content(seen[0])
         content = _stored_content(fragment)
-        differing = sorted(name for name in content if content[name] != seen[1][name])
+        differing = sorted(
+            name for name in content.keys() | seen[1].keys()
+            if content.get(name) != seen[1].get(name)
+        )
         if differing:
             raise ValueError(
-                f"Conflicting records for fragment_id {fragment.fragment_id!r}: "
-                f"they differ in {', '.join(differing)}. Use distinct IDs for "
-                "distinct observations (see fragments_for_sample)."
+                f"Conflicting records for fragment_id {fragment.fragment_id!r} in "
+                f"sample {fragment.sample_name!r}: they differ in {', '.join(differing)}. "
+                "Label distinct observations with fragments_for_sample, or give "
+                "distinct candidates distinct IDs."
             )
     return [fragment for fragment, _ in first.values()]
 
 
+def _as_candidate(value):
+    """A candidate field compared as stored: interval tuples equal lists."""
+    return [list(pair) for pair in value] if isinstance(value, (list, tuple)) else value
+
+
 def _stored_content(fragment: ProteinFragment) -> dict:
-    """Each field of *fragment* as canonical JSON text, as fragment IO stores it."""
-    content = {}
-    for name, value in fragment.to_dict().items():
-        try:
-            content[name] = json.dumps(_as_stored(value), sort_keys=True)
-        except (TypeError, ValueError) as error:
-            raise ValueError(
-                f"Cannot compare repeated fragment_id {fragment.fragment_id!r}: "
-                f"its {name} holds a value fragment IO cannot store ({error})."
-            ) from error
+    """Each field of *fragment* as canonical text, after fragment IO.
+
+    ProteinFragment's own fields go through the same row conversion that
+    :func:`~topiary.write_fragments` and :func:`~topiary.read_fragments`
+    use, so "the same content" means exactly "the same once saved". A
+    subclass's extra fields, which that IO does not carry, compare as JSON,
+    and the record's class is part of its content.
+    """
+    from .io_protein_fragment import _fragment_to_row, _row_to_fragment
+
+    base = [field.name for field in dataclasses.fields(ProteinFragment)]
+    extra = [
+        field.name for field in dataclasses.fields(fragment)
+        if field.name not in base
+    ]
+    try:
+        stored = _row_to_fragment(_fragment_to_row(ProteinFragment(
+            **{name: getattr(fragment, name) for name in base}
+        ))).to_dict()
+        stored.update(normalize_python_types(
+            {name: getattr(fragment, name) for name in extra},
+        ))
+        content = {name: json.dumps(value, sort_keys=True) for name, value in stored.items()}
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"Cannot compare repeated fragment_id {fragment.fragment_id!r}: it holds "
+            f"a value fragment IO cannot store ({error})."
+        ) from error
+    content["class"] = f"{type(fragment).__module__}.{type(fragment).__qualname__}"
     return content
-
-
-def _as_stored(value):
-    """*value* in the form it takes after a fragment IO round trip."""
-    if isinstance(value, float):
-        if value != value:
-            return None
-        return int(value) if value.is_integer() else value
-    if isinstance(value, dict):
-        return {str(key): _as_stored(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_as_stored(item) for item in value]
-    return value
 
 
 def collect_annotations(fragments: Iterable[ProteinFragment]) -> set:
@@ -1078,10 +1142,15 @@ SEMANTIC_CORE = (
 #: differ in any of them are different fragments with different IDs. A
 #: context reported for several peptides is therefore several fragments,
 #: because readers such as LENS report evidence per peptide.
-_FRAGMENT_IDENTITY = ("sample_name", "source_sequence_name", "variant", "peptide")
+_FRAGMENT_IDENTITY = (
+    "sample_name", "source_sequence_name", "variant", "transcript_id", "transcript", "peptide",
+)
 
 #: Frame columns copied, as text, onto the fragment field of the same name.
-_FRAME_TEXT_FIELDS = ("source_type", "gene", "gene_id", "transcript_id")
+#: A transcript arrives as ``transcript_id`` (LENS) or ``transcript``
+#: (pVACseq); both fill ``transcript_id``.
+_FRAME_TEXT_FIELDS = ("source_type", "gene", "gene_id")
+_FRAME_TRANSCRIPT_COLUMNS = ("transcript_id", "transcript")
 
 #: Frame columns copied, as numbers, onto the fragment field of the same name.
 _FRAME_NUMBER_FIELDS = ("gene_expression", "transcript_expression")
@@ -1163,7 +1232,9 @@ def fragments_from_dataframe(df, *, sequence_column=None):
     before anything else looks at it. ``NaN`` therefore never reaches an
     ID or a field as the text ``"nan"``.
     """
-    from .evidence import provenance_for_method
+    import pandas as pd
+
+    from .evidence import _validated_stated_counts, provenance_for_method
     from .ranking import stated_values
 
     if df is None or len(df) == 0:
@@ -1185,7 +1256,7 @@ def fragments_from_dataframe(df, *, sequence_column=None):
     identity = [c for c in _FRAGMENT_IDENTITY if c in df.columns and c != sequence_column]
     columns = [
         column for column in dict.fromkeys([
-            *identity, sequence_column, *_FRAME_TEXT_FIELDS,
+            *identity, sequence_column, *_FRAME_TEXT_FIELDS, *_FRAME_TRANSCRIPT_COLUMNS,
             *_FRAME_NUMBER_FIELDS, *_FRAME_COUNTS, *_FRAME_ANNOTATIONS,
         ])
         if column in df.columns
@@ -1198,10 +1269,14 @@ def fragments_from_dataframe(df, *, sequence_column=None):
             frame[column] = _stated_numbers(frame[column], column)
     for column in _FRAME_COUNTS:
         if column in frame.columns:
-            frame[column] = _stated_numbers(frame[column], column, counts=True)
+            # The same rule for a valid count as cross-sample aggregation.
+            stated, counts = _validated_stated_counts(frame[column], column, "a reader frame")
+            frame.loc[stated, column] = pd.Series(counts, index=frame.index[stated], dtype=object)
     # Qualifiers hash every identity value the prefix and variant do not
-    # already carry, so the ID distinguishes exactly what the rows do.
+    # already carry, so the ID distinguishes exactly what the rows do. The
+    # sample is not one: it labels the observation, not the candidate.
     qualifiers = [c for c in identity if c not in ("sample_name", "variant")]
+    transcript = next((c for c in _FRAME_TRANSCRIPT_COLUMNS if c in frame.columns), None)
 
     fragments = []
     for record in frame.drop_duplicates().to_dict("records"):
@@ -1209,12 +1284,13 @@ def fragments_from_dataframe(df, *, sequence_column=None):
         variant = _text(record.get("variant"))
         subject = _text(record.get("rna_evidence_subject"))
         in_fragments = subject is not None and subject.strip() == "fragments"
-        method = provenance_for_method(record.get("rna_evidence_method"))
         counts = {
             fragment_field if in_fragments else read_field: record[column]
             for column, (read_field, fragment_field) in _FRAME_COUNTS.items()
             if record.get(column) is not None
         }
+        # A derivation qualifies counts; a row without counts claims none.
+        method = provenance_for_method(record.get("rna_evidence_method")) if counts else None
         provenance = {name: method for name in counts} if method else {}
         expression_method = provenance_for_method(record.get("rna_alt_expression_method"))
         if expression_method:
@@ -1238,15 +1314,14 @@ def fragments_from_dataframe(df, *, sequence_column=None):
             variant=variant,
             gene=_text(record.get("gene")),
             gene_id=_text(record.get("gene_id")),
-            transcript_id=_text(record.get("transcript_id")),
+            transcript_id=_text(record.get(transcript)) if transcript else None,
             gene_expression=record.get("gene_expression"),
             transcript_expression=record.get("transcript_expression"),
             field_provenance=provenance,
             annotations=annotations,
+            sample_name=_text(record.get("sample_name")),
             **counts,
         )
-        if record.get("sample_name") is not None:
-            fragment, = fragments_for_sample([fragment], str(record["sample_name"]))
         fragments.append(fragment)
     try:
         return unique_fragments(fragments)
@@ -1262,27 +1337,28 @@ def _text(value):
     return None if value is None else str(value)
 
 
-def _stated_numbers(values, column, *, counts=False):
-    """A normalized frame column as Python numbers, ``None`` where unstated.
+def _stated_numbers(values, column):
+    """A normalized frame column as floats, ``None`` where unstated.
 
-    A stated cell that is not a number — or, for *counts*, not a whole
-    non-negative number — raises rather than being dropped or truncated.
+    A stated cell that is not a real number (booleans included) raises
+    rather than being dropped.
     """
     import pandas as pd
 
-    numbers = pd.to_numeric(values, errors="coerce")
-    valid = numbers.notna()
-    if counts:
-        valid &= numbers.ge(0) & numbers.mod(1).eq(0)
-    invalid = values.notna() & ~valid
+    numbers = pd.to_numeric(values.where(~values.map(_is_boolean)), errors="coerce")
+    invalid = values.notna() & numbers.isna()
     if invalid.any():
-        expected = "whole non-negative counts" if counts else "numbers"
         raise ValueError(
-            f"Column {column!r} must hold {expected}; got "
+            f"Column {column!r} must hold numbers; got "
             f"{values[invalid].unique()[:5].tolist()}."
         )
-    convert = int if counts else float
     return pd.Series(
-        [None if value is None else convert(number) for value, number in zip(values, numbers)],
+        [None if value is None else float(number) for value, number in zip(values, numbers)],
         index=values.index, dtype=object,
     )
+
+
+def _is_boolean(value):
+    import numpy as np
+
+    return isinstance(value, (bool, np.bool_))

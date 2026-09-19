@@ -304,6 +304,9 @@ def _coerce_sort_nodes(expr):
 # underscore marks them as implementation detail — they're stripped
 # from the returned DataFrame.
 _SUBSEQ_OFFSET_KEY = "_subsequence_offset"
+# Which record (observation) a fragment prediction row belongs to, while
+# fragment-derived columns are being attached.
+_RECORD_COLUMN = "_fragment_record"
 _MUTATION_START_KEY = "_mutation_start_in_protein"
 _MUTATION_END_KEY = "_mutation_end_in_protein"
 
@@ -1555,8 +1558,10 @@ class TopiaryPredictor(object):
         """Run models on *fragments* and overlay all fragment-derived
         columns, without applying filter / sort / ``only_novel_epitopes``.
 
-        *fragments* must already have unique IDs (see
-        :func:`unique_fragments`); every public entry point ensures it.
+        *fragments* must already be validated by :func:`unique_fragments`,
+        so each ``fragment_id`` names one candidate sequence; every public
+        entry point ensures it. Each candidate is scanned once and its rows
+        are copied once per record (per sample observing it).
         Callers that need backward-compat post-processing (e.g. the
         legacy variant path rebasing ``peptide_offset`` to absolute
         protein coords) can intercept here and filter afterwards.
@@ -1573,13 +1578,14 @@ class TopiaryPredictor(object):
         # Keep source_sequence_name populated for any code path that
         # still looks at it; fragment_id is the canonical group key.
         df["source_sequence_name"] = df["fragment_id"]
-
-        by_id = {f.fragment_id: f for f in fragments}
+        df = df.merge(pd.DataFrame({
+            "fragment_id": [f.fragment_id for f in fragments],
+            _RECORD_COLUMN: range(len(fragments)),
+        }), on="fragment_id", how="left")
+        records = df[_RECORD_COLUMN].map(fragments.__getitem__)
 
         def _map_attr(attr):
-            return df["fragment_id"].map(
-                lambda fid, a=attr: getattr(by_id[fid], a, None) if fid in by_id else None
-            )
+            return records.map(lambda f, a=attr: getattr(f, a, None))
 
         # Identity and provenance: always written, because downstream
         # code below indexes them and because "which variant is this"
@@ -1622,8 +1628,8 @@ class TopiaryPredictor(object):
         df = attach_rna_evidence_columns(df)
 
         def _overlaps(row):
-            f = by_id.get(row["fragment_id"])
-            if f is None or f.target_intervals is None:
+            f = fragments[row[_RECORD_COLUMN]]
+            if f.target_intervals is None:
                 return None
             return f.peptide_overlaps_target(
                 int(row["peptide_offset"]), int(row["peptide_length"])
@@ -1639,16 +1645,13 @@ class TopiaryPredictor(object):
         )
 
         def _wt_peptide(row):
-            f = by_id.get(row["fragment_id"])
-            if f is None:
-                return None
-            base = f.effective_baseline
+            base = fragments[row[_RECORD_COLUMN]].effective_baseline
             if base is None:
                 return None
             # Only meaningful when mutant and baseline coordinates align
             # 1:1 — indels / frameshifts need explicit remapping, which
             # PR A does not do.
-            if len(base) != len(f.sequence):
+            if len(base) != len(fragments[row[_RECORD_COLUMN]].sequence):
                 return None
             start = int(row["peptide_offset"])
             end = start + int(row["peptide_length"])
@@ -1664,14 +1667,10 @@ class TopiaryPredictor(object):
             df["wt_peptide"].notna(), other=None,
         )
 
-        # mhctools stamps a blank sample_name on every row; a fragment's
-        # sample label is what that column exists to hold.
-        samples = df["fragment_id"].map(
-            lambda fid: by_id[fid].annotations.get("sample_name")
-        )
-        if samples.notna().any():
-            blank = df["sample_name"] if "sample_name" in df.columns else ""
-            df["sample_name"] = samples.where(samples.notna(), blank)
+        # The fragment says which observation a row is; a model's own
+        # sample_name (a cache built from another run's output has one)
+        # must never label it. Unlabelled stays mhctools' blank.
+        df["sample_name"] = records.map(lambda f: f.sample_name or "")
 
         all_annotation_keys = set()
         for f in fragments:
@@ -1685,12 +1684,9 @@ class TopiaryPredictor(object):
                 continue
             if key in df.columns:
                 continue
-            df[key] = df["fragment_id"].map(
-                lambda fid, k=key: by_id[fid].annotations.get(k)
-                if fid in by_id else None
-            )
+            df[key] = records.map(lambda f, k=key: f.annotations.get(k))
 
-        return df
+        return df.drop(columns=[_RECORD_COLUMN])
 
     def predict_from_sequences(self, sequences):
         """

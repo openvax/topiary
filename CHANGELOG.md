@@ -1,5 +1,50 @@
 # Changelog
 
+## 5.64.0
+
+Fixes from reviewing 5.63.0. The main change: **a fragment record is identified
+by `(sample_name, fragment_id)`**. The ID names the candidate and the new
+`ProteinFragment.sample_name` field names the observation. 5.63.0 wrote the
+sample into the ID, which stopped `aggregate_evidence_across_samples` from
+pooling with its default keys and let differently spelled labels collide.
+
+- **Breaking:** sample labels no longer change `fragment_id`.
+  `fragments_for_sample`, `fragments_from_variants(sample_name=)` and a frame's
+  `sample_name` column set the field instead. Equality and hashing use the
+  pair. Fragment files gain a `sample_name` column, and a 5.63.0 label stored
+  in `annotations["sample_name"]` migrates on read. Records sharing an ID in
+  different samples must agree on `CANDIDATE_FIELDS` (sequence, target
+  intervals, reference and germline sequences). Prediction scans each
+  candidate once and writes one row per observation.
+- A prediction's `sample_name` always comes from its fragment (blank when
+  unlabelled). A `CachedPredictor` built from labelled output used to lend its
+  sample to unlabelled fragments.
+- `unique_fragments` compares content by passing it through fragment IO
+  itself, so blank or `"None"` text fields and numbers in text fields no
+  longer make a record conflict with its saved copy. Subclass fields compare
+  in either order. `write_fragments` now stores annotations with mixed key
+  types.
+- `fragments_from_dataframe` treats the transcript (`transcript_id`, or
+  pVACseq's `transcript`) as identity and fills `transcript_id` from either,
+  so a peptide on two transcripts keeps both transcript expressions instead
+  of raising. An RNA derivation method is checked only where it qualifies a
+  count. Counts use the same validator as cross-sample aggregation, which
+  refuses booleans.
+- Isovar filter outcomes must be booleans. A missing or `None` filter record
+  and NaN outcomes are unknown (not passing), and `"False"` raises instead of
+  being truthy. `sample_name` is checked before any alignment is read. Each
+  result is extracted once.
+- The optional-dependency floor is enforced only when Topiary's installed
+  metadata describes the running code, so another copy's stale floor is never
+  applied.
+- Osteosarc audit: a VAF row with the wrong number of fields is that entry's
+  `non_literal_allele` status. It no longer shifts every column or aborts
+  the inventory. Leftover pre-5.63 `*.json` fragment files are refused
+  instead of silently skipped. Accepted and filtered use the shared
+  disposition.
+- The reader end-to-end test locates its fixtures relative to the test file.
+
+
 ## 5.63.0
 
 Fixes found by reviewing 5.62.0, grouped by cause.

@@ -22,3 +22,15 @@ at run time from Topiary's metadata, in the library and the test gate alike.
 Parse audit inputs as typed tables before deciding anything: a malformed cell
 becomes that entry's explicit status, while a missing column is a schema error.
 Every trigger gets a synthetic test that fails on 5.62.0.
+
+## Revision (5.64.0): a record is (sample, candidate)
+
+5.63.0 wrote the sample label into the ID. Review showed three consequences.
+Default cross-sample aggregation, keyed on the ID, stopped pooling. Label
+sanitizing let different labels collide. And prediction could not tell a
+cache's sample from the fragment's.
+
+The ID now names the candidate and `ProteinFragment.sample_name` names the
+observation; identity, equality and prediction rows use the pair. One ID must
+mean one candidate in every sample (`CANDIDATE_FIELDS`), which lets prediction
+scan it once. Prediction takes `sample_name` only from fragments.

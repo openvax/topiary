@@ -2,31 +2,37 @@
 
 ## Identity and RNA outcomes
 
-`fragment_id` identifies a complete observation, not just an amino-acid
-sequence. The producers give every distinct observation its own ID:
+A record is one observation of a candidate: the pair `(sample_name,
+fragment_id)`. `fragment_id` names the candidate, and `sample_name` names
+which sample (or library, or analysis policy) observed it. The same candidate
+seen in two samples is two records sharing one ID. They may differ in evidence,
+but not in the candidate itself (`CANDIDATE_FIELDS`: sequence, target
+intervals, reference and germline sequences).
 
-- `fragments_from_dataframe` derives the ID from everything it groups rows by
-  (sample, source, variant, reported peptide and sequence). A LENS context
-  reported for several peptides becomes one fragment per peptide, each with
-  that peptide's evidence and `annotations["reported_peptide"]`. Rows that
-  describe the same fragment but disagree about its evidence raise.
-- `fragments_from_variants(..., sample_name="T1")` labels RNA observations,
-  so the same variant assembled from two alignments (or one alignment under
-  two settings) stays two records.
-- `fragments_for_sample(fragments, "T1")` applies the same label to fragments
-  from any source: the ID becomes `T1:<id>` and `annotations["sample_name"]`
-  fills the prediction frame's `sample_name` column. Because the ID names the
-  observation, pool one candidate across samples with
-  `aggregate_evidence_across_samples(df, group_keys=["variant", "peptide",
-  "peptide_offset", "allele"])` rather than the default fragment-ID identity.
+- `fragments_from_dataframe` derives the ID from everything it groups rows by:
+  source, variant, transcript (`transcript_id` or pVACseq's `transcript`),
+  reported peptide and sequence. A frame's `sample_name` column fills the
+  field. A LENS context reported for several peptides becomes one fragment
+  per peptide, each with that peptide's evidence and
+  `annotations["reported_peptide"]`. Rows describing the same fragment that
+  disagree about its evidence raise.
+- `fragments_from_variants(..., sample_name="T1")` and
+  `fragments_for_sample(fragments, "T1")` label observations from any source.
+  The label is kept exactly and is checked before any alignment is read.
+- Prediction scans each candidate once and writes one row per observation.
+  `sample_name` comes from the fragment, never from a model or cache (blank
+  when unlabelled), so `aggregate_evidence_across_samples` pools a candidate
+  across samples with its default keys.
 
-`unique_fragments(records)` keeps the first record per ID, coalesces repeats
-that hold the same content, and raises on conflicting sequence, evidence,
-provenance or annotations, naming the fields that differ. Content is compared
-as fragment IO stores it, so a record and its own `write_fragments` round trip
-agree (`5` and `5.0`, NaN and `None`, tuples and lists). A value IO cannot
-store cannot be compared, and fails explicitly. Prediction runs this check
-before any model, preventing silent last-record overwrites.
+`unique_fragments(records)` keeps the first record per `(sample_name,
+fragment_id)` and coalesces repeats that hold the same content. It raises,
+naming the fields that differ, on conflicting content or on one ID naming
+different candidates. Content is compared by passing it through fragment IO
+itself, so a record and its own `write_fragments` round trip always agree
+(`5` and `5.0`, NaN, blank or `"None"` text and `None`, tuples and lists,
+numbers in text fields). A value IO cannot store cannot be compared, and
+fails explicitly. Prediction runs this check before any model, preventing
+silent last-record overwrites.
 
 `describe_isovar_result(result)` returns a JSON-compatible diagnostic record for
 every completed upstream result, including empty or filtered reconstructions.
@@ -409,7 +415,7 @@ invoke custom deep-copy hooks that could alter values before encoding.
 
 ## Identity
 
-`fragment_id` is canonical. Two fragments with the same id are equal and hash-equal, regardless of other content — so records that must stay apart need different ids (see [Identity and RNA outcomes](#identity-and-rna-outcomes)). Use `make_fragment_id(prefix, sequence, variant=..., qualifiers=...)` for a deterministic content-derived id with a readable prefix:
+`fragment_id` names the candidate; `(sample_name, fragment_id)` names the record. Two fragments with the same pair are equal and hash-equal, regardless of other content (see [Identity and RNA outcomes](#identity-and-rna-outcomes)). Use `make_fragment_id(prefix, sequence, variant=..., qualifiers=...)` for a deterministic content-derived id with a readable prefix:
 
 ```
 BRAF_p.Val600Glu__a1b2c3d4
