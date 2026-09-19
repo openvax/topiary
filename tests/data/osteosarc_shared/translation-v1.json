@@ -1,0 +1,122 @@
+{
+  "case_id": "28-NTF3-chr12-5494381-53f498a544883d51",
+  "data_version": "translation-v1",
+  "description": {
+    "alt": "G",
+    "contig": "12",
+    "failed_filters": [],
+    "filter_values": {
+      "has_mutant_protein_sequence_from_rna": true,
+      "max_fraction_other_fragments": true,
+      "max_fraction_other_reads": true,
+      "max_fraction_ref_fragments": true,
+      "max_fraction_ref_reads": true,
+      "max_num_other_fragments": true,
+      "max_num_other_reads": true,
+      "max_num_ref_fragments": true,
+      "max_num_ref_reads": true,
+      "min_fraction_alt_fragments": true,
+      "min_fraction_alt_reads": true,
+      "min_num_alt_fragments": true,
+      "min_num_alt_reads": true,
+      "min_ratio_alt_to_other_fragments": true,
+      "predicted_effect_modifies_protein_sequence": true,
+      "protein_sequence_contains_mutation": true
+    },
+    "mutation_end": 11,
+    "mutation_start": 10,
+    "num_alt_fragments": 9,
+    "num_alt_reads": 9,
+    "num_other_fragments": 0,
+    "num_other_reads": 0,
+    "num_ref_fragments": 5,
+    "num_ref_reads": 5,
+    "num_total_fragments": 14,
+    "num_total_reads": 14,
+    "passes_all_filters": true,
+    "predicted_effect": "p.K69R",
+    "predicted_effect_class": "Substitution",
+    "protein_sequence": "NKLSKQMVDVSENYQSTLPK",
+    "protein_supporting_fragments": 9,
+    "protein_supporting_reads": 9,
+    "ref": "A",
+    "reference_name": "GRCh38-osteosarc-all-cd74762f07603248",
+    "start": 5494381,
+    "status": "passing",
+    "transcript_ids": [
+      "ENST00000331010",
+      "ENST00000423158"
+    ],
+    "variant": "Variant(contig='12', start=5494381, ref='A', alt='G', reference_name='GRCh38-osteosarc-all-cd74762f07603248')"
+  },
+  "fragment": {
+    "annotations": {
+      "rna_evidence_method": "rna_alignment",
+      "sequence_source": "isovar_assembly",
+      "supporting_reference_transcripts": [
+        "ENST00000331010",
+        "ENST00000423158"
+      ]
+    },
+    "effect": null,
+    "effect_type": null,
+    "field_provenance": {
+      "n_rna_alt_fragments": "measured",
+      "n_rna_alt_fragments_supporting_protein_sequence": "measured",
+      "n_rna_alt_reads": "measured",
+      "n_rna_alt_reads_supporting_protein_sequence": "measured",
+      "n_rna_other_fragments": "measured",
+      "n_rna_other_reads": "measured",
+      "n_rna_overlapping_fragments": "measured",
+      "n_rna_overlapping_reads": "measured",
+      "n_rna_ref_fragments": "measured",
+      "n_rna_ref_reads": "measured"
+    },
+    "fragment_id": "Variant_contig_12_start_5494381_ref_A_alt_G_reference_name_GRCh38-osteosarc-all-cd74762f07603248__780ed9e7",
+    "gene": "NTF3",
+    "gene_expression": null,
+    "gene_id": null,
+    "germline_sequence": null,
+    "n_rna_alt_fragments": 9,
+    "n_rna_alt_fragments_supporting_protein_sequence": 9,
+    "n_rna_alt_reads": 9,
+    "n_rna_alt_reads_supporting_protein_sequence": 9,
+    "n_rna_other_fragments": 0,
+    "n_rna_other_reads": 0,
+    "n_rna_overlapping_fragments": 14,
+    "n_rna_overlapping_reads": 14,
+    "n_rna_ref_fragments": 5,
+    "n_rna_ref_reads": 5,
+    "reference_sequence": null,
+    "sample_name": null,
+    "sequence": "NKLSKQMVDVSENYQSTLPK",
+    "source_type": "variant:rna_assembled",
+    "target_intervals": [
+      [
+        10,
+        11
+      ]
+    ],
+    "transcript_expression": null,
+    "transcript_id": "ENST00000331010",
+    "transcript_name": "NTF3-002",
+    "variant": "Variant(contig='12', start=5494381, ref='A', alt='G', reference_name='GRCh38-osteosarc-all-cd74762f07603248')"
+  },
+  "isovar_version": "1.21.0",
+  "parent_dataset_sha256": "505966ad4a9d78aee0ba99ca111ecef15ddc067676f241fc3f0364cc9d1b07af",
+  "protein_sequence_creator": {
+    "protein_context_peptide_length": 25,
+    "variant_sequence_assembly": true
+  },
+  "read_collector": {
+    "merge_overlapping_fragments": true,
+    "min_mapping_quality": 20,
+    "use_duplicate_reads": false,
+    "use_secondary_alignments": false,
+    "use_soft_clipped_bases": false
+  },
+  "reference_manifest_sha256": "cd74762f076032480d7c600ca2064aeeb1d8d87ba9ee730465544b3e786a2647",
+  "schema_version": 1,
+  "species": "Homo sapiens",
+  "taxon_id": 9606
+}

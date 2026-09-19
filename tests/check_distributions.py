@@ -64,7 +64,7 @@ def check_distributions(dist_dir, source_root):
             path.relative_to(source_root).as_posix()
             for directory, pattern in (
                 ("docs", "*.md"), ("tests", "*.py"), ("tests/data", "*"),
-                ("scripts", "*.sh"), (".github/workflows", "*.yml"),
+                ("scripts", "*.sh"), ("scripts", "*.py"), (".github/workflows", "*.yml"),
             )
             for path in (source_root / directory).rglob(pattern)
             if path.is_file() and "__pycache__" not in path.parts

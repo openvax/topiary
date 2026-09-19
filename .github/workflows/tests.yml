@@ -169,6 +169,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       TOPIARY_TEST_REQUIRE_ISOVAR: "1"
+      TOPIARY_TEST_REQUIRE_OSTEOSARC: "1"
       PYENSEMBL_CACHE_DIR: ${{ github.workspace }}/empty-ensembl-cache
     strategy:
       fail-fast: false
@@ -186,15 +187,17 @@ jobs:
             pyproject.toml
       - name: Install Topiary with Isovar (minimum and latest)
         run: |
+          sudo apt-get update
+          sudo apt-get install -y samtools
           python -m pip install --upgrade pip
           python -m pip install pytest pytest-cov pytest-xdist
-          python -m pip install -e '.[isovar]' '${{ matrix.isovar }}'
+          python -m pip install -e '.[isovar,osteosarc]' '${{ matrix.isovar }}'
       - name: Verify Isovar imports
         run: |
           python -c "import sys; from importlib.metadata import version; import topiary; assert 'isovar' not in sys.modules; import isovar; print('Isovar', version('isovar'))"
       - name: Test Isovar integration
         run: |
-          ./test.sh -m isovar --strict-markers
+          ./test.sh -m 'isovar or osteosarc' --strict-markers
 
   packaging:
     runs-on: ubuntu-22.04

@@ -1,0 +1,6 @@
+{
+  "source_url": "https://ftp.ensembl.org/pub/release-87/gtf/homo_sapiens/Homo_sapiens.GRCh38.87.gtf.gz",
+  "source_sha256": "9e8643982742980f81277865b5a1d543a02fa2bfe889acffaf797436950d9ebe",
+  "selection": "Unmodified rows with gene_name FAM157A",
+  "sha256": "320a1935114db87ee441e25c75283cdbc044d7856a62c1ecd3641cd8d64ca01c"
+}

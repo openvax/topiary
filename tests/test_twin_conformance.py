@@ -162,6 +162,21 @@ CACHE_PROVENANCE_TWINS = (
 )
 
 
+def osteosarc_export_paths(manifest, directory, cache):
+    from topiary import osteosarc_fixture_paths
+    return osteosarc_fixture_paths(manifest, directory=directory)
+
+
+def osteosarc_cache_paths(manifest, directory, cache):
+    from topiary import osteosarc_fixture_paths
+    return osteosarc_fixture_paths(manifest, cache=cache)
+
+
+# One set of original bytes must give identical scientific answers through
+# both the checked-in offline export and another consumer's shared cache.
+OSTEOSARC_SOURCE_TWINS = (osteosarc_export_paths, osteosarc_cache_paths)
+
+
 def mhcflurry_version_twins():
     """Both public entry points must apply the same installed-model rule."""
     from mhctools import mhcflurry_composite_version as upstream

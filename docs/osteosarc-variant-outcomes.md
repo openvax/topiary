@@ -1,5 +1,9 @@
 # Every tracked osteosarc variant has an explicit outcome
 
+For new acquisition and missing regional annotation handling, see
+[shared Osteosarc data](osteosarc-shared-data.md). The results below describe
+the unchanged historical snapshot.
+
 The 2026-09-17 snapshot covers **all 182 entries** in the
 [website index](https://osteosarc.com/variants/), not just its 44
 vaccine-nominated entries. The union with the 20 historical pVAC alleles and

@@ -38,6 +38,7 @@ topiary = "topiary.cli.script:main"
 [project.optional-dependencies]
 isovar = ["isovar>=1.18.1"]
 pirlygenes = ["pirlygenes>=5.1.0"]
+osteosarc = ["osteosarc[reads]==0.1.0; python_version >= '3.10'"]
 
 [tool.ruff.lint]
 select = ["E", "F"]
@@ -51,4 +52,5 @@ ignore = ["F821", "E501", "F841", "E731", "E741", "E722", "E721"]
 markers = [
     "isovar: exercises the installed Isovar optional integration",
     "pirlygenes: exercises the installed PirlyGenes optional integration",
+    "osteosarc: exercises the installed Osteosarc optional integration",
 ]
