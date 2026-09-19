@@ -34,3 +34,8 @@ full test suite, inspect the final diff, then require green GitHub CI before
 merge. Bump the Topiary version in the PR and deploy from clean master, checking
 both PyPI artifacts. Keep optional data tooling compatible with Topiary's base
 Python support; Osteosarc itself requires Python 3.10+.
+
+CI portability correction (#355): generated regional reference tests pin exact
+decompressed GTF/FASTA records and source provenance; gzip headers and streams
+can differ across platforms. Each run still verifies its own compressed hashes,
+and acquired fixture assets retain their unchanged byte-level SHA-256 pins.

@@ -2,6 +2,7 @@
 
 import json
 import gzip
+import hashlib
 from pathlib import Path
 import shutil
 
@@ -15,9 +16,21 @@ DATA = Path(__file__).parent / "data/osteosarc_all_variants"
 
 
 @pytest.mark.isovar
+@pytest.mark.parametrize("alternate_gzip_header", [False, True], ids=["native-gzip", "other-gzip-os"])
 @pytest.mark.parametrize("annotated_later", [True, False], ids=["continue", "entirely-unannotated"])
-def test_reference_build_to_report_keeps_annotation_gaps(tmp_path, annotated_later):
+def test_reference_build_to_report_keeps_annotation_gaps(tmp_path, monkeypatch, annotated_later,
+                                                       alternate_gzip_header):
     import pysam
+
+    if alternate_gzip_header:
+        compress = gzip.compress
+
+        def other_os_compress(*args, **kwargs):
+            packed = compress(*args, **kwargs)
+            # Valid gzip OS headers vary across Python/platform versions.
+            return packed[:9] + bytes([3 if packed[9] != 3 else 255]) + packed[10:]
+
+        monkeypatch.setattr(gzip, "compress", other_os_compress)
 
     source = tmp_path / "ensembl"
     source.mkdir()
@@ -45,9 +58,9 @@ def test_reference_build_to_report_keeps_annotation_gaps(tmp_path, annotated_lat
     outside = dict(fam, variant_id="outside-contig", pos=198295560)
     variants = [fam, invalid, outside]
     if annotated_later:
-        ntf = next(v for v in json.loads((DATA / "checked-inventory.json").read_text())["variants"]
-                   if v["variant_id"] == "DYNC1H1-chr14-101980529")
-        variants.append(ntf)
+        dync = next(v for v in json.loads((DATA / "checked-inventory.json").read_text())["variants"]
+                    if v["variant_id"] == "DYNC1H1-chr14-101980529")
+        variants.append(dync)
     write_json(tmp_path / "checked-inventory.json", dict(variants=variants))
     alignments = tmp_path / "source"
     alignments.mkdir()
@@ -62,8 +75,21 @@ def test_reference_build_to_report_keeps_annotation_gaps(tmp_path, annotated_lat
 
     build_reference(tmp_path, source)
     if annotated_later:
-        assert (tmp_path / "reference/manifest.json").read_bytes() == (
-            DATA.parent / "osteosarc_shared/continuity-reference.json").read_bytes()
+        manifest = json.loads((tmp_path / "reference/manifest.json").read_text())
+        expected = json.loads((DATA.parent / "osteosarc_shared/continuity-reference.json").read_text())
+        assert {k: v for k, v in manifest.items() if k != "files"} == {
+            k: v for k, v in expected.items() if k != "files"}
+        assert manifest["files"].keys() == expected["files"].keys()
+        for name, receipt in manifest["files"].items():
+            path = tmp_path / "reference" / name
+            source_path = source / receipt["source_url"].rsplit("/", 1)[-1]
+            assert receipt["source_url"] == expected["files"][name]["source_url"]
+            assert receipt["sha256"] == digest(path)
+            assert receipt["source_sha256"] == digest(source_path)
+            assert hashlib.sha256(gzip.decompress(path.read_bytes())).hexdigest() == (
+                expected["files"][name]["content_sha256"])
+            assert hashlib.sha256(gzip.decompress(source_path.read_bytes())).hexdigest() == (
+                expected["files"][name]["source_content_sha256"])
     # Real FAM157A annotation existed in the source and was legitimately not
     # selected at this locus; the contig still belongs to the alignment.
     assert b'gene_name "FAM157A"' not in gzip.decompress((tmp_path / "reference/reference.gtf.gz").read_bytes())
@@ -76,7 +102,7 @@ def test_reference_build_to_report_keeps_annotation_gaps(tmp_path, annotated_lat
     assert outcomes[0]["input"] == fam
     if annotated_later:
         pinned = next(o for o in json.loads((DATA / "expected.json").read_text())
-                      if o["input"]["variant_id"] == ntf["variant_id"])
+                      if o["input"]["variant_id"] == dync["variant_id"])
         # The regional reference has a new content identity; evidence and
         # scientific answers must remain identical under that new identity.
         assert {k: v for k, v in outcomes[-1]["rna"].items() if k not in ("variant", "reference_name")} == {
