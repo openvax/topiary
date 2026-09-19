@@ -146,7 +146,7 @@ def test_every_literal_allele_has_a_checked_rna_and_consumer_outcome(entry, all_
     # Both doors receive the SAME policy, including the normal result filters.
     with pysam.AlignmentFile(bam_path) as bam:
         fragments = fragments_from_variants([variant], bam, **options)
-    adapted = diagnostic_fragment if result.passes_all_filters else None
+    adapted = diagnostic_fragment if observed["status"] == "passing" else None
     assert bool(fragments) == (adapted is not None) == (observed["status"] == "passing")
     if not fragments:
         assert observed["failed_filters"] or observed["protein_sequence"] is None

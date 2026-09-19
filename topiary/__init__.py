@@ -110,9 +110,11 @@ from .protein_fragment import (
     SYNTHESIZED,
     ProteinFragment,
     SEMANTIC_CORE,
+    CANDIDATE_FIELDS,
     fragments_for_sample,
     fragments_from_dataframe,
     make_fragment_id,
+    require_sample_name,
     unique_fragments,
 )
 from .self_proteome import SelfProteome
@@ -176,7 +178,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.63.0"
+__version__ = "5.64.0"
 
 __all__ = [
     "normalize_python_types",
@@ -274,6 +276,8 @@ __all__ = [
     "make_fragment_id",
     "unique_fragments",
     "fragments_for_sample",
+    "require_sample_name",
+    "CANDIDATE_FIELDS",
     "SEMANTIC_CORE",
     "fragments_from_dataframe",
     "fragment_from_isovar_result",

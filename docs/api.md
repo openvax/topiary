@@ -2,19 +2,21 @@
 
 ## Fragment identity and RNA outcomes
 
+A fragment record is identified by `(sample_name, fragment_id)`: the ID
+names the candidate, `ProteinFragment.sample_name` names the observation.
 `unique_fragments(fragments)` returns records in first-occurrence order,
-coalescing repeated IDs only when their content agrees as fragment IO stores
-it (a record and its saved copy agree). Conflicting or uncomparable duplicate
-IDs raise `ValueError` naming the differing fields. Prediction uses the same
-validation before model execution. Different samples/policies need different
-IDs even if the peptide sequence is identical.
+coalescing a repeated pair only when its content agrees once passed through
+fragment IO (a record and its saved copy agree). Conflicting or uncomparable
+repeats, and one ID naming different candidates (`CANDIDATE_FIELDS`) in
+different samples, raise `ValueError` naming the differing fields. Prediction
+uses the same validation before model execution.
 
-`fragments_for_sample(fragments, sample_name)` gives them one: it namespaces
-each ID as `<sample_name>:<id>` and records `annotations["sample_name"]`, which
-fills the prediction frame's `sample_name` column. `fragments_from_variants`
-accepts the same `sample_name`, and `fragments_from_dataframe` applies a
-frame's `sample_name` column. `make_fragment_id(..., qualifiers=[...])` hashes
-any further values a producer groups records by.
+`fragments_for_sample(fragments, sample_name)` labels fragments from any
+source; `fragments_from_variants(..., sample_name=)` and a frame's
+`sample_name` column do the same. Prediction writes the label to the
+`sample_name` column, so the default `aggregate_evidence_across_samples`
+keys pool one candidate across samples. `make_fragment_id(...,
+qualifiers=[...])` hashes any further values a producer groups records by.
 
 `describe_isovar_result(result)` returns a JSON-compatible outcome dictionary
 for a completed Isovar result: variant, separate native read/template counts,

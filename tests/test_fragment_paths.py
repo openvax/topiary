@@ -294,14 +294,39 @@ def test_rows_describing_one_fragment_must_agree():
 
 
 @pytest.mark.parametrize("column,value", [
-    ("n_rna_alt", "abc"), ("n_rna_alt", 2.5), ("n_rna_alt", -1),
-    ("gene_expression", "high"),
+    ("n_rna_alt", "abc"), ("n_rna_alt", 2.5), ("n_rna_alt", -1), ("n_rna_alt", True),
+    ("gene_expression", "high"), ("gene_expression", True),
 ])
 def test_a_stated_cell_that_is_not_a_number_is_refused(column, value):
     frame = _context_rows({"peptide": "FLPSLLKVL", column: value})
 
     with pytest.raises(ValueError, match=column):
         fragments_from_dataframe(frame)
+
+
+def test_each_transcript_keeps_its_own_expression():
+    """pVACseq names the transcript ``transcript``; it separates rows too."""
+    frame = pd.DataFrame([
+        {"variant": "chr1-1-A-T", "peptide": "SIINFEKLL", "transcript": transcript,
+         "transcript_expression": expression}
+        for transcript, expression in (("ENST1", 5.0), ("ENST2", 7.5))
+    ])
+
+    fragments = fragments_from_dataframe(frame)
+
+    assert {f.transcript_id: f.transcript_expression for f in fragments} == {
+        "ENST1": 5.0, "ENST2": 7.5}
+
+
+def test_a_derivation_is_only_checked_where_it_qualifies_a_count():
+    """A method name with no counts claims nothing, so it cannot be wrong."""
+    uncounted = _context_rows({"peptide": "FLPSLLKVL", "rna_evidence_method": "custom_caller"})
+    counted = _context_rows({"peptide": "FLPSLLKVL", "rna_evidence_method": "custom_caller",
+                             "n_rna_alt": 3})
+
+    assert len(fragments_from_dataframe(uncounted)) == 1
+    with pytest.raises(ValueError, match="custom_caller"):
+        fragments_from_dataframe(counted)
 
 
 def test_a_frame_sample_labels_its_fragments():
@@ -312,9 +337,9 @@ def test_a_frame_sample_labels_its_fragments():
 
     fragments = fragments_from_dataframe(frame)
 
-    assert {f.annotations["sample_name"]: f.n_rna_overlapping_reads
-            for f in fragments} == {"T1": 47, "T2": 12}
-    assert {f.fragment_id.split(":")[0] for f in fragments} == {"T1", "T2"}
+    assert {f.sample_name: f.n_rna_overlapping_reads for f in fragments} == {"T1": 47, "T2": 12}
+    # One candidate, two observations of it.
+    assert len({f.fragment_id for f in fragments}) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -374,19 +399,34 @@ def test_the_method_to_provenance_map_is_single_valued():
     assert provenance_for_method(RNA_DEPTH_X_VAF) == "approximated"
 
 
-def test_a_sample_label_namespaces_the_id_and_is_idempotent():
+def test_a_sample_label_keeps_the_candidate_id_and_is_idempotent():
     fragment = ProteinFragment(fragment_id="v__1", sequence="SIINFEKLL")
 
-    labelled, = fragments_for_sample([fragment], "T2 short-read")
-    again, = fragments_for_sample([labelled], "T2 short-read")
+    labelled, = fragments_for_sample([fragment], "T2 short/read")
+    again, = fragments_for_sample([labelled], "T2 short/read")
 
-    assert labelled.fragment_id == "T2_short-read:v__1"
-    assert labelled.annotations == {"sample_name": "T2 short-read"}
+    assert (labelled.fragment_id, labelled.sample_name) == ("v__1", "T2 short/read")
+    assert labelled.annotations == {}
     assert again is labelled
-    assert fragment.annotations == {}
+    assert fragment.sample_name is None
 
 
-@pytest.mark.parametrize("sample_name", [None, "", "  ", "nan", "///", 3])
+def test_labels_are_kept_exactly_so_distinct_samples_never_merge():
+    """5.63.0 sanitized labels into the ID, so 'T2 short' met 'T2/short'."""
+    from topiary import unique_fragments
+
+    fragment = ProteinFragment(fragment_id="v__1", sequence="SIINFEKLL", n_rna_alt_reads=3)
+    labelled = [
+        *fragments_for_sample([fragment], "T2 short"),
+        *fragments_for_sample([fragment], "T2/short"),
+        *fragments_for_sample([fragment], "T1 "),
+        *fragments_for_sample([fragment], "T1"),
+    ]
+
+    assert len(unique_fragments(labelled)) == 4
+
+
+@pytest.mark.parametrize("sample_name", [None, "", "  ", "nan", 3])
 def test_a_missing_sample_label_is_refused(sample_name):
     with pytest.raises(ValueError, match="sample_name"):
         fragments_for_sample([ProteinFragment(fragment_id="v", sequence="S")], sample_name)

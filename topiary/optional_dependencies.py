@@ -88,12 +88,18 @@ def check_declared_version(dependency_name, *, extra=None, feature):
 
     Notes
     -----
-    Nothing is checked when there is nothing to compare: Topiary itself is
-    not installed (a bare source tree has no metadata), the extra declares
-    no range, or the module is importable without distribution metadata.
+    Nothing is checked when there is nothing trustworthy to compare: the
+    Topiary metadata found describes a different copy of Topiary than the
+    one running (a bare source tree, or an older release installed beside
+    a checkout, whose floor may be stale), the extra declares no range, or
+    the module is importable without distribution metadata.
     """
+    from topiary import __version__ as running
+
     extra = dependency_name if extra is None else extra
     try:
+        if version("topiary") != running:
+            return
         declared = requires("topiary") or ()
     except PackageNotFoundError:
         return

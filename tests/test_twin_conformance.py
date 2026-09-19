@@ -264,24 +264,28 @@ def test_fragment_identity_doors_accept_one_object_but_not_unstorable_copies():
     copy = dataclasses.replace(first)
     for door in FRAGMENT_IDENTITY_TWINS:
         assert len(door([first, first])) == 1
-        with pytest.raises(ValueError, match="same.*annotations.*cannot store"):
+        with pytest.raises(ValueError, match="same.*cannot store"):
             door([first, copy])
 
 
-@pytest.mark.parametrize("annotations", [
-    {"count": 5}, {"nested": {"pair": (1, 2)}}, {"missing": float("nan")}, {},
+@pytest.mark.parametrize("fields", [
+    {"annotations": {"count": 5}}, {"annotations": {"nested": {"pair": (1, 2)}}},
+    {"annotations": {"missing": float("nan")}}, {"annotations": {1: "a", None: "n", "b": 2}},
+    {"gene": ""}, {"effect": "None"}, {"gene": "nan"}, {"transcript_name": 7},
+    {"sample_name": "T1"},
 ])
-def test_fragment_identity_doors_coalesce_a_record_with_its_saved_copy(annotations, tmp_path):
+def test_fragment_identity_doors_coalesce_a_record_with_its_saved_copy(fields, tmp_path):
     """A record and its own fragment-IO round trip are the same observation.
 
-    Saving turns expression ``5`` into ``5.0``, NaN into ``None`` and tuples
-    into lists. None of those is a conflict, so a cached fragment file can be
-    merged with freshly built fragments.
+    Saving turns expression ``5`` into ``5.0``, NaN and blank text into
+    ``None``, tuples into lists, numbers in text fields into text and mapping
+    keys into strings. None of those is a conflict, so a cached fragment file
+    can be merged with freshly built fragments.
     """
     fresh = ProteinFragment(
         fragment_id="same", sequence="SIINFEKLL", gene_expression=5,
         transcript_expression=float("nan"), n_rna_alt_reads=3,
-        target_intervals=[(1, 2)], annotations=annotations)
+        target_intervals=[(1, 2)], **fields)
     path = tmp_path / "fragments.tsv"
     write_fragments([fresh], path)
     restored, = read_fragments(path)
@@ -294,6 +298,34 @@ def test_fragment_identity_doors_compare_mapping_keys_as_stored():
     for door in FRAGMENT_IDENTITY_TWINS:
         assert len(door([first, dataclasses.replace(first)])) == 1
         assert len(door([first, dataclasses.replace(first, annotations={"1": "a", "b": 2})])) == 1
+
+
+def test_fragment_identity_doors_compare_a_subclass_in_either_order():
+    @dataclass(frozen=True, eq=False)
+    class Scored(ProteinFragment):
+        score: float = 0.0
+
+    base = ProteinFragment(fragment_id="same", sequence="SIINFEKLL")
+    scored = Scored(fragment_id="same", sequence="SIINFEKLL", score=1.0)
+    for door in FRAGMENT_IDENTITY_TWINS:
+        for records in ([base, scored], [scored, base],
+                        [scored, dataclasses.replace(scored, score=2.0)]):
+            with pytest.raises(ValueError, match="differ in (class|score)"):
+                door(records)
+        assert len(door([scored, dataclasses.replace(scored)])) == 1
+
+
+def test_fragment_identity_doors_keep_one_candidate_across_samples():
+    """One ID is one candidate: samples may differ in evidence, not peptides."""
+    first = ProteinFragment(fragment_id="same", sequence="SIINFEKLL", n_rna_alt_reads=3)
+    for door in FRAGMENT_IDENTITY_TWINS:
+        assert len(door([
+            dataclasses.replace(first, sample_name="T1"),
+            dataclasses.replace(first, sample_name="T2", n_rna_alt_reads=9),
+        ])) == 2
+        with pytest.raises(ValueError, match="different candidates.*differ in sequence"):
+            door([dataclasses.replace(first, sample_name="T1"),
+                  dataclasses.replace(first, sample_name="T2", sequence="GILGFVFTL")])
 
 
 def test_fragment_identity_conflicts_name_every_differing_field():
@@ -660,10 +692,14 @@ def test_optional_dependency_floors_refuse_older_releases_through_both_doors(
     The floor is read from Topiary's own metadata, the one place it is
     declared, so the runtime check cannot drift from the installer's.
     """
+    import topiary
+
     module = SimpleNamespace(**{name: lambda: None for name in required_api})
     monkeypatch.setattr(optional_dependencies, "import_module", lambda module_name: module)
-    floor = specifier.removeprefix(">=")
-    installed = {}
+    # Independent of whatever this machine has installed.
+    monkeypatch.setattr(optional_dependencies, "requires", lambda name: [
+        f'{dependency}{specifier}; extra == "{dependency}"'])
+    installed = {"topiary": topiary.__version__}
     monkeypatch.setattr(optional_dependencies, "version", lambda name: installed[name])
 
     installed[dependency] = "0.0.1"
@@ -674,7 +710,11 @@ def test_optional_dependency_floors_refuse_older_releases_through_both_doors(
     assert feature in message and specifier in message
     assert f"pip install --upgrade 'topiary[{dependency}]'" in message
 
-    installed[dependency] = floor
+    installed[dependency] = specifier.removeprefix(">=")
+    assert check() is module
+
+    # Metadata from another copy of Topiary may carry another floor.
+    installed.update({"topiary": "0.0.0", dependency: "0.0.1"})
     assert check() is module
 
 

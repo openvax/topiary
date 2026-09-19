@@ -12,9 +12,9 @@ here walks a documented workflow from input to answer, so a claim that "X is
 supported" has something that runs behind it.
 """
 
-import glob
 import warnings
 from io import StringIO
+from pathlib import Path
 from enum import Enum
 
 import numpy as np
@@ -1957,16 +1957,50 @@ def test_same_peptide_different_rna_observations_survive_prediction_and_filterin
     restored = read_tsv(path)
     assert set(restored.filter_by("n_rna_alt_fragments >= 2").df["sample_name"]) == {"T1", "T2"}
     assert set(restored.filter_by("n_rna_alt_fragments >= 3").df["sample_name"]) == {"T1"}
-    # Sample-scoped IDs name observations, so pooling names the candidate.
-    pooled = aggregate_evidence_across_samples(
-        restored.df, group_keys=["peptide", "peptide_offset", "allele"])
+    # One candidate ID, two observations: the default keys pool them.
+    pooled = aggregate_evidence_across_samples(restored.df)
     assert pooled[["n_samples", "n_rna_alt"]].values.tolist() == [[2, 11]]
 
 
+def test_a_cache_never_lends_its_sample_to_an_unlabelled_fragment():
+    """A cache built from labelled output carries that run's sample_name."""
+    from mhctools import RandomBindingPredictor
+    from topiary import CachedPredictor, ProteinFragment, TopiaryPredictor, fragments_for_sample
+
+    fragment = ProteinFragment(fragment_id="candidate", sequence="SIINFEKLL")
+    labelled = TopiaryPredictor(models=RandomBindingPredictor(
+        alleles=["HLA-A*01:01"], default_peptide_lengths=[9]), only_novel_epitopes=False
+    ).predict_from_fragments(fragments_for_sample([fragment], "T1"))
+    cached = TopiaryPredictor(models=CachedPredictor.from_dataframe(
+        labelled, predictor_version="random"), only_novel_epitopes=False)
+
+    assert set(cached.predict_from_fragments([fragment])["sample_name"]) == {""}
+    assert set(cached.predict_from_fragments(fragments_for_sample([fragment], "T2"))["sample_name"]) == {"T2"}
+
+
+def test_a_pvacseq_peptide_on_two_transcripts_keeps_both_expressions(tmp_path):
+    """Without an Index column the variant alone names the row; the transcript
+    must still separate transcript-level expression."""
+    raw = pd.read_csv(PVACSEQ, sep="\t", dtype=str, keep_default_na=False).iloc[[0]]
+    other = raw.assign(**{"Transcript": "ENST00000999999.1", "Transcript Expression": "123.4"})
+    path = tmp_path / "two-transcripts.all_epitopes.tsv"
+    pd.concat([raw, other]).drop(columns=["Index"], errors="ignore").to_csv(path, sep="\t", index=False)
+
+    fragments = fragments_from_dataframe(_long(read_pvacseq, str(path)))
+
+    assert {f.transcript_id: f.transcript_expression for f in fragments} == {
+        raw["Transcript"].iloc[0]: float(raw["Transcript Expression"].iloc[0]),
+        "ENST00000999999.1": 123.4,
+    }
+    assert len({f.fragment_id for f in fragments}) == 2
+
+
+DATA = Path(__file__).parent / "data"
 READER_FRAMES = [
-    *((read_lens, path) for path in sorted(glob.glob("tests/data/lens/*.tsv"))),
-    *((read_pvacseq, path) for path in sorted(glob.glob("tests/data/pvacseq/*.tsv"))),
+    *((read_lens, str(path)) for path in sorted(DATA.glob("lens/*.tsv"))),
+    *((read_pvacseq, str(path)) for path in sorted(DATA.glob("pvacseq/*.tsv"))),
 ]
+assert len(READER_FRAMES) >= 9, "reader fixtures not found"
 
 
 @pytest.mark.parametrize("reader,path", READER_FRAMES, ids=lambda value: getattr(value, "__name__", value))
@@ -1996,6 +2030,7 @@ def test_every_reader_frame_reaches_predictions_with_its_own_evidence(reader, pa
         stated = set(rows["n_rna_overlapping"].dropna())
         own = fragment.n_rna_overlapping_reads
         assert own in stated if stated else own is None
-        attached = predictions.loc[predictions.fragment_id == fragment.fragment_id]
+        attached = predictions.loc[predictions.fragment_id.eq(fragment.fragment_id)
+                                   & predictions.sample_name.eq(fragment.sample_name or "")]
         if own is not None:
             assert set(attached["n_rna_overlapping_reads"]) == {own}

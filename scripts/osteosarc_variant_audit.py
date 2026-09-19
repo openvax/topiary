@@ -7,6 +7,7 @@ source bytes are cached with receipts. No historical pVAC prediction is changed.
 import argparse
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
+import csv
 import gzip
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -134,22 +135,31 @@ def literal_alleles(vafs_text):
     malformed row cannot abort the others. ``position`` is ``pos`` as an
     integer only where ``pos`` is a positive whole number written in digits,
     and missing otherwise. ``literal`` also requires ``ref`` and ``alt`` to be
-    ACGT bases. Rows that are not literal remain, so their entries can be
-    reported with an explicit status instead of disappearing.
+    ACGT bases, and the row to have exactly the header's number of fields:
+    a row with extra or missing fields cannot be trusted column by column,
+    so its cells are kept for inspection but its allele is not literal.
+    Rows that are not literal remain, so their entries can be reported with
+    an explicit status instead of disappearing or shifting.
 
     Raises
     ------
     ValueError
-        A required column is missing.
+        The table is empty or a required column is missing.
     """
-    table = pd.read_csv(io.StringIO(vafs_text), sep="\t", dtype=str, keep_default_na=False)
-    missing = [column for column in VAF_ALLELE_COLUMNS if column not in table.columns]
+    rows = list(csv.reader(io.StringIO(vafs_text), delimiter="\t"))
+    header, rows = (rows[0], rows[1:]) if rows else ([], [])
+    missing = [column for column in VAF_ALLELE_COLUMNS if column not in header]
     if missing:
         raise ValueError(f"VAF table schema changed: missing columns {missing}")
-    alleles = table[VAF_ALLELE_COLUMNS].apply(lambda column: column.str.strip()).drop_duplicates()
+    width = len(header)
+    table = pd.DataFrame([(row + [""] * width)[:width] for row in rows], columns=header, dtype=str)
+    table["well_formed"] = [len(row) == width for row in rows]
+    alleles = table[VAF_ALLELE_COLUMNS].apply(lambda column: column.str.strip())
+    alleles["well_formed"] = table["well_formed"]
+    alleles = alleles.drop_duplicates()
     digits = alleles["pos"].str.fullmatch(r"[1-9][0-9]*")
     alleles["position"] = pd.to_numeric(alleles["pos"].where(digits)).astype("Int64")
-    alleles["literal"] = (digits & alleles["ref"].str.fullmatch("[ACGT]+")
+    alleles["literal"] = (digits & alleles["well_formed"] & alleles["ref"].str.fullmatch("[ACGT]+")
                           & alleles["alt"].str.fullmatch("[ACGT]+"))
     return alleles.sort_values(
         ["variant_id", "chrom", "position", "pos", "ref", "alt"], na_position="last")
@@ -162,9 +172,9 @@ def variant_inventory(index_html, vafs_text):
     allele has ``input_status=ready``. Otherwise the original entry and its
     candidate alleles remain available for investigation, with an explicit
     non-ready status: ``missing_literal_allele``, ``ambiguous_literal_allele``,
-    ``non_literal_allele`` (including an unusable position) or
-    ``conflicting_coordinates``. Protein labels never substitute for a
-    nucleotide allele.
+    ``non_literal_allele`` (including an unusable position or a malformed
+    source row) or ``conflicting_coordinates``. Protein labels never
+    substitute for a nucleotide allele.
     """
     index = VariantIndex()
     index.feed(index_html)
@@ -222,6 +232,27 @@ def audit_variant(record, genome):
 
     return Variant(ensembl_contig(record["chrom"]), record["pos"], record["ref"],
                    record["alt"], ensembl=genome)
+
+
+def fragment_files(directory):
+    """The fragment TSVs an audit stage wrote into *directory*.
+
+    Audits before topiary 5.63 named these TSV files ``*.json``. A resumed
+    audit keeps earlier outcomes and does not rewrite their fragments, so a
+    legacy file would be silently left out of predictions; refuse instead.
+
+    Raises
+    ------
+    ValueError
+        *directory* holds legacy ``*.json`` fragment files.
+    """
+    directory = Path(directory)
+    legacy = sorted(directory.glob("*.json"))
+    if legacy:
+        raise ValueError(
+            f"{len(legacy)} fragment files in {directory} use the pre-5.63 *.json name "
+            f"(e.g. {legacy[0].name}); they hold TSV. Rename them to .tsv, then rerun.")
+    return sorted(directory.glob("*.tsv"))
 
 
 def check_mutation_windows(frame, fragments):
@@ -402,6 +433,8 @@ def audit(root):
         raise ValueError("Regional BAM checksum mismatch")
     outcomes = root / "outcomes"
     outcomes.mkdir(exist_ok=True)
+    for kind in ("accepted", "filtered"):
+        fragment_files(root / kind)
     creator = isovar.ProteinSequenceCreator(protein_context_peptide_length=25, variant_sequence_assembly=True)
     collector = isovar.ReadCollector(**POLICY)
     run = dict(isovar_version=isovar.__version__, collection_policy=POLICY,
@@ -433,7 +466,7 @@ def audit(root):
         fragment = fragment_from_isovar_result(result)
         if fragment is not None:
             # Retain diagnostic sequences separately even when filters reject them.
-            destination = root / ("accepted" if result.passes_all_filters else "filtered")
+            destination = root / ("accepted" if description["status"] == "passing" else "filtered")
             destination.mkdir(exist_ok=True)
             fragment.annotations.update(audit_variant_id=record["variant_id"],
                                         audit_filter_status=description["status"],
@@ -456,12 +489,10 @@ def predict(root, hla_input):
 
     configuration = yaml.safe_load(hla_input.read_text())
     alleles, lengths = configuration["alleles"], configuration["epitope_lengths"]
-    files = sorted((root / "accepted").glob("*.tsv"))
+    files = fragment_files(root / "accepted")
     fragments = [fragment for path in files for fragment in read_fragments(path)]
     if not fragments:
-        raise ValueError(
-            f"No accepted RNA fragment TSVs in {root / 'accepted'} (audits before "
-            "topiary 5.63 named these TSV files *.json)")
+        raise ValueError(f"No accepted RNA fragment TSVs in {root / 'accepted'}")
     model = MHCflurry_Affinity(alleles=alleles, default_peptide_lengths=lengths)
     if not model.predictor_version:
         raise ValueError("MHCflurry model provenance is unknown")
@@ -572,7 +603,7 @@ def additional_indels(root, hla_input):
                 assert_expected_fragment(fragment, expected[gene])
                 # Each library and placement policy is its own observation.
                 fragment, = fragments_for_sample([fragment], f"{sample}.{policy}")
-                destination = output / ("accepted" if result.passes_all_filters else "filtered")
+                destination = output / ("accepted" if description["status"] == "passing" else "filtered")
                 destination.mkdir(exist_ok=True)
                 fragment.annotations.update(audit_variant_id=identifier, audit_sample=sample,
                                             audit_filter_status=description["status"],

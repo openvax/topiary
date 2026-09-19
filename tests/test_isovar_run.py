@@ -227,11 +227,14 @@ def test_a_filtered_out_result_can_fall_back_to_reference(monkeypatch):
 _ABSENT = object()
 
 
-@pytest.mark.parametrize("passes", [True, False, _ABSENT], ids=["passes", "fails", "unstated"])
+@pytest.mark.parametrize("passes", [True, False, float("nan"), None, _ABSENT],
+                         ids=["passes", "fails", "nan", "none", "unstated"])
 @pytest.mark.parametrize("filters", [
     {}, {"min_ratio_alt_to_other_fragments": True},
-    {"min_ratio_alt_to_other_fragments": False}, _ABSENT,
-], ids=["no-filters", "passed-filter", "failed-filter", "no-filter-record"])
+    {"min_ratio_alt_to_other_fragments": False},
+    {"min_ratio_alt_to_other_fragments": float("nan")}, None, _ABSENT,
+], ids=["no-filters", "passed-filter", "failed-filter", "unknown-filter", "none-record",
+        "no-filter-record"])
 def test_the_outcome_report_and_the_fragment_door_agree_on_filters(monkeypatch, passes, filters):
     """One filter disposition, whichever door reads it.
 
@@ -253,6 +256,39 @@ def test_the_outcome_report_and_the_fragment_door_agree_on_filters(monkeypatch, 
 
     assert status in {"passing", "filtered", "filter_status_unavailable"}
     assert bool(accepted) == (status == "passing")
+    # Only a stated pass, or a recorded set of filters that all passed, passes.
+    stated = passes if passes in (True, False) else None
+    recorded = None if filters in (None, _ABSENT) or any(
+        value != value for value in filters.values()) else all(filters.values())
+    assert (status == "passing") == (stated if stated is not None else recorded is True)
+
+
+@pytest.mark.parametrize("attribute,value", [
+    ("passes_all_filters", "False"), ("passes_all_filters", 2),
+    ("filter_values", {"min_ratio_alt_to_other_fragments": "no"}),
+])
+def test_a_filter_outcome_that_is_not_boolean_is_refused(monkeypatch, attribute, value):
+    """``bool("False")`` is True; an outcome is read as a boolean or not at all."""
+    from topiary import describe_isovar_result
+
+    result = _Result()
+    if attribute == "filter_values":
+        del result.passes_all_filters
+    setattr(result, attribute, value)
+    _fake(monkeypatch, [result])
+
+    with pytest.raises(ValueError, match="must be boolean"):
+        describe_isovar_result(result)
+    with pytest.raises(ValueError, match="must be boolean"):
+        fragments_from_variants(["v"], alignment_file=object())
+
+
+@pytest.mark.parametrize("sample_name", ["", "  ", "nan", 3])
+def test_a_bad_sample_label_is_refused_before_reading_alignments(isovar, sample_name):
+    with pytest.raises(ValueError, match="sample_name"):
+        fragments_from_variants(["v"], alignment_file=object(), sample_name=sample_name)
+
+    assert isovar.calls == []
 
 
 def test_two_alignments_of_one_variant_stay_two_observations(monkeypatch):
@@ -292,7 +328,7 @@ def test_a_sample_label_reaches_reference_fallback_fragments(monkeypatch):
     fragment, = fragments_from_variants(
         ["v"], alignment_file=object(), allow_reference_fallback=True, sample_name="T1")
 
-    assert (fragment.fragment_id, fragment.annotations["sample_name"]) == ("T1:ref", "T1")
+    assert (fragment.fragment_id, fragment.sample_name) == ("ref", "T1")
 
 
 # ---------------------------------------------------------------------------

@@ -43,6 +43,34 @@ def test_an_unusable_position_is_one_entrys_status_not_an_abort(pos):
     assert other["allele_key"] == "GRCh38:chr2:20:G>T"
 
 
+@pytest.mark.parametrize("malformed", ["first", "later"])
+@pytest.mark.parametrize("fields", ["\textra", ""], ids=["extra-field", "short-row"])
+def test_a_malformed_row_is_its_entrys_status_and_shifts_nothing(malformed, fields):
+    """A row with the wrong number of fields cannot be read column by column."""
+    index = INDEX.replace("</table>", "") + OTHER.replace("<table>", "")
+    bad = "example\tchr1\t10\tA\tC" + fields if fields else "example\tchr1\t10"
+    good = "other\tchr2\t20\tG\tT"
+    rows = [bad, good] if malformed == "first" else [good, bad]
+
+    records = {r["variant_id"]: r for r in variant_inventory(index, HEADER + "\n".join(rows) + "\n")}
+
+    assert records["example"]["input_status"] == "non_literal_allele"
+    assert records["other"]["input_status"] == "ready"
+    assert records["other"]["allele_key"] == "GRCh38:chr2:20:G>T"
+
+
+def test_resumed_audits_refuse_legacy_fragment_files(tmp_path):
+    from scripts.osteosarc_variant_audit import fragment_files
+
+    (tmp_path / "B.tsv").write_text("")
+    (tmp_path / "A.tsv").write_text("")
+    assert [path.name for path in fragment_files(tmp_path)] == ["A.tsv", "B.tsv"]
+    assert fragment_files(tmp_path / "absent") == []
+    (tmp_path / "C.json").write_text("")
+    with pytest.raises(ValueError, match="pre-5.63.*C.json"):
+        fragment_files(tmp_path)
+
+
 def test_a_missing_allele_column_is_a_schema_error():
     with pytest.raises(ValueError, match=r"schema changed.*\['pos'\]"):
         variant_inventory(INDEX, "variant_id\tchrom\tref\talt\nexample\tchr1\tA\tC\n")

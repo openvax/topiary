@@ -17,7 +17,7 @@ from __future__ import annotations
 from numbers import Integral
 from typing import Optional
 
-from .protein_fragment import ProteinFragment, fragments_for_sample
+from .protein_fragment import ProteinFragment, fragments_for_sample, require_sample_name
 from .evidence import ISOVAR_ASSEMBLY, RNA_ALIGNMENT
 from .optional_dependencies import require_optional_dependency
 from .serialization import normalize_python_types
@@ -78,7 +78,14 @@ def fragment_from_isovar_result(
     ... ]
     >>> fragments = [f for f in fragments if f is not None]  # doctest: +SKIP
     """
-    extracted = _extract_isovar_result(isovar_result)
+    return _fragment_from_extracted(
+        isovar_result, _extract_isovar_result(isovar_result),
+        gene_expression=gene_expression, transcript_expression=transcript_expression,
+    )
+
+
+def _fragment_from_extracted(isovar_result, extracted, *, gene_expression, transcript_expression):
+    """The fragment for one result, from its already extracted values."""
     amino_acids = extracted["protein_sequence"]
     if amino_acids is None:
         return None
@@ -247,8 +254,11 @@ def _extract_isovar_result(result):
     (Isovar keeps them as a set, whose order varies between processes),
     with each name kept parallel to its ID (``None`` when unavailable). Filter disposition is Isovar's
     ``passes_all_filters`` when the result states it, otherwise Isovar's
-    own rule over ``filter_values`` (every recorded filter passed), and
-    ``None`` when neither is available.
+    own rule over a recorded ``filter_values`` (every filter passed), and
+    ``None`` (unknown) when neither is available or a recorded outcome is
+    unknown. Only booleans (and NumPy booleans, and 0/1) are outcomes;
+    NaN and ``None`` are unknown, and anything else, such as the string
+    ``"False"``, raises rather than being read by its truthiness.
     """
     protein = getattr(result, "top_protein_sequence", None)
     sequence = getattr(protein, "amino_acids", None) or None
@@ -264,14 +274,13 @@ def _extract_isovar_result(result):
     if len(names) != len(ids):
         names = [None] * len(ids)
     transcripts = sorted(zip(ids, names), key=lambda pair: str(pair[0]))
-    filters = dict(getattr(result, "filter_values", None) or {})
-    if hasattr(result, "passes_all_filters"):
-        passing = normalize_python_types(result.passes_all_filters)
-        passing = None if passing is None else bool(passing)
-    elif hasattr(result, "filter_values"):
-        passing = all(filters.values())
-    else:
-        passing = None
+    recorded = getattr(result, "filter_values", None)
+    filters = dict(recorded or {})
+    passing = _disposition(getattr(result, "passes_all_filters", None), "passes_all_filters")
+    if passing is None and recorded is not None:
+        # Isovar's own rule: a result passes when every recorded filter did.
+        outcomes = [_disposition(value, name) for name, value in filters.items()]
+        passing = None if None in outcomes else all(outcomes)
     return dict(
         {key: _as_count(getattr(result, key, None)) for key in _ISOVAR_COUNT_KEYS},
         protein_sequence=sequence,
@@ -477,12 +486,12 @@ def fragments_from_variants(
         Passed to :func:`isovar.run_isovar`.
     sample_name : str, optional
         Label every returned fragment as this sample's observation, through
-        :func:`~topiary.fragments_for_sample`: the ID is namespaced and
-        ``annotations["sample_name"]`` fills the prediction frame's
+        :func:`~topiary.fragments_for_sample`; prediction writes it to the
         ``sample_name`` column. Needed to combine fragments from more than
         one alignment (or one alignment under two settings) in a single
-        prediction; unlabelled, the same variant would get the same ID
-        with different evidence, which prediction refuses.
+        prediction; unlabelled, the same candidate would appear twice with
+        different evidence, which prediction refuses. Checked before any
+        alignment is read.
     **isovar_kwargs
         Passed to ``run_isovar``, for example ``read_collector`` and
         ``filter_flags``. Creator options above are not passed here. Rejected when no
@@ -502,6 +511,8 @@ def fragments_from_variants(
     record the Isovar version, creator class and available creator settings
     as ``isovar_*`` annotations, preserved by fragment IO and prediction.
     """
+    if sample_name is not None:
+        sample_name = require_sample_name(sample_name)
     if protein_sequence_length is not None and (
         isinstance(protein_sequence_length, bool)
         or not isinstance(protein_sequence_length, Integral)
@@ -598,14 +609,13 @@ def fragments_from_variants(
     fragments = []
     unsupported = []
     for result in results:
+        extracted = _extract_isovar_result(result)
         # A result whose filter disposition is unknown is not shown to pass.
-        if require_passing_filters and (
-            _extract_isovar_result(result)["passes_all_filters"] is not True
-        ):
+        if require_passing_filters and extracted["passes_all_filters"] is not True:
             unsupported.append(getattr(result, "variant", None))
             continue
-        fragment = fragment_from_isovar_result(
-            result,
+        fragment = _fragment_from_extracted(
+            result, extracted,
             gene_expression=(
                 gene_expression.get(getattr(result, "gene_id", None))
                 if gene_expression else None
@@ -643,6 +653,20 @@ def _effects_for(variants):
     for variant in variants:
         collected.extend(variant.effects())
     return EffectCollection(collected)
+
+
+def _disposition(value, name):
+    """A filter outcome as ``True``/``False``, or ``None`` when unknown."""
+    import math
+    import numpy as np
+
+    if value is None or (isinstance(value, (float, np.floating)) and math.isnan(value)):
+        return None
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)) and value in (0, 1):
+        return bool(value)
+    raise ValueError(f"Isovar filter outcome {name!r} must be boolean; got {value!r}.")
 
 
 def _as_count(value):
