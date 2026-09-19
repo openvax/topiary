@@ -28,11 +28,20 @@ from .serialization import normalize_python_types
 
 
 _JSON_EXTRA_PREFIX = "json:"
+_SCALAR_METADATA_KEYS = frozenset(("topiary_version", "form", "filter_by", "sort_by"))
 
 
 @dataclass
 class Metadata:
-    """Comment-block metadata for a topiary file."""
+    """Comment-block metadata for a topiary file.
+
+    ``extra`` holds custom comment keys. Writers reject top-level keys used
+    by built-in metadata (``topiary_version``, ``form``, ``source``,
+    ``filter_by``, ``sort_by``, and the ``model:`` prefix). Nest such names
+    under a custom key when they describe a dataset rather than this result.
+    Keys must be nonempty strings without surrounding whitespace, line breaks
+    or ``=``. Validation occurs before the output file is opened.
+    """
 
     topiary_version: str = None
     form: str = None
@@ -65,16 +74,10 @@ def _parse_comment_block(lines):
         key = key.strip()
         value = value.strip()
 
-        if key == "topiary_version":
-            meta.topiary_version = value
-        elif key == "form":
-            meta.form = value
+        if key in _SCALAR_METADATA_KEYS:
+            setattr(meta, key, value)
         elif key == "source":
             meta.sources.append(value)
-        elif key == "filter_by":
-            meta.filter_by = value
-        elif key == "sort_by":
-            meta.sort_by = value
         elif key.startswith("model:"):
             model_name = key[len("model:"):]
             meta.models[model_name] = value
@@ -115,6 +118,15 @@ def _format_comment_block(meta):
     if meta.sort_by:
         lines.append(f"#sort_by={meta.sort_by}")
     for key, value in meta.extra.items():
+        if (not isinstance(key, str) or not key or key != key.strip()
+                or any(c in key for c in "=\r\n")):
+            raise ValueError(
+                f"Metadata.extra key {key!r} must be a nonempty string without "
+                "surrounding whitespace, line breaks or '='")
+        if key in _SCALAR_METADATA_KEYS or key == "source" or key.startswith("model:"):
+            raise ValueError(
+                f"Metadata.extra key {key!r} is reserved for built-in metadata; "
+                "set the corresponding metadata field or nest it under a custom extra key")
         lines.append(f"#{key}={_format_extra_value(value)}")
     return "\n".join(lines)
 
@@ -372,10 +384,26 @@ def _write_delimited(df, path, sep, metadata, index):
 
 
 def to_tsv(df, path, metadata=None, index=False):
-    """Write a topiary DataFrame to TSV with comment-block metadata."""
+    """Write a topiary DataFrame to TSV with comment-block metadata.
+
+    Raises
+    ------
+    ValueError
+        A top-level ``Metadata.extra`` key is reserved or cannot be represented
+        in the comment syntax. The output file is not opened in this case.
+        See :class:`Metadata` for key restrictions.
+    """
     _write_delimited(df, path, sep="\t", metadata=metadata, index=index)
 
 
 def to_csv(df, path, metadata=None, index=False):
-    """Write a topiary DataFrame to CSV with comment-block metadata."""
+    """Write a topiary DataFrame to CSV with comment-block metadata.
+
+    Raises
+    ------
+    ValueError
+        A top-level ``Metadata.extra`` key is reserved or cannot be represented
+        in the comment syntax. The output file is not opened in this case.
+        See :class:`Metadata` for key restrictions.
+    """
     _write_delimited(df, path, sep=",", metadata=metadata, index=index)

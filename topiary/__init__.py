@@ -179,7 +179,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.65.0"
+__version__ = "5.65.1"
 
 __all__ = [
     "osteosarc_fixture_paths",

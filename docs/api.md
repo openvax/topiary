@@ -472,6 +472,23 @@ Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use
 | `slice_regions(seqs, regions)` | Sequences + intervals | `{name:start-end: subseq}` |
 | `exclude_by(df, ref, mode)` | DataFrame + ref sequences | Filtered DataFrame |
 
+### Custom metadata in TSV and CSV
+
+`TopiaryResult.extra` stores custom metadata. Put dataset fields under a custom
+key, for example `extra={"dataset": {"source": "sha256 digest", "form": "reads"}}`.
+Nested dictionaries and lists use the existing JSON comment encoding.
+
+Writers reject top-level extra keys `topiary_version`, `form`, `source`,
+`filter_by`, `sort_by`, and any key starting with `model:`. These comment keys
+belong to the result's built-in metadata; using them in `extra` previously
+changed their meaning on read. Set the corresponding metadata field when
+that is intended, or nest the value under a custom key.
+
+Extra keys must be nonempty strings without surrounding whitespace, line
+breaks or `=`. Invalid keys raise `ValueError` before the output file is opened,
+including when writing over an existing file. TSV and CSV use the same checks;
+reading existing files retains the previous behavior.
+
 ### Correcting a LENS binding-column mapping
 
 `read_lens` first applies the same prediction vocabulary as `read_pvacseq` to

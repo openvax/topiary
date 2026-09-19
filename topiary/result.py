@@ -91,7 +91,9 @@ class TopiaryResult:
     sort_by_ast : DSLNode or list of DSLNode, optional
         Parsed sort expression(s).
     extra : dict, optional
-        Unknown comment-block keys, preserved on round-trip.
+        Custom comment-block keys. TSV/CSV writers reject top-level keys used
+        by built-in metadata (see :class:`~topiary.io.Metadata`); nest dataset
+        fields such as ``source`` under a custom key instead.
     """
 
     def __init__(

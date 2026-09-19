@@ -14,6 +14,8 @@ from topiary.io import (
     to_tsv,
 )
 from topiary.wide import to_wide
+from topiary import TopiaryResult
+from .test_twin_conformance import DELIMITED_IO_TWINS
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +217,93 @@ def _sample_long_df_with_version_state(version_state):
         df["predictor_version"] = pd.NA
         return df
     raise ValueError(f"unknown version state: {version_state}")
+
+
+def _write_extra_case(writer, method, path, extra, call_style):
+    meta = Metadata(extra=extra)
+    result = TopiaryResult(_sample_long_df())
+    # Exercise late mutation as well as explicit Metadata: construction-time
+    # validation alone cannot protect the public mutable extra mapping.
+    result.extra.update(extra)
+    if call_style == "dataframe":
+        writer(result.df, path, metadata=meta)
+    elif call_style == "result-function":
+        writer(result, path)
+    elif call_style == "result-method":
+        method(result, path)
+    else:
+        result.extra.clear()
+        writer(result, path, metadata=meta)
+
+
+@pytest.mark.parametrize("call_style", ["dataframe", "result-function", "result-method", "override"])
+@pytest.mark.parametrize("key", [
+    "topiary_version", "form", "source", "filter_by", "sort_by", "model:", "model:netmhcpan",
+    " source", "form\t", "", " ", "custom=source", "custom\n#source", "custom\r#form", 1, None,
+])
+def test_metadata_extra_keys_fail_before_touching_output(tmp_path, key, call_style):
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("predictions." + suffix)
+        original = b"existing output must survive\n"
+        path.write_bytes(original)
+        with pytest.raises(ValueError, match="Metadata.extra key"):
+            _write_extra_case(writer, method, path, {key: "custom value"}, call_style)
+        assert path.read_bytes() == original
+        path.unlink()
+        with pytest.raises(ValueError, match="Metadata.extra key"):
+            _write_extra_case(writer, method, path, {key: "custom value"}, call_style)
+        assert not path.exists()
+
+
+@pytest.mark.parametrize("call_style", ["dataframe", "result-function", "result-method", "override"])
+def test_metadata_extra_twins_preserve_nested_reserved_names(tmp_path, call_style):
+    extra = {
+        "dataset": {"source": "a" * 64, "form": "source reads", "topiary_version": "producer",
+                    "filter_by": {"passed": True, "missing": None}, "sort_by": [3, 1],
+                    "model:netmhcpan": {"version": "producer model"}},
+        "settings": [False, {"text": "line 1\n#source=still nested data", "threshold": 0.5}],
+        # These names are not built-in comment keys and must remain accepted.
+        "model": "custom", "models": "custom models", "sources": "custom sources",
+        "source_digest": "sha256", "custom:source": "custom namespace",
+    }
+    frames = []
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("predictions." + suffix)
+        _write_extra_case(writer, method, path, extra, call_style)
+        restored = reader(path, tag="output")
+        assert restored.extra == extra
+        assert restored.sources == ["output"]
+        assert restored.form == "long"
+        assert restored.models == {"netmhcpan": "4.1b"}
+        assert restored.filter_by_str is None and restored.sort_by_str is None
+        frames.append(restored.df)
+    pd.testing.assert_frame_equal(*frames)
+
+
+def test_legacy_comment_metadata_keeps_builtins_and_custom_values(tmp_path):
+    comments = (
+        "#topiary_version=4.11.0\n#form=long\n#source=input.tsv\n"
+        "#model:fixture=1\n#model:unversioned\n"
+        "#filter_by=review_score <= 20\n#sort_by=review_score\n"
+        "#patient=PT01\n#settings=json:{\"source\":\"dataset\",\"enabled\":true}\n"
+        "#kind_support={'fixture': {'custom': {'mhc_dependence': 'independent'}}}\n"
+    )
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("legacy." + suffix)
+        separator = "\t" if suffix == "tsv" else ","
+        path.write_text(comments + separator.join(["peptide", "kind", "value"]) + "\n"
+                        + separator.join(["SIINFEKL", "custom", "1"]) + "\n")
+        restored = reader(path, tag="legacy")
+        assert restored.topiary_version == "4.11.0"
+        assert restored.form == "long"
+        assert restored.sources == ["input.tsv", "legacy"]
+        assert restored.models == {"fixture": "1", "unversioned": ""}
+        assert restored.filter_by_str == "review_score <= 20"
+        assert restored.sort_by_str == "review_score"
+        assert restored.extra == {
+            "patient": "PT01", "settings": {"source": "dataset", "enabled": True},
+            "kind_support": {"fixture": {"custom": {"mhc_dependence": "independent"}}},
+        }
 
 
 # ---------------------------------------------------------------------------
