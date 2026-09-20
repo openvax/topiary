@@ -23,6 +23,14 @@ def check_license_metadata(metadata):
     )
 
 
+def check_runtime_metadata(metadata):
+    """Ordinary installation must provide Osteosarc reads on supported Python."""
+    assert metadata["Requires-Python"] == ">=3.10"
+    requirements = [value.replace(" ", "") for value in metadata.get_all("Requires-Dist", [])]
+    assert "osteosarc[reads]==0.1.0" in requirements
+    assert "osteosarc" not in metadata.get_all("Provides-Extra", [])
+
+
 def check_distributions(dist_dir, source_root):
     """Verify runtime files, source resources, license text, and the CLI entry."""
     wheels = list(dist_dir.glob("*.whl"))
@@ -50,6 +58,7 @@ def check_distributions(dist_dir, source_root):
         assert wheel.read(f"{dist_info}/licenses/LICENSE") == license_text
         wheel_metadata = BytesParser().parsebytes(wheel.read(metadata_paths[0]))
         check_license_metadata(wheel_metadata)
+        check_runtime_metadata(wheel_metadata)
         entry_points = configparser.ConfigParser()
         entry_points.read_string(wheel.read(f"{dist_info}/entry_points.txt").decode())
         assert entry_points["console_scripts"]["topiary"] == "topiary.cli.script:main"
@@ -79,6 +88,7 @@ def check_distributions(dist_dir, source_root):
             sdist.extractfile(files[f"{root}/PKG-INFO"]).read()
         )
         check_license_metadata(source_metadata)
+        check_runtime_metadata(source_metadata)
         for field in ("Name", "Version", "Requires-Python", "Requires-Dist", "Provides-Extra"):
             assert source_metadata.get_all(field) == wheel_metadata.get_all(field), field
 

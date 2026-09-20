@@ -9,7 +9,7 @@ import pytest
 import tests.optional_dependencies as optional_dependencies
 
 
-@pytest.fixture(params=["isovar", "pirlygenes", "osteosarc"])
+@pytest.fixture(params=["isovar", "pirlygenes"])
 def dependency(request):
     return request.param
 
@@ -90,13 +90,11 @@ def test_no_optional_importorskip_calls_remain(dependency):
 def test_ci_requires_both_absent_and_installed_environments(dependency):
     workflow = Path(".github/workflows/tests.yml").read_text()
 
-    display_name = {"isovar": "Isovar", "pirlygenes": "PirlyGenes", "osteosarc": "Osteosarc"}[dependency]
-    job = "isovar" if dependency == "osteosarc" else dependency
-    extras = "isovar,osteosarc" if job == "isovar" else "pirlygenes"
-    selection = "'isovar or osteosarc'" if job == "isovar" else "pirlygenes"
+    display_name = {"isovar": "Isovar", "pirlygenes": "PirlyGenes"}[dependency]
+    selection = "'isovar or osteosarc'" if dependency == "isovar" else "pirlygenes"
     assert f"Verify {display_name} is absent from the base environment" in workflow
-    assert f"{job}-integration:" in workflow
-    assert f"python -m pip install -e '.[{extras}]'" in workflow
+    assert f"{dependency}-integration:" in workflow
+    assert f"python -m pip install -e '.[{dependency}]'" in workflow
     assert f'TOPIARY_TEST_REQUIRE_{dependency.upper()}: "1"' in workflow
     assert f"./test.sh -m {selection} --strict-markers" in workflow
 

@@ -54,6 +54,6 @@ def transcript_expression_dict(cancer_test_variants):
 
 def pytest_runtest_setup(item):
     """Require a usable optional import before setting up its fixtures."""
-    for dependency in ("isovar", "pirlygenes", "osteosarc"):
+    for dependency in ("isovar", "pirlygenes"):
         if item.get_closest_marker(dependency) is not None:
             require_integration(dependency)

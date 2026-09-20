@@ -1,10 +1,11 @@
 # Shared Osteosarc inputs and regional audit continuity
 
 Topiary uses **Osteosarc 0.1.0** for new audit downloads, indexed regional read
-extraction and access to the shared OpenVax source objects. Install the optional
-tooling on Python 3.10+ with `pip install -e '.[isovar,osteosarc]'`; extraction
-also needs `samtools` on PATH. The base Topiary package remains Python 3.9+ and
-does not import Osteosarc or acquire data on import.
+extraction and access to the shared OpenVax source objects. Osteosarc and its
+read-extraction dependency are installed by `pip install topiary` on Python
+3.10+. From a checkout, use `pip install -e .`; add `.[isovar]` for RNA
+reconstruction. Extraction also needs `samtools` on PATH. Importing Topiary
+does not acquire data.
 
 ## Original reads, derived proteins, prediction caches
 
@@ -37,6 +38,13 @@ Osteosarc's corrected complex allele is not substituted during acquisition.
 Changing that allele and reviewing its protein expectations requires a new,
 explicitly reviewed data revision. The existing 184-entry T2 audit and its
 historical pVAC predictions likewise retain their reviewed inputs.
+
+Remaining catalogue work is tracked upstream: [Osteosarc #4](https://github.com/iskandr/osteosarc/issues/4)
+asks for per-entry outcomes when VAF rows or positions are malformed, and
+[Osteosarc #5](https://github.com/iskandr/osteosarc/issues/5) tracks the five
+remaining unresolved entries from Topiary's allele audit. Osteosarc 0.1.0
+already supplies the other five corrected alleles and the MAP2 correction;
+adopting those scientific changes requires separate fixture and outcome review.
 
 ## Acquire, share, verify and reproduce
 

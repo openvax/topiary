@@ -1,7 +1,7 @@
 """Explicitly acquire or verify the shared original-read regression bundle.
 
 Run ``python -m scripts.osteosarc_test_data --help`` from a checkout with
-``pip install -e '.[osteosarc]'`` (Python 3.10+). Ordinary tests never acquire.
+``pip install -e .`` (Python 3.10+). Ordinary tests never acquire.
 """
 
 import argparse

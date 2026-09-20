@@ -134,7 +134,7 @@ want to call it. If yes, it is public.
 
 ## Code Style
 
-- Python 3.9+
+- Python 3.10+
 - Lint: ruff (config in `pyproject.toml`)
 - Docstrings: numpy style
 - Bugfixes include a regression test where feasible

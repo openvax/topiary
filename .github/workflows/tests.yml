@@ -70,9 +70,13 @@ jobs:
       - name: Verify Isovar is absent from the base environment
         run: |
           python -c "import importlib.util; assert importlib.util.find_spec('isovar') is None, 'base CI unexpectedly installed Isovar'"
-      - name: Verify Osteosarc is absent from the base environment
+      - name: Install samtools for Osteosarc extraction
         run: |
-          python -c "import importlib.util; assert importlib.util.find_spec('osteosarc') is None, 'base CI unexpectedly installed Osteosarc'"
+          sudo apt-get update
+          sudo apt-get install -y samtools
+      - name: Verify Osteosarc is installed in the base environment
+        run: |
+          python -c "from importlib.metadata import version; import osteosarc, pysam; print('Osteosarc', version('osteosarc'))"
       - name: Lint with ruff
         run: |
           ./lint.sh
@@ -172,7 +176,6 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       TOPIARY_TEST_REQUIRE_ISOVAR: "1"
-      TOPIARY_TEST_REQUIRE_OSTEOSARC: "1"
       PYENSEMBL_CACHE_DIR: ${{ github.workspace }}/empty-ensembl-cache
     strategy:
       fail-fast: false
@@ -194,7 +197,7 @@ jobs:
           sudo apt-get install -y samtools
           python -m pip install --upgrade pip
           python -m pip install pytest pytest-cov pytest-xdist
-          python -m pip install -e '.[isovar,osteosarc]' '${{ matrix.isovar }}'
+          python -m pip install -e '.[isovar]' '${{ matrix.isovar }}'
       - name: Verify Isovar imports
         run: |
           python -c "import sys; from importlib.metadata import version; import topiary; assert 'isovar' not in sys.modules; import isovar; print('Isovar', version('isovar'))"
@@ -206,7 +209,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        python-version: ["3.9", "3.12"]
+        python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
