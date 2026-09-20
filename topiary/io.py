@@ -41,6 +41,8 @@ class Metadata:
     under a custom key when they describe a dataset rather than this result.
     Keys must be nonempty strings without surrounding whitespace, line breaks
     or ``=``. Validation occurs before the output file is opened.
+    Extra strings that could be interpreted as comment syntax or lose
+    whitespace use the existing ``json:`` encoding with a JSON string value.
     """
 
     topiary_version: str = None
@@ -127,7 +129,7 @@ def _format_comment_block(meta):
             raise ValueError(
                 f"Metadata.extra key {key!r} is reserved for built-in metadata; "
                 "set the corresponding metadata field or nest it under a custom extra key")
-        lines.append(f"#{key}={_format_extra_value(value)}")
+        lines.append(f"#{key}={_format_extra_value(value, key=key)}")
     return "\n".join(lines)
 
 
@@ -157,7 +159,7 @@ def _parse_extra_value(key, value):
     return value
 
 
-def _format_extra_value(value):
+def _format_extra_value(value, *, key=None):
     """Format a Metadata.extra value for the comment block."""
     value = normalize_python_types(value)
     if isinstance(value, (dict, list)):
@@ -165,7 +167,14 @@ def _format_extra_value(value):
             return _JSON_EXTRA_PREFIX + json.dumps(value, separators=(",", ":"))
         except TypeError:
             pass
-    return str(value)
+    text = str(value)
+    # Quote ambiguous text, including fallback representations of non-JSON
+    # objects. kind_support also has an unmarked legacy dictionary decoder;
+    # an explicit JSON string keeps that text out of the legacy branch.
+    if ("\n" in text or "\r" in text or text != text.strip()
+            or text.startswith(_JSON_EXTRA_PREFIX) or key == "kind_support"):
+        return _JSON_EXTRA_PREFIX + json.dumps(text)
+    return text
 
 
 def _models_from_long_rows(df):

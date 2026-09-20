@@ -72,7 +72,9 @@ def test_nested_dataset_provenance_survives_filter_sort_and_file_io(tmp_path):
     provenance = {"source": "a" * 64, "form": "original reads",
                   "filter_by": {"minimum_reads": 5}, "sort_by": ["sample", "locus"],
                   "model:fixture": {"version": "upstream"}}
-    result = TopiaryResult(frame, sources=["original-input"], extra={"dataset": provenance})
+    extra = {"dataset": provenance, "notes": "review\r\n#source=not-a-new-input",
+             "literal": 'json:{"source":"still text"}', "label": " padded label "}
+    result = TopiaryResult(frame, sources=["original-input"], extra=extra)
     selected = result.filter_by("review_score <= 20", group_keys=["peptide"]).sort_by(
         "review_score", group_keys=["peptide"])
     assert selected.df.peptide.tolist() == ["ELAGIGILT", "SIINFEKL"]
@@ -82,7 +84,7 @@ def test_nested_dataset_provenance_survives_filter_sort_and_file_io(tmp_path):
         path = tmp_path / ("selected." + suffix)
         method(selected, path)
         restored = reader(path, tag="selected")
-        assert restored.extra == {"dataset": provenance}
+        assert restored.extra == extra
         assert restored.sources == ["original-input", "selected"]
         assert restored.models == {"fixture": "1"}
         assert restored.filter_by_str == "review_score <= 20"
