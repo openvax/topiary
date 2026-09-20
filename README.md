@@ -14,7 +14,8 @@ Applications include personalized cancer vaccine design, viral epitope mapping, 
 
 ## Installation
 
-Requires Python ≥ 3.9.
+Requires Python ≥ 3.10. Osteosarc, including its read-extraction dependency,
+is installed with Topiary.
 
 ```bash
 pip install topiary

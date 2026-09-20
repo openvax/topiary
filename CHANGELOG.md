@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.66.0
+
+- Install `osteosarc[reads]==0.1.0` with Topiary as a required dependency;
+  remove the optional `osteosarc` extra and run its offline fixture and
+  extraction tests in base CI.
+- **Breaking:** require Python 3.10+, matching Osteosarc's published minimum.
+  Python 3.9 users can continue using Topiary 5.65.2.
+
 ## 5.65.2
 
 - Preserve plain-text extra metadata containing line breaks, surrounding

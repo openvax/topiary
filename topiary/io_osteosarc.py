@@ -1,4 +1,4 @@
-"""Optional access to the shared, immutable Osteosarc regression inputs."""
+"""Access to the shared, immutable Osteosarc regression inputs."""
 
 from pathlib import Path
 import json
@@ -42,8 +42,8 @@ def osteosarc_fixture_paths(manifest, *, directory=None, cache=None):
 
     Notes
     -----
-    Requires the optional ``osteosarc`` extra (Python 3.10+). This resolves
-    original reads, not translated proteins or predictor caches. Their content
+    Osteosarc is installed with Topiary. This resolves original reads, not
+    translated proteins or predictor caches. Their content
     identities and provenance must be versioned separately by the consumer.
     """
     from osteosarc import Cache, IntegrityError, digest
