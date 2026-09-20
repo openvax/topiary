@@ -6,6 +6,8 @@ import gzip
 import json
 from pathlib import Path
 
+from .sid_data import sid_data_root
+
 import pandas as pd
 import pytest
 
@@ -15,7 +17,7 @@ from scripts.osteosarc_variant_audit import (
 )
 
 
-ROOT = Path(__file__).parent / "data/osteosarc_all_variants"
+ROOT = sid_data_root("osteosarc_all_variants")
 
 
 def records():

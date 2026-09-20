@@ -103,7 +103,7 @@
     "variant": "Variant(contig='12', start=5494381, ref='A', alt='G', reference_name='GRCh38-osteosarc-all-cd74762f07603248')"
   },
   "isovar_version": "1.21.0",
-  "parent_dataset_sha256": "505966ad4a9d78aee0ba99ca111ecef15ddc067676f241fc3f0364cc9d1b07af",
+  "parent_dataset_sha256": "53dba8834d69531dfdbcbbd1c7a759ee73e634f23f2af9e0237623c993070ed8",
   "protein_sequence_creator": {
     "protein_context_peptide_length": 25,
     "variant_sequence_assembly": true

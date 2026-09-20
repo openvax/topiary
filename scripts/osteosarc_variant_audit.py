@@ -7,17 +7,11 @@ source bytes are cached with receipts. No historical pVAC prediction is changed.
 import argparse
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
-import csv
 import gzip
-from html.parser import HTMLParser
-import io
 import json
 from pathlib import Path
 import re
 import shutil
-
-import numpy as np
-import pandas as pd
 
 from scripts.osteosarc_rna_overlay import BAM, digest, write_json
 
@@ -87,136 +81,37 @@ def upstream_structural_evidence(root):
         fetch_snapshot(base + name, root / "source/upstream-isovar-1.18.1" / Path(name).name)
 
 
-class VariantIndex(HTMLParser):
-    """Read exact website entry IDs, including entries lacking genomic alleles."""
-
-    def __init__(self):
-        super().__init__()
-        self.rows = []
-        self.current = None
-        self.cells = []
-        self.cell = None
-
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if tag == "tr" and "data-vaccines" in attrs:
-            vaccines = (attrs["data-vaccines"] or "").strip()
-            if not vaccines.isdigit():
-                raise ValueError(f"Website variant table schema changed: data-vaccines={vaccines!r}")
-            self.current = {"vaccine_count": int(vaccines)}
-            self.cells = []
-        elif self.current is not None:
-            if tag == "td":
-                self.cell = []
-            elif tag == "a" and attrs.get("href", "").startswith("/variant/"):
-                self.current["variant_id"] = attrs["href"].rstrip("/").split("/")[-1]
-
-    def handle_data(self, data):
-        if self.cell is not None:
-            self.cell.append(data)
-
-    def handle_endtag(self, tag):
-        if tag == "td" and self.current is not None and self.cell is not None:
-            self.cells.append(" ".join("".join(self.cell).split()))
-            self.cell = None
-        elif tag == "tr" and self.current is not None:
-            if "variant_id" not in self.current or len(self.cells) != 9:
-                raise ValueError("Website variant table schema changed")
-            self.rows.append(dict(self.current, gene=self.cells[0],
-                                  source_location=self.cells[1], source_protein_label=self.cells[2]))
-            self.current = None
-
-
-#: Columns the long VAF table must provide. A missing one means the source
-#: schema changed, which no per-entry status can describe.
-VAF_ALLELE_COLUMNS = ["variant_id", "chrom", "pos", "ref", "alt"]
-
-
-def literal_alleles(vafs_text):
-    """Distinct candidate alleles per website ID, parsed as a typed table.
-
-    Every cell is read as text and nothing is coerced while parsing, so one
-    malformed row cannot abort the others. ``position`` is ``pos`` as an
-    integer only where ``pos`` is a positive whole number written in digits,
-    and missing otherwise. ``literal`` also requires ``ref`` and ``alt`` to be
-    ACGT bases, and the row to have exactly the header's number of fields:
-    a row with extra or missing fields cannot be trusted column by column,
-    so its cells are kept for inspection but its allele is not literal.
-    Rows that are not literal remain, so their entries can be reported with
-    an explicit status instead of disappearing or shifting.
-
-    Raises
-    ------
-    ValueError
-        The table is empty or a required column is missing.
-    """
-    rows = list(csv.reader(io.StringIO(vafs_text), delimiter="\t"))
-    header, rows = (rows[0], rows[1:]) if rows else ([], [])
-    missing = [column for column in VAF_ALLELE_COLUMNS if column not in header]
-    if missing:
-        raise ValueError(f"VAF table schema changed: missing columns {missing}")
-    width = len(header)
-    table = pd.DataFrame([(row + [""] * width)[:width] for row in rows], columns=header, dtype=str)
-    table["well_formed"] = [len(row) == width for row in rows]
-    alleles = table[VAF_ALLELE_COLUMNS].apply(lambda column: column.str.strip())
-    alleles["well_formed"] = table["well_formed"]
-    alleles = alleles.drop_duplicates()
-    digits = alleles["pos"].str.fullmatch(r"[1-9][0-9]*")
-    alleles["position"] = pd.to_numeric(alleles["pos"].where(digits)).astype("Int64")
-    alleles["literal"] = (digits & alleles["well_formed"] & alleles["ref"].str.fullmatch("[ACGT]+")
-                          & alleles["alt"].str.fullmatch("[ACGT]+"))
-    return alleles.sort_values(
-        ["variant_id", "chrom", "position", "pos", "ref", "alt"], na_position="last")
-
-
 def variant_inventory(index_html, vafs_text):
-    """Resolve literal alleles without discarding ambiguous or unavailable inputs.
+    """Adapt Osteosarc's site catalogue to the audit's persisted record format.
 
-    Returns one dictionary per website entry. A complete, consistent GRCh38
-    allele has ``input_status=ready``. Otherwise the original entry and its
-    candidate alleles remain available for investigation, with an explicit
-    non-ready status: ``missing_literal_allele``, ``ambiguous_literal_allele``,
-    ``non_literal_allele`` (including an unusable position or a malformed
-    source row) or ``conflicting_coordinates``. Protein labels never
-    substitute for a nucleotide allele.
+    Osteosarc owns parsing, allele candidates and input statuses. Malformed
+    source rows retain its ``malformed_source_row`` status and ``parse_errors``
+    diagnostics; later valid entries remain available. Only website entries
+    belong to this inventory. Extra named candidates are added by ``inventory``.
+    Raw pinned inputs do not apply catalogue corrections implicitly.
     """
-    index = VariantIndex()
-    index.feed(index_html)
-    if not index.rows or len({r["variant_id"] for r in index.rows}) != len(index.rows):
-        raise ValueError("Missing or duplicate website variant IDs")
-    alleles = literal_alleles(vafs_text)
-    candidates = alleles.groupby("variant_id", sort=False)
-    entries = pd.DataFrame(index.rows)
-    entries["n_candidates"] = entries["variant_id"].map(candidates.size()).fillna(0).astype(int)
-    only = alleles[alleles["variant_id"].map(candidates.size()).eq(1)].set_index("variant_id")
-    entries = entries.join(only, on="variant_id")
-    entries["input_status"] = np.select(
-        [entries["n_candidates"].eq(0), entries["n_candidates"].gt(1),
-         ~entries["literal"].eq(True),
-         entries["source_location"].ne(entries["chrom"] + ":" + entries["pos"])],
-        ["missing_literal_allele", "ambiguous_literal_allele", "non_literal_allele",
-         "conflicting_coordinates"],
-        default="ready",
-    )
+    from osteosarc import parse_variants
 
-    # A candidate's position is an integer where usable, else the source text.
-    listed = {
-        variant_id: [
-            [a["chrom"], a["pos"] if pd.isna(a["position"]) else int(a["position"]), a["ref"], a["alt"]]
-            for a in group.to_dict("records")
-        ]
-        for variant_id, group in candidates
-    }
     result = []
-    for entry, status in zip(index.rows, entries["input_status"]):
-        record = dict(entry, source_url=f"https://osteosarc.com/variant/{entry['variant_id']}/",
-                      assembly="GRCh38", candidate_alleles=listed.get(entry["variant_id"], []))
-        if len(record["candidate_alleles"]) == 1:
-            chrom, pos, ref, alt = record["candidate_alleles"][0]
+    for variant in parse_variants(index_html, vafs_text).select(on_site=True):
+        source = variant.annotations["index"]
+        record = dict(
+            variant_id=variant.id, gene=variant.gene,
+            vaccine_count=variant.vaccine_count,
+            source_location=source["location"],
+            source_protein_label=source["protein_label"],
+            source_url=f"https://osteosarc.com/variant/{variant.id}/",
+            assembly=variant.assembly,
+            candidate_alleles=[list(allele) for allele in variant.alleles],
+            input_status=variant.status,
+        )
+        if len(variant.alleles) == 1:
+            chrom, pos, ref, alt = variant.alleles[0]
             record.update(chrom=chrom, pos=pos, ref=ref, alt=alt)
-        record["input_status"] = str(status)
-        if status == "ready":
-            record["allele_key"] = f"GRCh38:{record['chrom']}:{record['pos']}:{record['ref']}>{record['alt']}"
+        if variant.status == "ready":
+            record["allele_key"] = f"{variant.assembly}:{chrom}:{pos}:{ref}>{alt}"
+        if "parse_errors" in variant.annotations:
+            record["parse_errors"] = variant.annotations["parse_errors"]
         result.append(record)
     return result
 

@@ -7,14 +7,12 @@ The two local roots must be separate. See docs/osteosarc-rna-overlay.md.
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
-import hashlib
 import json
 from pathlib import Path
-import subprocess
+import shutil
 
 import pandas as pd
-import requests
+from osteosarc import digest
 
 from topiary import join_annotations, read_tsv
 
@@ -26,21 +24,11 @@ RNA = BASE + "genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/pro
 RSEM = RNA + "RSEM/sj.rna.2025.01.resection.ucla.align.tcga.protocol.dr32.rsem."
 BAM = RNA + "STAR/25.03.23.rna.ucla.2025.01.resection.tcga.d32.protocolAligned.sorted.bam"
 SOURCES = {"t2.genes.results": RSEM + "genes.results",
-           "t2.isoforms.results": RSEM + "isoforms.results",
-           "source.bai": BAM + ".bai"}
+           "t2.isoforms.results": RSEM + "isoforms.results"}
 POLICY = dict(use_secondary_alignments=False, use_duplicate_reads=False,
               min_mapping_quality=20, use_soft_clipped_bases=False,
               merge_overlapping_fragments=True)
 COORDS = ["chromosome_name", "start", "stop", "reference", "variant"]
-
-
-def digest(path):
-    """Return a streaming SHA256 of a locally retained artifact."""
-    sha = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            sha.update(block)
-    return sha.hexdigest()
 
 
 def write_json(path, value):
@@ -78,29 +66,38 @@ def panel():
     return table, unique
 
 
-def acquire(root):
-    """Cache complete expression inputs, source index, reference and regional BAM."""
+def acquire(root, *, cache=None, alignment_source=BAM, index_path=None):
+    """Acquire expression/reference inputs and selected reads through Osteosarc.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        Audit directory; existing acquisitions must have unchanged receipts.
+    cache : osteosarc.Cache, optional
+        Shared source cache. Offline mode requires already imported sources.
+    alignment_source : str or path-like
+        Original indexed RNA alignment, or a local alignment for replay.
+    index_path : path-like, optional
+        Explicit alignment index. The default RNA product uses its published
+        BAM.bai URL; local alignments may use their adjacent index.
+
+    Returns
+    -------
+    None
+        Write source files, an indexed regional BAM and acquisition receipts.
+        Historical panel alleles are retained without applying corrections.
+    """
+    import pysam
+    from osteosarc import Cache, Region, extract_reads
+    from scripts.osteosarc_variant_audit import fetch_snapshot
+
+    cache = cache if cache is not None else Cache()
+    if index_path is None and alignment_source == BAM:
+        index_path = BAM + ".bai"
     source = root / "source"
     source.mkdir(parents=True, exist_ok=True)
-    receipts = {}
-    for filename, url in SOURCES.items():
-        path = source / filename
-        receipt_path = source / (filename + ".receipt.json")
-        if receipt_path.exists():
-            receipt = json.loads(receipt_path.read_text())
-            if digest(path) != receipt["sha256"]:
-                raise ValueError(f"Cached input changed: {path}")
-        else:
-            with requests.get(url, stream=True, timeout=60) as response:
-                response.raise_for_status()
-                with path.open("wb") as handle:
-                    for block in response.iter_content(1024 * 1024):
-                        handle.write(block)
-                receipt = dict(url=url, sha256=digest(path), bytes=path.stat().st_size,
-                               etag=response.headers.get("ETag"),
-                               acquired_at=datetime.now(timezone.utc).isoformat())
-            write_json(receipt_path, receipt)
-        receipts[filename] = receipt
+    receipts = {name: fetch_snapshot(url, source / name, cache=cache)
+                for name, url in SOURCES.items()}
     _, variants = panel()
 
     def reference(row):
@@ -109,10 +106,7 @@ def acquire(root):
         url = ("https://api.genome.ucsc.edu/getData/sequence?genome=hg38"
                f";chrom={row.chromosome_name};start={row.vcf_pos - 1}"
                f";end={row.vcf_pos - 1 + len(row.reference)}")
-        if not path.exists():
-            response = requests.get(url, timeout=60)
-            response.raise_for_status()
-            path.write_bytes(response.content)
+        fetch_snapshot(url, path, cache=cache)
         sequence = json.loads(path.read_text())["dna"].upper()
         if sequence != row.reference:
             raise ValueError(f"Reference mismatch for {row.allele_key}: {sequence}")
@@ -124,23 +118,27 @@ def acquire(root):
     regions = [f"{r.chromosome_name}:{r.vcf_pos - 100}-{r.vcf_pos + len(r.reference) + 100}"
                for r in variants.itertuples(index=False)]
     bam = source / "t2-pvac-regions.bam"
-    command = ["samtools", "view", "--no-PG", "-b", "-M", "-X", BAM,
-               str(source / "source.bai"), *regions, "-o", str(bam)]
     receipt_path = source / "bam.receipt.json"
     if receipt_path.exists():
         bam_receipt = json.loads(receipt_path.read_text())
-        if digest(bam) != bam_receipt["sha256"]:
-            raise ValueError("Cached regional BAM changed")
+        if (bam_receipt["url"] != str(alignment_source) or bam_receipt["regions"] != regions
+                or digest(bam) != bam_receipt["sha256"]
+                or digest(str(bam) + ".bai") != bam_receipt["index_sha256"]):
+            raise ValueError("Regional alignment scope or bytes changed")
     else:
-        subprocess.run(command, check=True)
-        subprocess.run(["samtools", "index", str(bam)], check=True)
-        header = subprocess.check_output(["samtools", "view", "--no-PG", "-H", str(bam)], text=True)
-        (source / "t2-pvac-regions.header.sam").write_text(header)
-        bam_receipt = dict(url=BAM, command=command, regions=regions,
+        if bam.exists():
+            raise ValueError("Inspect unreceipted BAM before retrying")
+        subset = extract_reads(alignment_source,
+                               [Region.from_samtools(r, assembly="GRCh38") for r in regions],
+                               index=index_path, cache=cache)
+        shutil.copyfile(subset.path, bam)
+        shutil.copyfile(subset.index_path, str(bam) + ".bai")
+        with pysam.AlignmentFile(bam) as handle:
+            (source / "t2-pvac-regions.header.sam").write_text(str(handle.header))
+        bam_receipt = dict(url=str(alignment_source), regions=regions,
                            sha256=digest(bam), index_sha256=digest(str(bam) + ".bai"),
                            header_sha256=digest(source / "t2-pvac-regions.header.sam"),
-                           bytes=bam.stat().st_size,
-                           acquired_at=datetime.now(timezone.utc).isoformat())
+                           bytes=bam.stat().st_size, osteosarc_extraction=subset.receipt)
         write_json(receipt_path, bam_receipt)
     write_json(root / "acquisition.json", dict(sources=receipts, references=references,
                                                alignment=bam_receipt))

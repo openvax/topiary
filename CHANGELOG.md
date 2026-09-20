@@ -1,5 +1,17 @@
 # Changelog
 
+## 5.67.0
+
+- Require Osteosarc 0.1.1 and delegate website/VAF parsing to its public API.
+  Malformed rows retain per-entry diagnostics and do not stop later variants
+  (#360). Historical alleles and all 184 pinned audit outcomes are preserved.
+- Generate all seven Sid fixture groups through Osteosarc with a checked-in
+  source/region recipe. Keep only test-locus reads, remove 48 unused vaccine
+  read sets, and bundle 10.6 MB of verified data in the source distribution.
+  Packaging checks enforce file hashes, alignment membership and a size budget.
+- Route RNA-overlay acquisition through Osteosarc's cache and indexed read
+  extractor; verify offline acquisition through evidence reconstruction.
+
 ## 5.66.0
 
 - Install `osteosarc[reads]==0.1.0` with Topiary as a required dependency;

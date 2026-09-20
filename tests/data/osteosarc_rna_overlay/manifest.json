@@ -1,6 +1,6 @@
 {
   ".gitattributes": "3bd6f5d3d6fea9ac97c66d587c8726d7704f129f7536f4bcb60c9e13eb22d035",
-  "acquisition.json": "f483b37fa3eea17ca3bbf294888aa3f013e0e2c9a3d415edad4da0076d056d49",
+  "acquisition.json": "b524247128263423a6e5f85ef7901f6953d83abbd91538abd2f1898bd6853438",
   "allele-evidence.tsv": "e4d73a82085223f9e10d7dc097ae9338f2cedffbbc38c266d2594bc267a1dad8",
   "source/chr11_20080142_C_T.json": "d0c8f920a8bfa3e46e92df779dd12a9137d95ed0d905d6d036f25938c2fc4db6",
   "source/chr14_101980529_G_A.json": "b19eaeb5cf7a5b269effef46be93c8862d7a3ff94023726d1fa4a142bbad1f8f",
@@ -22,7 +22,8 @@
   "source/chr9_70298024_G_A.json": "655cc17cc90f7f0896b78677ba55eeaeacdc313d1c6e62e02dea573b42f668c1",
   "source/chr9_97910412_C_T.json": "a930fc7cb9b9c66cae140902fbed0750575f151b166ff974191e54bdd78772b9",
   "source/chrX_46501045_G_A.json": "e6abd80a63d8c8f6dd11b959ade1190949b275a92db8a697eea7e2beca21e0b6",
-  "source/t2-pvac-regions.bam": "8cd776f481d84e51389a67393069c8455ec5c5660a41546943ee4c94d71ac512",
+  "source/t2-pvac-regions.bam": "2adc837d0d0ccb5c607ba1a4cf83c8bb1de285c631ec98f8d34e2c06f3894231",
+  "source/t2-pvac-regions.bam.bai": "4dafb28a0e2c49c7fb9da733459edab53752df65950f63fcbad57bf07db88db1",
   "source/t2-pvac-regions.header.sam": "d6c614f17b38860f56622f9722a62843b51fd901e3519000c93b56c5f2dc0b8f",
   "source/t2.genes.results": "1ce3174b7b559e08490f242523d9954937cbf4351320e487685ebda15a9f25ab",
   "source/t2.isoforms.results": "a9cab90452a69db393dde21a99759488487942c93b13dc1e58d5a06e36eba870",

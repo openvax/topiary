@@ -3,13 +3,15 @@
 import json
 from pathlib import Path
 
+from .sid_data import sid_data_root
+
 import pandas as pd
 
 from scripts.osteosarc_rna_overlay import annotation_table
 from topiary import join_annotations
 
 
-ROOT = Path(__file__).parent / "data/osteosarc_rna_overlay"
+ROOT = sid_data_root("osteosarc_rna_overlay")
 PROVENANCE = {
     "sample": "January 2025 UCLA resection tumor RNA (T2)",
     "expression_unit": "TPM", "count_unit": "sequenced segments",

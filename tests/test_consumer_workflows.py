@@ -2156,3 +2156,47 @@ def test_shared_osteosarc_reads_reconstruct_and_rank_identically(tmp_path):
         with pytest.raises(CachedPredictorCoverageError):
             TopiaryPredictor(models=incomplete).predict_from_fragments([restored])
     pd.testing.assert_frame_equal(*answers)
+
+
+@pytest.mark.isovar
+def test_malformed_osteosarc_catalogue_row_survives_audit_and_report(tmp_path):
+    """Native parsing diagnostics survive, and the next real RNA case runs."""
+    import json
+    import shutil
+    from scripts.osteosarc_variant_audit import variant_inventory, audit, report
+    from scripts.osteosarc_rna_overlay import digest, write_json
+    from .sid_data import sid_data_root
+    from .test_osteosarc_audit_inventory import HEADER, INDEX
+
+    data = sid_data_root("osteosarc_all_variants")
+    good = next(v for v in json.loads((data / "checked-inventory.json").read_text())["variants"]
+                if v["variant_id"] == "DYNC1H1-chr14-101980529")
+    html = INDEX.replace("</table>", "") + INDEX.replace("<table>", "").replace(
+        "example", good["variant_id"]).replace("GENE", good["gene"]).replace(
+        "chr1:10", f"{good['chrom']}:{good['pos']}")
+    rows = ("example\tGENE\tchr1\tbad\tA\tC\n"
+            f"{good['variant_id']}\t{good['gene']}\t{good['chrom']}\t{good['pos']}\t{good['ref']}\t{good['alt']}\n")
+    variants = variant_inventory(html, HEADER + rows)
+    assert variants[0]["parse_errors"][0]["code"] == "invalid_position"
+    assert variants[1]["input_status"] == "ready"
+    write_json(tmp_path / "checked-inventory.json", dict(variants=variants))
+    (tmp_path / "reference").symlink_to(data / "reference", target_is_directory=True)
+    source = tmp_path / "source"
+    source.mkdir()
+    for suffix in ("", ".bai"):
+        name = "t2-all-variant-regions.bam" + suffix
+        shutil.copyfile(data / "source" / name, source / name)
+    bam = source / "t2-all-variant-regions.bam"
+    write_json(source / "bam.receipt.json", dict(sha256=digest(bam), index_sha256=digest(str(bam) + ".bai")))
+    audit(tmp_path)
+    report(tmp_path)
+    bad = json.loads((tmp_path / "outcomes/example.json").read_text())
+    assert bad["status"] == "malformed_source_row"
+    assert bad["rna"] is None
+    assert bad["input"]["parse_errors"] == variants[0]["parse_errors"]
+    result = json.loads((tmp_path / "outcomes" / (good["variant_id"] + ".json")).read_text())
+    expected = next(r for r in json.loads((data / "expected.json").read_text())
+                    if r["input"]["variant_id"] == good["variant_id"])
+    assert result["status"] == expected["status"]
+    assert result["rna"] == expected["rna"]
+    assert "malformed_source_row | unavailable" in (tmp_path / "README.md").read_text()

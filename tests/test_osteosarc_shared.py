@@ -3,6 +3,8 @@
 from collections import Counter
 import json
 from pathlib import Path
+
+from .sid_data import sid_data_root
 import shutil
 
 import pytest
@@ -10,7 +12,7 @@ import pytest
 from topiary import osteosarc_fixture_paths
 
 
-ROOT = Path(__file__).parent / "data/osteosarc_shared"
+ROOT = sid_data_root("osteosarc_shared")
 SOURCE = ROOT / "vaccine-rna-v1"
 MANIFEST = json.loads((SOURCE / "manifest.json").read_text())
 pytestmark = pytest.mark.osteosarc
@@ -25,18 +27,16 @@ def test_all_shared_inputs_keep_identity_and_records():
     from osteosarc import assembly_from_header
 
     paths = osteosarc_fixture_paths(MANIFEST, directory=SOURCE)
-    assert len(paths) == 98
-    assert sum(p.stat().st_size for p in paths.values()) == 4126730
-    assert len(MANIFEST["cases"]) == 49
-    assert len({c["variant"]["variant_id"] for c in MANIFEST["cases"]}) == 44
+    assert len(paths) == 2
+    assert sum(p.stat().st_size for p in paths.values()) == 43966
+    assert len(MANIFEST["cases"]) == 1
+    assert len({c["variant"]["variant_id"] for c in MANIFEST["cases"]}) == 1
     for case in MANIFEST["cases"]:
         with pysam.AlignmentFile(paths[case["bam"]]) as bam:
             assert bam.has_index()
             assert assembly_from_header(bam.header.to_dict()) == case["variant"]["assembly"]
             assert sum(1 for _ in bam) == case["selected_record_count"]
-    # Acquisition never silently substitutes the corrected MAP2 complex allele.
-    map2 = next(c["variant"] for c in MANIFEST["cases"] if c["variant"]["gene"] == "MAP2")
-    assert len(map2["ref"]) > 1 and len(map2["alt"]) == 1
+    assert MANIFEST["cases"][0]["variant"]["gene"] == "NTF3"
 
 
 @pytest.mark.parametrize("door", ["export", "shared_cache"])
@@ -85,9 +85,9 @@ def test_offline_export_requires_its_unchanged_manifest(tmp_path):
 
 def test_missing_offline_objects_do_not_download(tmp_path, monkeypatch):
     from osteosarc import Cache, OfflineError
-    import osteosarc.cache
+    import requests
 
-    monkeypatch.setattr(osteosarc.cache.subprocess, "run", no_download)
+    monkeypatch.setattr(requests.sessions.Session, "request", no_download)
     with pytest.raises(OfflineError):
         osteosarc_fixture_paths(MANIFEST, cache=Cache(tmp_path, offline=True))
 
@@ -134,15 +134,8 @@ def test_audit_acquisition_uses_osteosarc_and_retains_historical_alleles(tmp_pat
     reference.write_text(json.dumps({"dna": checked["sequence"][offset:offset + len(record["ref"])]}))
     cache = Cache(tmp_path / "cache", offline=True)
     cache.import_file(reference, url)
-    import osteosarc.cache
-    # Read extraction may invoke local samtools; only downloading is forbidden.
-    original_run = osteosarc.cache.subprocess.run
-
-    def local_only(command, **kwargs):
-        assert command[0] != "curl", "Unexpected network download"
-        return original_run(command, **kwargs)
-
-    monkeypatch.setattr(osteosarc.cache.subprocess, "run", local_only)
+    import requests
+    monkeypatch.setattr(requests.sessions.Session, "request", no_download)
     acquire(tmp_path, SOURCE / (case["bam"] + ".bai"), cache=cache, alignment_source=SOURCE / case["bam"])
     stored = json.loads((tmp_path / "checked-inventory.json").read_text())["variants"][0]
     assert {k: stored[k] for k in record} == record
@@ -159,3 +152,45 @@ def test_audit_acquisition_uses_osteosarc_and_retains_historical_alleles(tmp_pat
     pinned_source.write_text("tampered")
     with pytest.raises(ValueError, match="Cached input changed"):
         fetch_snapshot(url, pinned_source, cache=cache)
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("source_kind", ["local", "published"])
+def test_overlay_acquisition_to_evidence_uses_osteosarc_offline(tmp_path, monkeypatch, source_kind):
+    import pandas as pd
+    import requests
+    from osteosarc import Cache
+    from scripts.osteosarc_rna_overlay import acquire, build, SOURCES, BAM
+    from .osteosarc_overlay_helpers import ROOT as overlay
+
+    cache = Cache(tmp_path / "cache", offline=True)
+    acquisition = json.loads((overlay / "acquisition.json").read_text())
+    for name, url in SOURCES.items():
+        cache.import_file(overlay / "source" / name, url)
+    for reference in acquisition["references"]:
+        cache.import_file(overlay / "source" / reference["file"], reference["url"])
+    monkeypatch.setattr(requests.sessions.Session, "request", no_download)
+    output = tmp_path / "output"
+    bam = overlay / "source/t2-pvac-regions.bam"
+    kwargs = dict(alignment_source=bam, index_path=str(bam) + ".bai")
+    if source_kind == "published":
+        import osteosarc
+        native_extract = osteosarc.extract_reads
+
+        def published_fixture(source, regions, *, index, cache):
+            # Exercise the public default's source/index selection, then use
+            # the actual regional source records to keep this test offline.
+            assert source == BAM
+            assert index == BAM + ".bai"
+            return native_extract(bam, regions, index=str(bam) + ".bai", cache=cache)
+
+        monkeypatch.setattr(osteosarc, "extract_reads", published_fixture)
+        kwargs = {}
+    acquire(output, cache=cache, **kwargs)
+    receipt = json.loads((output / "source/bam.receipt.json").read_text())
+    assert receipt["osteosarc_extraction"]["records"] == 8312
+    build(output)
+    for name in ("allele-evidence.tsv", "transcript-evidence.tsv"):
+        pd.testing.assert_frame_equal(pd.read_csv(output / name, sep="\t"),
+                                      pd.read_csv(overlay / name, sep="\t"))
+    acquire(output, cache=cache, **kwargs)

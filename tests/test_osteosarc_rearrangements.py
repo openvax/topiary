@@ -5,10 +5,12 @@ import hashlib
 import json
 from pathlib import Path
 
+from .sid_data import sid_data_root
+
 import pytest
 
 
-ROOT = Path(__file__).parent / "data" / "osteosarc_rearrangements"
+ROOT = sid_data_root("osteosarc_rearrangements")
 
 
 @pytest.mark.isovar

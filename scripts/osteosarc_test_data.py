@@ -1,4 +1,4 @@
-"""Explicitly acquire or verify the shared original-read regression bundle.
+"""Acquire, export or verify all bundled Sid fixtures through Osteosarc.
 
 Run ``python -m scripts.osteosarc_test_data --help`` from a checkout with
 ``pip install -e .`` (Python 3.10+). Ordinary tests never acquire.
@@ -12,7 +12,7 @@ import shutil
 from topiary import osteosarc_fixture_paths
 
 
-DEFAULT = Path(__file__).resolve().parents[1] / "tests/data/osteosarc_shared/vaccine-rna-v1/manifest.json"
+DEFAULT = Path(__file__).resolve().parents[1] / "tests/data/manifest.json"
 
 
 def main():
@@ -35,10 +35,12 @@ def main():
         # interrupted copy cannot masquerade as a complete exported bundle.
         args.output.mkdir(parents=True, exist_ok=False)
         for name, path in paths.items():
-            shutil.copyfile(path, args.output / name)
+            destination = args.output / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, destination)
         shutil.copyfile(args.manifest, args.output / "manifest.json")
         osteosarc_fixture_paths(manifest, directory=args.output)
-    print(f"Verified {len(paths)} original assets for osteosarc / vaccine-rna-v1")
+    print(f"Verified {len(paths)} assets for osteosarc / {manifest['data_version']}")
 
 
 if __name__ == "__main__":
