@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.65.2
+
+- Preserve plain-text extra metadata containing line breaks, surrounding
+  whitespace, `json:` prefixes or legacy `kind_support` syntax. TSV/CSV writers
+  quote ambiguous text with the existing JSON-string encoding, preventing it
+  from introducing metadata/data rows or changing type on read. Fallback text
+  uses the same encoding; existing files and structured values remain supported
+  (#357).
+
 ## 5.65.1
 
 - TSV/CSV writers reject reserved or malformed top-level `extra` metadata

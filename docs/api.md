@@ -477,6 +477,13 @@ Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use
 `TopiaryResult.extra` stores custom metadata. Put dataset fields under a custom
 key, for example `extra={"dataset": {"source": "sha256 digest", "form": "reads"}}`.
 Nested dictionaries and lists use the existing JSON comment encoding.
+Strings containing line breaks, surrounding whitespace or a `json:` prefix
+also use that encoding, as JSON strings, so their exact text and type survive
+writing and reading. Text under `kind_support` is always quoted to distinguish
+it from legacy dictionary syntax. Ordinary text keeps its readable form;
+existing files, including old structured `kind_support` comments, remain
+readable. Non-JSON objects retain their fallback text representation, with the
+same quoting when needed.
 
 Writers reject top-level extra keys `topiary_version`, `form`, `source`,
 `filter_by`, `sort_by`, and any key starting with `model:`. These comment keys

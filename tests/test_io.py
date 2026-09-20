@@ -280,6 +280,93 @@ def test_metadata_extra_twins_preserve_nested_reserved_names(tmp_path, call_styl
     pd.testing.assert_frame_equal(*frames)
 
 
+class _ExtraText:
+    """Exercise the existing fallback for objects without a JSON encoder."""
+
+    def __init__(self, text):
+        self.text = text
+
+    def __str__(self):
+        return self.text
+
+
+class _UnprintableExtra:
+    def __str__(self):
+        raise ValueError("extra has no text representation")
+
+
+@pytest.mark.parametrize("call_style", ["dataframe", "result-function", "result-method", "override"])
+@pytest.mark.parametrize("key,value", [
+    ("notes", "note\n#source=unexpected-source"),
+    ("notes", "note\r#source=unexpected-source"),
+    ("notes", "note\r\n#source=unexpected-source"),
+    ("notes", "note\n#topiary_version=wrong\n#form=wide\n#model:netmhcpan=wrong\n"
+              "#model:unexpected\n#filter_by=wrong\n#sort_by=wrong\n#injected=wrong"),
+    ("notes", "note\nnot-a-comment\nextra,data,row"),
+    ("notes", 'json:{"flag":true}'),
+    ("notes", "json:[1,true,null]"),
+    ("notes", 'json:"literal"'),
+    ("notes", "json:true"),
+    ("notes", "json:null"),
+    ("notes", "json:12.5"),
+    ("notes", "json:NaN"),
+    ("notes", "json:not-json"),
+    ("notes", "json:"),
+    ("notes", " leading and trailing \t"),
+    ("notes", "\u00a0Unicode whitespace\u00a0"),
+    ("notes", "\t \r\n"),
+    ("notes", ""),
+    ("notes", r"literal\n#source=still-text"),
+    ("notes", 'quotes " and \\ and café\n#source=still-text'),
+    ("kind_support", '{}'),
+    ("kind_support", '{"fixture":{"enabled":true}}'),
+    ("kind_support", "{'fixture': {'enabled': True}}"),
+    ("kind_support", "unresolved"),
+    ("notes", _ExtraText("fallback\n#source=unexpected-source")),
+    ("notes", _ExtraText('json:{"flag":true}')),
+    ("kind_support", _ExtraText("{'fixture': {'enabled': True}}")),
+])
+def test_metadata_extra_text_twins_preserve_values_and_builtins(tmp_path, key, value, call_style):
+    from topiary import __version__
+
+    frames = []
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("text." + suffix)
+        _write_extra_case(writer, method, path, {key: value}, call_style)
+        restored = reader(path, tag="output")
+        assert restored.extra == {key: str(value)}
+        assert type(restored.extra[key]) is str
+        assert restored.topiary_version == __version__
+        assert restored.sources == ["output"]
+        assert restored.form == "long"
+        assert restored.models == {"netmhcpan": "4.1b"}
+        assert restored.filter_by_str is None and restored.sort_by_str is None
+        pd.testing.assert_frame_equal(restored.df.drop(columns="source"), _sample_long_df())
+        frames.append(restored.df)
+        # Rewriting must not add another marker or decode the literal twice.
+        second = tmp_path / ("second." + suffix)
+        method(restored, second)
+        repeated = reader(second, tag="output")
+        assert repeated.metadata == restored.metadata
+        pd.testing.assert_frame_equal(repeated.df, restored.df)
+    pd.testing.assert_frame_equal(*frames)
+
+
+@pytest.mark.parametrize("call_style", ["dataframe", "result-function", "result-method", "override"])
+def test_metadata_extra_text_conversion_failure_preserves_output(tmp_path, call_style):
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("failed." + suffix)
+        for existing in (False, True):
+            if existing:
+                path.write_bytes(b"keep original output\n")
+            with pytest.raises(ValueError, match="extra has no text representation"):
+                _write_extra_case(writer, method, path, {"notes": _UnprintableExtra()}, call_style)
+            if existing:
+                assert path.read_bytes() == b"keep original output\n"
+            else:
+                assert not path.exists()
+
+
 def test_legacy_comment_metadata_keeps_builtins_and_custom_values(tmp_path):
     comments = (
         "#topiary_version=4.11.0\n#form=long\n#source=input.tsv\n"
