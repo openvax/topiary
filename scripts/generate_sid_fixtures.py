@@ -97,7 +97,8 @@ def generate_sid_fixtures(recipe_path, destination, *, cache=None, source_direct
             if selection.get("preserve_all_records") and selected != original:
                 raise ValueError(f"A pinned test observation lies outside its selected loci: {name}")
             if live_alignments:
-                live = extract_reads(selection["original_alignment_url"], regions, cache=cache)
+                live = extract_reads(selection["original_alignment_url"], regions,
+                                     index=selection["original_index_url"], cache=cache)
                 with live.open() as bam:
                     observed = Counter(read.to_string() for read in bam)
                 if selection.get("preserve_all_records"):

@@ -13,15 +13,17 @@ does not acquire data.
 RNA, GLIS3/KTN1 indels, rearrangements, the RNA overlay, the 184-entry audit,
 shared NTF3 reads and historical pVACseq reports. Tests verify every bundled
 file through Osteosarc without downloading anything. The 104 assets total
-10,620,206 bytes; alignments and indexes account for 7,133,515 bytes.
+10,623,870 bytes; alignments and indexes account for 7,133,515 bytes.
 They ship in the **source distribution**, alongside the tests and generator;
 the installed wheel retains its existing runtime-only layout.
 
 The checked-in recipe, `tests/data/sid-fixtures.json`, pins original regional
 inputs and zero-based half-open test intervals. `generate_sid_fixtures` uses
 Osteosarc's cache and `extract_reads` to select the union of those intervals.
-Allele intervals use Osteosarc's `Variant.region(padding=2)`; these tight
-windows retain the bases needed at indel boundaries. Original SAM records,
+Allele intervals use Osteosarc's `Variant.region(padding=2)`, intersected
+with the archived extraction scope for the indel fixtures. These tight
+windows retain the bases needed at indel boundaries without broadening the
+historical input selection. Original SAM records,
 including qualities, flags, tags and mate fields, are never rewritten. Reads
 outside the selected intervals are omitted, and no entire remote BAM is
 fetched. The six-locus fixtures retain their original template-selection and

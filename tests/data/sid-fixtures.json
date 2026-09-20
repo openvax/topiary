@@ -13,6 +13,7 @@
     {
       "filename": "osteosarc/bulk_star_t0.sam.gz",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/rna-seq/reprocessed/BG003082/BG003082.Aligned.sortedByCoord.out.md.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/rna-seq/reprocessed/BG003082/BG003082.Aligned.sortedByCoord.out.md.bam.bai",
       "preserve_all_records": true,
       "regions": [
         [
@@ -50,6 +51,7 @@
     {
       "filename": "osteosarc/ont_t1.sam.gz",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT_dedup/IPISRC044_T1_sclrs_ONT_dedup.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT_dedup/IPISRC044_T1_sclrs_ONT_dedup.bam.bai",
       "preserve_all_records": true,
       "regions": [
         [
@@ -85,89 +87,137 @@
       ]
     },
     {
+      "archived_region": [
+        "chr9",
+        3856147,
+        3856160
+      ],
       "filename": "osteosarc_indels/GLIS3.T1-ONT-dedup.sam.gz",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT_dedup/IPISRC044_T1_sclrs_ONT_dedup.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT_dedup/IPISRC044_T1_sclrs_ONT_dedup.bam.bai",
       "regions": [
         [
           "chr9",
-          3856146,
+          3856147,
           3856159
         ]
       ]
     },
     {
+      "archived_region": [
+        "chr14",
+        55627963,
+        55627968
+      ],
       "filename": "osteosarc_indels/KTN1.T1-ONT-dedup.sam.gz",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT_dedup/IPISRC044_T1_sclrs_ONT_dedup.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT_dedup/IPISRC044_T1_sclrs_ONT_dedup.bam.bai",
       "regions": [
         [
           "chr14",
-          55627962,
+          55627963,
           55627967
         ]
       ]
     },
     {
+      "archived_region": [
+        "chr9",
+        3856147,
+        3856160
+      ],
       "filename": "osteosarc_indels/GLIS3.T2-ONT-dedup.sam.gz",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT_dedup/IPISRC044_T2_sclrs_ONT_dedup.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT_dedup/IPISRC044_T2_sclrs_ONT_dedup.bam.bai",
       "regions": [
         [
           "chr9",
-          3856146,
+          3856147,
           3856159
         ]
       ]
     },
     {
+      "archived_region": [
+        "chr14",
+        55627963,
+        55627968
+      ],
       "filename": "osteosarc_indels/KTN1.T2-ONT-dedup.sam.gz",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT_dedup/IPISRC044_T2_sclrs_ONT_dedup.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT_dedup/IPISRC044_T2_sclrs_ONT_dedup.bam.bai",
       "regions": [
         [
           "chr14",
-          55627962,
+          55627963,
           55627967
         ]
       ]
     },
     {
+      "archived_region": [
+        "chr9",
+        3856147,
+        3856160
+      ],
       "filename": "osteosarc_indels/GLIS3.T1-short.sam.gz",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T1_ucla/alignments/rna/IPISRC044_tumor_T1_ucla_rna.md.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T1_ucla/alignments/rna/IPISRC044_tumor_T1_ucla_rna.md.bam.bai",
       "regions": [
         [
           "chr9",
-          3856146,
+          3856147,
           3856159
         ]
       ]
     },
     {
+      "archived_region": [
+        "chr14",
+        55627963,
+        55627968
+      ],
       "filename": "osteosarc_indels/KTN1.T1-short.sam.gz",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T1_ucla/alignments/rna/IPISRC044_tumor_T1_ucla_rna.md.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T1_ucla/alignments/rna/IPISRC044_tumor_T1_ucla_rna.md.bam.bai",
       "regions": [
         [
           "chr14",
-          55627962,
+          55627963,
           55627967
         ]
       ]
     },
     {
+      "archived_region": [
+        "chr9",
+        3856147,
+        3856160
+      ],
       "filename": "osteosarc_indels/GLIS3.T2-short.sam.gz",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T2_ucla/alignments/rna/IPISRC044_tumor_T2_ucla_rna.md.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T2_ucla/alignments/rna/IPISRC044_tumor_T2_ucla_rna.md.bam.bai",
       "regions": [
         [
           "chr9",
-          3856146,
+          3856147,
           3856159
         ]
       ]
     },
     {
+      "archived_region": [
+        "chr14",
+        55627963,
+        55627968
+      ],
       "filename": "osteosarc_indels/KTN1.T2-short.sam.gz",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T2_ucla/alignments/rna/IPISRC044_tumor_T2_ucla_rna.md.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T2_ucla/alignments/rna/IPISRC044_tumor_T2_ucla_rna.md.bam.bai",
       "regions": [
         [
           "chr14",
-          55627962,
+          55627963,
           55627967
         ]
       ]
@@ -175,6 +225,7 @@
     {
       "filename": "osteosarc_all_variants/source/t2-all-variant-regions.bam",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/processed/STAR/25.03.23.rna.ucla.2025.01.resection.tcga.d32.protocolAligned.sorted.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/processed/STAR/25.03.23.rna.ucla.2025.01.resection.tcga.d32.protocolAligned.sorted.bam.bai",
       "regions": [
         [
           "chr7",
@@ -1051,6 +1102,7 @@
     {
       "filename": "osteosarc_rna_overlay/source/t2-pvac-regions.bam",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/processed/STAR/25.03.23.rna.ucla.2025.01.resection.tcga.d32.protocolAligned.sorted.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/processed/STAR/25.03.23.rna.ucla.2025.01.resection.tcga.d32.protocolAligned.sorted.bam.bai",
       "regions": [
         [
           "chr1",
@@ -1157,6 +1209,7 @@
     {
       "filename": "osteosarc_shared/vaccine-rna-v1/28-NTF3-chr12-5494381-53f498a544883d51.bam",
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT.tagged.bam",
+      "original_index_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT.tagged.bam.bai",
       "preserve_all_records": true,
       "regions": [
         [

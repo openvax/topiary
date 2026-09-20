@@ -78,7 +78,8 @@ def acquire(root, *, cache=None, alignment_source=BAM, index_path=None):
     alignment_source : str or path-like
         Original indexed RNA alignment, or a local alignment for replay.
     index_path : path-like, optional
-        Explicit alignment index. Otherwise Osteosarc resolves the index.
+        Explicit alignment index. The default RNA product uses its published
+        BAM.bai URL; local alignments may use their adjacent index.
 
     Returns
     -------
@@ -91,6 +92,8 @@ def acquire(root, *, cache=None, alignment_source=BAM, index_path=None):
     from scripts.osteosarc_variant_audit import fetch_snapshot
 
     cache = cache if cache is not None else Cache()
+    if index_path is None and alignment_source == BAM:
+        index_path = BAM + ".bai"
     source = root / "source"
     source.mkdir(parents=True, exist_ok=True)
     receipts = {name: fetch_snapshot(url, source / name, cache=cache)

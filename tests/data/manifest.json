@@ -194,7 +194,7 @@
     },
     {
       "filename": "osteosarc_indels/manifest.json",
-      "sha256": "b6006653fa751cdb28a87760b279672c3d439be0a5ac9af1851529c96a25bc37",
+      "sha256": "0e99dfc29fd6f96303043178c035c1c4a54dc1565909dcfd83fa98a9426f56a0",
       "size_bytes": 28503,
       "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/manifest.json"
     },
@@ -620,8 +620,8 @@
     },
     {
       "filename": "sid-fixtures.json",
-      "sha256": "42839fe94e41c0ec3076e445aa906333982ef00e460f05e59defcdbb3d3fd982",
-      "size_bytes": 58729,
+      "sha256": "8608c3dd5cb2d5338eb4ce0b4ab6de899240c7d88bbb63e0b19870a423fecb07",
+      "size_bytes": 62393,
       "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/sid-fixtures.json"
     }
   ],
@@ -1600,7 +1600,7 @@
       "regions": [
         [
           "chr9",
-          3856146,
+          3856147,
           3856159
         ]
       ],
@@ -1614,7 +1614,7 @@
       "regions": [
         [
           "chr9",
-          3856146,
+          3856147,
           3856159
         ]
       ],
@@ -1628,7 +1628,7 @@
       "regions": [
         [
           "chr9",
-          3856146,
+          3856147,
           3856159
         ]
       ],
@@ -1642,7 +1642,7 @@
       "regions": [
         [
           "chr9",
-          3856146,
+          3856147,
           3856159
         ]
       ],
@@ -1656,7 +1656,7 @@
       "regions": [
         [
           "chr14",
-          55627962,
+          55627963,
           55627967
         ]
       ],
@@ -1670,7 +1670,7 @@
       "regions": [
         [
           "chr14",
-          55627962,
+          55627963,
           55627967
         ]
       ],
@@ -1684,7 +1684,7 @@
       "regions": [
         [
           "chr14",
-          55627962,
+          55627963,
           55627967
         ]
       ],
@@ -1698,7 +1698,7 @@
       "regions": [
         [
           "chr14",
-          55627962,
+          55627963,
           55627967
         ]
       ],
@@ -1830,7 +1830,7 @@
       "source_sha256": "e1d5f92ae9c5c2f44b02ed64e8b3a9e6f2093f89d8d5ae47ca8fcc1e5958520e"
     }
   },
-  "recipe_sha256": "42839fe94e41c0ec3076e445aa906333982ef00e460f05e59defcdbb3d3fd982",
+  "recipe_sha256": "8608c3dd5cb2d5338eb4ce0b4ab6de899240c7d88bbb63e0b19870a423fecb07",
   "schema_version": 1,
-  "total_size_bytes": 10620206
+  "total_size_bytes": 10623870
 }

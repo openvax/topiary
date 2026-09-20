@@ -155,11 +155,12 @@ def test_audit_acquisition_uses_osteosarc_and_retains_historical_alleles(tmp_pat
 
 
 @pytest.mark.isovar
-def test_overlay_acquisition_to_evidence_uses_osteosarc_offline(tmp_path, monkeypatch):
+@pytest.mark.parametrize("source_kind", ["local", "published"])
+def test_overlay_acquisition_to_evidence_uses_osteosarc_offline(tmp_path, monkeypatch, source_kind):
     import pandas as pd
     import requests
     from osteosarc import Cache
-    from scripts.osteosarc_rna_overlay import acquire, build, SOURCES
+    from scripts.osteosarc_rna_overlay import acquire, build, SOURCES, BAM
     from .osteosarc_overlay_helpers import ROOT as overlay
 
     cache = Cache(tmp_path / "cache", offline=True)
@@ -171,11 +172,25 @@ def test_overlay_acquisition_to_evidence_uses_osteosarc_offline(tmp_path, monkey
     monkeypatch.setattr(requests.sessions.Session, "request", no_download)
     output = tmp_path / "output"
     bam = overlay / "source/t2-pvac-regions.bam"
-    acquire(output, cache=cache, alignment_source=bam, index_path=str(bam) + ".bai")
+    kwargs = dict(alignment_source=bam, index_path=str(bam) + ".bai")
+    if source_kind == "published":
+        import osteosarc
+        native_extract = osteosarc.extract_reads
+
+        def published_fixture(source, regions, *, index, cache):
+            # Exercise the public default's source/index selection, then use
+            # the actual regional source records to keep this test offline.
+            assert source == BAM
+            assert index == BAM + ".bai"
+            return native_extract(bam, regions, index=str(bam) + ".bai", cache=cache)
+
+        monkeypatch.setattr(osteosarc, "extract_reads", published_fixture)
+        kwargs = {}
+    acquire(output, cache=cache, **kwargs)
     receipt = json.loads((output / "source/bam.receipt.json").read_text())
     assert receipt["osteosarc_extraction"]["records"] == 8312
     build(output)
     for name in ("allele-evidence.tsv", "transcript-evidence.tsv"):
         pd.testing.assert_frame_equal(pd.read_csv(output / name, sep="\t"),
                                       pd.read_csv(overlay / name, sep="\t"))
-    acquire(output, cache=cache, alignment_source=bam, index_path=str(bam) + ".bai")
+    acquire(output, cache=cache, **kwargs)
