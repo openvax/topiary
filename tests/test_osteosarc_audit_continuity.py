@@ -4,6 +4,8 @@ import json
 import gzip
 import hashlib
 from pathlib import Path
+
+from .sid_data import sid_data_root
 import shutil
 
 import pytest
@@ -12,7 +14,7 @@ from scripts.osteosarc_rna_overlay import digest, write_json
 from scripts.osteosarc_variant_audit import audit, build_reference, report
 
 
-DATA = Path(__file__).parent / "data/osteosarc_all_variants"
+DATA = sid_data_root("osteosarc_all_variants")
 
 
 @pytest.mark.isovar

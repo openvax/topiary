@@ -1,0 +1,1836 @@
+{
+  "assets": [
+    {
+      "filename": "osteosarc/bulk_star_t0.sam.gz",
+      "sha256": "e8a808483011ccb30b883e42dddb947d53497966fa6b19a9a1f8e8dde6284b0b",
+      "size_bytes": 21376,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc/bulk_star_t0.sam.gz"
+    },
+    {
+      "filename": "osteosarc/manifest.json",
+      "sha256": "8bb33fff424c0d231b5742a5f9c92b442830e8ddf1e446757eff460a221bbc3e",
+      "size_bytes": 584231,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc/manifest.json"
+    },
+    {
+      "filename": "osteosarc/ont_t1.sam.gz",
+      "sha256": "75622542c386a95464357e56c29e01c4a6c55a302a78e208d23e22713bec8312",
+      "size_bytes": 291692,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc/ont_t1.sam.gz"
+    },
+    {
+      "filename": "osteosarc/protein_reference/protein_reference_manifest.json",
+      "sha256": "789a96723e81827c756ced6dd201411309c219b91b5426b5e94a8ad0317b855e",
+      "size_bytes": 1576,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc/protein_reference/protein_reference_manifest.json"
+    },
+    {
+      "filename": "osteosarc/protein_reference/reference.cdna.fa.gz",
+      "sha256": "680cc56c2646b12e45102ba114f24b76ec49b22f74e4835ebdc4d6136b7249c9",
+      "size_bytes": 11515,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc/protein_reference/reference.cdna.fa.gz"
+    },
+    {
+      "filename": "osteosarc/protein_reference/reference.gtf.gz",
+      "sha256": "9815129901258827a20376b3f629c8a0e9b5432b995d4fa5767cb35a8d20fae6",
+      "size_bytes": 5321,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc/protein_reference/reference.gtf.gz"
+    },
+    {
+      "filename": "osteosarc/protein_reference/reference.pep.fa.gz",
+      "sha256": "77aaf87ed41f94ab6031796117d3b5f1cc09445af48db6b524f00be79f6149d4",
+      "size_bytes": 6108,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc/protein_reference/reference.pep.fa.gz"
+    },
+    {
+      "filename": "osteosarc/selection.json",
+      "sha256": "0592af3b2b396df755d821e7a60f25ce2c33ac3404160b5d4d5841305bfbc444",
+      "size_bytes": 1691,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc/selection.json"
+    },
+    {
+      "filename": "osteosarc/source_registry.yaml",
+      "sha256": "9f56ee7170b4d1654416861349e48c083c10e90030f1bd7bb8629c2e15d83750",
+      "size_bytes": 2020,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc/source_registry.yaml"
+    },
+    {
+      "filename": "osteosarc_all_variants/checked-inventory.json",
+      "sha256": "e61c71dda2e6d390e579de8d475f1f072d832badb06ad185a18a20be03e8526e",
+      "size_bytes": 171455,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/checked-inventory.json"
+    },
+    {
+      "filename": "osteosarc_all_variants/expected.json",
+      "sha256": "2570c8252cbeb82a4825a2a42c02c46eca07a7f68cc0c8c137cfd0768345cc7a",
+      "size_bytes": 554272,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/expected.json"
+    },
+    {
+      "filename": "osteosarc_all_variants/inventory.json",
+      "sha256": "57b04f1adba8b4f4ab36afb3f500a5c4554a6fdef8945d47457640f202b5bbce",
+      "size_bytes": 107513,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/inventory.json"
+    },
+    {
+      "filename": "osteosarc_all_variants/manifest.json",
+      "sha256": "3803a599bfae8cb4830b02e08f8adae1834848b9c356e4140774c4d71c6bd489",
+      "size_bytes": 1684,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/manifest.json"
+    },
+    {
+      "filename": "osteosarc_all_variants/reference/manifest.json",
+      "sha256": "cd74762f076032480d7c600ca2064aeeb1d8d87ba9ee730465544b3e786a2647",
+      "size_bytes": 18342,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/reference/manifest.json"
+    },
+    {
+      "filename": "osteosarc_all_variants/reference/reference.cdna.fa.gz",
+      "sha256": "fbcd720753730949bf1c65801f43b446dc51e18fc80be113427f1eee455e35d2",
+      "size_bytes": 489864,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/reference/reference.cdna.fa.gz"
+    },
+    {
+      "filename": "osteosarc_all_variants/reference/reference.gtf.gz",
+      "sha256": "23e291ed1853b6f401f18407d37c5488e8b0286c35884e7c28d99ae3d82635e4",
+      "size_bytes": 366602,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/reference/reference.gtf.gz"
+    },
+    {
+      "filename": "osteosarc_all_variants/reference/reference.pep.fa.gz",
+      "sha256": "203be33311608b658ff001378ba282da101946f0ee146258aeeba8a852467f66",
+      "size_bytes": 169495,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/reference/reference.pep.fa.gz"
+    },
+    {
+      "filename": "osteosarc_all_variants/run.json",
+      "sha256": "607cac6cd7b76a7cba7feb589cf69bd13f8524f251f0be96fdaa773e75e9ba72",
+      "size_bytes": 585,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/run.json"
+    },
+    {
+      "filename": "osteosarc_all_variants/source/bam.receipt.json",
+      "sha256": "dbc9150a9cc4a80053d853b85386d92ac1b458c1da7bff71beaaa787cf54c124",
+      "size_bytes": 24354,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/source/bam.receipt.json"
+    },
+    {
+      "filename": "osteosarc_all_variants/source/t2-all-variant-regions.bam",
+      "sha256": "1787492e8a67f214711f5fe0a8f79bd6e3442e48e7b3a9ebfebb520e87037e0c",
+      "size_bytes": 2220246,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/source/t2-all-variant-regions.bam"
+    },
+    {
+      "filename": "osteosarc_all_variants/source/t2-all-variant-regions.bam.bai",
+      "sha256": "a03e23ea080b1aba69cc8a4085afa8e59f6c440ba7c0bafe2a2d1f6c25325f3b",
+      "size_bytes": 1249336,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/source/t2-all-variant-regions.bam.bai"
+    },
+    {
+      "filename": "osteosarc_all_variants/source/vafs-columns.tsv",
+      "sha256": "935507a2cf33688243b92285e5107c6e814aee635c5ce5f8963f2b8f3ec0535f",
+      "size_bytes": 1482,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/source/vafs-columns.tsv"
+    },
+    {
+      "filename": "osteosarc_all_variants/source/vafs.tsv.gz",
+      "sha256": "c20330f27e7bf182db4185d67b41ca75cf6825211b2abe572ccebf1e80d3c82d",
+      "size_bytes": 73641,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/source/vafs.tsv.gz"
+    },
+    {
+      "filename": "osteosarc_all_variants/source/variants.html.gz",
+      "sha256": "625e302b77f651919baa344045943296545a37bd057408dbdead7109ec4d9e3f",
+      "size_bytes": 41803,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_all_variants/source/variants.html.gz"
+    },
+    {
+      "filename": "osteosarc_indels/GLIS3.T1-ONT-dedup.sam.gz",
+      "sha256": "364931a191955765c435b11b8ccf15aa65f02e7039a1c227ac9ef053561ff5fe",
+      "size_bytes": 19890,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/GLIS3.T1-ONT-dedup.sam.gz"
+    },
+    {
+      "filename": "osteosarc_indels/GLIS3.T1-short.sam.gz",
+      "sha256": "bf75e504ac4bb4a555b40f8229907343a2de6a880d2aa0076b6e03b7c0ad53fb",
+      "size_bytes": 26110,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/GLIS3.T1-short.sam.gz"
+    },
+    {
+      "filename": "osteosarc_indels/GLIS3.T2-ONT-dedup.sam.gz",
+      "sha256": "e4e984c926b1ef86f682f2927b2c0b60ac9aec8b4c7636e25789b99d7800317e",
+      "size_bytes": 16717,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/GLIS3.T2-ONT-dedup.sam.gz"
+    },
+    {
+      "filename": "osteosarc_indels/GLIS3.T2-short.sam.gz",
+      "sha256": "729da66da08888ef2cb3bb085491ccccc4047b7d5c34b0fa99c2dc6cd7db0c24",
+      "size_bytes": 20522,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/GLIS3.T2-short.sam.gz"
+    },
+    {
+      "filename": "osteosarc_indels/KTN1.T1-ONT-dedup.sam.gz",
+      "sha256": "efdca75b84de857473f44c518d37e1c8ff384dbfc67a1671563bf06a06d8cb3e",
+      "size_bytes": 657790,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/KTN1.T1-ONT-dedup.sam.gz"
+    },
+    {
+      "filename": "osteosarc_indels/KTN1.T1-short.sam.gz",
+      "sha256": "bc863273389f024e84d3b7fada3ed43fe4a18f74bdf05d1c1533fa78d96075c1",
+      "size_bytes": 101774,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/KTN1.T1-short.sam.gz"
+    },
+    {
+      "filename": "osteosarc_indels/KTN1.T2-ONT-dedup.sam.gz",
+      "sha256": "4933c184bebe4dfdc5afa8999fdb146d77c8b25bb6fffc54e158fe94caea12e7",
+      "size_bytes": 1396484,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/KTN1.T2-ONT-dedup.sam.gz"
+    },
+    {
+      "filename": "osteosarc_indels/KTN1.T2-short.sam.gz",
+      "sha256": "de3b1ea447b39cf0d70dc40bb3475a0e3540e40503bfac0aeb9da0ecfdd40243",
+      "size_bytes": 62339,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/KTN1.T2-short.sam.gz"
+    },
+    {
+      "filename": "osteosarc_indels/manifest.json",
+      "sha256": "b6006653fa751cdb28a87760b279672c3d439be0a5ac9af1851529c96a25bc37",
+      "size_bytes": 28503,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/manifest.json"
+    },
+    {
+      "filename": "osteosarc_indels/protein_reference/protein_reference_manifest.json",
+      "sha256": "02edfd073bacc7b4f5facb32c2cabfd21e3cbc15d04875cd8470161daf1edd8b",
+      "size_bytes": 1452,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/protein_reference/protein_reference_manifest.json"
+    },
+    {
+      "filename": "osteosarc_indels/protein_reference/reference.cdna.fa.gz",
+      "sha256": "6ac125a2c1a2afe3a2306f61d12214bb14340572b76f5138219189e26a028ed7",
+      "size_bytes": 3884,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/protein_reference/reference.cdna.fa.gz"
+    },
+    {
+      "filename": "osteosarc_indels/protein_reference/reference.gtf.gz",
+      "sha256": "4bbab34abfbeb94cf328c2798d9e3e56a7e1e1f9bfea99b65b49cfc9072ac947",
+      "size_bytes": 2119,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/protein_reference/reference.gtf.gz"
+    },
+    {
+      "filename": "osteosarc_indels/protein_reference/reference.pep.fa.gz",
+      "sha256": "a8a83d476e9cf8f90182b5f17306cf3a21af672150869ec27537f5807b688f29",
+      "size_bytes": 1572,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/protein_reference/reference.pep.fa.gz"
+    },
+    {
+      "filename": "osteosarc_indels/selection.json",
+      "sha256": "efbab011ff48eed77365c89ebba216b984bad31ae17879c6ebf3d72aeb335665",
+      "size_bytes": 266,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_indels/selection.json"
+    },
+    {
+      "filename": "osteosarc_rearrangements/GABBR1--SLC29A1-T1.json.gz",
+      "sha256": "8de0ce095686f5845795e2ad229658f762c4eb3e4caeca537c4c4888fdb55d54",
+      "size_bytes": 11911,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rearrangements/GABBR1--SLC29A1-T1.json.gz"
+    },
+    {
+      "filename": "osteosarc_rearrangements/GABBR1--SLC29A1-T2.json.gz",
+      "sha256": "dec239010f9d6d2eb0f95c22b92a2db424c927475b98d7356480053c62995d24",
+      "size_bytes": 11000,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rearrangements/GABBR1--SLC29A1-T2.json.gz"
+    },
+    {
+      "filename": "osteosarc_rearrangements/OTUD7A--FMN1-T2.json.gz",
+      "sha256": "59d83961b6c3a0f3a0f014af40c09e2c6bdf2b4b7db6b92ea00f2bd9d3173b42",
+      "size_bytes": 21238,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rearrangements/OTUD7A--FMN1-T2.json.gz"
+    },
+    {
+      "filename": "osteosarc_rearrangements/manifest.json",
+      "sha256": "8bd4549afa1522de0823f0d4439444567e9cee08c29402a00626a4860195afb4",
+      "size_bytes": 10838,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rearrangements/manifest.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/.gitattributes",
+      "sha256": "3bd6f5d3d6fea9ac97c66d587c8726d7704f129f7536f4bcb60c9e13eb22d035",
+      "size_bytes": 138,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/.gitattributes"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/acquisition.json",
+      "sha256": "b524247128263423a6e5f85ef7901f6953d83abbd91538abd2f1898bd6853438",
+      "size_bytes": 13635,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/acquisition.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/allele-evidence.tsv",
+      "sha256": "e4d73a82085223f9e10d7dc097ae9338f2cedffbbc38c266d2594bc267a1dad8",
+      "size_bytes": 1211,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/allele-evidence.tsv"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/manifest.json",
+      "sha256": "d252b6dea62b426ea644b4c3b931c61558291c3946602450277cdcb88126c1d1",
+      "size_bytes": 2983,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/manifest.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr11_20080142_C_T.json",
+      "sha256": "d0c8f920a8bfa3e46e92df779dd12a9137d95ed0d905d6d036f25938c2fc4db6",
+      "size_bytes": 160,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr11_20080142_C_T.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr14_101980529_G_A.json",
+      "sha256": "b19eaeb5cf7a5b269effef46be93c8862d7a3ff94023726d1fa4a142bbad1f8f",
+      "size_bytes": 162,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr14_101980529_G_A.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr17_51154443_G_A.json",
+      "sha256": "685cbb88e2d06c0a093b5bbf5b63f06aa5394da013015424fa2709f39a482950",
+      "size_bytes": 160,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr17_51154443_G_A.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr17_80327830_ATAC_A.json",
+      "sha256": "548653accb2fe9aaaf9777aca4851809f8abb2cfc3e50e3e7968007e3ece1680",
+      "size_bytes": 163,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr17_80327830_ATAC_A.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr1_151185547_T_C.json",
+      "sha256": "895d5e81d9929e0be5b55ad032cf5c9442b43f6e2a663641fccd8d631338b87b",
+      "size_bytes": 161,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr1_151185547_T_C.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr1_151242178_AG_A.json",
+      "sha256": "a63a66dead6e99bc60328679f50516955ce0660abd232c51c480e8fc5a683742",
+      "size_bytes": 162,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr1_151242178_AG_A.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr1_23362762_G_C.json",
+      "sha256": "d00a40c64ec7e85ef8ba74d6f2d868adde5911d046fd47cee128cd84c8c0f07a",
+      "size_bytes": 159,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr1_23362762_G_C.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr2_171813470_A_G.json",
+      "sha256": "271d1fbb4bd51b3533973e33869b50358163bb97e2fc966c6956565ed221d093",
+      "size_bytes": 161,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr2_171813470_A_G.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr3_15645183_T_G.json",
+      "sha256": "5dd5e475be5fbb66bfc050b1ba4629093c0d7c5a6982c2388e3253134ceb3602",
+      "size_bytes": 159,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr3_15645183_T_G.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr3_77607853_C_A.json",
+      "sha256": "61d70fd1bbca87604b26ee7b8938e513820ad4e0be2ad5737b629d9dcbd9a4d1",
+      "size_bytes": 159,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr3_77607853_C_A.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr5_168399513_T_G.json",
+      "sha256": "acb3b3a4d1c057d7b5d78129b54becf759a17d513580034e6afc10e1aee3680a",
+      "size_bytes": 161,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr5_168399513_T_G.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr6_110228838_G_C.json",
+      "sha256": "2aadd5904bb8a83fa649b49b5fa616d00928dcf3675377bd32d854da4d054119",
+      "size_bytes": 161,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr6_110228838_G_C.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr6_26055824_ACCTTGGGCTTAGCGG_A.json",
+      "sha256": "d0fdd478f4b62275d0d33d64e52517934bf7845d33f740902a7473f5193f336c",
+      "size_bytes": 174,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr6_26055824_ACCTTGGGCTTAGCGG_A.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr7_133274996_G_T.json",
+      "sha256": "1a9835060a9d6436ed3990c64a5d21d11157eb52b0e54121ba59010080eea2ac",
+      "size_bytes": 161,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr7_133274996_G_T.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr7_98241127_TG_T.json",
+      "sha256": "31655d8fe5c82c16fdf13c74bfd1312d2ce7f9f9e69237cd20624af48ca99266",
+      "size_bytes": 160,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr7_98241127_TG_T.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr8_22192067_T_A.json",
+      "sha256": "2ad348c203967de25fe32f28c4758e4282786c186fb68a9f3882d354be721041",
+      "size_bytes": 159,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr8_22192067_T_A.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr9_133057893_GGAGGAGGAGGAA_G.json",
+      "sha256": "3acae3ce0a99f2712f3e76edb7eb6de71f40c9ce9bec1c2711a7955b16cee19d",
+      "size_bytes": 173,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr9_133057893_GGAGGAGGAGGAA_G.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr9_70298024_G_A.json",
+      "sha256": "655cc17cc90f7f0896b78677ba55eeaeacdc313d1c6e62e02dea573b42f668c1",
+      "size_bytes": 159,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr9_70298024_G_A.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chr9_97910412_C_T.json",
+      "sha256": "a930fc7cb9b9c66cae140902fbed0750575f151b166ff974191e54bdd78772b9",
+      "size_bytes": 159,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chr9_97910412_C_T.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/chrX_46501045_G_A.json",
+      "sha256": "e6abd80a63d8c8f6dd11b959ade1190949b275a92db8a697eea7e2beca21e0b6",
+      "size_bytes": 159,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/chrX_46501045_G_A.json"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/t2-pvac-regions.bam",
+      "sha256": "2adc837d0d0ccb5c607ba1a4cf83c8bb1de285c631ec98f8d34e2c06f3894231",
+      "size_bytes": 386265,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/t2-pvac-regions.bam"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/t2-pvac-regions.bam.bai",
+      "sha256": "4dafb28a0e2c49c7fb9da733459edab53752df65950f63fcbad57bf07db88db1",
+      "size_bytes": 619008,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/t2-pvac-regions.bam.bai"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/t2-pvac-regions.header.sam",
+      "sha256": "d6c614f17b38860f56622f9722a62843b51fd901e3519000c93b56c5f2dc0b8f",
+      "size_bytes": 112818,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/t2-pvac-regions.header.sam"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/t2.genes.results",
+      "sha256": "1ce3174b7b559e08490f242523d9954937cbf4351320e487685ebda15a9f25ab",
+      "size_bytes": 6176,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/t2.genes.results"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/source/t2.isoforms.results",
+      "sha256": "a9cab90452a69db393dde21a99759488487942c93b13dc1e58d5a06e36eba870",
+      "size_bytes": 4617,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/source/t2.isoforms.results"
+    },
+    {
+      "filename": "osteosarc_rna_overlay/transcript-evidence.tsv",
+      "sha256": "c62bd02dcba75684780a91d39e9eca412672f97331fc6acbc26aa904593c787c",
+      "size_bytes": 91743,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_rna_overlay/transcript-evidence.tsv"
+    },
+    {
+      "filename": "osteosarc_shared/continuity-reference.json",
+      "sha256": "b4f470207c2709d213b738db8d7cccf70f13678beca0dfd0f684f10f1f29acf2",
+      "size_bytes": 1140,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_shared/continuity-reference.json"
+    },
+    {
+      "filename": "osteosarc_shared/fam157a-ensembl87.gtf",
+      "sha256": "320a1935114db87ee441e25c75283cdbc044d7856a62c1ecd3641cd8d64ca01c",
+      "size_bytes": 15637,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_shared/fam157a-ensembl87.gtf"
+    },
+    {
+      "filename": "osteosarc_shared/fam157a-ensembl87.json",
+      "sha256": "71f29a7364c6861af6b41013640000654fd2adad11e4939347fa02ba1dc7dd88",
+      "size_bytes": 332,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_shared/fam157a-ensembl87.json"
+    },
+    {
+      "filename": "osteosarc_shared/prediction-contract-v1.json",
+      "sha256": "73ef480fed780c7c42a5550dfc8e93515811d55fbc803a68f4e095297e75b8f5",
+      "size_bytes": 4460,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_shared/prediction-contract-v1.json"
+    },
+    {
+      "filename": "osteosarc_shared/translation-v1.json",
+      "sha256": "f6bfc70c1b1630f37ae5986955599caace84795951dc3e67893c006ff73c5b9b",
+      "size_bytes": 4156,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_shared/translation-v1.json"
+    },
+    {
+      "filename": "osteosarc_shared/vaccine-rna-v1/28-NTF3-chr12-5494381-53f498a544883d51.bam",
+      "sha256": "e1d5f92ae9c5c2f44b02ed64e8b3a9e6f2093f89d8d5ae47ca8fcc1e5958520e",
+      "size_bytes": 39638,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_shared/vaccine-rna-v1/28-NTF3-chr12-5494381-53f498a544883d51.bam"
+    },
+    {
+      "filename": "osteosarc_shared/vaccine-rna-v1/28-NTF3-chr12-5494381-53f498a544883d51.bam.bai",
+      "sha256": "77d8db05f8fa9afc281041453a02206fdbd62dda54d6d7a2a360dfb1d6ebc3e4",
+      "size_bytes": 4328,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_shared/vaccine-rna-v1/28-NTF3-chr12-5494381-53f498a544883d51.bam.bai"
+    },
+    {
+      "filename": "osteosarc_shared/vaccine-rna-v1/manifest.json",
+      "sha256": "53dba8834d69531dfdbcbbd1c7a759ee73e634f23f2af9e0237623c993070ed8",
+      "size_bytes": 3714,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/osteosarc_shared/vaccine-rna-v1/manifest.json"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.25.combined.aggregated.tsv",
+      "sha256": "f6a2cc7f19393304cc36afc2aa37b7ee4ee44b9b185f60329a75cda93a393207",
+      "size_bytes": 4102,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.25.combined.aggregated.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.25.combined.all_epitopes.tsv",
+      "sha256": "3ccd4f3fe6cb6e96c0e61c99e772159376296457bd2577d83125e213be3d246d",
+      "size_bytes": 42209,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.25.combined.all_epitopes.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.25.combined.filtered.tsv",
+      "sha256": "06d19414f7d65a08255ff7b66db075cdc01afd8e84b925d2e32cbbee413e30be",
+      "size_bytes": 2515,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.25.combined.filtered.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.25.mhc_class_i.aggregated.tsv",
+      "sha256": "ece8cbf506dc8d4b7671aea0ebbd39d9cb113c268dc83ac0200d667abad24cf0",
+      "size_bytes": 3756,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.25.mhc_class_i.aggregated.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.25.mhc_class_i.all_epitopes.tsv",
+      "sha256": "bf4dfbf7c75142fd62b1794b67ce1e9b56e2e4559d156270b39126b7d119cdf8",
+      "size_bytes": 37302,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.25.mhc_class_i.all_epitopes.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.25.mhc_class_i.filtered.tsv",
+      "sha256": "5d7512e6184c38da4f27becbf5a5f5e37674b55eb05d6293bde1af634aae2668",
+      "size_bytes": 2021,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.25.mhc_class_i.filtered.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.25.mhc_class_ii.aggregated.tsv",
+      "sha256": "926ccee4c0d66039aa8c2b43662cc1386cfd30b754aba873b83a7df04206cbad",
+      "size_bytes": 4130,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.25.mhc_class_ii.aggregated.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.25.mhc_class_ii.all_epitopes.tsv",
+      "sha256": "9416830543147784ba021661988fe40ddb4a96b1f1520658834dcc58864c0227",
+      "size_bytes": 23724,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.25.mhc_class_ii.all_epitopes.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.25.mhc_class_ii.filtered.tsv",
+      "sha256": "c0ee40c5059286fdd15197aede577885b22241d9109c70c1278abb7dcd3c9664",
+      "size_bytes": 1351,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.25.mhc_class_ii.filtered.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27-extended.mhc_class_ii.aggregated.tsv",
+      "sha256": "2cef8fdbddb5c127414f070a433476230dc813c46ef13882c663a65dfa2d4485",
+      "size_bytes": 5029,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27-extended.mhc_class_ii.aggregated.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27-extended.mhc_class_ii.all_epitopes.tsv",
+      "sha256": "f4b0f736ba5f92ea9311cbf158cf6a241f74b994cc3dba88ebdeb5dce768ae31",
+      "size_bytes": 28355,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27-extended.mhc_class_ii.all_epitopes.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27-extended.mhc_class_ii.filtered.tsv",
+      "sha256": "c0ee40c5059286fdd15197aede577885b22241d9109c70c1278abb7dcd3c9664",
+      "size_bytes": 1351,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27-extended.mhc_class_ii.filtered.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27.combined.aggregated.tsv",
+      "sha256": "da718d27d8e747cb40425261a35575173b6d8857f995880756f2b28e3ab44d3f",
+      "size_bytes": 5018,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27.combined.aggregated.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27.combined.all_epitopes.tsv",
+      "sha256": "cf9cbd846429d9be1e32fafe8268363d70c41fb81789975c35a607ef99438399",
+      "size_bytes": 49836,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27.combined.all_epitopes.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27.combined.filtered.tsv",
+      "sha256": "06d19414f7d65a08255ff7b66db075cdc01afd8e84b925d2e32cbbee413e30be",
+      "size_bytes": 2515,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27.combined.filtered.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27.mhc_class_i.aggregated.tsv",
+      "sha256": "4649c5d5376933f9bb2f18546cee7abc83a868f7562d194aad5589b9a537e6cd",
+      "size_bytes": 4587,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27.mhc_class_i.aggregated.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27.mhc_class_i.all_epitopes.tsv",
+      "sha256": "41c264126c400779e7faa057a1e3c07cc2387595f3ea4529a1dc811ad0c30598",
+      "size_bytes": 43832,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27.mhc_class_i.all_epitopes.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27.mhc_class_i.filtered.tsv",
+      "sha256": "5d7512e6184c38da4f27becbf5a5f5e37674b55eb05d6293bde1af634aae2668",
+      "size_bytes": 2021,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27.mhc_class_i.filtered.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27.mhc_class_ii.aggregated.tsv",
+      "sha256": "f1a27f2b05a4251f161d6ad66610cf6be94f0856115b4bcd786d9151c074b11a",
+      "size_bytes": 5099,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27.mhc_class_ii.aggregated.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27.mhc_class_ii.all_epitopes.tsv",
+      "sha256": "aa67254dbddbd2388ebdda97402bfeb36e433870d898270217bc097e24c70922",
+      "size_bytes": 28650,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27.mhc_class_ii.all_epitopes.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27.mhc_class_ii.filtered.tsv",
+      "sha256": "c0ee40c5059286fdd15197aede577885b22241d9109c70c1278abb7dcd3c9664",
+      "size_bytes": 1351,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27.mhc_class_ii.filtered.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/2025.04.27.variant-input.tsv",
+      "sha256": "32a83e04c9cfc8750cc420110ec64c079d6410ef4baa1809afd2a241e79babeb",
+      "size_bytes": 81915,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/2025.04.27.variant-input.tsv"
+    },
+    {
+      "filename": "pvacseq/osteosarc/manifest.json",
+      "sha256": "83c5e2484433926493cfc74f1389f9eddef941c167eea0bc052c0a50377a8efe",
+      "size_bytes": 54964,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/pvacseq/osteosarc/manifest.json"
+    },
+    {
+      "filename": "sid-fixtures.json",
+      "sha256": "42839fe94e41c0ec3076e445aa906333982ef00e460f05e59defcdbb3d3fd982",
+      "size_bytes": 58729,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.67.0/tests/data/sid-fixtures.json"
+    }
+  ],
+  "data_version": "topiary-sid-v1",
+  "dataset": "osteosarc",
+  "groups": [
+    "osteosarc",
+    "osteosarc_indels",
+    "osteosarc_rearrangements",
+    "osteosarc_rna_overlay",
+    "osteosarc_all_variants",
+    "osteosarc_shared",
+    "pvacseq/osteosarc"
+  ],
+  "read_selections": {
+    "osteosarc/bulk_star_t0.sam.gz": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/rna-seq/reprocessed/BG003082/BG003082.Aligned.sortedByCoord.out.md.bam",
+      "original_records": 482,
+      "regions": [
+        [
+          "chr1",
+          151242175,
+          151242181
+        ],
+        [
+          "chr2",
+          209694765,
+          209694792
+        ],
+        [
+          "chr6",
+          26055821,
+          26055841
+        ],
+        [
+          "chr7",
+          133274993,
+          133274998
+        ],
+        [
+          "chr9",
+          133057890,
+          133057907
+        ],
+        [
+          "chr14",
+          101980526,
+          101980531
+        ]
+      ],
+      "sam_records_sha256": "e6c87b52bbd4544a24174970e2c742ccacc802d25ea938ee543b8afd4fb9e568",
+      "selected_records": 482,
+      "source_sha256": "e8a808483011ccb30b883e42dddb947d53497966fa6b19a9a1f8e8dde6284b0b"
+    },
+    "osteosarc/ont_t1.sam.gz": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT_dedup/IPISRC044_T1_sclrs_ONT_dedup.bam",
+      "original_records": 242,
+      "regions": [
+        [
+          "chr1",
+          151242175,
+          151242181
+        ],
+        [
+          "chr2",
+          209694765,
+          209694792
+        ],
+        [
+          "chr6",
+          26055821,
+          26055841
+        ],
+        [
+          "chr7",
+          133274993,
+          133274998
+        ],
+        [
+          "chr9",
+          133057890,
+          133057907
+        ],
+        [
+          "chr14",
+          101980526,
+          101980531
+        ]
+      ],
+      "sam_records_sha256": "3fb1236600a2e15fcdaec1a2e3d3c90487acaa6fb93b0caf0563f25bbfc25e4d",
+      "selected_records": 242,
+      "source_sha256": "75622542c386a95464357e56c29e01c4a6c55a302a78e208d23e22713bec8312"
+    },
+    "osteosarc_all_variants/source/t2-all-variant-regions.bam": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/processed/STAR/25.03.23.rna.ucla.2025.01.resection.tcga.d32.protocolAligned.sorted.bam",
+      "original_records": 124046,
+      "regions": [
+        [
+          "chr7",
+          48410585,
+          48410590
+        ],
+        [
+          "chr19",
+          1065336,
+          1065341
+        ],
+        [
+          "chr7",
+          151218153,
+          151218158
+        ],
+        [
+          "chr3",
+          100850668,
+          100850673
+        ],
+        [
+          "chr17",
+          63497358,
+          63497363
+        ],
+        [
+          "chr12",
+          51913341,
+          51913346
+        ],
+        [
+          "chr2",
+          9521238,
+          9521243
+        ],
+        [
+          "chr1",
+          167824543,
+          167824548
+        ],
+        [
+          "chr6",
+          46856755,
+          46856760
+        ],
+        [
+          "chr12",
+          57732958,
+          57732963
+        ],
+        [
+          "chr19",
+          40238077,
+          40238082
+        ],
+        [
+          "chr4",
+          73412063,
+          73412068
+        ],
+        [
+          "chr15",
+          64915847,
+          64915852
+        ],
+        [
+          "chr4",
+          73097136,
+          73097141
+        ],
+        [
+          "chr2",
+          94813388,
+          94813393
+        ],
+        [
+          "chr1",
+          156940282,
+          156940287
+        ],
+        [
+          "chr2",
+          231215142,
+          231215147
+        ],
+        [
+          "chr1",
+          197102713,
+          197102718
+        ],
+        [
+          "chrX",
+          77599462,
+          77599467
+        ],
+        [
+          "chr9",
+          33262747,
+          33262752
+        ],
+        [
+          "chr7",
+          73498696,
+          73498701
+        ],
+        [
+          "chr8",
+          22192064,
+          22192069
+        ],
+        [
+          "chr6",
+          3129124,
+          3129129
+        ],
+        [
+          "chr12",
+          111644374,
+          111644379
+        ],
+        [
+          "chr7",
+          2541026,
+          2541031
+        ],
+        [
+          "chr12",
+          107642166,
+          107642171
+        ],
+        [
+          "chr3",
+          15645180,
+          15645185
+        ],
+        [
+          "chr6",
+          26448443,
+          26448448
+        ],
+        [
+          "chr2",
+          201209097,
+          201209102
+        ],
+        [
+          "chr11",
+          125038471,
+          125038476
+        ],
+        [
+          "chr6",
+          73818402,
+          73818407
+        ],
+        [
+          "chr6",
+          110228835,
+          110228840
+        ],
+        [
+          "chr3",
+          63770418,
+          63770423
+        ],
+        [
+          "chr9",
+          22056248,
+          22056253
+        ],
+        [
+          "chr1",
+          173811220,
+          173811225
+        ],
+        [
+          "chr15",
+          57451528,
+          57451550
+        ],
+        [
+          "chr9",
+          121115132,
+          121115137
+        ],
+        [
+          "chr13",
+          110449712,
+          110449717
+        ],
+        [
+          "chr17",
+          63910804,
+          63910809
+        ],
+        [
+          "chr8",
+          11844216,
+          11844221
+        ],
+        [
+          "chr1",
+          206022944,
+          206022949
+        ],
+        [
+          "chr7",
+          117791753,
+          117791758
+        ],
+        [
+          "chr6",
+          43186381,
+          43186386
+        ],
+        [
+          "chr9",
+          133652276,
+          133652281
+        ],
+        [
+          "chr1",
+          155033674,
+          155033679
+        ],
+        [
+          "chr4",
+          9450497,
+          9450502
+        ],
+        [
+          "chr5",
+          141526087,
+          141526092
+        ],
+        [
+          "chr19",
+          2214503,
+          2214508
+        ],
+        [
+          "chr5",
+          175441848,
+          175441853
+        ],
+        [
+          "chr14",
+          101980526,
+          101980531
+        ],
+        [
+          "chr14",
+          102030197,
+          102030202
+        ],
+        [
+          "chr13",
+          77918102,
+          77918107
+        ],
+        [
+          "chr7",
+          36894912,
+          36894917
+        ],
+        [
+          "chr14",
+          88681942,
+          88681947
+        ],
+        [
+          "chr18",
+          45925848,
+          45925853
+        ],
+        [
+          "chr9",
+          137373501,
+          137373506
+        ],
+        [
+          "chr7",
+          133274993,
+          133274998
+        ],
+        [
+          "chr6",
+          65405190,
+          65405195
+        ],
+        [
+          "chrX",
+          154930858,
+          154930863
+        ],
+        [
+          "chr6",
+          54940262,
+          54940267
+        ],
+        [
+          "chr8",
+          143728540,
+          143728545
+        ],
+        [
+          "chr14",
+          39431719,
+          39431724
+        ],
+        [
+          "chr19",
+          39876801,
+          39876806
+        ],
+        [
+          "chr19",
+          39879703,
+          39879708
+        ],
+        [
+          "chr4",
+          1805814,
+          1805820
+        ],
+        [
+          "chr1",
+          37998034,
+          37998039
+        ],
+        [
+          "chr11",
+          35619368,
+          35619373
+        ],
+        [
+          "chrX",
+          12717073,
+          12717078
+        ],
+        [
+          "chr7",
+          73434681,
+          73434686
+        ],
+        [
+          "chr6",
+          29630491,
+          29630496
+        ],
+        [
+          "chr6",
+          29630572,
+          29630577
+        ],
+        [
+          "chr10",
+          47325477,
+          47325482
+        ],
+        [
+          "chr11",
+          134311146,
+          134311151
+        ],
+        [
+          "chr9",
+          3856146,
+          3856159
+        ],
+        [
+          "chr9",
+          133057890,
+          133057907
+        ],
+        [
+          "chr6",
+          26055821,
+          26055841
+        ],
+        [
+          "chr22",
+          21446349,
+          21446354
+        ],
+        [
+          "chrX",
+          149548467,
+          149548472
+        ],
+        [
+          "chr1",
+          21834888,
+          21834893
+        ],
+        [
+          "chr3",
+          129502725,
+          129502730
+        ],
+        [
+          "chr10",
+          32911942,
+          32911947
+        ],
+        [
+          "chr6",
+          33688132,
+          33688137
+        ],
+        [
+          "chr19",
+          17830032,
+          17830037
+        ],
+        [
+          "chr5",
+          138391526,
+          138391531
+        ],
+        [
+          "chr17",
+          5007290,
+          5007295
+        ],
+        [
+          "chr14",
+          20429264,
+          20429269
+        ],
+        [
+          "chr12",
+          49034197,
+          49034202
+        ],
+        [
+          "chr12",
+          52951764,
+          52951769
+        ],
+        [
+          "chr17",
+          41422415,
+          41422420
+        ],
+        [
+          "chr1",
+          152812483,
+          152812488
+        ],
+        [
+          "chr1",
+          65636603,
+          65636608
+        ],
+        [
+          "chr1",
+          151801911,
+          151801916
+        ],
+        [
+          "chr4",
+          151014494,
+          151014499
+        ],
+        [
+          "chr2",
+          159840944,
+          159840949
+        ],
+        [
+          "chr2",
+          209694765,
+          209694792
+        ],
+        [
+          "chr2",
+          209694769,
+          209694802
+        ],
+        [
+          "chr5",
+          148242904,
+          148242909
+        ],
+        [
+          "chr3",
+          129437918,
+          129437923
+        ],
+        [
+          "chr3",
+          136151337,
+          136151342
+        ],
+        [
+          "chrM",
+          12991,
+          12996
+        ],
+        [
+          "chr11",
+          1095626,
+          1095631
+        ],
+        [
+          "chr17",
+          75589950,
+          75589956
+        ],
+        [
+          "chr15",
+          71994485,
+          71994490
+        ],
+        [
+          "chr11",
+          20080139,
+          20080144
+        ],
+        [
+          "chr1",
+          16563986,
+          16563991
+        ],
+        [
+          "chr1",
+          16564146,
+          16564151
+        ],
+        [
+          "chr4",
+          114870899,
+          114870904
+        ],
+        [
+          "chr19",
+          5896453,
+          5896458
+        ],
+        [
+          "chr12",
+          8092889,
+          8092894
+        ],
+        [
+          "chr19",
+          55861441,
+          55861446
+        ],
+        [
+          "chr17",
+          51154440,
+          51154445
+        ],
+        [
+          "chr5",
+          43612990,
+          43613010
+        ],
+        [
+          "chr15",
+          96332296,
+          96332301
+        ],
+        [
+          "chr12",
+          5494378,
+          5494383
+        ],
+        [
+          "chr8",
+          102560576,
+          102560581
+        ],
+        [
+          "chr19",
+          15807700,
+          15807705
+        ],
+        [
+          "chr12",
+          55637499,
+          55637504
+        ],
+        [
+          "chr1",
+          248294750,
+          248294755
+        ],
+        [
+          "chr10",
+          54079386,
+          54079391
+        ],
+        [
+          "chrX",
+          100341895,
+          100341900
+        ],
+        [
+          "chr12",
+          41572806,
+          41572811
+        ],
+        [
+          "chr6",
+          136826419,
+          136826424
+        ],
+        [
+          "chr1",
+          151242175,
+          151242181
+        ],
+        [
+          "chr6",
+          46708088,
+          46708093
+        ],
+        [
+          "chr4",
+          127886714,
+          127886719
+        ],
+        [
+          "chrX",
+          49270758,
+          49270763
+        ],
+        [
+          "chr11",
+          68601966,
+          68601971
+        ],
+        [
+          "chr3",
+          64198860,
+          64198865
+        ],
+        [
+          "chr17",
+          18930655,
+          18930660
+        ],
+        [
+          "chr1",
+          171540474,
+          171540479
+        ],
+        [
+          "chr3",
+          46898729,
+          46898734
+        ],
+        [
+          "chr1",
+          30995051,
+          30995056
+        ],
+        [
+          "chr17",
+          5350562,
+          5350567
+        ],
+        [
+          "chr1",
+          167685442,
+          167685447
+        ],
+        [
+          "chr14",
+          67691151,
+          67691156
+        ],
+        [
+          "chr9",
+          36087716,
+          36087721
+        ],
+        [
+          "chr17",
+          76161921,
+          76161926
+        ],
+        [
+          "chr17",
+          80327827,
+          80327835
+        ],
+        [
+          "chr3",
+          77607850,
+          77607855
+        ],
+        [
+          "chr6",
+          117301018,
+          117301023
+        ],
+        [
+          "chr8",
+          10611721,
+          10611726
+        ],
+        [
+          "chr7",
+          93101608,
+          93101613
+        ],
+        [
+          "chr18",
+          63915537,
+          63915542
+        ],
+        [
+          "chr15",
+          48843426,
+          48843431
+        ],
+        [
+          "chr1",
+          160751435,
+          160751440
+        ],
+        [
+          "chr6",
+          25769155,
+          25769160
+        ],
+        [
+          "chr2",
+          171813467,
+          171813472
+        ],
+        [
+          "chr3",
+          136855619,
+          136855624
+        ],
+        [
+          "chr13",
+          29522398,
+          29522403
+        ],
+        [
+          "chr9",
+          70298021,
+          70298026
+        ],
+        [
+          "chr8",
+          100213206,
+          100213212
+        ],
+        [
+          "chr15",
+          44660432,
+          44660437
+        ],
+        [
+          "chr3",
+          9104712,
+          9104717
+        ],
+        [
+          "chr1",
+          167126140,
+          167126145
+        ],
+        [
+          "chr2",
+          37171430,
+          37171435
+        ],
+        [
+          "chrX",
+          101286647,
+          101286653
+        ],
+        [
+          "chr7",
+          98241124,
+          98241130
+        ],
+        [
+          "chr7",
+          143286136,
+          143286141
+        ],
+        [
+          "chr9",
+          97910409,
+          97910414
+        ],
+        [
+          "chr2",
+          84880929,
+          84880934
+        ],
+        [
+          "chr18",
+          31874589,
+          31874594
+        ],
+        [
+          "chr17",
+          48816985,
+          48816990
+        ],
+        [
+          "chr1",
+          215650749,
+          215650754
+        ],
+        [
+          "chr8",
+          99861920,
+          99861925
+        ],
+        [
+          "chr1",
+          151185544,
+          151185549
+        ],
+        [
+          "chrX",
+          66032552,
+          66032557
+        ],
+        [
+          "chr5",
+          168399510,
+          168399515
+        ],
+        [
+          "chr4",
+          48490986,
+          48490991
+        ],
+        [
+          "chr1",
+          23362759,
+          23362764
+        ],
+        [
+          "chrX",
+          46501042,
+          46501047
+        ],
+        [
+          "chr16",
+          30557992,
+          30557997
+        ],
+        [
+          "chr22",
+          29049910,
+          29049915
+        ],
+        [
+          "chr5",
+          131988560,
+          131988565
+        ],
+        [
+          "chr14",
+          55627962,
+          55627967
+        ]
+      ],
+      "sam_records_sha256": "c9bb1eccafa90d304c5485cfb11928303da050d3a76d06993fda89341335f0e1",
+      "selected_records": 55610,
+      "source_sha256": "290d6e56a52946a09d2a6077d1dcd093dd6f6327280860e9b68948f6fc17dea8"
+    },
+    "osteosarc_indels/GLIS3.T1-ONT-dedup.sam.gz": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT_dedup/IPISRC044_T1_sclrs_ONT_dedup.bam",
+      "original_records": 4,
+      "regions": [
+        [
+          "chr9",
+          3856146,
+          3856159
+        ]
+      ],
+      "sam_records_sha256": "4a5fa6327c4c9e58749885c8667b5b481fce14dba164483babc9c6b21d1e7c80",
+      "selected_records": 4,
+      "source_sha256": "364931a191955765c435b11b8ccf15aa65f02e7039a1c227ac9ef053561ff5fe"
+    },
+    "osteosarc_indels/GLIS3.T1-short.sam.gz": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T1_ucla/alignments/rna/IPISRC044_tumor_T1_ucla_rna.md.bam",
+      "original_records": 104,
+      "regions": [
+        [
+          "chr9",
+          3856146,
+          3856159
+        ]
+      ],
+      "sam_records_sha256": "c6dc71d1577fd3ac163eb2843768bca5669230e22c19568750fdc24a75fec70a",
+      "selected_records": 101,
+      "source_sha256": "f0678f15f695abf0de0fa63eaab529329a6e372567c49b785e48ff74b044b694"
+    },
+    "osteosarc_indels/GLIS3.T2-ONT-dedup.sam.gz": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT_dedup/IPISRC044_T2_sclrs_ONT_dedup.bam",
+      "original_records": 3,
+      "regions": [
+        [
+          "chr9",
+          3856146,
+          3856159
+        ]
+      ],
+      "sam_records_sha256": "c1c16213dc0934806387992b0d6c7335e8ccb2aad1fda135c653ad8cc30e6c7f",
+      "selected_records": 3,
+      "source_sha256": "e4e984c926b1ef86f682f2927b2c0b60ac9aec8b4c7636e25789b99d7800317e"
+    },
+    "osteosarc_indels/GLIS3.T2-short.sam.gz": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T2_ucla/alignments/rna/IPISRC044_tumor_T2_ucla_rna.md.bam",
+      "original_records": 0,
+      "regions": [
+        [
+          "chr9",
+          3856146,
+          3856159
+        ]
+      ],
+      "sam_records_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "selected_records": 0,
+      "source_sha256": "729da66da08888ef2cb3bb085491ccccc4047b7d5c34b0fa99c2dc6cd7db0c24"
+    },
+    "osteosarc_indels/KTN1.T1-ONT-dedup.sam.gz": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT_dedup/IPISRC044_T1_sclrs_ONT_dedup.bam",
+      "original_records": 662,
+      "regions": [
+        [
+          "chr14",
+          55627962,
+          55627967
+        ]
+      ],
+      "sam_records_sha256": "91a866708b1415969d8bc9ff553dc446c55db25ae544fa0a40bfdcfa6732c2ec",
+      "selected_records": 661,
+      "source_sha256": "b14295555f55905720c0109100511cf1337f40b71b55c274dc30333bae9ce53d"
+    },
+    "osteosarc_indels/KTN1.T1-short.sam.gz": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T1_ucla/alignments/rna/IPISRC044_tumor_T1_ucla_rna.md.bam",
+      "original_records": 1720,
+      "regions": [
+        [
+          "chr14",
+          55627962,
+          55627967
+        ]
+      ],
+      "sam_records_sha256": "4294c32ecb5b8e484b9bc245f5532878dacba9c44fcf36673701cea6822326b7",
+      "selected_records": 1719,
+      "source_sha256": "b19eafcc73eadaef6f09e29ed923d329b3ceede8c737293b0d7b74f0a40a3592"
+    },
+    "osteosarc_indels/KTN1.T2-ONT-dedup.sam.gz": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT/IPISRC044_T2_sclrs_ONT_dedup/IPISRC044_T2_sclrs_ONT_dedup.bam",
+      "original_records": 1437,
+      "regions": [
+        [
+          "chr14",
+          55627962,
+          55627967
+        ]
+      ],
+      "sam_records_sha256": "f4683ad3394443be57137e5a5da9d7267fc47d3dcd07795cfb203c4d2e358794",
+      "selected_records": 1437,
+      "source_sha256": "4933c184bebe4dfdc5afa8999fdb146d77c8b25bb6fffc54e158fe94caea12e7"
+    },
+    "osteosarc_indels/KTN1.T2-short.sam.gz": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/kamil/oncoanalyser/IPISRC044_T2_ucla/alignments/rna/IPISRC044_tumor_T2_ucla_rna.md.bam",
+      "original_records": 1093,
+      "regions": [
+        [
+          "chr14",
+          55627962,
+          55627967
+        ]
+      ],
+      "sam_records_sha256": "14fc97a6140a703cb750888e7ed3f25d228f151c346680621eca79edb986e046",
+      "selected_records": 1085,
+      "source_sha256": "7afc3b3bf1e1360e42e05889baf6b820002ae20294a37e2733c4e224abec32ca"
+    },
+    "osteosarc_rna_overlay/source/t2-pvac-regions.bam": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/processed/STAR/25.03.23.rna.ucla.2025.01.resection.tcga.d32.protocolAligned.sorted.bam",
+      "original_records": 16497,
+      "regions": [
+        [
+          "chr1",
+          23362759,
+          23362764
+        ],
+        [
+          "chr1",
+          151185544,
+          151185549
+        ],
+        [
+          "chr1",
+          151242175,
+          151242181
+        ],
+        [
+          "chr2",
+          171813467,
+          171813472
+        ],
+        [
+          "chr3",
+          15645180,
+          15645185
+        ],
+        [
+          "chr3",
+          77607850,
+          77607855
+        ],
+        [
+          "chr5",
+          168399510,
+          168399515
+        ],
+        [
+          "chr6",
+          26055821,
+          26055841
+        ],
+        [
+          "chr6",
+          110228835,
+          110228840
+        ],
+        [
+          "chr7",
+          98241124,
+          98241130
+        ],
+        [
+          "chr7",
+          133274993,
+          133274998
+        ],
+        [
+          "chr8",
+          22192064,
+          22192069
+        ],
+        [
+          "chr9",
+          70298021,
+          70298026
+        ],
+        [
+          "chr9",
+          97910409,
+          97910414
+        ],
+        [
+          "chr9",
+          133057890,
+          133057907
+        ],
+        [
+          "chr11",
+          20080139,
+          20080144
+        ],
+        [
+          "chr14",
+          101980526,
+          101980531
+        ],
+        [
+          "chr17",
+          51154440,
+          51154445
+        ],
+        [
+          "chr17",
+          80327827,
+          80327835
+        ],
+        [
+          "chrX",
+          46501042,
+          46501047
+        ]
+      ],
+      "sam_records_sha256": "3f6bc5be3ea07d2c52e65b4c324f1b454197c5ef0adfa8e06dd972f57e19a42c",
+      "selected_records": 8312,
+      "source_sha256": "8cd776f481d84e51389a67393069c8455ec5c5660a41546943ee4c94d71ac512"
+    },
+    "osteosarc_shared/vaccine-rna-v1/28-NTF3-chr12-5494381-53f498a544883d51.bam": {
+      "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/ONT/IPISRC044_ONT_upload/IPISRC044_ONT/processed/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT/IPISRC044_T1_sclrs_ONT.tagged.bam",
+      "original_records": 15,
+      "regions": [
+        [
+          "chr12",
+          5494378,
+          5494383
+        ]
+      ],
+      "sam_records_sha256": "7257340dc21523cb43a9b2b1c0bf45e03e751a91036e736c5f5e1ce589419cfb",
+      "selected_records": 15,
+      "source_sha256": "e1d5f92ae9c5c2f44b02ed64e8b3a9e6f2093f89d8d5ae47ca8fcc1e5958520e"
+    }
+  },
+  "recipe_sha256": "42839fe94e41c0ec3076e445aa906333982ef00e460f05e59defcdbb3d3fd982",
+  "schema_version": 1,
+  "total_size_bytes": 10620206
+}

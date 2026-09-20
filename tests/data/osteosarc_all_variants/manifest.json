@@ -1,22 +1,22 @@
 {
-  "files": {
-    "source/t2-all-variant-regions.bam": "290d6e56a52946a09d2a6077d1dcd093dd6f6327280860e9b68948f6fc17dea8",
-    "source/t2-all-variant-regions.bam.bai": "133be6548a1c2482793e1d894cea44504ed400d7a7e4931a95cb3d17e80102e8",
-    "source/variants.html.gz": "625e302b77f651919baa344045943296545a37bd057408dbdead7109ec4d9e3f",
-    "source/vafs.tsv.gz": "c20330f27e7bf182db4185d67b41ca75cf6825211b2abe572ccebf1e80d3c82d",
-    "source/vafs-columns.tsv": "935507a2cf33688243b92285e5107c6e814aee635c5ce5f8963f2b8f3ec0535f",
-    "reference/reference.gtf.gz": "23e291ed1853b6f401f18407d37c5488e8b0286c35884e7c28d99ae3d82635e4",
-    "reference/reference.cdna.fa.gz": "fbcd720753730949bf1c65801f43b446dc51e18fc80be113427f1eee455e35d2",
-    "reference/reference.pep.fa.gz": "203be33311608b658ff001378ba282da101946f0ee146258aeeba8a852467f66",
-    "inventory.json": "57b04f1adba8b4f4ab36afb3f500a5c4554a6fdef8945d47457640f202b5bbce",
-    "checked-inventory.json": "e61c71dda2e6d390e579de8d475f1f072d832badb06ad185a18a20be03e8526e",
-    "source/bam.receipt.json": "a7089aff7875fa86118e92dbade566274da9f331c2187626287f3b4052689f20",
-    "reference/manifest.json": "cd74762f076032480d7c600ca2064aeeb1d8d87ba9ee730465544b3e786a2647",
-    "run.json": "607cac6cd7b76a7cba7feb589cf69bd13f8524f251f0be96fdaa773e75e9ba72",
-    "expected.json": "2570c8252cbeb82a4825a2a42c02c46eca07a7f68cc0c8c137cfd0768345cc7a"
-  },
-  "entries": 184,
-  "scope": "All 182 website entries plus two additional exact indels; T2 STAR RNA only",
   "count_unit": "sequenced segments and RG/QNAME templates, never independent molecules",
-  "sample": "January 2025 UCLA resection (T2); public collection-label pairing"
+  "entries": 184,
+  "files": {
+    "checked-inventory.json": "e61c71dda2e6d390e579de8d475f1f072d832badb06ad185a18a20be03e8526e",
+    "expected.json": "2570c8252cbeb82a4825a2a42c02c46eca07a7f68cc0c8c137cfd0768345cc7a",
+    "inventory.json": "57b04f1adba8b4f4ab36afb3f500a5c4554a6fdef8945d47457640f202b5bbce",
+    "reference/manifest.json": "cd74762f076032480d7c600ca2064aeeb1d8d87ba9ee730465544b3e786a2647",
+    "reference/reference.cdna.fa.gz": "fbcd720753730949bf1c65801f43b446dc51e18fc80be113427f1eee455e35d2",
+    "reference/reference.gtf.gz": "23e291ed1853b6f401f18407d37c5488e8b0286c35884e7c28d99ae3d82635e4",
+    "reference/reference.pep.fa.gz": "203be33311608b658ff001378ba282da101946f0ee146258aeeba8a852467f66",
+    "run.json": "607cac6cd7b76a7cba7feb589cf69bd13f8524f251f0be96fdaa773e75e9ba72",
+    "source/bam.receipt.json": "dbc9150a9cc4a80053d853b85386d92ac1b458c1da7bff71beaaa787cf54c124",
+    "source/t2-all-variant-regions.bam": "1787492e8a67f214711f5fe0a8f79bd6e3442e48e7b3a9ebfebb520e87037e0c",
+    "source/t2-all-variant-regions.bam.bai": "a03e23ea080b1aba69cc8a4085afa8e59f6c440ba7c0bafe2a2d1f6c25325f3b",
+    "source/vafs-columns.tsv": "935507a2cf33688243b92285e5107c6e814aee635c5ce5f8963f2b8f3ec0535f",
+    "source/vafs.tsv.gz": "c20330f27e7bf182db4185d67b41ca75cf6825211b2abe572ccebf1e80d3c82d",
+    "source/variants.html.gz": "625e302b77f651919baa344045943296545a37bd057408dbdead7109ec4d9e3f"
+  },
+  "sample": "January 2025 UCLA resection (T2); public collection-label pairing",
+  "scope": "All 182 website entries plus two additional exact indels; T2 STAR RNA only"
 }

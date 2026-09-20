@@ -11,6 +11,8 @@ from hashlib import sha256
 from itertools import product
 import json
 from pathlib import Path
+
+from .sid_data import sid_data_root
 import re
 
 
@@ -110,7 +112,7 @@ def load_osteosarc(directory, dataset="osteosarc"):
     from pyensembl import Genome
     from varcode import Variant
 
-    data = Path(__file__).parent / "data" / dataset
+    data = sid_data_root(dataset)
     selection = json.loads((data / "selection.json").read_text())
     manifest = json.loads((data / "manifest.json").read_text())
     reference = data / "protein_reference"

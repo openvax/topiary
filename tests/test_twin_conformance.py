@@ -28,6 +28,8 @@ from types import SimpleNamespace
 from typing import Callable, Dict, Tuple
 
 import pandas as pd
+from osteosarc import parse_variants
+from scripts.osteosarc_variant_audit import variant_inventory
 import pytest
 from packaging.requirements import Requirement
 from mhctools import RandomBindingPredictor
@@ -1013,3 +1015,58 @@ def test_coverage_without_a_fraction_has_the_same_subject(twin):
 
     assert set(left["rna_evidence_subject"]) == {"reads"}
     assert set(right["dna_evidence_subject"]) == {"reads"}
+
+
+# Native catalogue and historical audit adapter: statuses and diagnostics must
+# stay identical even when bad rows precede, follow, or accompany valid ones.
+OSTEOSARC_INVENTORY_TWINS = (parse_variants, variant_inventory)
+
+
+@pytest.mark.parametrize("position", ["10", "010", "", "NA", "1.5", "-1"])
+@pytest.mark.parametrize("placement", ["first", "last", "alongside-valid"])
+def test_osteosarc_inventory_doors_keep_status_and_diagnostics(position, placement):
+    from .test_osteosarc_audit_inventory import HEADER, INDEX, OTHER
+
+    html = INDEX.replace("</table>", "") + OTHER.replace("<table>", "")
+    row = f"example\tGENE\tchr1\t{position}\tA\tC\n"
+    other = "other\tOTHER\tchr2\t20\tG\tT\n"
+    rows = row + other if placement == "first" else other + row
+    if placement == "alongside-valid":
+        rows += "example\tGENE\tchr1\t10\tA\tC\n"
+    native, adapter = OSTEOSARC_INVENTORY_TWINS
+    variants = list(native(html, HEADER + rows).select(on_site=True))
+    records = adapter(html, HEADER + rows)
+    assert [v.id for v in variants] == [r["variant_id"] for r in records]
+    for variant, record in zip(variants, records):
+        assert record["input_status"] == variant.status
+        assert record["candidate_alleles"] == [list(a) for a in variant.alleles]
+        assert record.get("parse_errors") == variant.annotations.get("parse_errors")
+    assert records[1]["input_status"] == "ready"
+    assert records[0]["input_status"] == ("ready" if position in ("10", "010") else "malformed_source_row")
+
+
+@pytest.mark.parametrize("header", ["variant_id\tgene\tchrom\tref\talt\n", "variant_id\tvariant_id\n"])
+def test_osteosarc_inventory_doors_reject_invalid_headers(header):
+    from osteosarc import SchemaError
+    from .test_osteosarc_audit_inventory import INDEX
+
+    for parse in OSTEOSARC_INVENTORY_TWINS:
+        with pytest.raises(SchemaError):
+            parse(INDEX, header)
+
+
+@pytest.mark.parametrize("bad_row", ["example\tGENE\tchr1\t10", "example\tGENE\tchr1\t10\tA\tC\textra"])
+@pytest.mark.parametrize("bad_first", [True, False])
+def test_osteosarc_inventory_doors_preserve_ragged_row_diagnostics(bad_row, bad_first):
+    from .test_osteosarc_audit_inventory import HEADER, INDEX, OTHER
+
+    html = INDEX.replace("</table>", "") + OTHER.replace("<table>", "")
+    good = "other\tOTHER\tchr2\t20\tG\tT"
+    rows = [bad_row, good] if bad_first else [good, bad_row]
+    table = HEADER + "\n".join(rows) + "\n"
+    native, adapter = OSTEOSARC_INVENTORY_TWINS
+    variants = list(native(html, table).select(on_site=True))
+    records = adapter(html, table)
+    assert [v.status for v in variants] == [r["input_status"] for r in records] == [
+        "malformed_source_row", "ready"]
+    assert variants[0].annotations["parse_errors"] == records[0]["parse_errors"]

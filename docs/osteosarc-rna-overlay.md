@@ -41,7 +41,7 @@ with independent reference checks before counting.
 
 ## Reproduce with local caching
 
-From this checkout, with `topiary[isovar]`, requests and samtools available:
+From this checkout, with `topiary[isovar]` and samtools available:
 
 ```sh
 python -m scripts.osteosarc_rna_overlay acquire --root .cache/osteosarc-rna-overlay-2026-09-17
@@ -50,8 +50,9 @@ python -m scripts.osteosarc_rna_overlay apply --root .cache/osteosarc-rna-overla
 ```
 
 The archive is the separately retained 21-file historical import. Acquisition
-retains complete expression files, source index, regional BAM/index, BAM header,
-reference responses, URLs and SHA256 receipts. Reuse verifies hashes; generated
+uses Osteosarc and retains complete expression files, a regional BAM/index,
+BAM header, reference responses, URLs and SHA256 receipts. The source index
+is managed by Osteosarc. Reuse verifies hashes; generated
 enriched reports are not overwritten. The output includes:
 
 - `allele-evidence.tsv`: one row per exact genomic allele.
@@ -84,3 +85,8 @@ The recount composes Isovar's public coordinate-level collection and allele
 classification functions, without downloading gene annotations. The separate
 variant-level entry point's unnecessary annotation lookup for logging is
 tracked in [Isovar #295](https://github.com/openvax/isovar/issues/295).
+
+The packaged fixtures use tighter test-locus intervals and selected expression
+rows. Regenerate that compact corpus with the checked-in recipe described in
+[shared Osteosarc data](osteosarc-shared-data.md); do not package the broader
+acquisition directory above.

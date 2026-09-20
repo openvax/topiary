@@ -8,6 +8,8 @@ of the release pipeline. Only standard-library modules are needed.
 import argparse
 import configparser
 from email.parser import BytesParser
+import hashlib
+import json
 from pathlib import Path
 import tarfile
 import zipfile
@@ -27,7 +29,7 @@ def check_runtime_metadata(metadata):
     """Ordinary installation must provide Osteosarc reads on supported Python."""
     assert metadata["Requires-Python"] == ">=3.10"
     requirements = [value.replace(" ", "") for value in metadata.get_all("Requires-Dist", [])]
-    assert "osteosarc[reads]==0.1.0" in requirements
+    assert "osteosarc==0.1.1" in requirements
     assert "osteosarc" not in metadata.get_all("Provides-Extra", [])
 
 
@@ -83,6 +85,24 @@ def check_distributions(dist_dir, source_root):
             "requirements.txt", "mkdocs.yml", "lint.sh", "test.sh", "deploy.sh",
         }
         assert required <= relative_names, f"Missing source files: {required - relative_names}"
+        manifest_path = f"{root}/tests/data/manifest.json"
+        manifest = json.loads(sdist.extractfile(files[manifest_path]).read())
+        total = 0
+        expected_reads = set()
+        for asset in manifest["assets"]:
+            name = "tests/data/" + asset["filename"]
+            contents = sdist.extractfile(files[f"{root}/{name}"]).read()
+            assert len(contents) == asset["size_bytes"], name
+            assert hashlib.sha256(contents).hexdigest() == asset["sha256"], name
+            total += len(contents)
+            if name.endswith((".bam", ".bam.bai", ".sam.gz")):
+                expected_reads.add(name)
+        assert total == manifest["total_size_bytes"]
+        assert total <= 11 * 1024 * 1024, "Review Sid fixture growth before increasing the 11 MiB budget"
+        bundled_reads = {name for name in relative_names
+                         if any(name.startswith("tests/data/" + group + "/") for group in manifest["groups"])
+                         and name.endswith((".bam", ".bam.bai", ".sam.gz"))}
+        assert bundled_reads == expected_reads, "Unselected Sid reads entered the source distribution"
         assert sdist.extractfile(files[f"{root}/LICENSE"]).read() == license_text
         source_metadata = BytesParser().parsebytes(
             sdist.extractfile(files[f"{root}/PKG-INFO"]).read()

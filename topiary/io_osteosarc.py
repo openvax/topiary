@@ -12,9 +12,10 @@ def osteosarc_fixture_paths(manifest, *, directory=None, cache=None):
     Parameters
     ----------
     manifest : dict
-        The trusted ``osteosarc / vaccine-rna-v1`` source manifest. Each asset
-        supplies a plain filename, immutable URL, SHA-256 and byte size. Case
-        membership, native alleles and source provenance remain unchanged.
+        A trusted ``osteosarc`` manifest: ``vaccine-rna-v1`` for shared vaccine
+        reads or ``topiary-sid-v1`` for the full bundled test corpus. Each asset
+        supplies a relative filename, immutable URL, SHA-256 and byte size.
+        Original source provenance and selection policies remain in the bundle.
     directory : path-like, optional
         An existing offline export to verify. When given, read only this
         directory; do not contact the network or write to any cache.
@@ -48,18 +49,21 @@ def osteosarc_fixture_paths(manifest, *, directory=None, cache=None):
     """
     from osteosarc import Cache, IntegrityError, digest
 
+    versions = ("vaccine-rna-v1", "topiary-sid-v1")
     if (manifest.get("schema_version") != 1 or manifest.get("dataset") != "osteosarc"
-            or manifest.get("data_version") != "vaccine-rna-v1" or not manifest.get("assets")):
-        raise ValueError("Expected the shared osteosarc / vaccine-rna-v1 manifest")
+            or manifest.get("data_version") not in versions or not manifest.get("assets")):
+        raise ValueError("Expected an osteosarc vaccine-rna-v1 or topiary-sid-v1 manifest")
     names = set()
     for asset in manifest["assets"]:
         name = asset["filename"]
-        if (not isinstance(name, str) or not name or name in (".", "..", "manifest.json")
-                or any(c in name for c in "/\\:") or name in names):
+        if (not isinstance(name, str) or not name or name == "manifest.json"
+                or any(c in name for c in "\\:") or name in names
+                or any(part in ("", ".", "..") for part in name.split("/"))
+                or (manifest["data_version"] == "vaccine-rna-v1" and "/" in name)):
             raise ValueError(f"Unsafe or duplicate fixture filename: {name!r}")
         names.add(name)
         url = urlsplit(asset["url"])
-        if url.scheme != "https" or Path(unquote(url.path)).name != name:
+        if url.scheme != "https" or Path(unquote(url.path)).name != Path(name).name:
             raise ValueError(f"Fixture URL must retain its original HTTPS filename: {name}")
         if not re.fullmatch(r"[0-9a-f]{64}", asset["sha256"]):
             raise ValueError(f"Invalid fixture SHA-256: {name}")
@@ -81,7 +85,11 @@ def osteosarc_fixture_paths(manifest, *, directory=None, cache=None):
         path = (Path(directory) / name if directory is not None else
                 cache.objects / (checksum + "".join(Path(name).suffixes)))
         if directory is not None or path.exists():
-            if path.is_symlink() or path.stat().st_size != size or digest(path) != checksum:
+            linked = path.is_symlink() or (directory is not None and any(
+                Path(directory).joinpath(*Path(name).parts[:i]).is_symlink()
+                for i in range(1, len(Path(name).parts))))
+            if (linked
+                    or not path.is_file() or path.stat().st_size != size or digest(path) != checksum):
                 raise IntegrityError(f"Shared fixture changed: {path}")
             if directory is None:
                 receipt = cache.import_file(path, asset["url"], sha256=checksum, size=size)

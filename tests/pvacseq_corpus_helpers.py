@@ -3,12 +3,14 @@
 import json
 from pathlib import Path
 
+from .sid_data import sid_data_root
+
 import mhcgnomes
 import numpy as np
 import pandas as pd
 
 
-ROOT = Path(__file__).parent / "data" / "pvacseq" / "osteosarc"
+ROOT = sid_data_root("pvacseq/osteosarc")
 MANIFEST = json.loads((ROOT / "manifest.json").read_text())
 REPORTS = MANIFEST["reports"]
 
