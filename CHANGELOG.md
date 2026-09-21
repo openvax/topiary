@@ -1,5 +1,11 @@
 # Changelog
 
+## 5.67.1
+
+- Update the required Osteosarc dependency to 0.1.2. Existing packaged Sid
+  fixtures and historical audit expectations remain pinned; adopting the
+  corrected catalogue outcomes is tracked separately in #347.
+
 ## 5.67.0
 
 - Require Osteosarc 0.1.1 and delegate website/VAF parsing to its public API.
