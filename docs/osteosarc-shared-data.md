@@ -1,6 +1,6 @@
 # Shared Osteosarc inputs and regional audit continuity
 
-Topiary uses **Osteosarc 0.1.1** for new audit downloads, indexed regional read
+Topiary uses **Osteosarc 0.1.2** for new audit downloads, indexed regional read
 extraction and access to the shared OpenVax source objects. Osteosarc and its
 read-extraction dependency are installed by `pip install topiary` on Python
 3.10+. From a checkout, use `pip install -e .`; add `.[isovar]` for RNA
@@ -67,8 +67,11 @@ historical pVAC predictions retain their reviewed inputs.
 Topiary now delegates catalogue parsing to `parse_variants`. Malformed VAF
 rows become `malformed_source_row` with original `parse_errors` diagnostics;
 later valid variants still run. Raw pinned inputs do not apply catalogue
-corrections implicitly. [Osteosarc #5](https://github.com/iskandr/osteosarc/issues/5)
-still tracks five unresolved alleles.
+corrections implicitly. The shared source-resolution review in
+[Osteosarc #5](https://github.com/iskandr/osteosarc/issues/5) is complete in 0.1.2.
+Adopting its corrected catalogue outcomes and reviewing RNA/protein results
+remains tracked in [Topiary #347](https://github.com/openvax/topiary/issues/347).
+The bundled fixtures retain their original generation provenance and inputs.
 
 ## Acquire, share, verify and reproduce
 
