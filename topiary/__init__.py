@@ -1,5 +1,6 @@
 from .serialization import normalize_python_types
 from .annotations import join_annotations
+from .candidates import combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
 from .release import pypi_release_exists
 from .predictor import (
     TopiaryPredictor,
@@ -179,9 +180,13 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.67.1"
+__version__ = "5.68.0"
 
 __all__ = [
+    "combine_sources",
+    "protein_evidence_view",
+    "rank_candidates",
+    "rescore_candidates",
     "osteosarc_fixture_paths",
     "normalize_python_types",
     "pypi_release_exists",

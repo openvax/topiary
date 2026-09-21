@@ -44,6 +44,7 @@ from topiary import (
     read_fragments, read_pvacseq, write_fragments, unique_fragments,
     describe_isovar_result, fragment_from_isovar_result, TopiaryResult,
     to_tsv, to_csv, read_tsv, read_csv,
+    combine_sources, rank_candidates, evaluate_scores,
 )
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
@@ -98,6 +99,28 @@ DELIMITED_IO_TWINS = (
     ("tsv", to_tsv, TopiaryResult.to_tsv, read_tsv),
     ("csv", to_csv, TopiaryResult.to_csv, read_csv),
 )
+
+
+# Candidate ranking must use the same feature/prediction semantics as the
+# lower-level DSL scorer that downstream consumers already call.
+CANDIDATE_SCORE_TWINS = (rank_candidates, evaluate_scores)
+
+
+@pytest.mark.parametrize("expression", ["affinity.value", "n_rna_alt / affinity.value", "n_rna_alt"])
+@pytest.mark.parametrize("missing", [False, True])
+def test_candidate_ranking_and_dsl_scoring_agree(expression, missing):
+    from topiary import parse
+    from .test_candidate_tables import source
+
+    frame = source(n_rna_alt=[5, None] if missing else [5, 15])
+    combined = combine_sources({"original": frame}, sample_name="p")
+    rank, score = CANDIDATE_SCORE_TWINS
+    ranked = rank(combined, expression)
+    expected = dict(zip(combined.df.candidate_id, score(combined.df, parse(expression))))
+    pd.testing.assert_series_equal(
+        ranked.candidate_score,
+        ranked.candidate_id.map(expected), check_names=False, check_dtype=False,
+    )
 
 
 # Real aggregated/all-epitopes doors, paired by original run and MHC view.

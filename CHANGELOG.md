@@ -1,5 +1,20 @@
 # Changelog
 
+## 5.68.0
+
+- Combine labelled source tables without running predictors. Preserve original
+  measurements, source observations and metadata; link candidate pMHCs and
+  identical full ORFs while retaining alternative ORFs and independent RNA
+  evidence. ORF/RNA-only tables are supported without invented predictions.
+- Rank combined candidates through the existing DSL, with explicit duplicate
+  policies, missing scores and independent MHC-class/source strata. Add optional
+  prediction features with `rescore_candidates` without replacing original
+  values or changing the active ranking policy (#366).
+- Verify original, re-scored and RNA-enriched features through released
+  Vaxrank's DSL and vaccine construction for six antigen categories. Native
+  Exacto parsing (#365), context rescanning (#364), and the generalized Vaxrank
+  file loader (openvax/vaxrank#497) remain separate work.
+
 ## 5.67.1
 
 - Update the required Osteosarc dependency to 0.1.2. Existing packaged Sid

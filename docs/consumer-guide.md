@@ -5,6 +5,9 @@ across 5.28.2–5.49.0.
 
 Written for vaxrank, but nothing here is vaxrank-specific.
 
+For table-only combination, ORF/RNA evidence, additive re-scoring and the
+Vaxrank handoff, see [Combining sources](combined-sources.md) (5.68.0+).
+
 ---
 
 ## The shortest useful version

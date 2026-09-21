@@ -27,6 +27,7 @@ By default the group keys are inferred from the columns present:
 
 | Columns present | Inferred group keys |
 |---|---|
+| `source_observation_id` | `source_observation_id, peptide, allele` |
 | `fragment_id` | `fragment_id, peptide, peptide_offset, allele` |
 | `variant` | `variant, peptide, peptide_offset, allele` |
 | neither | `source_sequence_name, peptide, peptide_offset, allele` |

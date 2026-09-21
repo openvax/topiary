@@ -60,6 +60,80 @@ PVACSEQ_PRESENTATION = (
 )
 
 
+def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, tmp_path):
+    from topiary import combine_sources, melt_pvacseq_algorithms, rank_candidates, read_tsv
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Table-only ranking must not execute a predictor")
+
+    monkeypatch.setattr(TopiaryPredictor, "__init__", forbidden)
+    sources = {"lens": read_lens(LENS), "pvacseq": melt_pvacseq_algorithms(read_pvacseq(PVACSEQ))}
+    combined = combine_sources(sources, sample_name="fixture-patient")
+    expression = "affinity['netmhcpan'].value"
+    pooled = rank_candidates(combined, expression, ascending=True, duplicates="best")
+    strata = rank_candidates(combined, expression, ascending=True, duplicates="best",
+                             strata=["source_label", "candidate_mhc_class"])
+    assert set(strata.loc[strata.candidate_score.notna(), "source_label"]) == set(sources)
+    assert set(pooled.candidate_id) == set(combined.df.candidate_id.dropna())
+    selected = combined.filter_by("n_rna_alt > 5")
+    assert 0 < len(selected) < len(combined)
+    path = tmp_path / "combined.tsv"
+    combined.to_tsv(path)
+    restored = read_tsv(path)
+    reranked = rank_candidates(restored, expression, ascending=True, duplicates="best")
+    assert reranked.candidate_id.tolist() == pooled.candidate_id.tolist()
+    np.testing.assert_allclose(reranked.candidate_score, pooled.candidate_score, equal_nan=True)
+    assert restored.extra["combined_sources"] == combined.extra["combined_sources"]
+
+
+def test_table_rescoring_changes_only_the_explicit_dsl_policy(tmp_path):
+    from topiary import combine_sources, rank_candidates, read_tsv, rescore_candidates
+    from .test_candidate_tables import Model, source
+
+    tables = {"mutation": source(source_type="variant:snv"),
+              "fusion": source(source_type="sv:fusion", values=(70., 700.))}
+    combined = combine_sources(tables, sample_name="fixture-patient")
+    original = rank_candidates(combined, "affinity.value", ascending=True, duplicates="best")
+    enriched = rescore_candidates(combined, Model(), prefix="new", select="source_label == 'fusion'")
+    path = tmp_path / "enriched.tsv"
+    enriched.to_tsv(path)
+    restored = read_tsv(path)
+    reranked = rank_candidates(restored, "affinity.value", ascending=True, duplicates="best")
+    assert original.peptide.tolist() == reranked.peptide.tolist()
+    assert original.candidate_score.tolist() == reranked.candidate_score.tolist()
+    feature = "new__testmodel__pMHC_affinity__value"
+    using_new = rank_candidates(restored, feature, ascending=True, duplicates="best")
+    assert using_new.peptide.tolist() == original.peptide.tolist()[::-1]
+    filtered = restored.filter_by(feature + " < 100")
+    assert set(filtered.df.source_label) == {"fusion"}
+    assert set(filtered.df.peptide) == {"GILGFVFTL"}
+
+
+def test_orf_abundance_can_enrich_matching_candidates_without_blending_alternative_orfs():
+    from topiary import combine_sources, join_annotations, protein_evidence_view, rank_candidates
+    from .test_candidate_tables import source
+
+    proteins = ["MAAASIINFEKL", "MAAAGILGFVFTL"]
+    candidates = source(protein_sequence=proteins, event_id=["event-1", "event-2"])
+    rna = pd.DataFrame(dict(protein_sequence=proteins + ["MQQQSIINFEKL"],
+                            event_id=["event-1", "event-2", "event-1"],
+                            transcript_expression=[1., 1000., 9999.]))
+    combined = combine_sources({"lens_normalized": candidates, "exacto_normalized": rna}, sample_name="p")
+    assert len(protein_evidence_view(combined)) == 3
+    keys = ["candidate_sample", "event_id", "protein_sequence_id"]
+    annotations = combined.df.loc[combined.df.source_label.eq("exacto_normalized"),
+                                  [*keys, "transcript_expression"]]
+    enriched = join_annotations(combined, annotations, on=keys, prefix="exacto",
+                                provenance={"source": "exacto_normalized", "unit": "TPM",
+                                            "subject": "full ORF", "policy": "exact event and sequence"})
+    first = rank_candidates(combined, "1 / affinity.value")
+    second = rank_candidates(enriched, "exacto_transcript_expression / affinity.value")
+    assert first.peptide.tolist() == ["SIINFEKL", "GILGFVFTL"]
+    assert second.peptide.tolist() == first.peptide.tolist()[::-1]
+    assert second.candidate_score.tolist() == [2., .02]
+    assert enriched.filter_by("exacto_transcript_expression > 10").df.candidate_id.dropna().nunique() == 1
+
+
 def test_nested_dataset_provenance_survives_filter_sort_and_file_io(tmp_path):
     from .test_twin_conformance import DELIMITED_IO_TWINS
 

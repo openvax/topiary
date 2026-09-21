@@ -26,6 +26,15 @@ PREDICTION_COLUMNS = frozenset({
     "wt_prediction_method_name", "wt_predictor_version", "wt_affinity",
 })
 
+# Combined-source tables retain measurement identity even when all scores are
+# absent. These columns also prevent sparse unions from inventing model rows.
+SOURCE_PREDICTION_COLUMNS = {
+    "kind": "source_prediction_kind",
+    "prediction_method_name": "source_prediction_method",
+    "predictor_version": "source_predictor_version",
+    "prediction_run_name": "source_prediction_run_name",
+}
+
 # Wide-form field suffixes.
 WIDE_FIELDS = frozenset({"value", "score", "rank"})
 
@@ -470,6 +479,7 @@ def from_wide(df, metadata=None):
         else:
             group_cols.append(col)
 
+    source_identity = set(SOURCE_PREDICTION_COLUMNS.values()) <= set(df)
     if not pred_mapping:
         # No prediction columns found — return as-is with empty long columns.
         result = df.copy()
@@ -477,6 +487,9 @@ def from_wide(df, metadata=None):
                      "prediction_method_name", "predictor_version", "affinity"]:
             if col not in result.columns:
                 result[col] = np.nan
+        if source_identity:
+            for column, source_column in SOURCE_PREDICTION_COLUMNS.items():
+                result[column] = result[source_column]
         return result
 
     # Build version lookup from metadata.
@@ -495,6 +508,7 @@ def from_wide(df, metadata=None):
     # For each group-key row, emit one long row per (model, kind).
     group_df = df[group_cols]
     long_rows = []
+    represented = pd.Series(False, index=df.index)
 
     for mk_kind, field_map in pred_mapping.items():
         model_key, kind_short = mk_kind
@@ -538,7 +552,28 @@ def from_wide(df, metadata=None):
                 version if has_wt_prediction else np.nan
             )
 
+        if source_identity:
+            # Combined tables retain one source row per measurement. Sparse
+            # unions and ORF-only rows must not acquire invented model rows
+            # merely because another source supplied that wide column.
+            mask = (chunk.source_prediction_kind.eq(canonical_kind)
+                    & chunk.source_prediction_method.eq(method_name))
+            if recorded and model_key != method_name:
+                mask &= chunk.source_predictor_version.map(_version_str).eq(_version_str(recorded[1]))
+            represented |= mask
+            chunk = chunk.loc[mask].copy()
+            for column, source_column in SOURCE_PREDICTION_COLUMNS.items():
+                chunk[column] = chunk[source_column]
         long_rows.append(chunk)
+
+    if source_identity:
+        # Includes both ORF-only evidence and predictions whose all-null
+        # numeric fields were dropped by the wide pivot.
+        unpredicted = group_df.loc[~represented].copy()
+        if not unpredicted.empty:
+            for column, source_column in SOURCE_PREDICTION_COLUMNS.items():
+                unpredicted[column] = unpredicted[source_column]
+            long_rows.append(unpredicted)
 
     result = pd.concat(long_rows, ignore_index=True)
 
