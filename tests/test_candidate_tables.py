@@ -377,3 +377,55 @@ def test_empty_source_table_retains_its_metadata():
     combined = combine_sources({"empty": source().df.iloc[:0]}, sample_name="p")
     assert combined.empty
     assert "empty" in combined.extra["combined_sources"]
+
+
+class MultiKindModel(Model):
+    """Per-allele output plus processing, independently declared and emitted."""
+
+    def __init__(self, *, declared=("pMHC_affinity", "antigen_processing"),
+                 emitted=("pMHC_affinity", "antigen_processing")):
+        super().__init__()
+        self.declared = declared
+        self.emitted = emitted
+
+    def kind_support(self):
+        return {kind: {"mhc_dependence": "none" if kind == "antigen_processing" else "single_allele"}
+                for kind in self.declared}
+
+    def predict_dataframe(self, peptides, **kwargs):
+        base = super().predict_dataframe(peptides, **kwargs)
+        frames = []
+        for kind in self.emitted:
+            frame = base.copy()
+            frame["kind"] = kind
+            if kind == "antigen_processing":
+                frame["allele"] = None
+                frame["value_unit"] = None
+            frames.append(frame)
+        return pd.concat(frames, ignore_index=True)
+
+
+@pytest.mark.parametrize("alleles", [["HLA-B*07:02"] * 2, ["HLA-A*02:01", "HLA-B*07:02"]])
+def test_processing_cannot_satisfy_rescoring_coverage_for_unsupported_alleles(alleles):
+    combined = combine_sources({"one": source(allele=alleles)}, sample_name="p")
+    before = combined.df.copy(deep=True)
+    with pytest.raises(ValueError, match="pMHC_affinity.*HLA-B\\*07:02"):
+        rescore_candidates(combined, MultiKindModel(), prefix="fresh")
+    pd.testing.assert_frame_equal(combined.df, before)
+    assert "candidate_rescoring" not in combined.extra
+
+
+def test_missing_declared_allele_kind_is_not_covered_by_other_kinds():
+    model = MultiKindModel(declared=("pMHC_affinity", "pMHC_presentation", "antigen_processing"))
+    with pytest.raises(ValueError, match="pMHC_presentation"):
+        rescore_candidates(combined(), model, prefix="fresh")
+
+
+@pytest.mark.parametrize("kinds", [("pMHC_affinity", "antigen_processing"), ("antigen_processing",)])
+def test_supported_multi_kind_and_processing_only_models_still_rescore(kinds):
+    model = MultiKindModel(declared=kinds, emitted=kinds)
+    inputs = combined() if "pMHC_affinity" in kinds else combine_sources(
+        {"one": source(allele="HLA-B*07:02")}, sample_name="p")
+    output = rescore_candidates(inputs, model, prefix="fresh")
+    for kind in kinds:
+        assert output.df[f"fresh__testmodel__{kind}__value"].notna().all()

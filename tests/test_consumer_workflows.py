@@ -2274,3 +2274,72 @@ def test_malformed_osteosarc_catalogue_row_survives_audit_and_report(tmp_path):
     assert result["status"] == expected["status"]
     assert result["rna"] == expected["rna"]
     assert "malformed_source_row | unavailable" in (tmp_path / "README.md").read_text()
+
+
+@pytest.mark.parametrize("case", ["versioned", "unnamed", "unnamed_null", "simple", "simple_blank_version"])
+@pytest.mark.parametrize("writer_style", ["result", "dataframe"])
+def test_combined_tables_keep_measurements_and_rankings_through_wide_files(tmp_path, case, writer_style):
+    from topiary import combine_sources, is_named_version, rank_candidates
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    def table(value, method, version):
+        return pd.DataFrame(dict(peptide=["SIINFEKL"], allele=["HLA-A*02:01"],
+                                 kind=["pMHC_affinity"], value=[value],
+                                 prediction_method_name=[method], predictor_version=[version]))
+
+    if case == "versioned":
+        sources = {"old": table(50., "original", "4.1b"),
+                   "new": table(75., "original", "4.2"),
+                   "unversioned": table(120., "original", None),
+                   # A real method name can itself look version-encoded.
+                   "suffix": table(90., "original_4.1b", None)}
+    elif case == "unnamed":
+        sources = {"only": table(50., None, None).drop(columns=["prediction_method_name", "predictor_version"])}
+    elif case == "unnamed_null":
+        sources = {"only": table(50., pd.NA, pd.NA)}
+    elif case == "simple_blank_version":
+        sources = {"only": table(50., "original", "")}
+    else:
+        sources = {"only": table(50., "original", None).drop(columns="predictor_version")}
+    combined = combine_sources(sources, sample_name="p")
+    policy = dict(ascending=True, strata=["source_label"])
+    before = rank_candidates(combined, "affinity.value", **policy)
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        wide = combined.to_wide()
+        path = tmp_path / f"combined.{suffix}"
+        if writer_style == "result":
+            method(wide, path)
+        else:
+            writer(wide.df, path)
+        restored = reader(path).to_long()
+        original_rows = combined.df.sort_values("source_label").reset_index(drop=True)
+        restored_rows = restored.df.sort_values("source_label").reset_index(drop=True)
+        for column in ("value", "prediction_method_name", "predictor_version", "source_observation_id"):
+            left, right = original_rows[column], restored_rows[column]
+            if column == "predictor_version":
+                # Blank and null versions are both unstated; file IO must
+                # preserve that fact instead of inventing a known version.
+                left = left.where(left.map(is_named_version), np.nan)
+                right = right.where(right.map(is_named_version), np.nan)
+            pd.testing.assert_series_equal(left.where(left.notna(), np.nan), right.where(right.notna(), np.nan),
+                                           check_dtype=False)
+        after = rank_candidates(restored, "affinity.value", **policy)
+        assert before.candidate_score.tolist() == after.candidate_score.tolist()
+        assert before.source_label.tolist() == after.source_label.tolist()
+        assert len(restored.filter_by("affinity.value < 60")) == 1
+
+
+def test_nearest_self_predictions_keep_allele_aggregation_after_combination_and_reload(tmp_path):
+    from topiary import combine_sources, evaluate_scores, parse, read_tsv
+    from .test_self_nearest_population import _predict
+
+    original = _predict(predict_self_nearest=True)
+    combined = combine_sources({"only": original}, sample_name="p")
+    path = tmp_path / "self.tsv"
+    combined.to_wide().to_tsv(path)
+    restored = read_tsv(path).to_long()
+    for expression in ("affinity.best_value", "self_nearest.affinity.best_value"):
+        native = evaluate_scores(original, parse(expression))
+        assert native.nunique() == 1
+        for frame in (combined.df, restored.df):
+            np.testing.assert_allclose(evaluate_scores(frame, parse(expression)), native)

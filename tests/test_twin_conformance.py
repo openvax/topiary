@@ -1093,3 +1093,34 @@ def test_osteosarc_inventory_doors_preserve_ragged_row_diagnostics(bad_row, bad_
     assert [v.status for v in variants] == [r["input_status"] for r in records] == [
         "malformed_source_row", "ready"]
     assert variants[0].annotations["parse_errors"] == records[0]["parse_errors"]
+
+
+# The same single input must score identically with and without source tracking.
+SOURCE_VIEW_TWINS = (
+    TopiaryResult,
+    lambda frame: combine_sources({"only": frame}, sample_name="p"),
+)
+
+
+@pytest.mark.parametrize("scope", ["wt", "self", "self_nearest", "shuffled"])
+@pytest.mark.parametrize("expression", ["affinity.best_value", "affinity.value / presentation.score"])
+def test_source_tracking_preserves_scoped_prediction_aggregation(scope, expression):
+    from topiary import parse
+
+    frame = pd.DataFrame(dict(
+        peptide=["SIINFEKL"] * 4, source_sequence_name=["orf"] * 4,
+        peptide_offset=[0] * 4,
+        allele=["HLA-A*02:01", "HLA-B*07:02"] * 2,
+        kind=["pMHC_affinity"] * 2 + ["pMHC_presentation"] * 2,
+        value=[20., 200., .1, .8], score=[.9, .2, .1, .8],
+        prediction_method_name=["model"] * 4,
+    ))
+    frame[f"{scope}_value"] = [30., 300., .2, .9]
+    frame[f"{scope}_score"] = [.8, .1, .2, .9]
+    frame[f"{scope}_percentile_rank"] = [1., 10., 2., 20.]
+    frame[f"{scope}_peptide"] = "SIINFEKLK"
+    plain, combined = (constructor(frame) for constructor in SOURCE_VIEW_TWINS)
+    for expr in (expression, expression.replace("affinity.", f"{scope}.affinity.")):
+        expected = evaluate_scores(plain.df, parse(expr))
+        assert expected.notna().all()
+        pd.testing.assert_series_equal(evaluate_scores(combined.df, parse(expr)), expected)

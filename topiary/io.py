@@ -384,6 +384,14 @@ def _write_delimited(df, path, sep, metadata, index):
     elif not metadata.models:
         metadata.models.update(df_models)
 
+    # The encoder knows whether a model key includes a version; its spelling
+    # alone cannot distinguish a real method suffix from an encoded version.
+    # Carry that existing mapping through files as well as in-memory frames.
+    model_keys = df.attrs.get("topiary_model_keys")
+    if metadata.form == "wide" and model_keys:
+        metadata.extra = OrderedDict(metadata.extra)
+        metadata.extra["topiary_model_keys"] = normalize_python_types(model_keys)
+
     comment_block = _format_comment_block(metadata)
 
     with open(path, "w") as f:

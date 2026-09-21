@@ -33,6 +33,24 @@ normalize LENS and pVACseq. Native Exacto parsing is separate work in
 ORF/RNA DataFrame is supported now. Aggregated reports contribute only the
 candidates they actually report.
 
+A single input needs no model name, version or per-row source metadata. For
+example, this table can be ranked directly after combination:
+
+```python
+import pandas as pd
+from topiary import combine_sources, rank_candidates
+
+simple = combine_sources({"input": pd.DataFrame({
+    "peptide": ["SIINFEKL"], "allele": ["HLA-A*02:01"],
+    "kind": ["pMHC_affinity"], "value": [50.0],
+})}, sample_name="patient-01")
+ranked = rank_candidates(simple, "affinity.value", ascending=True)
+```
+
+Unknown predictor names and versions remain unknown. The ordinary expression
+`affinity.value` continues to work; adding provenance does not require a
+version-qualified expression for this simple case.
+
 ## Identities and source evidence
 
 | Column | Meaning |
@@ -180,6 +198,10 @@ stated `allele_set`. Existing candidate identities are preserved; ORF-only rows
 remain unscored. Scanning new windows or adding HLA candidates is a separate
 operation, with novelty/context handling tracked in
 [#364](https://github.com/openvax/topiary/issues/364).
+
+Every declared allele-dependent prediction kind must cover the selected
+candidate. An allele-free processing output cannot substitute for missing
+affinity or presentation; processing-only models remain supported.
 
 ## Vaxrank
 

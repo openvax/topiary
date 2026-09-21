@@ -23,7 +23,16 @@ from .serialization import normalize_python_types
 from .wide import PREDICTION_COLUMNS, SOURCE_PREDICTION_COLUMNS
 
 
-_MEASUREMENT_FIELDS = (PREDICTION_COLUMNS - {"prediction_run_name"}) | {
+# Comparator scores vary by model/kind/allele just like the primary scores.
+# Their peptides, genes and context remain observation identity; only the
+# explicitly named prediction fields belong to the measurement axes.
+_PREDICTION_MEASUREMENTS = PREDICTION_COLUMNS | {
+    f"{scope}_{field}"
+    for scope in ("wt", "self", "self_nearest", "shuffled")
+    for field in ("value", "score", "percentile_rank", "affinity",
+                  "prediction_method_name", "predictor_version", "value_unit", "measurement_context")
+}
+_MEASUREMENT_FIELDS = (_PREDICTION_MEASUREMENTS - {"prediction_run_name"}) | {
     "allele", "allele_set", "mhc_class", "value_unit", "measurement_context",
     "peptide_input", "cache_key",
 }
@@ -151,7 +160,7 @@ def combine_sources(sources, *, sample_name=None):
                 "prediction_method_name", "predictor_version"]
         if "allele_set" in frame:
             axes.append("allele_set")
-        values = sorted((PREDICTION_COLUMNS | {"value_unit", "measurement_context"})
+        values = sorted((_PREDICTION_MEASUREMENTS | {"value_unit", "measurement_context"})
                         & set(frame) - set(axes))
         slots = frame[axes].apply(lambda row: _identity(row.tolist()), axis=1)
         measurements = frame[values].apply(lambda row: _identity(row.tolist()), axis=1)
@@ -343,7 +352,10 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
     models : predictor instance or sequence of instances
         Configured mhctools models exposing ``predict_dataframe`` and
         ``kind_support()``. Their configured alleles must cover the selected
-        candidates. Models are called only here, never during combination.
+        candidates for every declared allele-dependent kind. Allele-free
+        processing cannot satisfy missing affinity/presentation coverage;
+        processing-only models need no allele coverage. Models are called
+        only here, never during combination.
     prefix : str
         Unique run identifier used in added feature names, for example
         ``fresh__mhcflurry__pMHC_affinity__value``. Double separators keep
@@ -401,7 +413,7 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
                     raise ValueError("Re-scoring returned a different peptide")
                 cache[cache_key] = (predicted, support)
             predicted, support = cache[cache_key]
-            matched = False
+            matched_kinds = set()
             for _, prediction in predicted.iterrows():
                 kind = str(prediction.kind)
                 spec = next((v for k, v in support.items() if str(getattr(k, "value", k)) == kind), {})
@@ -414,7 +426,7 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
                         raise ValueError("Haplotype re-scoring requires allele_set matching the configured model")
                 elif dependence != "none" and _allele(prediction.get("allele")) != row.candidate_allele:
                     continue
-                matched = True
+                matched_kinds.add(kind)
                 method = str(prediction.prediction_method_name)
                 if not re.fullmatch(r"[A-Za-z0-9_]+", method):
                     raise ValueError(f"Predictor name {method!r} cannot form a DSL feature identifier")
@@ -445,7 +457,17 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
                     if key in values and values[key] != value:
                         raise ValueError("Conflicting re-scoring values for the same observation")
                     values[key] = value
-            if not matched:
+            # Processing output is useful on its own, but cannot stand in for
+            # a missing affinity/presentation result for the selected allele.
+            required_kinds = {
+                str(getattr(kind, "value", kind)) for kind, spec in support.items()
+                if spec.get("mhc_dependence") in {"single_allele", "haplotype"}
+            }
+            missing_kinds = required_kinds - matched_kinds
+            if missing_kinds:
+                raise ValueError(f"Model returned no {', '.join(sorted(missing_kinds))} prediction "
+                                 f"for {row.peptide}/{row.candidate_allele}")
+            if not matched_kinds:
                 raise ValueError(f"Model returned no prediction for {row.peptide}/{row.candidate_allele}")
     output = frame.copy()
     genotypes = frame.get("allele_set", pd.Series(None, index=frame.index, dtype=object)).map(

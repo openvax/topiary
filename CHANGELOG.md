@@ -2,6 +2,11 @@
 
 ## 5.68.0
 
+- Preserve wide-file model/version mappings and unnamed predictor values;
+  retain existing DSL aggregation of scoped predictions when adding source
+  tracking. Re-scoring validates each allele-dependent kind separately from
+  processing output. Single-input, unknown-version tables remain supported
+  (#373).
 - Combine labelled source tables without running predictors. Preserve original
   measurements, source observations and metadata; link candidate pMHCs and
   identical full ORFs while retaining alternative ORFs and independent RNA
