@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.68.1
+
+- Refresh README installation requirements, the explicit column-filter example,
+  and cache identity terminology; remove obsolete release and CI narration.
+- Document an isolated release environment, dependency inventory and test
+  prerequisites so local validation uses consistent dependencies (#297).
+
 ## 5.68.0
 
 - Preserve wide-file model/version mappings and unnamed predictor values;

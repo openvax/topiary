@@ -180,7 +180,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.68.0"
+__version__ = "5.68.1"
 
 __all__ = [
     "combine_sources",

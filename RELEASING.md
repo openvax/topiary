@@ -14,15 +14,38 @@
 3. Runs `./lint.sh` (ruff)
 4. Runs `./test.sh` (pytest with coverage)
 5. Builds sdist and wheel via `python -m build`
-6. Prompts for confirmation
-7. Uploads to PyPI via twine
-8. Creates a git tag (`v{version}`) and pushes it
+6. Uploads to PyPI via twine
+7. Creates a git tag (`v{version}`) and pushes it
 
-## Prerequisites
+## Release environment
 
+Use a dedicated environment so installs in sibling repositories cannot change
+dependencies during validation or upload. From the Topiary checkout:
+
+```bash
+release_dir=$(mktemp -d "${TMPDIR:-/tmp}/topiary-release.XXXXXX")
+python3 -m venv "$release_dir/venv"
+export PYTHON="$release_dir/venv/bin/python"
+"$PYTHON" -m pip install -e '.[isovar,pirlygenes]' build twine ruff pytest pytest-cov pytest-xdist
+"$PYTHON" -m pip check
+"$PYTHON" -m pip inspect > "$release_dir/environment.json"
+mkdir "$release_dir/pytest"
+export PYTEST_DEBUG_TEMPROOT="$release_dir/pytest"
+./lint.sh
+./test.sh
 ```
-pip install build twine ruff pytest pytest-cov
-```
+
+The environment report records installed versions and editable source paths.
+Only Topiary is editable here; sibling packages come from published releases.
+Keep `PYTHON` set to this interpreter when running `./deploy.sh` after merging.
+All lint, test, build and upload steps use it. The separate pytest temporary
+parent also prevents another repository's test cleanup from removing this
+release's fixtures; do not set a shared `--basetemp` in `PYTEST_ADDOPTS`.
+
+The full suite needs the Ensembl data and external tools described in CI, and
+permission to bind localhost sockets for the HTTP download fixtures. A sandbox
+that denies those sockets must grant access for the test run; do not skip the
+tests or suppress their errors.
 
 ## Version scheme
 
