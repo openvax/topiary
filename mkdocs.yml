@@ -19,6 +19,7 @@ nav:
   - Protein Fragments: fragments.md
   - Cached Predictions: cached.md
   - Reading pVACseq: pvacseq.md
+  - Combining Sources: combined-sources.md
   - Osteosarc RNA Audit: osteosarc-rna-audit.md
   - Osteosarc RNA Overlay: osteosarc-rna-overlay.md
   - Osteosarc Variant Outcomes: osteosarc-variant-outcomes.md

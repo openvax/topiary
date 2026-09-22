@@ -60,6 +60,80 @@ PVACSEQ_PRESENTATION = (
 )
 
 
+def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, tmp_path):
+    from topiary import combine_sources, melt_pvacseq_algorithms, rank_candidates, read_tsv
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Table-only ranking must not execute a predictor")
+
+    monkeypatch.setattr(TopiaryPredictor, "__init__", forbidden)
+    sources = {"lens": read_lens(LENS), "pvacseq": melt_pvacseq_algorithms(read_pvacseq(PVACSEQ))}
+    combined = combine_sources(sources, sample_name="fixture-patient")
+    expression = "affinity['netmhcpan'].value"
+    pooled = rank_candidates(combined, expression, ascending=True, duplicates="best")
+    strata = rank_candidates(combined, expression, ascending=True, duplicates="best",
+                             strata=["source_label", "candidate_mhc_class"])
+    assert set(strata.loc[strata.candidate_score.notna(), "source_label"]) == set(sources)
+    assert set(pooled.candidate_id) == set(combined.df.candidate_id.dropna())
+    selected = combined.filter_by("n_rna_alt > 5")
+    assert 0 < len(selected) < len(combined)
+    path = tmp_path / "combined.tsv"
+    combined.to_tsv(path)
+    restored = read_tsv(path)
+    reranked = rank_candidates(restored, expression, ascending=True, duplicates="best")
+    assert reranked.candidate_id.tolist() == pooled.candidate_id.tolist()
+    np.testing.assert_allclose(reranked.candidate_score, pooled.candidate_score, equal_nan=True)
+    assert restored.extra["combined_sources"] == combined.extra["combined_sources"]
+
+
+def test_table_rescoring_changes_only_the_explicit_dsl_policy(tmp_path):
+    from topiary import combine_sources, rank_candidates, read_tsv, rescore_candidates
+    from .test_candidate_tables import Model, source
+
+    tables = {"mutation": source(source_type="variant:snv"),
+              "fusion": source(source_type="sv:fusion", values=(70., 700.))}
+    combined = combine_sources(tables, sample_name="fixture-patient")
+    original = rank_candidates(combined, "affinity.value", ascending=True, duplicates="best")
+    enriched = rescore_candidates(combined, Model(), prefix="new", select="source_label == 'fusion'")
+    path = tmp_path / "enriched.tsv"
+    enriched.to_tsv(path)
+    restored = read_tsv(path)
+    reranked = rank_candidates(restored, "affinity.value", ascending=True, duplicates="best")
+    assert original.peptide.tolist() == reranked.peptide.tolist()
+    assert original.candidate_score.tolist() == reranked.candidate_score.tolist()
+    feature = "new__testmodel__pMHC_affinity__value"
+    using_new = rank_candidates(restored, feature, ascending=True, duplicates="best")
+    assert using_new.peptide.tolist() == original.peptide.tolist()[::-1]
+    filtered = restored.filter_by(feature + " < 100")
+    assert set(filtered.df.source_label) == {"fusion"}
+    assert set(filtered.df.peptide) == {"GILGFVFTL"}
+
+
+def test_orf_abundance_can_enrich_matching_candidates_without_blending_alternative_orfs():
+    from topiary import combine_sources, join_annotations, protein_evidence_view, rank_candidates
+    from .test_candidate_tables import source
+
+    proteins = ["MAAASIINFEKL", "MAAAGILGFVFTL"]
+    candidates = source(protein_sequence=proteins, event_id=["event-1", "event-2"])
+    rna = pd.DataFrame(dict(protein_sequence=proteins + ["MQQQSIINFEKL"],
+                            event_id=["event-1", "event-2", "event-1"],
+                            transcript_expression=[1., 1000., 9999.]))
+    combined = combine_sources({"lens_normalized": candidates, "exacto_normalized": rna}, sample_name="p")
+    assert len(protein_evidence_view(combined)) == 3
+    keys = ["candidate_sample", "event_id", "protein_sequence_id"]
+    annotations = combined.df.loc[combined.df.source_label.eq("exacto_normalized"),
+                                  [*keys, "transcript_expression"]]
+    enriched = join_annotations(combined, annotations, on=keys, prefix="exacto",
+                                provenance={"source": "exacto_normalized", "unit": "TPM",
+                                            "subject": "full ORF", "policy": "exact event and sequence"})
+    first = rank_candidates(combined, "1 / affinity.value")
+    second = rank_candidates(enriched, "exacto_transcript_expression / affinity.value")
+    assert first.peptide.tolist() == ["SIINFEKL", "GILGFVFTL"]
+    assert second.peptide.tolist() == first.peptide.tolist()[::-1]
+    assert second.candidate_score.tolist() == [2., .02]
+    assert enriched.filter_by("exacto_transcript_expression > 10").df.candidate_id.dropna().nunique() == 1
+
+
 def test_nested_dataset_provenance_survives_filter_sort_and_file_io(tmp_path):
     from .test_twin_conformance import DELIMITED_IO_TWINS
 
@@ -2200,3 +2274,109 @@ def test_malformed_osteosarc_catalogue_row_survives_audit_and_report(tmp_path):
     assert result["status"] == expected["status"]
     assert result["rna"] == expected["rna"]
     assert "malformed_source_row | unavailable" in (tmp_path / "README.md").read_text()
+
+
+@pytest.mark.parametrize("case", ["versioned", "unnamed", "unnamed_null", "simple", "simple_blank_version"])
+@pytest.mark.parametrize("writer_style", ["result", "dataframe"])
+def test_combined_tables_keep_measurements_and_rankings_through_wide_files(tmp_path, case, writer_style):
+    from topiary import combine_sources, is_named_version, rank_candidates
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    def table(value, method, version):
+        return pd.DataFrame(dict(peptide=["SIINFEKL"], allele=["HLA-A*02:01"],
+                                 kind=["pMHC_affinity"], value=[value],
+                                 prediction_method_name=[method], predictor_version=[version]))
+
+    if case == "versioned":
+        sources = {"old": table(50., "original", "4.1b"),
+                   "new": table(75., "original", "4.2"),
+                   "unversioned": table(120., "original", None),
+                   # A real method name can itself look version-encoded.
+                   "suffix": table(90., "original_4.1b", None)}
+    elif case == "unnamed":
+        sources = {"only": table(50., None, None).drop(columns=["prediction_method_name", "predictor_version"])}
+    elif case == "unnamed_null":
+        sources = {"only": table(50., pd.NA, pd.NA)}
+    elif case == "simple_blank_version":
+        sources = {"only": table(50., "original", "")}
+    else:
+        sources = {"only": table(50., "original", None).drop(columns="predictor_version")}
+    combined = combine_sources(sources, sample_name="p")
+    policy = dict(ascending=True, strata=["source_label"])
+    before = rank_candidates(combined, "affinity.value", **policy)
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        wide = combined.to_wide()
+        path = tmp_path / f"combined.{suffix}"
+        if writer_style == "result":
+            method(wide, path)
+        else:
+            writer(wide.df, path)
+        restored = reader(path).to_long()
+        original_rows = combined.df.sort_values("source_label").reset_index(drop=True)
+        restored_rows = restored.df.sort_values("source_label").reset_index(drop=True)
+        for column in ("value", "prediction_method_name", "predictor_version", "source_observation_id"):
+            left, right = original_rows[column], restored_rows[column]
+            if column == "predictor_version":
+                # Blank and null versions are both unstated; file IO must
+                # preserve that fact instead of inventing a known version.
+                left = left.where(left.map(is_named_version), np.nan)
+                right = right.where(right.map(is_named_version), np.nan)
+            pd.testing.assert_series_equal(left.where(left.notna(), np.nan), right.where(right.notna(), np.nan),
+                                           check_dtype=False)
+        after = rank_candidates(restored, "affinity.value", **policy)
+        assert before.candidate_score.tolist() == after.candidate_score.tolist()
+        assert before.source_label.tolist() == after.source_label.tolist()
+        assert len(restored.filter_by("affinity.value < 60")) == 1
+
+
+def test_nearest_self_predictions_keep_allele_aggregation_after_combination_and_reload(tmp_path):
+    from topiary import combine_sources, evaluate_scores, parse, read_tsv
+    from .test_self_nearest_population import _predict
+
+    original = _predict(predict_self_nearest=True)
+    combined = combine_sources({"only": original}, sample_name="p")
+    path = tmp_path / "self.tsv"
+    combined.to_wide().to_tsv(path)
+    restored = read_tsv(path).to_long()
+    for expression in ("affinity.best_value", "self_nearest.affinity.best_value"):
+        native = evaluate_scores(original, parse(expression))
+        assert native.nunique() == 1
+        for frame in (combined.df, restored.df):
+            np.testing.assert_allclose(evaluate_scores(frame, parse(expression)), native)
+
+
+@pytest.mark.parametrize("versions", [("1", "2"), ("01", "1"), ("1.10", "1.1")])
+@pytest.mark.parametrize("wide", [False, True])
+def test_numeric_predictor_versions_are_opaque_through_files_and_ranking(tmp_path, versions, wide):
+    from topiary import combine_sources, rank_candidates
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    def table(value, version):
+        return pd.DataFrame(dict(peptide=["SIINFEKL"], allele=["HLA-A*02:01"],
+                                 kind=["pMHC_affinity"], value=[value],
+                                 prediction_method_name=["original"], predictor_version=[version],
+                                 wt_value=[value + 1], wt_predictor_version=[version]))
+
+    combined = combine_sources({"first": table(50., versions[0]),
+                                "second": table(75., versions[1]),
+                                "unknown": table(100., None)}, sample_name="p")
+    policy = dict(strata=["source_label"])
+    before = rank_candidates(combined, "affinity.value", **policy)
+    assert before.candidate_score.tolist() == [100., 75., 50.]
+    for suffix, _, writer, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / f"numeric.{suffix}"
+        writer(combined.to_wide() if wide else combined, path)
+        restored = reader(path).to_long()
+        rows = restored.df.set_index("source_label")
+        for column in ("predictor_version", "source_predictor_version", "wt_predictor_version"):
+            assert rows.loc["first", column] == versions[0]
+            assert rows.loc["second", column] == versions[1]
+            assert pd.isna(rows.loc["unknown", column])
+        after = rank_candidates(restored, "affinity.value", **policy)
+        assert after.candidate_score.tolist() == before.candidate_score.tolist()
+        assert after.source_label.tolist() == before.source_label.tolist()
+        assert rows.loc[["first", "second", "unknown"], "wt_value"].tolist() == [51., 76., 101.]
+        for version, value in zip(versions, (50., 75.)):
+            selected = rank_candidates(restored, f"affinity['original', '{version}'].value", **policy)
+            assert selected.candidate_score.dropna().tolist() == [value]
+        assert len(restored.filter_by("affinity.value < 60")) == 1

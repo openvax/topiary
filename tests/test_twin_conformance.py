@@ -44,6 +44,7 @@ from topiary import (
     read_fragments, read_pvacseq, write_fragments, unique_fragments,
     describe_isovar_result, fragment_from_isovar_result, TopiaryResult,
     to_tsv, to_csv, read_tsv, read_csv,
+    combine_sources, rank_candidates, evaluate_scores,
 )
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
@@ -98,6 +99,28 @@ DELIMITED_IO_TWINS = (
     ("tsv", to_tsv, TopiaryResult.to_tsv, read_tsv),
     ("csv", to_csv, TopiaryResult.to_csv, read_csv),
 )
+
+
+# Candidate ranking must use the same feature/prediction semantics as the
+# lower-level DSL scorer that downstream consumers already call.
+CANDIDATE_SCORE_TWINS = (rank_candidates, evaluate_scores)
+
+
+@pytest.mark.parametrize("expression", ["affinity.value", "n_rna_alt / affinity.value", "n_rna_alt"])
+@pytest.mark.parametrize("missing", [False, True])
+def test_candidate_ranking_and_dsl_scoring_agree(expression, missing):
+    from topiary import parse
+    from .test_candidate_tables import source
+
+    frame = source(n_rna_alt=[5, None] if missing else [5, 15])
+    combined = combine_sources({"original": frame}, sample_name="p")
+    rank, score = CANDIDATE_SCORE_TWINS
+    ranked = rank(combined, expression)
+    expected = dict(zip(combined.df.candidate_id, score(combined.df, parse(expression))))
+    pd.testing.assert_series_equal(
+        ranked.candidate_score,
+        ranked.candidate_id.map(expected), check_names=False, check_dtype=False,
+    )
 
 
 # Real aggregated/all-epitopes doors, paired by original run and MHC view.
@@ -1070,3 +1093,34 @@ def test_osteosarc_inventory_doors_preserve_ragged_row_diagnostics(bad_row, bad_
     assert [v.status for v in variants] == [r["input_status"] for r in records] == [
         "malformed_source_row", "ready"]
     assert variants[0].annotations["parse_errors"] == records[0]["parse_errors"]
+
+
+# The same single input must score identically with and without source tracking.
+SOURCE_VIEW_TWINS = (
+    TopiaryResult,
+    lambda frame: combine_sources({"only": frame}, sample_name="p"),
+)
+
+
+@pytest.mark.parametrize("scope", ["wt", "self", "self_nearest", "shuffled"])
+@pytest.mark.parametrize("expression", ["affinity.best_value", "affinity.value / presentation.score"])
+def test_source_tracking_preserves_scoped_prediction_aggregation(scope, expression):
+    from topiary import parse
+
+    frame = pd.DataFrame(dict(
+        peptide=["SIINFEKL"] * 4, source_sequence_name=["orf"] * 4,
+        peptide_offset=[0] * 4,
+        allele=["HLA-A*02:01", "HLA-B*07:02"] * 2,
+        kind=["pMHC_affinity"] * 2 + ["pMHC_presentation"] * 2,
+        value=[20., 200., .1, .8], score=[.9, .2, .1, .8],
+        prediction_method_name=["model"] * 4,
+    ))
+    frame[f"{scope}_value"] = [30., 300., .2, .9]
+    frame[f"{scope}_score"] = [.8, .1, .2, .9]
+    frame[f"{scope}_percentile_rank"] = [1., 10., 2., 20.]
+    frame[f"{scope}_peptide"] = "SIINFEKLK"
+    plain, combined = (constructor(frame) for constructor in SOURCE_VIEW_TWINS)
+    for expr in (expression, expression.replace("affinity.", f"{scope}.affinity.")):
+        expected = evaluate_scores(plain.df, parse(expr))
+        assert expected.notna().all()
+        pd.testing.assert_series_equal(evaluate_scores(combined.df, parse(expr)), expected)

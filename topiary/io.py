@@ -290,6 +290,7 @@ def _fill_missing_model_versions(models, *fallbacks):
 
 def _read_delimited(path, sep, tag=None):
     from .result import TopiaryResult
+    from .wide import _parse_wide_column
 
     path = Path(path)
     with open(path) as f:
@@ -301,7 +302,17 @@ def _read_delimited(path, sep, tag=None):
     if not data_text.strip():
         df = pd.DataFrame()
     else:
-        df = pd.read_csv(StringIO(data_text), sep=sep)
+        # Versions are opaque labels: inference would turn "01" into 1 or
+        # "1.10" into 1.1 before the wide decoder can match model identities.
+        # Keep measurement and annotation columns under normal numeric inference.
+        columns = pd.read_csv(StringIO(data_text), sep=sep, nrows=0).columns
+        version_types = {}
+        for column in columns:
+            parsed = _parse_wide_column(column)
+            if (column == "predictor_version" or column.endswith("_predictor_version")
+                    or (parsed is not None and parsed[2] == "wt_version")):
+                version_types[column] = str
+        df = pd.read_csv(StringIO(data_text), sep=sep, dtype=version_types)
 
     # Record source (tag overrides filename).
     source_label = tag if tag is not None else path.name
@@ -383,6 +394,14 @@ def _write_delimited(df, path, sep, metadata, index):
         )
     elif not metadata.models:
         metadata.models.update(df_models)
+
+    # The encoder knows whether a model key includes a version; its spelling
+    # alone cannot distinguish a real method suffix from an encoded version.
+    # Carry that existing mapping through files as well as in-memory frames.
+    model_keys = df.attrs.get("topiary_model_keys")
+    if metadata.form == "wide" and model_keys:
+        metadata.extra = OrderedDict(metadata.extra)
+        metadata.extra["topiary_model_keys"] = normalize_python_types(model_keys)
 
     comment_block = _format_comment_block(metadata)
 

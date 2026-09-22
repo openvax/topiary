@@ -282,10 +282,12 @@ def _with_optional_sample_key(df, group_keys):
 
 
 def _pick_group_keys(df):
-    # fragment_id is the most specific identity (from predict_from_fragments);
-    # variant is for the legacy varcode pipeline; source_sequence_name is the
-    # generic fallback.
-    if "fragment_id" in df.columns:
+    # Combined source tables retain independent observations of one candidate.
+    # Their scores/evidence must not be merged just because a fragment or
+    # variant identifier happens to be shared across discovery pipelines.
+    if "source_observation_id" in df.columns:
+        keys = ["source_observation_id", "peptide", "allele"]
+    elif "fragment_id" in df.columns:
         keys = _GROUP_KEYS_FRAGMENT
     elif "variant" in df.columns:
         keys = _GROUP_KEYS_VARIANT
@@ -2550,6 +2552,15 @@ def mhc_dependence(kind, *, kind_support=None, rows=None):
 
 def _mhc_dependence(kind, kind_support, rows):
     """:func:`mhc_dependence` for rows already narrowed to *kind*."""
+    if rows is not None and "source_prediction_mhc_dependence" in rows:
+        reported_modes = set(rows["source_prediction_mhc_dependence"].dropna())
+        if reported_modes - _MHC_DEPENDENCE_VALUES:
+            raise ValueError(f"Unknown source MHC dependence: {sorted(reported_modes)}")
+        if len(reported_modes) > 1:
+            raise ValueError("Source predictions have different MHC dependence; "
+                             "filter to compatible sources before evaluating this kind")
+        if reported_modes:
+            return reported_modes.pop()
     reported = _reported_dependences(kind_support, kind, _methods_present(rows))
     # Validate before comparing: an unknown value can't be resolved by
     # picking one of the others, so say what it actually is.
