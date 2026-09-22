@@ -2343,3 +2343,40 @@ def test_nearest_self_predictions_keep_allele_aggregation_after_combination_and_
         assert native.nunique() == 1
         for frame in (combined.df, restored.df):
             np.testing.assert_allclose(evaluate_scores(frame, parse(expression)), native)
+
+
+@pytest.mark.parametrize("versions", [("1", "2"), ("01", "1"), ("1.10", "1.1")])
+@pytest.mark.parametrize("wide", [False, True])
+def test_numeric_predictor_versions_are_opaque_through_files_and_ranking(tmp_path, versions, wide):
+    from topiary import combine_sources, rank_candidates
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    def table(value, version):
+        return pd.DataFrame(dict(peptide=["SIINFEKL"], allele=["HLA-A*02:01"],
+                                 kind=["pMHC_affinity"], value=[value],
+                                 prediction_method_name=["original"], predictor_version=[version],
+                                 wt_value=[value + 1], wt_predictor_version=[version]))
+
+    combined = combine_sources({"first": table(50., versions[0]),
+                                "second": table(75., versions[1]),
+                                "unknown": table(100., None)}, sample_name="p")
+    policy = dict(strata=["source_label"])
+    before = rank_candidates(combined, "affinity.value", **policy)
+    assert before.candidate_score.tolist() == [100., 75., 50.]
+    for suffix, _, writer, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / f"numeric.{suffix}"
+        writer(combined.to_wide() if wide else combined, path)
+        restored = reader(path).to_long()
+        rows = restored.df.set_index("source_label")
+        for column in ("predictor_version", "source_predictor_version", "wt_predictor_version"):
+            assert rows.loc["first", column] == versions[0]
+            assert rows.loc["second", column] == versions[1]
+            assert pd.isna(rows.loc["unknown", column])
+        after = rank_candidates(restored, "affinity.value", **policy)
+        assert after.candidate_score.tolist() == before.candidate_score.tolist()
+        assert after.source_label.tolist() == before.source_label.tolist()
+        assert rows.loc[["first", "second", "unknown"], "wt_value"].tolist() == [51., 76., 101.]
+        for version, value in zip(versions, (50., 75.)):
+            selected = rank_candidates(restored, f"affinity['original', '{version}'].value", **policy)
+            assert selected.candidate_score.dropna().tolist() == [value]
+        assert len(restored.filter_by("affinity.value < 60")) == 1
