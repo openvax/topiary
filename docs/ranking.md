@@ -51,6 +51,31 @@ scores = evaluate_scores(kept, Affinity.score, group_keys=group_keys)
 
 `apply_filter`, `apply_sort` and `evaluate_scores` accept the same keyword-only context options — `group_keys`, `default_methods`, `kind_support` and `alleles` — so filtering, sorting and scoring can share one grouping and one method resolution.
 
+Prediction fields require one consistent measurement per group after model and
+version selection. Conflicting values raise `ValueError` in scoring, filtering,
+sorting, best-allele aggregation and peptide-level projection. Reordering rows
+cannot select a different measurement. Equal repeats are allowed, a missing
+value does not contradict a known value, and an entirely missing group stays
+missing. No predictor version is inferred for historical rows that omit it.
+
+As with peptide-level reads, differences within `1e-9 * max(1, abs(min), abs(max))`
+are treated as floating-point noise. The minimum of these equivalent values is
+used consistently in either row order; conflicting values are never averaged.
+The public `prediction_field_values(df, column, group_keys=...)` function applies
+this same numeric reduction to already-selected prediction rows.
+
+Populated `source_label` and `prediction_run_name` columns separate ordinary
+observations automatically. Combined source tables retain their existing
+`source_observation_id` grouping. Explicit `group_keys` remain authoritative:
+include the source/run identity to retain independent measurements, or select
+one observation before evaluating. Simply naming a run does not authorize
+combining it with another run under narrower explicit keys.
+
+If named runs are complementary shards of one prediction (for example one run
+per allele), pass explicit keys without `prediction_run_name` when aggregating
+across them. They can then contribute different alleles or kinds to one group;
+duplicate measurements within that grouping must still agree.
+
 When several models produce the same kind, an unqualified reference raises rather than picking one. To say "pick the canonical one" explicitly:
 
 ```python
@@ -518,7 +543,11 @@ count('KR') >= 2              # filter: at least 2 basic residues
 
 ## Method + version qualification
 
-`Affinity["netmhcpan"]` filters to rows whose `prediction_method_name` contains the substring (case-insensitive). To disambiguate further, pass a tuple with an exact `predictor_version`:
+`Affinity["netmhcpan"]` first matches an exact `prediction_method_name`
+(case-insensitive), falling back to substring matching when there is no exact
+match. A partial selector or `default_methods` choice matching several models
+within one group raises: use an exact model name to disambiguate. To select a
+version as well, pass a tuple with an exact `predictor_version`:
 
 ```python
 Affinity["netmhcpan", "4.1b"].value    # only NetMHCpan v4.1b rows

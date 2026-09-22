@@ -1458,7 +1458,7 @@ def test_method_match_is_substring():
 
 
 def test_method_substring_ambiguity():
-    """If substring matches multiple methods, picks first match (no error)."""
+    """Partial model names cannot resolve ambiguity by row order."""
     df = _make_df([
         dict(
             source_sequence_name="seq1", peptide="AAA", peptide_offset=0,
@@ -1473,9 +1473,15 @@ def test_method_substring_ambiguity():
             prediction_method_name="tool_alphabeta",
         ),
     ])
-    # "alpha" matches both — should get first match (100.0)
-    val = Affinity["alpha"].value.evaluate(df)
-    assert val == 100.0
+    for ordered in (df, df.iloc[::-1]):
+        with pytest.raises(ValueError, match="Ambiguous.*multiple models"):
+            Affinity["alpha"].value.evaluate(ordered)
+        # An exact name is usable even when it prefixes another model name.
+        assert Affinity["tool_alpha"].value.evaluate(ordered) == 100.0
+        assert Affinity.value.eval(EvalContext(
+            ordered, default_methods={"affinity": "tool_alpha"})).iloc[0] == 100.0
+        with pytest.raises(ValueError, match="Ambiguous default method"):
+            Affinity.value.eval(EvalContext(ordered, default_methods={"affinity": "alpha"}))
 
 
 def test_empty_dataframe_qualified():

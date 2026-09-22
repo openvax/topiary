@@ -288,9 +288,9 @@ def test_a_shared_context_applies_its_default_versions():
 ], ids=["all-nan", "partial-nan", "none", "empty", "whitespace",
         "literal-nan-string", "all-empty"])
 def test_an_unknown_version_is_not_an_ambiguity(versions):
-    scores = evaluate_scores(_frame(versions=versions), Affinity.value)
-
-    assert scores.notna().any()
+    frame = _frame(versions=versions, values=(75., 75.))
+    for ordered in (frame, frame.iloc[::-1]):
+        assert evaluate_scores(ordered, Affinity.value).tolist() == [75., 75.]
 
 
 @pytest.mark.parametrize("versions", [
@@ -301,9 +301,9 @@ def test_the_resolver_reports_no_choice_for_unknown_versions(versions):
 
 
 def test_a_frame_with_no_version_column_evaluates():
-    df = _frame().drop(columns=["predictor_version"])
+    df = _frame(values=(75., 75.)).drop(columns=["predictor_version"])
 
-    assert evaluate_scores(df, Affinity.value).notna().any()
+    assert evaluate_scores(df, Affinity.value).tolist() == [75., 75.]
 
 
 @pytest.mark.parametrize("versions", [
@@ -311,13 +311,27 @@ def test_a_frame_with_no_version_column_evaluates():
 ], ids=["all-nan", "partial-nan", "empty"])
 def test_the_resolver_and_the_dsl_agree(versions):
     """The documented loop must not crash on a frame the resolver passed on."""
-    df = _frame(versions=versions)
+    df = _frame(versions=versions, values=(75., 75.))
 
     scores = evaluate_scores(
         df, Affinity.value, default_versions=resolve_default_versions(df),
     )
 
-    assert scores.notna().any()
+    assert scores.tolist() == [75., 75.]
+
+
+@pytest.mark.parametrize("versions", [(None, None), ("4.2", None), ("4.2", "nan")])
+def test_unknown_versions_do_not_hide_conflicting_measurements(versions):
+    df = _frame(versions=versions)
+    original = df.copy(deep=True)
+    for ordered in (df, df.iloc[::-1]):
+        with pytest.raises(ValueError, match="Conflicting prediction measurements"):
+            evaluate_scores(ordered, Affinity.value,
+                            default_versions=resolve_default_versions(ordered))
+        if versions[0] is not None:
+            selected = evaluate_scores(ordered, Affinity["netmhcpan", "4.2"].value)
+            assert selected.eq(75.).all()
+    pd.testing.assert_frame_equal(df, original)
 
 
 def test_two_real_versions_still_raise_when_some_rows_have_none():

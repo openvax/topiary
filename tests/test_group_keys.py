@@ -68,19 +68,12 @@ def test_apply_filter_group_keys_keep_distinct_provenance_apart():
     assert kept["prediction_id"].tolist() == ["variant-1"]
 
 
-def test_apply_filter_without_group_keys_merges_identical_sequences():
-    """The inferred, sequence-oriented grouping collapses the two rows.
-
-    Not a bug — it is what the sequence-keyed default means, and it is
-    exactly why an explicit identity has to be passable.
-    """
+def test_apply_filter_without_provenance_keys_rejects_conflicting_measurements():
+    """Sequence-oriented inference must not choose between distinct observations."""
     df = _provenance_df()
-
-    kept = apply_filter(df, Affinity.value <= 500)
-
-    # One group holding both rows: nanmin over the group passes, so the
-    # 5000 nM row rides along on the 50 nM row's decision.
-    assert kept["prediction_id"].tolist() == ["variant-1", "variant-2"]
+    for frame in (df, df.iloc[::-1]):
+        with pytest.raises(ValueError, match="Conflicting prediction measurements"):
+            apply_filter(frame, Affinity.value <= 500)
 
 
 def test_apply_filter_group_keys_match_direct_eval_context():
@@ -104,6 +97,7 @@ def test_apply_filter_group_keys_match_direct_eval_context():
 def test_apply_filter_none_group_keys_is_inferred_grouping():
     """Omitting group_keys is identical to passing the inferred ones."""
     df = _provenance_df()
+    df["value"] = 50.0
     node = Affinity.value <= 500
 
     implicit = apply_filter(df, node)
@@ -296,7 +290,7 @@ def test_sample_name_kept_when_blanks_mix_with_real_names():
 
 def test_blank_sample_name_does_not_change_filter_results():
     df = _sample_df(["", ""])
-    df.loc[1, "value"] = 5000.0
+    df["value"] = 50.0
 
     kept = apply_filter(df, Affinity.value <= 500)
 
@@ -504,19 +498,28 @@ def test_null_spellings_collapse_into_one_group(nulls):
 
 def test_null_keys_score_their_group_not_nan():
     df = _null_key_df("gid", [None, np.nan, "x"])
+    df.loc[1, "value"] = 50.0
 
     scores = evaluate_scores(df, Affinity.value, group_keys=["gid"])
 
-    # Both null rows are one group; nanmin over it is 50.
+    # Both null rows are one group and agree on their measurement.
     assert scores.tolist() == [50.0, 50.0, 150.0]
 
 
 def test_null_keys_are_not_dropped_by_filter():
     df = _null_key_df("gid", [None, np.nan, "x"])
+    df.loc[1, "value"] = 50.0
 
     kept = apply_filter(df, Affinity.value <= 60, group_keys=["gid"])
 
     assert kept["peptide"].tolist() == ["a", "b"]
+
+
+def test_null_keys_do_not_hide_conflicting_measurements():
+    df = _null_key_df("gid", [None, np.nan, "x"])
+    for frame in (df, df.iloc[::-1]):
+        with pytest.raises(ValueError, match="Conflicting prediction measurements"):
+            evaluate_scores(frame, Affinity.value, group_keys=["gid"])
 
 
 def test_inferred_keys_do_not_drop_rows_with_none_identity():

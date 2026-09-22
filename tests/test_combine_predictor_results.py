@@ -353,7 +353,11 @@ def test_combined_split_grid_supports_best_ba_and_el_allele_aggregation():
         for peptide_length in [8, 9, 10]
     ]
     combined = combine_predictions(split_results)
-    ctx = EvalContext(combined.df)
+    # These named runs are complementary shards of one model, so explicitly
+    # join them before aggregating across alleles.
+    ctx = EvalContext(combined.df, group_keys=[
+        "source_sequence_name", "peptide", "peptide_offset", "allele",
+    ])
 
     best_ba_allele = Affinity["netmhcpan"].best_value_allele.eval(ctx)
     best_el_allele = Presentation["netmhcpan"].best_score_allele.eval(ctx)
@@ -384,7 +388,9 @@ def test_combine_haplotype_style_presentation_uses_partial_coverage():
         [netmhcpan_rows, mhcflurry_rows],
         coverage="partial",
     )
-    ctx = EvalContext(combined.df)
+    ctx = EvalContext(combined.df, group_keys=[
+        "source_sequence_name", "peptide", "peptide_offset", "allele",
+    ])
     best_flurry_allele = Presentation["mhcflurry"].best_score_allele.eval(ctx)
 
     for source_name, peptide in peptides.items():

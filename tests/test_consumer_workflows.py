@@ -52,6 +52,114 @@ from topiary import (
 )
 from topiary.ranking import parse
 from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_CORPUS_ROOT
+from .test_twin_conformance import DSL_MEASUREMENT_TWINS
+
+
+def _repeated_measurements(values, **columns):
+    row = dict(source_sequence_name="observation", peptide="SIINFEKL", peptide_offset=0,
+               allele="HLA-A*02:01", kind="pMHC_affinity",
+               prediction_method_name="fixture", predictor_version="1")
+    frame = pd.DataFrame([dict(row, value=value) for value in values])
+    for column, value in columns.items():
+        frame[column] = value
+    return frame
+
+
+@pytest.mark.parametrize("door,run", DSL_MEASUREMENT_TWINS)
+@pytest.mark.parametrize("expression,column", [
+    ("affinity.value", "value"), ("affinity.score", "score"),
+    ("affinity.rank", "percentile_rank"), ("wt.affinity.value", "wt_value"),
+    ("affinity.best_value", "value"), ("peptide_view(affinity.value)", "value"),
+])
+@pytest.mark.parametrize("version", ["1", None, "nan"])
+def test_conflicting_measurements_reject_every_consumer_in_both_orders(door, run, expression, column, version):
+    frame = _repeated_measurements([50., 50.], predictor_version=version)
+    frame[column] = [50., 60.]
+    original = frame.copy(deep=True)
+    for ordered in (frame, frame.iloc[::-1]):
+        with pytest.raises(ValueError, match="Conflicting prediction measurements"):
+            run(ordered, expression)
+    pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("door,run", DSL_MEASUREMENT_TWINS)
+@pytest.mark.parametrize("values,expected", [([50., 50.], 50.), ([None, 50.], 50.),
+                                              ([None, None], None), (["50", 50.], 50.)])
+def test_equal_and_missing_measurements_compose_without_order_dependence(door, run, values, expected):
+    frame = pd.concat([_repeated_measurements(values),
+                       _repeated_measurements([55.], peptide="GILGFVFTL")], ignore_index=True)
+    original = frame.copy(deep=True)
+    for ordered in (frame, frame.iloc[::-1]):
+        answer = run(ordered, "affinity.value")
+        if door == "score":
+            target = answer.loc[ordered.peptide.eq("SIINFEKL")]
+            assert target.isna().all() if expected is None else target.eq(expected).all()
+            assert answer.loc[ordered.peptide.eq("GILGFVFTL")].eq(55.).all()
+        elif "filter" in door:
+            assert answer.peptide.tolist() == ([] if expected is None else ["SIINFEKL"] * 2)
+        else:
+            assert sorted(answer.peptide) == sorted(frame.peptide)
+            if expected is not None:
+                assert answer.peptide.tolist() == ["SIINFEKL", "SIINFEKL", "GILGFVFTL"]
+    pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("door,run", DSL_MEASUREMENT_TWINS)
+@pytest.mark.parametrize("identity", ["prediction_run_name", "source_label"])
+def test_named_measurement_observations_remain_independently_scoreable(door, run, identity, tmp_path):
+    frame = _repeated_measurements([50., 60.], **{identity: ["first", "second"]})
+    path = tmp_path / "runs.tsv"
+    TopiaryResult(frame).to_tsv(path)
+    from topiary import read_tsv
+    restored = read_tsv(path).df
+    for ordered in (restored, restored.iloc[::-1]):
+        answer = run(ordered, "affinity.value")
+        if door == "score":
+            assert answer.tolist() == ordered.value.tolist()
+        elif "filter" in door:
+            assert answer[identity].tolist() == ["first"]
+        else:
+            assert answer[identity].tolist() == ["first", "second"]
+        with pytest.raises(ValueError, match="Conflicting prediction measurements"):
+            run(ordered, "affinity.value", group_keys=["peptide", "allele"])
+
+
+@pytest.mark.parametrize("door,run", DSL_MEASUREMENT_TWINS)
+def test_explicit_model_version_selection_precedes_measurement_conflict_check(door, run):
+    frame = pd.concat([
+        _repeated_measurements([50., 60.]),
+        _repeated_measurements([40.], predictor_version="2"),
+        _repeated_measurements([30.], prediction_method_name="other"),
+    ], ignore_index=True)
+    for ordered in (frame, frame.iloc[::-1]):
+        for expression, expected in [("affinity['fixture', '2'].value", 40.),
+                                     ("affinity['other'].value", 30.)]:
+            answer = run(ordered, expression)
+            if door == "score":
+                assert answer.eq(expected).all()
+            else:
+                assert len(answer) == len(frame)
+
+
+def test_conflict_guard_keeps_legitimate_kind_and_allele_axes():
+    frame = pd.concat([
+        _repeated_measurements([50., 50.]),
+        _repeated_measurements([30.], allele="HLA-B*07:02"),
+        _repeated_measurements([100.], kind="pMHC_stability"),
+    ], ignore_index=True)
+    for ordered in (frame, frame.iloc[::-1]):
+        scores = evaluate_scores(ordered, parse("affinity.value"))
+        assert scores.loc[ordered.allele.eq("HLA-A*02:01")].eq(50.).all()
+        assert scores.loc[ordered.allele.eq("HLA-B*07:02")].eq(30.).all()
+        assert evaluate_scores(ordered, parse("affinity.best_value")).eq(30.).all()
+
+
+def test_peptide_level_measurement_conflicts_are_rejected_before_projection():
+    frame = _repeated_measurements([50., 60.], kind="antigen_processing", allele="")
+    for expression in ("processing.value", "peptide_view(processing.value)"):
+        for ordered in (frame, frame.iloc[::-1]):
+            with pytest.raises(ValueError, match="Conflicting prediction measurements"):
+                evaluate_scores(ordered, parse(expression), alleles=["HLA-A*02:01"])
 
 LENS = "tests/data/lens/sample_v1_4.tsv"
 PVACSEQ = "tests/data/pvacseq/mhc_i_all_epitopes.tsv"

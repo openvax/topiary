@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.68.2
+
+- Reject conflicting prediction measurements consistently during DSL scoring,
+  filtering, sorting and allele projection. Equal, missing and roundoff-equivalent
+  measurements remain supported; named source/run observations stay independent.
+  Expose the shared numeric reduction as `prediction_field_values` (#371).
+- Prefer exact model names over substring matches, and reject ambiguous partial
+  selectors instead of selecting whichever model's row appears first (#376).
+
 ## 5.68.1
 
 - Refresh README installation requirements, the explicit column-filter example,

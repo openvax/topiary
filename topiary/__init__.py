@@ -66,6 +66,7 @@ from .ranking import (
     format_allele_set,
     parse,
     peptide_view,
+    prediction_field_values,
     split_allele_set,
     self_scope,
     shuffled,
@@ -180,7 +181,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.68.1"
+__version__ = "5.68.2"
 
 __all__ = [
     "combine_sources",
@@ -270,6 +271,7 @@ __all__ = [
     "format_allele_set",
     "parse",
     "peptide_view",
+    "prediction_field_values",
     "split_allele_set",
     "self_nearest",
     "self_scope",
