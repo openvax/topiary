@@ -82,6 +82,7 @@ from .nodes import (
     median,
     minimum,
     peptide_view,
+    prediction_field_values,
     self_nearest,
     self_scope,
     shuffled,
@@ -141,6 +142,7 @@ __all__ = [
     "format_allele_set",
     "split_allele_set",
     "peptide_view",
+    "prediction_field_values",
     # Kind / field name resolution (public)
     "KIND_ALIASES",
     "CANONICAL_METHOD_PREFERENCE",

@@ -261,7 +261,7 @@ def test_conflicting_peptide_level_values_are_rejected():
         _processing_row(score=0.77), _processing_row(score=0.11),
     ])
 
-    with pytest.raises(ValueError, match="carry several different score"):
+    with pytest.raises(ValueError, match="Conflicting prediction measurements.*score"):
         evaluate_scores(df, peptide_view(Processing.score))
 
 
@@ -640,9 +640,9 @@ def test_values_agreeing_within_float_noise_are_accepted():
         _processing_row(score=0.1 + 0.2), _processing_row(score=0.3),
     ])
 
-    scores = evaluate_scores(df, peptide_view(Processing.score))
-
-    assert scores.tolist() == [pytest.approx(0.3)] * 4
+    for ordered in (df, df.iloc[::-1]):
+        scores = evaluate_scores(ordered, peptide_view(Processing.score))
+        assert scores.tolist() == [0.3] * 4
 
 
 def test_values_that_really_differ_are_still_rejected():
@@ -650,7 +650,7 @@ def test_values_that_really_differ_are_still_rejected():
         _processing_row(score=0.30), _processing_row(score=0.31),
     ])
 
-    with pytest.raises(ValueError, match="carry several different score"):
+    with pytest.raises(ValueError, match="Conflicting prediction measurements.*score"):
         evaluate_scores(df, peptide_view(Processing.score))
 
 
@@ -690,7 +690,7 @@ def test_another_models_alleles_do_not_reclassify_this_one():
                      allele=ALLELES[0], prediction_method_name="otherpred")
 
     for rows in (conflicting, conflicting + [unrelated]):
-        with pytest.raises(ValueError, match="carry several different score"):
+        with pytest.raises(ValueError, match="Conflicting prediction measurements.*score"):
             evaluate_scores(
                 pd.DataFrame(rows), peptide_view(Processing["netchop"].score),
             )
@@ -749,10 +749,10 @@ def test_disagreeing_values_are_rejected_without_an_allele_group_key():
         for value in (0.9, 0.1)
     ])
 
-    with pytest.raises(ValueError, match="carry several different value"):
+    with pytest.raises(ValueError, match="Conflicting prediction measurements.*value"):
         evaluate_scores(df, peptide_view(Processing.value))
 
-    with pytest.raises(ValueError, match="carry several different value"):
+    with pytest.raises(ValueError, match="Conflicting prediction measurements.*value"):
         evaluate_scores(
             df, peptide_view(Processing.value),
             group_keys=["source_sequence_name", "peptide", "peptide_offset"],
@@ -771,8 +771,8 @@ def test_best_field_without_a_direction_is_rejected_not_downgraded():
         evaluate_scores(df, peptide_view(Processing.best_value))
 
 
-def test_no_direction_error_explains_the_real_cause():
-    """Not 'mhc_dependence=single_allele means one row per peptide'.
+def test_conflict_error_names_the_measurement_without_misclassifying_alleles():
+    """The conflicting measurement is rejected before an allele reduction.
 
     The disagreeing rows must be **allele-free** to be a disagreement.
     Two allele-restricted rows are two answers to two questions (#232),
@@ -784,7 +784,7 @@ def test_no_direction_error_explains_the_real_cause():
         for value in (0.9, 0.1)
     ])
 
-    with pytest.raises(ValueError, match="no defined best direction"):
+    with pytest.raises(ValueError, match="Conflicting prediction measurements.*value"):
         evaluate_scores(df, peptide_view(Processing.value))
 
 

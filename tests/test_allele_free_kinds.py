@@ -391,7 +391,5 @@ def test_inconsistent_values_still_raise_when_unwrapped():
     ])
     ctx = EvalContext(df, group_keys=GROUP_KEYS)
 
-    with pytest.warns(UserWarning), pytest.raises(
-        ValueError, match="carry several different score",
-    ):
+    with pytest.raises(ValueError, match="Conflicting prediction measurements in 'score'"):
         parse("processing[mhcflurry].score").eval(ctx)

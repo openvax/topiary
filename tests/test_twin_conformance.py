@@ -106,6 +106,40 @@ DELIMITED_IO_TWINS = (
 CANDIDATE_SCORE_TWINS = (rank_candidates, evaluate_scores)
 
 
+def _measurement_scores(frame, expression, **options):
+    from topiary import parse
+    return evaluate_scores(frame, parse(expression), **options)
+
+
+def _measurement_filter(frame, expression, **options):
+    from topiary import apply_filter, parse
+    return apply_filter(frame, parse(f"({expression}) < 55"), **options)
+
+
+def _measurement_sort(frame, expression, **options):
+    from topiary import apply_sort, parse
+    return apply_sort(frame, [parse(expression)], sort_direction="asc", **options)
+
+
+def _result_measurement_filter(frame, expression, **options):
+    return TopiaryResult(frame).filter_by(f"({expression}) < 55", **options).df
+
+
+def _result_measurement_sort(frame, expression, **options):
+    return TopiaryResult(frame).sort_by(expression, **options).df
+
+
+# These doors must agree on conflicting, equal and missing measurements.
+# The composed battery lives in test_consumer_workflows.py.
+DSL_MEASUREMENT_TWINS = (
+    ("score", _measurement_scores),
+    ("filter", _measurement_filter),
+    ("sort", _measurement_sort),
+    ("result_filter", _result_measurement_filter),
+    ("result_sort", _result_measurement_sort),
+)
+
+
 @pytest.mark.parametrize("expression", ["affinity.value", "n_rna_alt / affinity.value", "n_rna_alt"])
 @pytest.mark.parametrize("missing", [False, True])
 def test_candidate_ranking_and_dsl_scoring_agree(expression, missing):

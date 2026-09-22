@@ -186,7 +186,7 @@ def test_two_allele_free_rows_that_disagree_still_raise():
         _row("antigen_processing", None, 0.1),
     ])
 
-    with pytest.raises(ValueError, match="several different"):
+    with pytest.raises(ValueError, match="Conflicting prediction measurements"):
         evaluate_scores(df, peptide_view(parse("antigen_processing.score")))
 
 

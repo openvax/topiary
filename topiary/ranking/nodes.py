@@ -294,6 +294,11 @@ def _pick_group_keys(df):
     else:
         keys = _GROUP_KEYS
     _check_inferred_group_keys(df, keys)
+    if "source_observation_id" not in df.columns:
+        keys = list(keys)
+        for key in ("source_label", "prediction_run_name"):
+            if key in df.columns and _has_real_values(df[key]):
+                keys.insert(0, key)
     return _with_optional_sample_key(df, _with_optional_allele_set_key(df, keys))
 
 
@@ -357,6 +362,65 @@ def _normalize_group_keys(df, group_keys):
                 key, df.columns, label="group_keys column",
             )
     return keys
+
+
+def prediction_field_values(df, column, *, group_keys):
+    """Read one consistent numeric prediction measurement per group.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Prediction rows already selected for the desired kind, model and
+        version. The input is not modified. An empty frame with the requested
+        columns returns an empty Series.
+    column : str
+        Measurement column, including any comparator prefix, such as
+        ``value``, ``percentile_rank`` or ``wt_score``. Values are coerced to
+        numeric as in DSL field evaluation; unparseable values are missing.
+    group_keys : sequence of str
+        Columns identifying an observation and its peptide/allele. Include
+        independent source or run identities when they should remain separate.
+
+    Returns
+    -------
+    pandas.Series
+        One numeric value per group, indexed by the keys in first-seen group
+        order. Equal repeats and floating-point noise within ``1e-9`` times
+        ``max(1, abs(minimum), abs(maximum))`` are compatible, matching existing
+        peptide-level reads. The minimum of these equivalent values is used
+        for an order-independent answer, never an average. Missing measurements
+        neither erase nor contradict a stated value; an entirely missing group
+        stays missing.
+
+    Raises
+    ------
+    ValueError
+        A group contains distinct nonmissing values, or its keys are invalid.
+        Conflicting measurements require explicit selection or independent
+        observation identities, never an input-order choice or an average.
+    """
+    keys = _normalize_group_keys(df, group_keys)
+    if column not in df.columns:
+        raise _missing_column_error(column, df.columns)
+    numeric = pd.to_numeric(df[column], errors="coerce")
+    groups = numeric.groupby([df[key] for key in keys], sort=False, dropna=False)
+    bounds = groups.agg(["min", "max"])
+    low, high = bounds["min"], bounds["max"]
+    equal = low.eq(high) | bounds.isna().all(axis=1)
+    scale = bounds.abs().max(axis=1).clip(lower=1.)
+    with np.errstate(invalid="ignore"):
+        conflicting = ~equal & (
+            ~np.isfinite(low) | ~np.isfinite(high) | (high - low).gt(1e-9 * scale)
+        )
+    if conflicting.any():
+        examples = conflicting[conflicting].index[:3].tolist()
+        raise ValueError(
+            f"Conflicting prediction measurements in {column!r} for "
+            f"group_keys={keys!r}: {examples!r}. Select a model/version or "
+            "keep independent sources/runs in group_keys (for example, "
+            "prediction_run_name); duplicate measurements must agree."
+        )
+    return low.rename(column)
 
 
 class _PeptideAlleleLookup:
@@ -1828,14 +1892,15 @@ def _filter_kind_method_version(ctx, kind, method, version):
         if override is not None and override[0] == kind_val:
             effective_method = override[1]
 
-    # Filter by method substring (case-insensitive)
+    # Prefer an exact model name, then a case-insensitive substring.
     if effective_method is not None:
         col = "prediction_method_name"
         if col in sub.columns:
             method_lower = effective_method.lower()
-            method_mask = sub[col].str.lower().str.contains(
-                method_lower, na=False, regex=False
-            )
+            names = sub[col].str.lower()
+            method_mask = names.eq(method_lower)
+            if not method_mask.any():
+                method_mask = names.str.contains(method_lower, na=False, regex=False)
             matched = sub[method_mask]
             if matched.empty:
                 available = sorted(sub[col].dropna().unique())
@@ -1869,19 +1934,21 @@ def _filter_kind_method_version(ctx, kind, method, version):
                 )
             sub = matched
 
-    # Ambiguity: unqualified access with multiple methods in any group
-    if effective_method is None and "prediction_method_name" in sub.columns:
+    # A partial qualifier must not silently choose its first matching model.
+    if "prediction_method_name" in sub.columns:
         methods_per_group = sub.groupby(
             ctx.group_keys, sort=False, dropna=False
         )["prediction_method_name"].nunique()
         if (methods_per_group > 1).any():
-            default = ctx.default_methods.get(_kind_value(kind))
+            default = (ctx.default_methods.get(_kind_value(kind))
+                       if effective_method is None else None)
             if default is not None:
                 col = "prediction_method_name"
                 default_lower = default.lower()
-                method_mask = sub[col].str.lower().str.contains(
-                    default_lower, na=False, regex=False
-                )
+                names = sub[col].str.lower()
+                method_mask = names.eq(default_lower)
+                if not method_mask.any():
+                    method_mask = names.str.contains(default_lower, na=False, regex=False)
                 matched = sub[method_mask]
                 if matched.empty:
                     available = sorted(sub[col].dropna().unique())
@@ -1889,6 +1956,8 @@ def _filter_kind_method_version(ctx, kind, method, version):
                         _kind_name(kind), default, available
                     )
                 sub = matched
+                if sub.groupby(ctx.group_keys, sort=False, dropna=False)[col].nunique().gt(1).any():
+                    raise ValueError(f"Ambiguous default method {default!r}: use an exact model name")
             else:
                 method_list = ", ".join(
                     sorted(sub["prediction_method_name"].dropna().unique())
@@ -1990,8 +2059,8 @@ class Field(DSLNode):
         Column name within the kind rows (e.g. ``"value"``,
         ``"percentile_rank"``, ``"score"``).
     method : str, optional
-        Case-insensitive substring match against
-        ``prediction_method_name``.
+        Case-insensitive exact ``prediction_method_name``, or a substring
+        matching one model per group when no exact name matches.
     version : str, optional
         Exact match against ``predictor_version`` (string-compared).
     scope : str
@@ -2022,13 +2091,11 @@ class Field(DSLNode):
             self._warn_missing_scope_column(ctx, col_name)
             return ctx.empty_series()
 
+        vals = prediction_field_values(sub, col_name, group_keys=ctx.group_keys)
         projected = self._maybe_project_peptide_level(ctx, sub)
         if projected is not None:
             return projected
 
-        vals = sub.groupby(
-            ctx.group_keys, sort=False, dropna=False
-        )[col_name].first()
         vals = vals.reindex(ctx.group_index)
         return pd.to_numeric(vals, errors="coerce")
 
@@ -2290,6 +2357,7 @@ class BestAlleleField(DSLNode):
         if col_name not in sub.columns or "allele" not in sub.columns:
             return self._empty_result(ctx)
 
+        measurements = prediction_field_values(sub, col_name, group_keys=ctx.group_keys)
         peptide_keys = _peptide_keys(ctx.group_keys)
         if "allele" not in ctx.group_keys or not peptide_keys:
             # No allele dimension to aggregate over. For the value form,
@@ -2303,6 +2371,7 @@ class BestAlleleField(DSLNode):
                 method=self.method, version=self.version, scope=self.scope,
             ).eval(ctx)
 
+        sub = measurements.rename(col_name).reset_index()
         # Coerce values to numeric and drop unrankable rows. Avoid
         # ``sub.copy()`` — work with index masks against the filter's
         # output (which is already a fresh slice).
@@ -2786,6 +2855,9 @@ class PeptideView(DSLNode):
         if col_name not in sub.columns:
             return ctx.empty_series()
 
+        sub = prediction_field_values(
+            sub, col_name, group_keys=ctx.group_keys,
+        ).rename(col_name).reset_index()
         values = pd.to_numeric(sub[col_name], errors="coerce")
         keep = values.notna()
         if not keep.any():
@@ -2821,7 +2893,7 @@ class PeptideView(DSLNode):
             "__peptide_value"
         ].agg(["first", "min", "max"])
         self._check_one_value_per_peptide(stats, dependence, aggregable)
-        return _broadcast_per_peptide(ctx, stats["first"], peptide_keys)
+        return _broadcast_per_peptide(ctx, stats["min"], peptide_keys)
 
     def _overlay_named(self, ctx, sub, values, named, broadcast):
         """Write allele-restricted rows onto their own groups only."""
