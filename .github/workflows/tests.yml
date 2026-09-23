@@ -78,7 +78,7 @@ jobs:
           from pyensembl import ensembl_grch38
           release = ensembl_grch38.release
           print(f"release={release}")
-          print(f"cache-key=pyensembl-GRCh37.75-GRCm38.102-GRCh38.93-GRCm38.93-GRCh38.{release}-v3")
+          print(f"cache-key=pyensembl-GRCh37.75-GRCh38.{release}-v4")
           PY
       - name: Cache pyensembl data
         id: ensembl-cache
@@ -107,8 +107,9 @@ jobs:
         if: steps.ensembl-cache.outputs.cache-hit != 'true'
         run: |
           echo "Before installing Ensembl releases" && df -h
-          # Historical fixtures use the mirror; the dependency-selected
-          # default release uses Ensembl itself and belongs in the cache key.
+          # GRCh37 fixtures use the mirror; the dependency-selected GRCh38
+          # default uses Ensembl itself and belongs in the cache key. The
+          # suite uses no downloaded mouse or release-93 annotation.
           # Retry with backoff: the failures seen in practice are 504s and
           # transient DNS, both of which a second attempt clears.
           install_release() {
@@ -130,9 +131,6 @@ jobs:
           }
           BASE=https://github.com/openvax/ensembl-data/releases/download
           install_release 75  human "$BASE/GRCh37.75/"
-          install_release 102 mouse "$BASE/GRCm38.102/"
-          install_release 93  human "$BASE/GRCh38.93/"
-          install_release 93  mouse "$BASE/GRCm38.93/"
           install_release '${{ steps.ensembl-release.outputs.release }}' human ""
       - name: Verify Ensembl data is present
         run: |
