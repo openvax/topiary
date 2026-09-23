@@ -182,7 +182,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.68.3"
+__version__ = "5.68.4"
 
 __all__ = [
     "map_peptide_intervals",
