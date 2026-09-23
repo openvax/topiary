@@ -51,6 +51,15 @@ def add_cached_predictor_args(arg_parser):
         ),
     )
     group.add_argument(
+        "--cache-miss-report", default=None, metavar="PATH",
+        help=(
+            "Opt into partial batches: skip an entire input sequence for a model "
+            "when its cache coverage is incomplete, retain successful model/input "
+            "pairs, and write all skipped pairs to this JSON file. Partial runs "
+            "exit 3; complete runs exit 0. Default: fail on any cache miss."
+        ),
+    )
+    group.add_argument(
         "--mhc-cache-file",
         default=None,
         help=(

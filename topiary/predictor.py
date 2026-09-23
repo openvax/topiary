@@ -39,6 +39,7 @@ from mhctools.pred import COLUMNS as _PRED_COLUMNS
 from mhctools.wrapper_base import AlleleFreePredictor
 
 from .protein_fragment import ProteinFragment, unique_fragments
+from .prediction_batch import predict_with_cache_miss_report
 from .evidence import VARCODE_TRANSLATION
 from .sequence_helpers import (
     check_padding_around_mutation,
@@ -748,6 +749,7 @@ class TopiaryPredictor(object):
         predict_self_nearest=False,
         predict_wt=False,
         name=None,
+        cache_miss_handler=None,
     ):
         """
         Parameters
@@ -857,6 +859,16 @@ class TopiaryPredictor(object):
             public prediction outputs include ``prediction_run_name`` with
             this value.  This is run/shard provenance only; logical model
             identity remains ``prediction_method_name``.
+
+        cache_miss_handler : callable, optional
+            Explicitly allow partial prediction batches. Receives a structured
+            failure record for each skipped model/input pair; retain this report
+            alongside the result table. The default raises on cache misses.
+            Reporting skips the entire sequence for the affected model, never
+            substitutes incompatible scores, and warns about partial results.
+            Applies to proteins, peptides, fragments and WT/self-nearest passes.
+            See :func:`predict_with_cache_miss_report`. Independent of
+            ``raise_on_error``, which only controls variant annotation errors.
         """
         # --- model setup ---
         raw_models = models or mhc_models or (mhc_model and [mhc_model])
@@ -901,6 +913,9 @@ class TopiaryPredictor(object):
         self.min_gene_expression = min_gene_expression
         self.only_novel_epitopes = only_novel_epitopes
         self.raise_on_error = raise_on_error
+        if cache_miss_handler is not None and not callable(cache_miss_handler):
+            raise TypeError("cache_miss_handler must be callable or None")
+        self.cache_miss_handler = cache_miss_handler
         self.self_proteome = self_proteome
         self.predict_self_nearest = predict_self_nearest
         self.predict_wt = predict_wt
@@ -1031,9 +1046,11 @@ class TopiaryPredictor(object):
             return pd.DataFrame()
         return pd.concat(dfs, ignore_index=True)
 
-    def _predict_raw_for_model(self, model, name_to_sequence_dict, model_key=None):
+    def _predict_raw_for_model(self, model, name_to_sequence_dict, model_key=None, stage="protein"):
         """Run one model on proteins, preserving source-sequence context."""
-        model_df = model.predict_proteins_dataframe(name_to_sequence_dict)
+        model_df = predict_with_cache_miss_report(
+            model.predict_proteins_dataframe, name_to_sequence_dict,
+            on_miss=self.cache_miss_handler, context=self._cache_miss_context(model, model_key, stage))
         return self._attach_model_key(
             self._attach_allele_set(
                 self._format_prediction_df(model_df), model
@@ -1054,9 +1071,24 @@ class TopiaryPredictor(object):
         return pd.concat(dfs, ignore_index=True)
 
     def _predict_raw_peptides_for_model(
-        self, model, name_to_peptide_dict, model_key=None
+        self, model, name_to_peptide_dict, model_key=None, stage="peptide"
     ):
         """Run one model on peptides as-is, without sliding-window scanning."""
+        result = predict_with_cache_miss_report(
+            lambda inputs: self._predict_named_peptide_batch(model, inputs, model_key),
+            name_to_peptide_dict, on_miss=self.cache_miss_handler,
+            context=self._cache_miss_context(model, model_key, stage))
+        # All inputs may have been reported as missing. Preserve an empty
+        # table schema just as the protein path does, including for CSV output.
+        return self._format_prediction_df(result) if result.empty else result
+
+    def _cache_miss_context(self, model, model_key, stage):
+        """Provenance for one configured model's prediction pass."""
+        return dict(model_key=model_key, prediction_method_name=str(_model_metadata_name(model)),
+                    predictor_version=_model_version_str(getattr(model, "predictor_version", None)), stage=stage)
+
+    def _predict_named_peptide_batch(self, model, name_to_peptide_dict, model_key):
+        """Expand one successful raw peptide batch onto its input names."""
         peptide_names_df = pd.DataFrame(
             {
                 "source_sequence_name": list(name_to_peptide_dict.keys()),
@@ -1288,19 +1320,17 @@ class TopiaryPredictor(object):
             })
             if not peptides:
                 continue
-            if hasattr(model, "predict_dataframe"):
-                raw = model.predict_dataframe(peptides)
-            else:
-                raw = model.predict_peptides_dataframe(peptides)
+            raw = self._predict_raw_peptides_for_model(
+                model, {peptide: peptide for peptide in peptides}, model_key=model_key, stage="self_nearest")
             if raw.empty:
                 continue
-            predicted.append(self._format_prediction_df(raw))
+            predicted.append(raw)
 
         if not predicted:
             return _ensure(df)
 
         self_predictions = pd.concat(predicted, ignore_index=True)
-        join_keys = ["allele", "kind", "prediction_method_name",
+        join_keys = [_MODEL_KEY_COLUMN, "allele", "kind", "prediction_method_name",
                      "predictor_version"]
         available = [k for k in join_keys if k in self_predictions.columns
                      and k in df.columns]
@@ -1403,7 +1433,7 @@ class TopiaryPredictor(object):
             if not baseline_sequences:
                 continue
             model_raw = self._predict_raw_for_model(
-                model, baseline_sequences, model_key=model_key
+                model, baseline_sequences, model_key=model_key, stage="wildtype"
             )
             if not model_raw.empty:
                 wt_raw_dfs.append(model_raw)
