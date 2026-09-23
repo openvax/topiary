@@ -1,3 +1,4 @@
+from .sv_interest import build_sv_interest_report, write_sv_interest_report, SV_PROTEIN_EVIDENCE_TIERS
 from .serialization import normalize_python_types
 from .report_geometry import map_peptide_intervals, mutation_intervals_from_positions
 from .annotations import join_annotations
@@ -183,9 +184,12 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.69.0"
+__version__ = "5.70.0"
 
 __all__ = [
+    "build_sv_interest_report",
+    "write_sv_interest_report",
+    "SV_PROTEIN_EVIDENCE_TIERS",
     "map_peptide_intervals",
     "mutation_intervals_from_positions",
     "combine_sources",
