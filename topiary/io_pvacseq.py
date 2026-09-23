@@ -25,8 +25,12 @@ and other downstream consumers don't have to special-case loader source:
   mutation position falls inside the candidate peptide.
 - ``mutation_start_in_peptide`` / ``mutation_end_in_peptide`` (Int64,
   0-based half-open) — derived from pVACseq's 1-based Pos / Mutation
-  Position.  Single-residue semantics; indels / frameshifts collapse to
-  a representative position.
+  Position when it describes one contiguous interval. Disjoint intervals
+  remain separate in JSON-encoded ``mutation_intervals_in_peptide``.
+  Missing/unsupported positions remain unknown; historical single positions
+  are not expanded into inferred indel spans or frameshift tails.
+- ``source_type`` — biological variant category, separate from pipeline/file
+  provenance. Reported WT peptides remain scoped to their reported window.
 - ``source`` — per-row provenance label (tag or ``pvacseq-{flavor}:{filename}``),
   matching :func:`read_tsv` convention so multi-file stacks stay
   distinguishable.
@@ -51,6 +55,7 @@ not require this extra melting step.
 
 from __future__ import annotations
 
+import json
 import re
 import warnings
 from pathlib import Path
@@ -59,6 +64,7 @@ import numpy as np
 import pandas as pd
 
 from .ranking import stated_values
+from .report_geometry import mutation_intervals_from_positions
 from .evidence import (
     PVACSEQ_EPITOPE,
     attach_dna_evidence,
@@ -561,34 +567,21 @@ def _build_kind_support(mhc_class, rows):
 
 
 def _derive_mutation_interval(parsed):
-    """Return contains_mutant_residues + 0-based half-open mutation interval
-    derived from the 1-based ``mutation_position`` column.
-
-    pVACseq's Pos / Mutation Position is the single-residue position of the
-    mutation within the candidate peptide.  Rows where the position is
-    missing or falls outside the peptide (flanking-only peptides) get
-    ``contains_mutant_residues = False`` and NaN start/end.
-
-    Multi-residue mutations (indels, frameshifts) collapse to a single
-    representative position; downstream code wanting full intervals
-    should re-derive from the source protein.
-    """
-    n = len(parsed)
-    if "mutation_position" not in parsed.columns:
-        return {
-            "contains_mutant_residues": pd.array([pd.NA] * n, dtype="boolean"),
-            "mutation_start_in_peptide": pd.array([pd.NA] * n, dtype="Int64"),
-            "mutation_end_in_peptide": pd.array([pd.NA] * n, dtype="Int64"),
-        }
-    pos = pd.to_numeric(parsed["mutation_position"], errors="coerce")
-    pep_len = parsed["peptide"].str.len()
-    valid = pos.notna() & (pos >= 1) & (pos <= pep_len)
-    start_int = (pos - 1).where(valid).astype("Int64")
-    end_int = pos.where(valid).astype("Int64")
+    """Preserve reported positions, disjoint spans and unknown geometry."""
+    positions = parsed.get("mutation_position", [None] * len(parsed))
+    intervals = [mutation_intervals_from_positions(pos, len(peptide)) if isinstance(peptide, str) else None
+                 for pos, peptide in zip(positions, parsed["peptide"])]
     return {
-        "contains_mutant_residues": valid.astype("boolean"),
-        "mutation_start_in_peptide": start_int,
-        "mutation_end_in_peptide": end_int,
+        "contains_mutant_residues": pd.array(
+            [None if value is None else bool(value) for value in intervals], dtype="boolean"),
+        # JSON keeps the reader's wide/long/TSV annotation cells hashable and
+        # round-trippable. A bounding interval would invent targets in gaps.
+        "mutation_intervals_in_peptide": [
+            None if value is None else json.dumps(value) for value in intervals],
+        "mutation_start_in_peptide": pd.array(
+            [value[0][0] if value and len(value) == 1 else None for value in intervals], dtype="Int64"),
+        "mutation_end_in_peptide": pd.array(
+            [value[0][1] if value and len(value) == 1 else None for value in intervals], dtype="Int64"),
     }
 
 
@@ -782,7 +775,11 @@ def _finalize(parsed, *, source):
     mutation_cols = _derive_mutation_interval(parsed)
     augmented = parsed.assign(
         source=source,
-        peptide_length=parsed["peptide"].str.len(),
+        source_type=parsed["effect_type"].map({
+            "Substitution": "variant:substitution", "Insertion": "variant:indel",
+            "Deletion": "variant:indel", "FrameShift": "variant:frameshift",
+        }).fillna("variant"),
+        peptide_length=parsed["peptide"].astype("string").str.len(),
         peptide_offset=0,
         kind="pMHC_affinity",
         mhc_class=derive_mhc_class(parsed["allele"]),

@@ -290,6 +290,42 @@ Producers are free to invent new subtypes.
 
 ## target_intervals — geometry per source type
 
+Reader frames retain recoverable target geometry through
+`fragments_from_dataframe`. pVACseq's reported `Pos` / `Mutation Position`
+is normalized into JSON-encoded, zero-based half-open
+`mutation_intervals_in_peptide`; disjoint changed positions stay disjoint.
+The legacy start/end columns are populated only for a contiguous interval.
+Missing or unsupported positions remain unknown. A historical representative
+position does not imply the complete altered tail of a frameshift.
+
+When a fragment uses longer context, peptide-relative intervals shift through
+an exact, unique peptide occurrence. Repeated or absent matches remain unknown;
+`peptide_offset` is not assumed to be an offset in that context. A negative
+reported peptide does not mark the surrounding context negative. Inspect
+`annotations["target_interval_status"]` for the mapping outcome.
+
+LENS `mut_aa_pos` remains unresolved because its coordinate meaning varies by
+antigen category. Its raw value is preserved as `reported_mut_aa_pos`, with
+pipeline/file `source` and biological `antigen_source` / `source_type` retained
+separately. Unknown coordinates never turn into whole-sequence targets.
+
+`only_novel_epitopes=True` keeps windows overlapping known target intervals,
+including junctions, and excludes unknown geometry. `overlaps_target` is the
+source-independent selection field; `contains_mutant_residues` remains a
+variant-only compatibility field. Neither asserts tumor specificity. For
+unresolved reports, ordinary rescanning and exact reported-peptide rescoring
+remain available; no context scan is required for table-only ranking.
+
+Reported WT peptides fill `reference_sequence` only when the fragment is that
+reported peptide. They are retained as `reported_wt_peptide` for longer contexts;
+Topiary does not invent WT flanks or claim a patient-specific germline baseline.
+Explicit `reference_sequence` and `germline_sequence` columns are preserved.
+
+The public helpers `mutation_intervals_from_positions` and
+`map_peptide_intervals` provide the same normalization and mapping for other
+report adapters. Synthetic report builders for the regression tests are kept
+in `tests/report_geometry_helpers.py`.
+
 The producer computes `target_intervals`; Topiary never interprets. Meaning varies by source type:
 
 | source_type | `target_intervals` |

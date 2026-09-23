@@ -717,9 +717,8 @@ class TestOnlyNovelEpitopes:
         df = pred.predict_from_fragments([f])
         assert df["contains_mutant_residues"].astype(bool).all()
 
-    def test_only_novel_drops_non_variant_fragments(self):
-        """Fragments whose source_type isn't a variant have NaN
-        contains_mutant_residues and are dropped when only_novel is on."""
+    def test_only_novel_drops_fragments_with_unknown_targets(self):
+        """A biological category alone cannot establish target geometry."""
         erv = ProteinFragment(
             fragment_id="erv__00000000", source_type="erv",
             sequence="MLGMNMLLITLFLLLPLSMLKGEPWEGCLHCTH",

@@ -823,7 +823,10 @@ class TopiaryPredictor(object):
             Residues around a mutation to include in candidate epitopes.
 
         only_novel_epitopes : bool
-            Drop peptides that do not contain mutated residues.
+            Keep only peptides with known overlap of a fragment's target
+            intervals, including mutation and junction targets. Unknown
+            geometry is excluded; this flag does not establish somatic
+            origin or absence from the reference proteome.
 
         min_gene_expression : float
             Minimum gene FPKM to keep a variant effect.
@@ -1496,7 +1499,7 @@ class TopiaryPredictor(object):
         return wt_join[wt_join.apply(_matches, axis=1)]
 
     def _finalize_rows(self, df, fragments=None):
-        """Apply filter / sort, drop non-mutant rows when
+        """Apply filter / sort, drop rows without known target overlap when
         ``only_novel_epitopes`` is set, and reset the index.  Shared
         tail for every ProteinFragment-producing entry point."""
         if df.empty:
@@ -1504,7 +1507,7 @@ class TopiaryPredictor(object):
         df = self._maybe_predict_wt_peptides(df, fragments=fragments)
         df = self._apply_filter(df)
         if self.only_novel_epitopes:
-            df = df[df["contains_mutant_residues"].eq(True)]
+            df = df[df["overlaps_target"].eq(True)]
         df = self._strip_internal_columns(df)
         return self._attach_result_attrs(df.reset_index(drop=True))
 

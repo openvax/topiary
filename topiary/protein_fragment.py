@@ -1143,13 +1143,16 @@ SEMANTIC_CORE = (
 #: context reported for several peptides is therefore several fragments,
 #: because readers such as LENS report evidence per peptide.
 _FRAGMENT_IDENTITY = (
-    "sample_name", "source_sequence_name", "variant", "transcript_id", "transcript", "peptide",
+    "sample_name", "source", "source_sequence_name", "variant", "transcript_id", "transcript", "peptide",
 )
 
 #: Frame columns copied, as text, onto the fragment field of the same name.
 #: A transcript arrives as ``transcript_id`` (LENS) or ``transcript``
 #: (pVACseq); both fill ``transcript_id``.
-_FRAME_TEXT_FIELDS = ("source_type", "gene", "gene_id")
+_FRAME_TEXT_FIELDS = (
+    "source_type", "gene", "gene_id", "effect", "effect_type",
+    "reference_sequence", "germline_sequence",
+)
 _FRAME_TRANSCRIPT_COLUMNS = ("transcript_id", "transcript")
 
 #: Frame columns copied, as numbers, onto the fragment field of the same name.
@@ -1159,6 +1162,12 @@ _FRAME_NUMBER_FIELDS = ("gene_expression", "transcript_expression")
 _FRAME_ANNOTATIONS = (
     "sequence_source", "rna_evidence_method", "rna_evidence_subject",
     "rna_alt_expression", "rna_alt_expression_method",
+    "source", "antigen_source", "variant_type",
+)
+
+_FRAME_PEPTIDE_METADATA = (
+    "wt_peptide", "contains_mutant_residues", "mutation_intervals_in_peptide",
+    "mutation_start_in_peptide", "mutation_end_in_peptide", "mutation_position", "mut_aa_pos",
 )
 
 #: Frame column → the fragment field it fills, per unit.
@@ -1227,14 +1236,29 @@ def fragments_from_dataframe(df, *, sequence_column=None):
 
     Notes
     -----
+    Reported ``mutation_intervals_in_peptide`` (JSON array of half-open
+    intervals), or ``mutation_start_in_peptide`` / ``mutation_end_in_peptide``,
+    map into the chosen sequence only through a unique peptide occurrence.
+    Missing or ambiguous geometry remains ``None``. A negative peptide alone
+    cannot establish absence of targets in a longer context. The annotation
+    ``target_interval_status`` records whether mapping succeeded.
+
+    ``wt_peptide`` fills ``reference_sequence`` only when the selected
+    sequence is the reported peptide; surrounding WT context is never
+    fabricated. Explicit reference/germline columns are preserved. Original
+    peptide-level metadata is retained under ``reported_*`` annotation names
+    so new windows cannot inherit the old window's coordinates.
+
     Every cell is read once, under topiary's one rule for absence
     (:func:`~topiary.stated_values`): an unstated cell becomes ``None``
     before anything else looks at it. ``NaN`` therefore never reaches an
     ID or a field as the text ``"nan"``.
     """
+    import json
     import pandas as pd
 
     from .evidence import _validated_stated_counts, provenance_for_method
+    from .report_geometry import map_peptide_intervals
     from .ranking import stated_values
 
     if df is None or len(df) == 0:
@@ -1258,11 +1282,16 @@ def fragments_from_dataframe(df, *, sequence_column=None):
         column for column in dict.fromkeys([
             *identity, sequence_column, *_FRAME_TEXT_FIELDS, *_FRAME_TRANSCRIPT_COLUMNS,
             *_FRAME_NUMBER_FIELDS, *_FRAME_COUNTS, *_FRAME_ANNOTATIONS,
+            *_FRAME_PEPTIDE_METADATA,
         ])
         if column in df.columns
     ]
     frame = df[columns].astype(object)
-    frame = frame.where(frame.apply(stated_values), None)
+    if "mutation_intervals_in_peptide" in frame:
+        frame["mutation_intervals_in_peptide"] = frame["mutation_intervals_in_peptide"].map(
+            lambda value: json.dumps(normalize_python_types(value))
+            if isinstance(value, (list, tuple)) else value)
+    frame = frame.astype(object).where(frame.apply(stated_values), None)
     frame = frame[frame[sequence_column].notna()]
     for column in _FRAME_NUMBER_FIELDS:
         if column in frame.columns:
@@ -1299,8 +1328,52 @@ def fragments_from_dataframe(df, *, sequence_column=None):
             key: record[key] for key in _FRAME_ANNOTATIONS
             if record.get(key) is not None
         }
+        # These coordinates/evidence belong to the imported peptide, not every
+        # new sliding window. Keep their scope in the name when propagating.
+        for key in _FRAME_PEPTIDE_METADATA:
+            if record.get(key) is not None:
+                annotations["reported_" + key] = record[key]
         if record.get("peptide") is not None and sequence_column != "peptide":
             annotations["reported_peptide"] = str(record["peptide"])
+        peptide = _text(record.get("peptide"))
+        intervals = record.get("mutation_intervals_in_peptide")
+        if intervals is not None:
+            try:
+                intervals = json.loads(intervals)
+            except (TypeError, ValueError) as error:
+                raise ValueError("mutation_intervals_in_peptide must be a JSON array of interval pairs") from error
+            if not isinstance(intervals, list):
+                raise ValueError("mutation_intervals_in_peptide must be a JSON array of interval pairs")
+        else:
+            start, end = (record.get("mutation_start_in_peptide"), record.get("mutation_end_in_peptide"))
+            if start is not None and end is not None:
+                intervals = [(start, end)]
+        contains = record.get("contains_mutant_residues")
+        if contains is not None:
+            if _is_boolean(contains):
+                contains = bool(contains)
+            elif isinstance(contains, str) and contains.lower() in ("true", "false"):
+                contains = contains.lower() == "true"
+            else:
+                raise ValueError("contains_mutant_residues must be boolean or unknown")
+            if contains is False:
+                if intervals:
+                    raise ValueError("Mutation intervals contradict contains_mutant_residues=False")
+                intervals = []
+            elif intervals == []:
+                raise ValueError("Empty mutation intervals contradict contains_mutant_residues=True")
+        target_intervals = map_peptide_intervals(sequence, peptide, intervals)
+        annotations["target_interval_status"] = (
+            "reported_peptide_mapped" if target_intervals is not None else
+            "unknown_outside_reported_peptide" if intervals == [] else
+            "reported_peptide_unmapped" if intervals is not None else "unknown")
+        reference = _text(record.get("reference_sequence"))
+        wt_peptide = _text(record.get("wt_peptide"))
+        if reference is None and wt_peptide is not None and sequence == peptide:
+            # A reported WT epitope supplies no evidence about surrounding WT
+            # residues. Never synthesize reference context using mutant flanks.
+            reference = wt_peptide
+            annotations["reference_sequence_scope"] = "reported_peptide"
         fragment = ProteinFragment(
             fragment_id=make_fragment_id(
                 variant or _text(record.get("source_sequence_name")) or "fragment",
@@ -1310,8 +1383,12 @@ def fragments_from_dataframe(df, *, sequence_column=None):
             ),
             source_type=_text(record.get("source_type")),
             sequence=sequence,
-            target_intervals=None,
+            target_intervals=target_intervals,
+            reference_sequence=reference,
+            germline_sequence=_text(record.get("germline_sequence")),
             variant=variant,
+            effect=_text(record.get("effect")),
+            effect_type=_text(record.get("effect_type")),
             gene=_text(record.get("gene")),
             gene_id=_text(record.get("gene_id")),
             transcript_id=_text(record.get(transcript)) if transcript else None,

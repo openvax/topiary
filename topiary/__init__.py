@@ -1,4 +1,5 @@
 from .serialization import normalize_python_types
+from .report_geometry import map_peptide_intervals, mutation_intervals_from_positions
 from .annotations import join_annotations
 from .candidates import combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
 from .release import pypi_release_exists
@@ -181,9 +182,11 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.68.2"
+__version__ = "5.68.3"
 
 __all__ = [
+    "map_peptide_intervals",
+    "mutation_intervals_from_positions",
     "combine_sources",
     "protein_evidence_view",
     "rank_candidates",
