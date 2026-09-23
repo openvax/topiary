@@ -604,6 +604,14 @@ def predict_epitopes_from_args(args):
         Parsed commandline arguments for Topiary
     """
     _validate_required_prediction_args(args)
+    cache_misses = []
+    report_cache_misses = bool(getattr(args, "cache_miss_report", None))
+
+    def finish(df):
+        df = _apply_exclusion(df, args)
+        if report_cache_misses:
+            df.attrs["topiary_cache_misses"] = cache_misses
+        return df
 
     if cached_predictor_in_use(args):
         models = cached_predictor_from_args(args)
@@ -623,6 +631,7 @@ def predict_epitopes_from_args(args):
         only_novel_epitopes=args.only_novel_epitopes,
         raise_on_error=not args.skip_variant_errors,
         predict_wt=getattr(args, "predict_wt", False),
+        cache_miss_handler=cache_misses.append if report_cache_misses else None,
     )
 
     _validate_input_modes(args)
@@ -639,7 +648,7 @@ def predict_epitopes_from_args(args):
             df = predictor.predict_from_named_peptides(direct_input)
         else:
             df = predictor.predict_from_named_sequences(direct_input)
-        return _apply_exclusion(df, args)
+        return finish(df)
 
     # Check that at least some variant input is present
     has_variant_input = any([
@@ -664,7 +673,7 @@ def predict_epitopes_from_args(args):
         gene_expression_dict=gene_expression_dict,
         expression_data=expr_data,
     )
-    return _apply_exclusion(df, args)
+    return finish(df)
 
 
 def _apply_exclusion(df, args):

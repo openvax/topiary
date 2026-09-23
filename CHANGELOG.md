@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.69.0
+
+- Add opt-in cache-miss reporting to retain successful model/input pairs while
+  preserving strict failure by default. Protein, peptide, fragment and comparator
+  predictions share the policy; the CLI writes an explicit JSON failure report
+  and exits 3 for partial results (#304).
+- Accept Osteosarc `>=0.1.4,<0.2` after auditing the 0.1.3/0.1.4 changes. Normal
+  installation now preserves compatible editable 0.1.4 checkouts; shared fixture
+  bytes and historical scientific expectations remain pinned (#374).
+
 ## 5.68.2
 
 - Reject conflicting prediction measurements consistently during DSL scoring,

@@ -37,6 +37,50 @@ The cache does not yet identify different chemistry, assay conditions or model
 settings beyond the stored method/version: do not mix those experiments in one
 cache ([#288](https://github.com/openvax/topiary/issues/288)).
 
+## Incomplete cache coverage
+
+By default, a coverage gap raises `CachedPredictorCoverageError` and stops the
+run. This includes missing peptides and incompatible flank, kind or genotype
+contexts. `raise_on_error=False` only affects variant annotation errors.
+
+To retain successful model/input pairs, explicitly supply a report handler:
+
+```python
+misses = []
+predictor = TopiaryPredictor(models=cache, cache_miss_handler=misses.append)
+df = predictor.predict_from_named_sequences(proteins)
+# Persist misses alongside df. An empty list means no cache misses were skipped.
+```
+
+A failed sequence loses **all its rows for the affected model**, including any
+covered windows. Other sequences and other models continue. Full sequences are
+used when isolating misses, so flank-dependent predictions keep their original
+context. Reports identify `source_sequence_name`, `model_key`, method/version,
+`stage` (`protein`, `peptide`, `wildtype`, or `self_nearest`), error type and
+message. WT or self-nearest failures leave their comparator scores missing;
+they do not remove successful primary predictions. Successful rows remain
+ordinary DataFrame rows, so retain the separate report even after filtering.
+`PartialPredictionWarning` also signals incomplete results. Unrelated exceptions
+and failures in the handler still raise.
+
+The CLI uses a mandatory JSON sidecar for this opt-in mode:
+
+```bash
+topiary --fasta proteins.fasta --mhc-cache-file predictions.csv \
+    --cache-miss-report missing-predictions.json --output-csv results.csv
+```
+
+The sidecar records `complete`, `prediction_rows` (after filters), and `failures`,
+including when all inputs fail or all succeed. Exit status **3** means a partial
+prediction run; **0** means no reported cache misses. Existing fatal CLI errors
+retain status 2. CSV stdout remains parseable. The report is written before the
+prediction output, and its path must differ from inputs and outputs.
+`complete` concerns cache coverage only, not biological evidence, filtering,
+or variant annotation skipped under `--skip-variant-errors`.
+
+Lower-level callers can use the public `predict_with_cache_miss_report` policy.
+See the [implementation and compatibility notes](cache-miss-reporting.md).
+
 ## Selecting lengths and retrieving different values
 
 A cache replays stored measurements. Different peptide, allele, prediction-kind,
