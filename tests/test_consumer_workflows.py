@@ -2539,6 +2539,76 @@ def test_reported_wt_peptides_reach_optional_wt_predictions(tmp_path):
         assert rows.wt_value.notna().all()
 
 
+def test_cache_miss_reporting_preserves_fragment_targets_and_separates_wt_failures():
+    from topiary import CachedPredictorCoverageError, PartialPredictionWarning
+    from tests.test_cached_protein_scan_context import _covering_cache, PEPTIDE
+
+    missing = "AAAAAAAAA"
+    fragments = [
+        ProteinFragment(fragment_id="complete", sequence=PEPTIDE, reference_sequence=PEPTIDE,
+                        target_intervals=[(3, 4)], source_type="variant:substitution"),
+        ProteinFragment(fragment_id="missing_wt", sequence=PEPTIDE, reference_sequence=missing,
+                        target_intervals=[(3, 4)], source_type="variant:substitution"),
+        ProteinFragment(fragment_id="missing_mutant", sequence=missing,
+                        target_intervals=[(3, 4)], source_type="variant:substitution"),
+    ]
+    model = _covering_cache([PEPTIDE])
+    strict = TopiaryPredictor(models=[model], predict_wt=True, only_novel_epitopes=True)
+    with pytest.raises(CachedPredictorCoverageError):
+        strict.predict_from_fragments(fragments)
+    with pytest.raises(CachedPredictorCoverageError):
+        strict.predict_from_fragments(fragments[:2])
+    failures = []
+    reporting = TopiaryPredictor(models=[model], predict_wt=True, only_novel_epitopes=True,
+                                cache_miss_handler=failures.append, sort_by="affinity.value")
+    with pytest.warns(PartialPredictionWarning):
+        rows = reporting.predict_from_fragments(fragments).set_index("fragment_id")
+    assert set(rows.index) == {"complete", "missing_wt"}
+    assert rows.overlaps_target.all() and rows.value.notna().all()
+    assert rows.loc["complete", "wt_value"] == rows.loc["complete", "value"]
+    assert pd.isna(rows.loc["missing_wt", "wt_value"])
+    assert {(r["source_sequence_name"], r["stage"]) for r in failures} == {
+        ("missing_mutant", "protein"), ("missing_wt", "wildtype")}
+
+
+def test_self_nearest_cache_miss_retains_primary_scores_with_an_explicit_report():
+    from topiary import CachedPredictorCoverageError, PartialPredictionWarning, SelfProteome
+    from tests.test_cached_protein_scan_context import _covering_cache, PEPTIDE
+
+    model = _covering_cache([PEPTIDE])
+    proteome = SelfProteome.from_peptides({"self": "SIINFEKLL"}, peptide_lengths=[9])
+    options = dict(models=[model], self_proteome=proteome, predict_self_nearest=True)
+    with pytest.raises(CachedPredictorCoverageError):
+        TopiaryPredictor(**options).predict_from_named_peptides({"candidate": PEPTIDE})
+    failures = []
+    with pytest.warns(PartialPredictionWarning):
+        rows = TopiaryPredictor(**options, cache_miss_handler=failures.append).predict_from_named_peptides(
+            {"candidate": PEPTIDE})
+    assert rows.peptide.tolist() == [PEPTIDE] and rows.value.notna().all()
+    assert rows.self_nearest_value.isna().all()
+    assert failures[0]["stage"] == "self_nearest"
+    assert failures[0]["source_sequence_name"] == "SIINFEKLL"
+
+
+def test_self_nearest_miss_cannot_borrow_a_score_from_another_instance_of_the_same_model():
+    from topiary import PartialPredictionWarning, SelfProteome
+    from tests.test_cached_protein_scan_context import _covering_cache, PEPTIDE
+
+    # The same logical model/version appears in two separately configured
+    # caches. Only the second cache can answer the comparator query.
+    models = [_covering_cache([PEPTIDE]), _covering_cache([PEPTIDE, "SIINFEKLL"])]
+    failures = []
+    predictor = TopiaryPredictor(
+        models=models, self_proteome=SelfProteome.from_peptides({"self": "SIINFEKLL"}, peptide_lengths=[9]),
+        predict_self_nearest=True, cache_miss_handler=failures.append)
+    with pytest.warns(PartialPredictionWarning):
+        rows = predictor.predict_from_named_peptides({"candidate": PEPTIDE})
+    assert len(rows) == 2 and rows.value.notna().all()
+    assert rows.self_nearest_value.isna().sum() == 1
+    assert rows.self_nearest_value.dropna().tolist() == [150.0]
+    assert len(failures) == 1 and failures[0]["model_key"] == "netmhcpan__1"
+
+
 def test_lens_unknown_geometry_stays_unknown_through_rescanning():
     from topiary import TopiaryPredictor, fragments_from_dataframe, read_lens
 

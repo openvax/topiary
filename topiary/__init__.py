@@ -3,6 +3,7 @@ from .report_geometry import map_peptide_intervals, mutation_intervals_from_posi
 from .annotations import join_annotations
 from .candidates import combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
 from .release import pypi_release_exists
+from .prediction_batch import predict_with_cache_miss_report, PartialPredictionWarning
 from .predictor import (
     TopiaryPredictor,
     fragment_from_effect,
@@ -182,7 +183,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.68.4"
+__version__ = "5.69.0"
 
 __all__ = [
     "map_peptide_intervals",
@@ -195,6 +196,8 @@ __all__ = [
     "normalize_python_types",
     "pypi_release_exists",
     "TopiaryPredictor",
+    "predict_with_cache_miss_report",
+    "PartialPredictionWarning",
     "AMINO_ACIDS",
     "AMINO_ACID_INDEX",
     "BLOSUM62_AMINO_ACIDS",
