@@ -85,6 +85,10 @@ def test_explicit_aliases_and_invalid_evidence():
     bad["candidates"][0]["amino_acids"] = "MKK"
     with pytest.raises(ValueError, match="Conflicting"):
         build_sv_interest_report(catalogue(), [export(), bad])
+    bad = export()
+    bad["reference_name"] = "GRCh37"
+    with pytest.raises(ValueError, match="assemblies"):
+        build_sv_interest_report(dict(catalogue(), assembly="GRCh38"), [bad])
 
 
 def test_annotated_frame_never_substitutes_junction_count_for_full_orf_support(tmp_path):

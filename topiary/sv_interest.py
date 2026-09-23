@@ -80,6 +80,10 @@ def build_sv_interest_report(catalogue, orf_exports=(), *, comparisons=(), event
 
     def observe(event, sample, source, candidate, kind, provenance):
         target = target_id(event)
+        expected_reference = targets[target].get("assembly", catalogue.get("assembly"))
+        observed_reference = provenance.get("reference_name")
+        if expected_reference and observed_reference and expected_reference != observed_reference:
+            raise ValueError("RNA and catalogue reference assemblies disagree")
         if not sample or not source:
             raise ValueError("RNA hypotheses require sample and source identity")
         sequence = candidate["amino_acids"]
@@ -210,10 +214,20 @@ def build_sv_interest_report(catalogue, orf_exports=(), *, comparisons=(), event
 def write_sv_interest_report(report, prefix):
     """Write the full report as JSON, two TSVs, candidate protein FASTA and HTML.
 
-    ``prefix`` is a path without a format suffix. Unknown numbers become blank
-    in TSV and null in JSON. Nested evidence is JSON-encoded in TSV. FASTA
-    contains each distinct amino-acid sequence once and is labelled as a
-    hypothesis; it is not a vaccine selection. Returns paths by format.
+    Parameters
+    ----------
+    report : dict
+        Output of :func:`build_sv_interest_report`.
+    prefix : str or pathlib.Path
+        Output path without a format suffix; parent directories are created.
+
+    Returns
+    -------
+    dict
+        Paths by format. Unknown numbers become blank in TSV and null in
+        JSON. Nested evidence is JSON-encoded in TSV. FASTA contains each
+        distinct amino-acid sequence once, labelled as a hypothesis; it is
+        not a vaccine selection. Empty reports still produce valid files.
     """
     prefix = Path(prefix).expanduser()
     prefix.parent.mkdir(parents=True, exist_ok=True)
