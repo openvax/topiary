@@ -2590,6 +2590,25 @@ def test_self_nearest_cache_miss_retains_primary_scores_with_an_explicit_report(
     assert failures[0]["source_sequence_name"] == "SIINFEKLL"
 
 
+def test_self_nearest_miss_cannot_borrow_a_score_from_another_instance_of_the_same_model():
+    from topiary import PartialPredictionWarning, SelfProteome
+    from tests.test_cached_protein_scan_context import _covering_cache, PEPTIDE
+
+    # The same logical model/version appears in two separately configured
+    # caches. Only the second cache can answer the comparator query.
+    models = [_covering_cache([PEPTIDE]), _covering_cache([PEPTIDE, "SIINFEKLL"])]
+    failures = []
+    predictor = TopiaryPredictor(
+        models=models, self_proteome=SelfProteome.from_peptides({"self": "SIINFEKLL"}, peptide_lengths=[9]),
+        predict_self_nearest=True, cache_miss_handler=failures.append)
+    with pytest.warns(PartialPredictionWarning):
+        rows = predictor.predict_from_named_peptides({"candidate": PEPTIDE})
+    assert len(rows) == 2 and rows.value.notna().all()
+    assert rows.self_nearest_value.isna().sum() == 1
+    assert rows.self_nearest_value.dropna().tolist() == [150.0]
+    assert len(failures) == 1 and failures[0]["model_key"] == "netmhcpan__1"
+
+
 def test_lens_unknown_geometry_stays_unknown_through_rescanning():
     from topiary import TopiaryPredictor, fragments_from_dataframe, read_lens
 

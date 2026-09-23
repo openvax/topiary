@@ -1330,7 +1330,7 @@ class TopiaryPredictor(object):
             return _ensure(df)
 
         self_predictions = pd.concat(predicted, ignore_index=True)
-        join_keys = ["allele", "kind", "prediction_method_name",
+        join_keys = [_MODEL_KEY_COLUMN, "allele", "kind", "prediction_method_name",
                      "predictor_version"]
         available = [k for k in join_keys if k in self_predictions.columns
                      and k in df.columns]
