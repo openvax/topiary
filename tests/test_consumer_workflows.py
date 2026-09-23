@@ -20,6 +20,7 @@ from enum import Enum
 import numpy as np
 import pandas as pd
 import pytest
+from mhctools import RandomBindingPredictor
 
 from topiary import (
     CachedPredictor,
@@ -2488,3 +2489,81 @@ def test_numeric_predictor_versions_are_opaque_through_files_and_ranking(tmp_pat
             selected = rank_candidates(restored, f"affinity['original', '{version}'].value", **policy)
             assert selected.candidate_score.dropna().tolist() == [value]
         assert len(restored.filter_by("affinity.value < 60")) == 1
+@pytest.mark.parametrize("position,expected_offsets", [
+    (2, {0, 1}), ("2,11", {0, 1, 3, 4}), ("2-3", {0, 1, 2}),
+    (None, set()), ("?", set()), (99, set()),
+])
+def test_imported_pvacseq_geometry_changes_novel_only_windows(tmp_path, position, expected_offsets):
+    from topiary import TopiaryPredictor, fragments_from_dataframe, read_pvacseq
+    from tests.report_geometry_helpers import write_pvacseq_geometry_report
+    from tests.test_twin_conformance import PVACSEQ_MUTATION_GEOMETRY_TWINS
+
+    outputs = []
+    for flavor in PVACSEQ_MUTATION_GEOMETRY_TWINS:
+        path = write_pvacseq_geometry_report(tmp_path / f"{flavor}.tsv", flavor, position)
+        source = read_pvacseq(path)
+        # Imported measurements survive conversion-independent table IO.
+        saved = tmp_path / f"{flavor}-saved.tsv"
+        source.to_tsv(saved)
+        from topiary import read_tsv
+        frames = (source.long_df, read_tsv(saved).long_df)
+        for frame in frames:
+            fragments = fragments_from_dataframe(frame)
+            model = RandomBindingPredictor(alleles=["HLA-A*02:01"], default_peptide_lengths=[8])
+            all_rows = TopiaryPredictor(models=model).predict_from_fragments(fragments)
+            novel = TopiaryPredictor(models=model, only_novel_epitopes=True).predict_from_fragments(fragments)
+            assert set(all_rows.peptide_offset) == {0, 1, 2, 3, 4}
+            assert set(novel.peptide_offset) == expected_offsets
+            assert len(novel) < len(all_rows)
+            assert novel.overlaps_target.all()
+            assert all_rows.source_type.eq("variant:substitution").all()
+            assert all_rows.source.eq(f"pvacseq-{flavor}:{path.name}").all()
+            if position is None or position == "?":
+                assert all_rows.overlaps_target.isna().all()
+                assert all_rows.target_interval_status.eq("unknown").all()
+            outputs.append(set(novel.peptide))
+    assert all(peptides == outputs[0] for peptides in outputs)
+
+
+def test_reported_wt_peptides_reach_optional_wt_predictions(tmp_path):
+    from topiary import TopiaryPredictor, fragments_from_dataframe, read_pvacseq
+    from tests.report_geometry_helpers import write_pvacseq_geometry_report
+    from tests.test_twin_conformance import PVACSEQ_MUTATION_GEOMETRY_TWINS
+
+    for flavor in PVACSEQ_MUTATION_GEOMETRY_TWINS:
+        path = write_pvacseq_geometry_report(tmp_path / f"{flavor}.tsv", flavor)
+        fragments = fragments_from_dataframe(read_pvacseq(path).long_df)
+        model = RandomBindingPredictor(alleles=["HLA-A*02:01"], default_peptide_lengths=[8])
+        rows = TopiaryPredictor(models=model, predict_wt=True, only_novel_epitopes=True).predict_from_fragments(fragments)
+        assert set(rows.wt_peptide) == {"ACDEFGHI", "CDEFGHIK"}
+        assert rows.wt_value.notna().all()
+
+
+def test_lens_unknown_geometry_stays_unknown_through_rescanning():
+    from topiary import TopiaryPredictor, fragments_from_dataframe, read_lens
+
+    source = read_lens("tests/data/lens/sample_v1_4.tsv").long_df
+    fragments = fragments_from_dataframe(source)
+    assert {f.source_type for f in fragments} >= {"variant:snv", "sv:fusion", "erv", "self"}
+    assert all(f.target_intervals is None for f in fragments)
+    model = RandomBindingPredictor(alleles=["HLA-A*02:01"], default_peptide_lengths=[8])
+    rows = TopiaryPredictor(models=model).predict_from_fragments(fragments)
+    assert not rows.empty and rows.overlaps_target.isna().all()
+    assert rows.target_interval_status.eq("unknown").all()
+    assert rows.antigen_source.notna().all() and rows.source.eq("lens-v1.4").all()
+
+
+def test_known_junction_geometry_survives_novel_only_context_rescanning():
+    from topiary import TopiaryPredictor, fragments_from_dataframe
+
+    frame = pd.DataFrame([dict(peptide="SIINFEKL", pep_context="AASIINFEKLCCGGGG",
+                              source_type="sv:fusion", mutation_start_in_peptide=3,
+                              mutation_end_in_peptide=3)])
+    fragments = fragments_from_dataframe(frame)
+    model = RandomBindingPredictor(alleles=["HLA-A*02:01"], default_peptide_lengths=[8])
+    all_rows = TopiaryPredictor(models=model).predict_from_fragments(fragments)
+    novel = TopiaryPredictor(models=model, only_novel_epitopes=True).predict_from_fragments(fragments)
+    assert set(novel.peptide_offset) == {0, 1, 2, 3, 4}
+    assert len(novel) < len(all_rows)
+    assert novel.contains_mutant_residues.isna().all()  # Junctions are not substituted residues.
+    assert novel.overlaps_target.all()

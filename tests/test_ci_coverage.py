@@ -4,14 +4,35 @@ import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
+import runpy
 import subprocess
 import sys
 import textwrap
 from threading import Thread
+from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 
 from coverage import CoverageData
 import pytest
+
+
+@pytest.mark.parametrize("protein", ["MAAA", None])
+def test_ensembl_setup_checks_the_selected_reference(monkeypatch, protein):
+    lookups = []
+
+    def transcript_by_id(transcript_id):
+        lookups.append(transcript_id)
+        return SimpleNamespace(protein_sequence=protein)
+
+    monkeypatch.setitem(sys.modules, "pyensembl", SimpleNamespace(
+        ensembl_grch38=SimpleNamespace(transcript_by_id=transcript_by_id)))
+    script = Path(__file__).resolve().parents[1] / "scripts/check_default_ensembl.py"
+    if protein is None:
+        with pytest.raises(RuntimeError, match="Missing BRAF protein"):
+            runpy.run_path(str(script), run_name="__main__")
+    else:
+        runpy.run_path(str(script), run_name="__main__")
+    assert lookups == ["ENST00000496384"]
 
 
 @pytest.fixture

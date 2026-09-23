@@ -170,6 +170,11 @@ PVACSEQ_CORPUS_TWINS = tuple(
 # reinterpret counts/TPM or attach a different transcript's annotation.
 PVACSEQ_RNA_OVERLAY_TWINS = PVACSEQ_CORPUS_TWINS
 
+# Both report-reader doors must preserve identical position semantics through
+# fragment conversion and the predictor. The composed battery lives in
+# test_consumer_workflows.py; fixtures are built by report_geometry_helpers.
+PVACSEQ_MUTATION_GEOMETRY_TWINS = ("aggregated", "all_epitopes")
+
 
 @pytest.mark.parametrize("aggregate,all_epitopes", PVACSEQ_RNA_OVERLAY_TWINS,
                          ids=[a["pair"] for a, _ in PVACSEQ_RNA_OVERLAY_TWINS])

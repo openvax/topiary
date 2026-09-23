@@ -377,6 +377,14 @@ def read_lens(
     df = _handle_tpm(df)
     df = _derive_peptide_columns(df)
     df = _derive_effect_type(df)
+    if "antigen_source" in df.columns:
+        df["source_type"] = df["antigen_source"].map({
+            "SNV": "variant:snv", "INDEL": "variant:indel",
+            "FUSION": "sv:fusion", "SPLICE": "splice",
+            "ERV": "erv", "CTA": "cta", "CTA/SELF": "self", "SELF": "self",
+        })
+        df.loc[df["antigen_source"].eq("INDEL") & df["effect_type"].eq("FrameShift"),
+               "source_type"] = "variant:frameshift"
     # RNA read-level evidence. LENS counts reads covering the genomic
     # origin (a direct count) and reads covering it *with the peptide's
     # CDS* — also a count, but of reads overlapping the coding sequence
@@ -414,6 +422,7 @@ def read_lens(
     df["peptide_offset"] = 0
 
     source_label = tag or f"lens-{version}" if version else (tag or path.name)
+    df["source"] = source_label
 
     meta = Metadata(
         form="wide",

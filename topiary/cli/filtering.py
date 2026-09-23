@@ -37,12 +37,8 @@ def add_filter_args(arg_parser):
 
     filter_group.add_argument(
         "--only-novel-epitopes",
-        help="".join(
-            [
-                "Drop epitopes which do not contain mutated residues or occur ",
-                "in the self-ligandome.",
-            ]
-        ),
+        help=("Keep epitopes overlapping known mutation or junction targets; "
+              "exclude unknown geometry. This does not check the self-proteome."),
         default=False,
         action="store_true",
     )

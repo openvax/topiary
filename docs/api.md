@@ -70,7 +70,7 @@ return fresh read-only int8 arrays, so callers never share mutable matrix state.
 | `sort_by` | DSLNode or list of DSLNode | Sort expression(s). Lexicographic tiebreakers; NaN falls through. |
 | `sort_direction` | "auto", "asc", or "desc" | Direction for sort keys (auto infers per-key). |
 | `padding_around_mutation` | int | Residues around mutation for candidate epitopes. |
-| `only_novel_epitopes` | bool | Drop peptides without mutated residues. |
+| `only_novel_epitopes` | bool | Keep known mutation/target/junction overlaps; exclude unknown geometry. Does not establish tumor specificity. |
 | `min_gene_expression` | float | Minimum gene FPKM (variant inputs). |
 | `min_transcript_expression` | float | Minimum transcript FPKM (variant inputs). |
 | `raise_on_error` | bool | Raise on variant-effect errors vs. skip. |
