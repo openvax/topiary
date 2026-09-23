@@ -72,3 +72,8 @@ RNA abundance and protein abundance are distinct quantities; see
 [Schwanhäusser et al.](https://www.nature.com/articles/nature10098).
 Gene TPM and expected counts follow the
 [RSEM definitions](https://deweylab.github.io/RSEM/rsem-calculate-expression.html).
+
+For annotated-frame products, event linkage refers to the translated interval's
+own departure evidence. An exact SV elsewhere in the surrounding RNA path
+cannot promote a translation whose departure is ordinary-splice compatible or
+unknown. Such products remain visible with ambiguous event linkage.

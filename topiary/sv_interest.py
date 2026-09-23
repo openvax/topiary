@@ -144,7 +144,11 @@ def build_sv_interest_report(catalogue, orf_exports=(), *, comparisons=(), event
         for observation in row["source_observations"]:
             candidate = observation["candidate"]
             if row["kind"] == "annotated_frame":
-                relations.update(p["linkage"] for p in candidate["paths"].values())
+                # A surrounding path can carry the SV while this translated
+                # interval departs at a different, ordinary splice. Only the
+                # translation's own departure evidence can establish linkage.
+                relations.update(relation for p in candidate["paths"].values()
+                                 for relation in p.get("candidate", {}).get("departure_relations", []))
             else:
                 relations.update(j["relation"] for o in candidate.get("occurrences", []) for j in o["junctions"])
         row["event_linkage_relations"] = sorted(relations)

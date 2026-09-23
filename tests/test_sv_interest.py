@@ -95,7 +95,8 @@ def test_annotated_frame_never_substitutes_junction_count_for_full_orf_support(t
     comparison = dict(schema="isovar.sv_rna_prediction_comparison.v1", event_id="UTR", sample_id="T2",
                       rna_source="library", hypotheses=[dict(kind="annotated_frame", hypothesis_id="frame",
                       amino_acids="MKK", nucleotide_sequence="ATGAAAAAA", complete_candidate=False,
-                      paths={"path": dict(linkage="event_compatible_junction")})])
+                      paths={"path": dict(linkage="event_compatible_junction",
+                             candidate=dict(departure_relations=["event_compatible_junction"]))})])
     report = build_sv_interest_report(catalogue(), comparisons=[comparison])
     row, = report["protein_hypotheses"]
     assert row["evidence_priority"] == 10
