@@ -29,7 +29,7 @@ def check_runtime_metadata(metadata):
     """Ordinary installation must provide Osteosarc reads on supported Python."""
     assert metadata["Requires-Python"] == ">=3.10"
     requirements = [value.replace(" ", "") for value in metadata.get_all("Requires-Dist", [])]
-    assert "osteosarc<0.2,>=0.1.4" in requirements
+    assert "osteosarc<0.3,>=0.2.3" in requirements
     assert "osteosarc" not in metadata.get_all("Provides-Extra", [])
 
 

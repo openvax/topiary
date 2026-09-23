@@ -32,9 +32,11 @@ separate, preserve kind/genotype failure checks, exercise composed fragment/WT
 and CLI workflows, and prove unrelated exceptions and handler failures still
 raise. Fixture builders belong beside the tests.
 
-Osteosarc 0.1.3 fixes mitochondrial naming in its Varcode adapter; 0.1.4 revises
-curation of historical/current source snapshots. Comparing tags v0.1.2 through
-v0.1.4 shows no changes to Cache, digest, receipt/import, or acquisition APIs used
-by Topiary. Adopt `osteosarc>=0.1.4,<0.2` and verify shared fixtures offline,
-built-distribution metadata, normal dependency resolution, and an editable 0.1.4
-installation. Future 0.2 fixture API adoption remains in the separate #380 PR.
+Topiary 5.68.4 (#380) now delegates fixture resolution and generation to the
+published Osteosarc 0.2.3 `fixture_assets` and `consumer_fixtures` APIs. Osteosarc
+0.1.4 lacks these APIs and is no longer a compatible development baseline.
+Use `osteosarc>=0.2.3,<0.3` to preserve compatible editable installs and accept
+patch fixes within that API series. Verify shared fixtures offline,
+built-distribution metadata, normal dependency resolution and an editable 0.2.3
+installation. Shared source data and historical scientific expectations stay
+pinned independently of the package version.
