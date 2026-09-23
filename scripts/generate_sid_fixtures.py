@@ -19,7 +19,6 @@ if __name__ == "__main__":
     parser.add_argument("--panel-source", action="append", default=[], metavar="ID=LOCAL_BAM")
     args = parser.parse_args()
     if args.panel_recipe:
-        from osteosarc import Cache
         from osteosarc.bundles import generate_panel
         generate_panel(args.panel_recipe, args.output, sources=args.panel_source,
                        cache=Cache(args.cache_root, offline=args.offline))
