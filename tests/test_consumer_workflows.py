@@ -56,6 +56,32 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
+def test_sv_interest_api_and_cli_retain_and_rank_the_same_nominations(tmp_path):
+    import json
+    from .test_sv_interest import catalogue, export
+    from .test_twin_conformance import SV_INTEREST_REPORT_TWINS
+    build, cli = SV_INTEREST_REPORT_TWINS
+    cat, orfs = catalogue(), [export(), export("INTRON", priority=4)]
+    expected = build(cat, orfs)
+    catalogue_path = tmp_path / "catalogue.json"
+    catalogue_path.write_text(json.dumps(cat))
+    args = ["--catalogue", str(catalogue_path), "--output-prefix", str(tmp_path / "report")]
+    for i, record in enumerate(orfs):
+        path = tmp_path / (str(i) + ".json")
+        path.write_text(json.dumps(record))
+        args.extend(["--orf-export", str(path)])
+    assert cli(args) == 0
+    assert json.loads((tmp_path / "report.json").read_text()) == json.loads(json.dumps(expected))
+    assert expected["candidates"][0]["event_id"] == "UTR"
+    # Changing actual transcript evidence changes ranking through both doors.
+    orfs[1]["candidates"][0]["start_evidence_summary"]["priority"] = 1
+    (tmp_path / "1.json").write_text(json.dumps(orfs[1]))
+    changed = build(cat, orfs)
+    assert changed["candidates"][0]["event_id"] == "INTRON"
+    assert cli(args) == 0
+    assert json.loads((tmp_path / "report.json").read_text()) == json.loads(json.dumps(changed))
+
+
 def _repeated_measurements(values, **columns):
     row = dict(source_sequence_name="observation", peptide="SIINFEKL", peptide_offset=0,
                allele="HLA-A*02:01", kind="pMHC_affinity",

@@ -50,6 +50,8 @@ from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
 import topiary.optional_dependencies as optional_dependencies
 from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_REPORTS, ROOT as PVACSEQ_ROOT
+from topiary import build_sv_interest_report
+from topiary.cli.sv_interest import main as sv_interest_main
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,10 @@ DELIMITED_IO_TWINS = (
 # Candidate ranking must use the same feature/prediction semantics as the
 # lower-level DSL scorer that downstream consumers already call.
 CANDIDATE_SCORE_TWINS = (rank_candidates, evaluate_scores)
+
+# The CLI serializes the same exhaustive SV evidence policy as the public API.
+# Driven together in test_consumer_workflows, including absent protein rows.
+SV_INTEREST_REPORT_TWINS = (build_sv_interest_report, sv_interest_main)
 
 
 def _measurement_scores(frame, expression, **options):
