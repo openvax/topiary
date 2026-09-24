@@ -184,7 +184,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.70.1"
+__version__ = "5.70.2"
 
 __all__ = [
     "build_sv_interest_report",

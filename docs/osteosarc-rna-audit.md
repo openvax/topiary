@@ -69,9 +69,11 @@ accounting for orientation and the observed RNA sequence. The four observations
 supporting that exact selected window are not the eight total complete paths.
 Cell/UMI labels are not independently validated molecule counts.
 
-Both inputs return `unresolved_frame`, with reason
+Both inputs have unresolved frames, with reason
 `no_exact_collinear_annotated_donor`, and **no translations** under the pinned
-Ensembl 87 models. This means the observed RNA junction is not yet connected to
+Ensembl 87 models. Isovar's v1 fusion schema calls this `unresolved_frame`;
+the v2 schema (Isovar 1.31+) calls it `unresolved` and places translations in
+`paths[0]`. This means the observed RNA junction is not yet connected to
 a supported coding frame; it does not mean the RNA junction is absent.
 Do not guess a reading frame or translate all frames and label the result
 RNA-supported. A next coding-reconstruction step needs a validated transcript

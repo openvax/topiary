@@ -203,6 +203,27 @@ Every declared allele-dependent prediction kind must cover the selected
 candidate. An allele-free processing output cannot substitute for missing
 affinity or presentation; processing-only models remain supported.
 
+### Save and reload flanking context
+
+An empty `n_flank` or `c_flank` string states a known protein terminus; a missing
+value states that the context is unknown. Use Topiary's `to_tsv`/`to_csv` and
+`read_tsv`/`read_csv` together to preserve that distinction in both long and wide
+tables. Context-dependent re-scoring after reload then receives the same flanks
+as before saving; unknown context still requires an explicit resolution.
+
+Files with canonical flank columns include
+`#topiary_flank_encoding=escaped-v1`. In those columns, missing values are
+written as `<NA>` and known-empty strings remain empty cells. Ordinary sequence
+text, including `NA`, remains literal text. A literal `<NA>` or a string starting
+with a backslash gains one leading backslash, which the reader removes.
+Other columns keep their existing formatting and type inference.
+
+Legacy files without this flag retain the earlier missing-value interpretation.
+Their blank flank cells cannot distinguish termini from unknown context. Recover
+that distinction from the original source; do not replace all missing flanks
+with empty strings. Ordinary `pandas.read_csv` also cannot recover the distinction
+without decoding this format.
+
 ## Vaxrank
 
 Pass the full enriched frame to Vaxrank's

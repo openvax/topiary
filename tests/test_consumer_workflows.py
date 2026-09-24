@@ -275,6 +275,43 @@ def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, t
     assert enriched.df.loc[~enriched.df.source_label.eq("direct"), feature].isna().all()
 
 
+@pytest.mark.parametrize("wide", [False, True])
+def test_terminal_flanks_survive_save_reload_and_contextual_rescoring(tmp_path, wide):
+    from topiary import combine_sources, rank_candidates, rescore_candidates
+    from .test_candidate_tables import Model, source
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    combined = combine_sources({
+        "terminal": source(n_flank=["", "AAA"], c_flank=["GGG", ""]),
+        "unknown": source(n_flank=[None, "AAA"], c_flank=["GGG", None]),
+    }, sample_name="p")
+    baseline_model = Model()
+    baseline = rescore_candidates(combined, baseline_model, prefix="fresh",
+                                  select="source_label == 'terminal'")
+    feature = "fresh__testmodel__pMHC_affinity__value"
+    expected = rank_candidates(baseline, feature, ascending=True, duplicates="best")
+    assert expected.candidate_score.tolist() == [13., 800.]
+
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("terminal-flanks." + suffix)
+        method(combined.to_wide() if wide else combined, path)
+        restored = reader(path)
+        model = Model()
+        enriched = rescore_candidates(restored, model, prefix="fresh",
+                                      select="source_label == 'terminal'")
+        assert model.calls == baseline_model.calls
+        actual = rank_candidates(enriched, feature, ascending=True, duplicates="best")
+        # Readers may add file provenance and wide-form WT convenience fields;
+        # every original field and the resulting ranking must still agree.
+        original_fields = actual[expected.columns]
+        pd.testing.assert_frame_equal(original_fields.where(original_fields.notna(), np.nan),
+                                      expected.where(expected.notna(), np.nan), check_dtype=False)
+        for result in (combined, restored):
+            with pytest.raises(ValueError, match="requires both flanks"):
+                rescore_candidates(result, Model(), prefix="unknown",
+                                   select="source_label == 'unknown'")
+
+
 def test_table_rescoring_changes_only_the_explicit_dsl_policy(tmp_path):
     from topiary import combine_sources, rank_candidates, read_tsv, rescore_candidates
     from .test_candidate_tables import Model, source

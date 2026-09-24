@@ -486,7 +486,8 @@ readable. Non-JSON objects retain their fallback text representation, with the
 same quoting when needed.
 
 Writers reject top-level extra keys `topiary_version`, `form`, `source`,
-`filter_by`, `sort_by`, and any key starting with `model:`. These comment keys
+`filter_by`, `sort_by`, `topiary_flank_encoding`, and any key starting with
+`model:`. These comment keys
 belong to the result's built-in metadata; using them in `extra` previously
 changed their meaning on read. Set the corresponding metadata field when
 that is intended, or nest the value under a custom key.
@@ -495,6 +496,11 @@ Extra keys must be nonempty strings without surrounding whitespace, line
 breaks or `=`. Invalid keys raise `ValueError` before the output file is opened,
 including when writing over an existing file. TSV and CSV use the same checks;
 reading existing files retains the previous behavior.
+
+The writer derives `topiary_flank_encoding` automatically to preserve empty
+terminal flanks separately from unknown context. See
+[saving and reloading flanking context](combined-sources.md#save-and-reload-flanking-context)
+for the format and the limitations of legacy blank cells.
 
 ### Correcting a LENS binding-column mapping
 

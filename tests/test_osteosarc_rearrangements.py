@@ -32,14 +32,18 @@ def test_observed_rearrangement_rna_does_not_imply_a_coding_peptide(
     raw = gzip.decompress(packed)
     assert hashlib.sha256(raw).hexdigest() == entry["input_sha256"]
     supplied = json.loads(raw)
-    fusion, refs, reads = fusion_from_dict(supplied)
+    # Original SAM records are the fixture's audit envelope, not Isovar input.
+    # Keep them for the provenance assertions below while passing the payload.
+    fusion_input = supplied.copy()
+    original_records = fusion_input.pop("original_records")
+    fusion, refs, reads = fusion_from_dict(fusion_input)
     assert len(fusion.sequence) == length
     assert fusion.sequence[fusion.junction_start:fusion.junction_end] == inserted
     assert len(reads) == entry["selected_paths"] == support
-    assert len(supplied["original_records"]) == support
+    assert len(original_records) == support
     header = pysam.AlignmentHeader.from_references(
         ["chr6", "chr15"], [170805979, 101991189])
-    for original, read in zip(supplied["original_records"], supplied["reads"]):
+    for original, read in zip(original_records, supplied["reads"]):
         first, partner = [pysam.AlignedSegment.fromstring(original[k], header)
                           for k in ("sam", "partner_sam")]
         assert first.query_name == partner.query_name == read["read_id"]
@@ -59,9 +63,21 @@ def test_observed_rearrangement_rna_does_not_imply_a_coding_peptide(
         assert all(hashlib.sha256(original[k].encode()).hexdigest() in pinned["sam_sha256"]
                    for k in ("sam", "partner_sam"))
     result = reconstruct_fusion(fusion, refs, reads)
-    assert result["status"] == "unresolved_frame"
     assert result["reasons"] == ["no_exact_collinear_annotated_donor"]
-    assert result["translations"] == []
+    if "schema" in result:
+        assert result["schema"] == "isovar.fusion_rna.v2"
+        assert result["status"] == "unresolved"
+        assert len(result["paths"]) == 1
+        path = result["paths"][0]
+        assert path["sequence"] == fusion.sequence
+        assert path["frame_status"] == "unresolved"
+        assert path["translations"] == []
+    else:
+        # The minimum supported Isovar still returns the v1 fusion schema.
+        assert result["schema_version"] == 1
+        assert result["status"] == "unresolved_frame"
+        assert result["cdna_sequence"] == fusion.sequence
+        assert result["translations"] == []
     paths = [p for p in manifest["observed_paths"]
              if p["event"] == event and p["source"] == sample + "-ONT-tagged"]
     assert len(paths) == (8 if event == "OTUD7A--FMN1" else support)

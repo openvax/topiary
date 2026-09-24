@@ -219,6 +219,102 @@ def _sample_long_df_with_version_state(version_state):
     raise ValueError(f"unknown version state: {version_state}")
 
 
+@pytest.mark.parametrize("wide", [False, True])
+@pytest.mark.parametrize("call_style", ["dataframe", "result-function", "result-method"])
+@pytest.mark.parametrize("dtype", [object, "string", "category"])
+def test_flank_io_twins_preserve_known_empty_and_unknown_context(tmp_path, wide, call_style, dtype):
+    values = ["", "AAA", None, pd.NA, np.nan, "NA", "<NA>", r"\N", r"\\tail", r"\<NA>"]
+    frame = pd.concat([_sample_long_df().iloc[[0]]] * len(values), ignore_index=True)
+    frame["row_id"] = range(len(frame))
+    frame["n_flank"] = pd.Series(values, dtype=dtype)
+    frame["c_flank"] = pd.Series(values[::-1], dtype=dtype)
+    frame.loc[2, "value"] = np.nan
+    frame.index = [7] * len(frame)
+    original = frame.copy(deep=True)
+    results = []
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        result = TopiaryResult(frame, extra={"keep": "annotation"})
+        if wide:
+            result = result.to_wide()
+        before = result.df.copy(deep=True)
+        path = tmp_path / ("flanks." + suffix)
+        if call_style == "dataframe":
+            writer(result.df, path, metadata=result.metadata)
+        elif call_style == "result-function":
+            writer(result, path)
+        else:
+            method(result, path)
+        pd.testing.assert_frame_equal(result.df, before)
+        restored = reader(path, tag="output")
+        assert restored.extra["keep"] == "annotation"
+        restored_frame = restored.long_df.sort_values("row_id")
+        for column in ("n_flank", "c_flank"):
+            for expected, actual in zip(frame[column], restored_frame[column]):
+                assert pd.isna(actual) if pd.isna(expected) else actual == expected
+        assert pd.isna(restored_frame.iloc[2].value)
+        assert restored_frame.iloc[0].value == 120.
+        results.append(restored_frame.reset_index(drop=True))
+
+        # Reordering/filtering and rewriting must not reuse stale positional
+        # restoration data from the original file.
+        selected = restored_frame.iloc[[9, 0, 2]].copy()
+        rewritten = TopiaryResult(selected, extra=restored.extra)
+        second = tmp_path / ("selected." + suffix)
+        method(rewritten, second)
+        again = reader(second, tag="output").long_df
+        assert again.row_id.tolist() == [9, 0, 2]
+        assert again.n_flank.iloc[:2].tolist() == [r"\<NA>", ""]
+        assert pd.isna(again.n_flank.iloc[2])
+    pd.testing.assert_frame_equal(*results)
+    pd.testing.assert_frame_equal(frame, original)
+
+
+def test_flank_io_twins_keep_legacy_blank_cells_unknown(tmp_path):
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        sep = "\t" if suffix == "tsv" else ","
+        path = tmp_path / ("legacy-flanks." + suffix)
+        path.write_text(sep.join(["peptide", "n_flank", "c_flank"]) + "\n"
+                        + sep.join(["SIINFEKL", "", "GGG"]) + "\n")
+        restored = reader(path)
+        assert pd.isna(restored.df.n_flank.iloc[0])
+        assert restored.df.c_flank.iloc[0] == "GGG"
+
+
+@pytest.mark.parametrize("values", [[], [""], [None], ["", None]])
+@pytest.mark.parametrize("column", ["n_flank", "c_flank"])
+def test_flank_io_twins_handle_empty_tables_and_single_columns(tmp_path, values, column):
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("minimal." + suffix)
+        writer(pd.DataFrame({column: values}), path)
+        restored = reader(path).df
+        assert len(restored) == len(values)
+        for expected, actual in zip(values, restored[column]):
+            assert pd.isna(actual) if expected is None else actual == expected
+
+
+@pytest.mark.parametrize("bad_value", [0, False, [], {}])
+def test_flank_io_twins_reject_invalid_context_before_touching_output(tmp_path, bad_value):
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("invalid." + suffix)
+        path.write_bytes(b"keep original\n")
+        for write in (writer, method):
+            with pytest.raises(TypeError, match="Flank cells must be strings or missing"):
+                write(TopiaryResult(pd.DataFrame({"n_flank": [bad_value]})), path)
+            assert path.read_bytes() == b"keep original\n"
+
+
+@pytest.mark.parametrize("encoding,cell,error", [
+    ("future-version", "AAA", "Unsupported flank encoding"),
+    ("escaped-v1", r"\AAA", "Invalid escaped flank cell"),
+])
+def test_flank_io_twins_refuse_unknown_or_malformed_encodings(tmp_path, encoding, cell, error):
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("invalid-encoding." + suffix)
+        path.write_text(f"#topiary_flank_encoding={encoding}\nn_flank\n{cell}\n")
+        with pytest.raises(ValueError, match=error):
+            reader(path)
+
+
 def _write_extra_case(writer, method, path, extra, call_style):
     meta = Metadata(extra=extra)
     result = TopiaryResult(_sample_long_df())
@@ -238,7 +334,7 @@ def _write_extra_case(writer, method, path, extra, call_style):
 
 @pytest.mark.parametrize("call_style", ["dataframe", "result-function", "result-method", "override"])
 @pytest.mark.parametrize("key", [
-    "topiary_version", "form", "source", "filter_by", "sort_by", "model:", "model:netmhcpan",
+    "topiary_version", "form", "source", "filter_by", "sort_by", "topiary_flank_encoding", "model:", "model:netmhcpan",
     " source", "form\t", "", " ", "custom=source", "custom\n#source", "custom\r#form", 1, None,
 ])
 def test_metadata_extra_keys_fail_before_touching_output(tmp_path, key, call_style):
