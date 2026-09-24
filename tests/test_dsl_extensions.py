@@ -239,6 +239,14 @@ class TestColumn:
         with pytest.raises(ValueError, match="Conflicting prediction measurements"):
             evaluate_scores(frame, Column("annotation"), group_keys=["observation"])
 
+    def test_datetime_column_is_not_a_numeric_annotation(self):
+        from topiary import evaluate_scores
+
+        frame = pd.DataFrame({"observation": ["one", "one"],
+                              "annotation": pd.to_datetime(["2026-01-01"] * 2)})
+        with pytest.raises(TypeError, match="non-numeric values"):
+            evaluate_scores(frame, Column("annotation"), group_keys=["observation"])
+
 
 class TestColumnFilter:
     def test_parse_column_filter(self):
