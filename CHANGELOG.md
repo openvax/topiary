@@ -1,6 +1,6 @@
 # Changelog
 
-## 5.69.1
+## 5.70.1
 
 - Reject conflicting numeric column values within a DSL observation instead
   of silently selecting the first row. Filtering, scoring, sorting and combined

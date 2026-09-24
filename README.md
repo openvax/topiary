@@ -671,3 +671,6 @@ python -m pytest tests --collect-only
 pip install '.[isovar]' pytest pytest-cov pytest-xdist
 ./test.sh -m isovar --strict-markers
 ```
+
+For a complete SV nomination inventory, including candidates without a recovered
+protein, see [SV evidence reports](docs/sv-interest.md).

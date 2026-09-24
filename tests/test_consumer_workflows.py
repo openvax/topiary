@@ -56,6 +56,32 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
+def test_sv_interest_api_and_cli_retain_and_rank_the_same_nominations(tmp_path):
+    import json
+    from .test_sv_interest import catalogue, export
+    from .test_twin_conformance import SV_INTEREST_REPORT_TWINS
+    build, cli = SV_INTEREST_REPORT_TWINS
+    cat, orfs = catalogue(), [export(), export("INTRON", priority=4)]
+    expected = build(cat, orfs)
+    catalogue_path = tmp_path / "catalogue.json"
+    catalogue_path.write_text(json.dumps(cat))
+    args = ["--catalogue", str(catalogue_path), "--output-prefix", str(tmp_path / "report")]
+    for i, record in enumerate(orfs):
+        path = tmp_path / (str(i) + ".json")
+        path.write_text(json.dumps(record))
+        args.extend(["--orf-export", str(path)])
+    assert cli(args) == 0
+    assert json.loads((tmp_path / "report.json").read_text()) == json.loads(json.dumps(expected))
+    assert expected["candidates"][0]["event_id"] == "UTR"
+    # Changing actual transcript evidence changes ranking through both doors.
+    orfs[1]["candidates"][0]["start_evidence_summary"]["priority"] = 1
+    (tmp_path / "1.json").write_text(json.dumps(orfs[1]))
+    changed = build(cat, orfs)
+    assert changed["candidates"][0]["event_id"] == "INTRON"
+    assert cli(args) == 0
+    assert json.loads((tmp_path / "report.json").read_text()) == json.loads(json.dumps(changed))
+
+
 def _repeated_measurements(values, **columns):
     row = dict(source_sequence_name="observation", peptide="SIINFEKL", peptide_offset=0,
                allele="HLA-A*02:01", kind="pMHC_affinity",
@@ -2691,3 +2717,27 @@ def test_known_junction_geometry_survives_novel_only_context_rescanning():
     assert len(novel) < len(all_rows)
     assert novel.contains_mutant_residues.isna().all()  # Junctions are not substituted residues.
     assert novel.overlaps_target.all()
+
+
+@pytest.mark.parametrize("departure,priority", [("breakpoint_junction", 10),
+                                               ("splice_ambiguous_event_junction", 75),
+                                               (None, 75)])
+def test_sv_annotated_product_requires_its_own_event_linkage_in_both_doors(tmp_path, departure, priority):
+    import json
+    from .test_sv_interest import catalogue
+    from .test_twin_conformance import SV_INTEREST_REPORT_TWINS
+    build, cli = SV_INTEREST_REPORT_TWINS
+    translated = {} if departure is None else dict(departure_relations=[departure])
+    comparison = dict(schema="isovar.sv_rna_prediction_comparison.v1", event_id="UTR", sample_id="T2",
+                      rna_source="library", hypotheses=[dict(kind="annotated_frame", hypothesis_id="frame",
+                      amino_acids="MKK", nucleotide_sequence="ATGAAAAAA", complete_candidate=False,
+                      paths={"path": dict(linkage="breakpoint_junction", candidate=translated)})])
+    cat = catalogue()
+    expected = build(cat, comparisons=[comparison])
+    assert expected["protein_hypotheses"][0]["evidence_priority"] == priority
+    assert expected["protein_hypotheses"][0]["event_linkage_relations"] == ([] if departure is None else [departure])
+    (tmp_path / "catalogue.json").write_text(json.dumps(cat))
+    (tmp_path / "comparison.json").write_text(json.dumps(comparison))
+    assert cli(["--catalogue", str(tmp_path / "catalogue.json"), "--comparison", str(tmp_path / "comparison.json"),
+                "--output-prefix", str(tmp_path / "report")]) == 0
+    assert json.loads((tmp_path / "report.json").read_text()) == json.loads(json.dumps(expected))
