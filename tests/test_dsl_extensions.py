@@ -219,6 +219,7 @@ class TestColumn:
 
     @pytest.mark.parametrize("values,dtype,expected", [
         ([True, True], bool, 1.), ([False, False], bool, 0.),
+        ([2, 2], int, 2.),
         ([pd.NA, True], "boolean", 1.), ([pd.NA, 2], "Int64", 2.),
         (["nan", "NaN"], object, float("nan")),
         ([pd.NA, "3"], "string", 3.),

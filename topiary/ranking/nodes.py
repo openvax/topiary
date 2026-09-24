@@ -414,7 +414,7 @@ def prediction_field_values(df, column, *, group_keys, errors="coerce"):
         if errors == "raise":
             # Keep Column's float conversion, including booleans and textual
             # NaN, while accepting pandas' nullable dtypes as missing values.
-            numeric = pd.Series(df[column].to_numpy(na_value=np.nan), index=df.index).astype(float)
+            numeric = df[column].astype(object).where(df[column].notna(), np.nan).astype(float)
         else:
             numeric = pd.to_numeric(df[column], errors="coerce")
     except (ValueError, TypeError) as exc:
