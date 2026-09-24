@@ -13,12 +13,19 @@ A topiary TSV/CSV file may begin with ``#key=value`` comment lines::
 Standard tools (``pd.read_csv(comment="#")``) skip these lines and read
 the data normally.  Topiary's ``read_tsv`` / ``read_csv`` additionally
 parse the comment block into a :class:`Metadata` object.
+
+Files containing ``n_flank`` or ``c_flank`` also record
+``#topiary_flank_encoding=escaped-v1``. In those columns only, an empty cell is
+a known empty sequence and ``<NA>`` is missing context. Literal ``<NA>`` and
+strings starting with a backslash are escaped with one leading backslash.
+Readers of unmarked legacy files keep the original pandas NA interpretation;
+their blank cells cannot establish known termini.
 """
 
 import ast
 import json
 from collections import OrderedDict
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass, field as dataclass_field, replace
 from io import StringIO
 from pathlib import Path
 
@@ -28,7 +35,12 @@ from .serialization import normalize_python_types
 
 
 _JSON_EXTRA_PREFIX = "json:"
-_SCALAR_METADATA_KEYS = frozenset(("topiary_version", "form", "filter_by", "sort_by"))
+_SCALAR_METADATA_KEYS = frozenset((
+    "topiary_version", "form", "filter_by", "sort_by", "topiary_flank_encoding",
+))
+_FLANK_ENCODING = "escaped-v1"
+_FLANK_COLUMNS = ("n_flank", "c_flank")
+_MISSING_FLANK = "<NA>"
 
 
 @dataclass
@@ -37,12 +49,17 @@ class Metadata:
 
     ``extra`` holds custom comment keys. Writers reject top-level keys used
     by built-in metadata (``topiary_version``, ``form``, ``source``,
-    ``filter_by``, ``sort_by``, and the ``model:`` prefix). Nest such names
-    under a custom key when they describe a dataset rather than this result.
+    ``filter_by``, ``sort_by``, ``topiary_flank_encoding``, and the ``model:``
+    prefix). Nest such names under a custom key when they describe a dataset
+    rather than this result.
     Keys must be nonempty strings without surrounding whitespace, line breaks
     or ``=``. Validation occurs before the output file is opened.
     Extra strings that could be interpreted as comment syntax or lose
     whitespace use the existing ``json:`` encoding with a JSON string value.
+
+    ``topiary_flank_encoding`` records the file's representation of empty versus
+    missing flank sequences. Writers derive it from the columns being written;
+    readers decode it into the cells rather than carrying it as result metadata.
     """
 
     topiary_version: str = None
@@ -52,6 +69,7 @@ class Metadata:
     filter_by: str = None
     sort_by: str = None
     extra: dict = dataclass_field(default_factory=OrderedDict)
+    topiary_flank_encoding: str = None
 
 
 # -- Comment block parsing / formatting ------------------------------------
@@ -119,6 +137,8 @@ def _format_comment_block(meta):
         lines.append(f"#filter_by={meta.filter_by}")
     if meta.sort_by:
         lines.append(f"#sort_by={meta.sort_by}")
+    if meta.topiary_flank_encoding:
+        lines.append(f"#topiary_flank_encoding={meta.topiary_flank_encoding}")
     for key, value in meta.extra.items():
         if (not isinstance(key, str) or not key or key != key.strip()
                 or any(c in key for c in "=\r\n")):
@@ -288,6 +308,17 @@ def _fill_missing_model_versions(models, *fallbacks):
 # -- Read ------------------------------------------------------------------
 
 
+def _decode_flank(value):
+    """Decode one cell in the explicitly marked flank wire format."""
+    if value == _MISSING_FLANK:
+        return None
+    if value == "\\" + _MISSING_FLANK or value.startswith("\\\\"):
+        return value[1:]
+    if value.startswith("\\"):
+        raise ValueError(f"Invalid escaped flank cell: {value!r}")
+    return value
+
+
 def _read_delimited(path, sep, tag=None):
     from .result import TopiaryResult
     from .wide import _parse_wide_column
@@ -297,6 +328,8 @@ def _read_delimited(path, sep, tag=None):
         all_lines = f.readlines()
 
     meta, n_comment = _parse_comment_block(all_lines)
+    if meta.topiary_flank_encoding not in (None, _FLANK_ENCODING):
+        raise ValueError(f"Unsupported flank encoding: {meta.topiary_flank_encoding!r}")
 
     data_text = "".join(all_lines[n_comment:])
     if not data_text.strip():
@@ -312,7 +345,11 @@ def _read_delimited(path, sep, tag=None):
             if (column == "predictor_version" or column.endswith("_predictor_version")
                     or (parsed is not None and parsed[2] == "wt_version")):
                 version_types[column] = str
-        df = pd.read_csv(StringIO(data_text), sep=sep, dtype=version_types)
+        # A converter bypasses pandas' NA inference for just the flank columns:
+        # "" is known terminal context, and "NA" can be a real sequence.
+        converters = {column: _decode_flank for column in _FLANK_COLUMNS if column in columns}
+        df = pd.read_csv(StringIO(data_text), sep=sep, dtype=version_types,
+                         converters=converters if meta.topiary_flank_encoding else None)
 
     # Record source (tag overrides filename).
     source_label = tag if tag is not None else path.name
@@ -328,6 +365,10 @@ def _read_delimited(path, sep, tag=None):
 
 def read_tsv(path, tag=None):
     """Read a topiary TSV file with comment-block metadata.
+
+    Decode explicitly marked flank columns so empty strings remain known
+    termini and missing cells remain unknown. Legacy unmarked blank cells
+    retain their missing-value interpretation.
 
     Parameters
     ----------
@@ -346,6 +387,10 @@ def read_tsv(path, tag=None):
 def read_csv(path, tag=None):
     """Read a topiary CSV file with comment-block metadata.
 
+    Decode explicitly marked flank columns so empty strings remain known
+    termini and missing cells remain unknown. Legacy unmarked blank cells
+    retain their missing-value interpretation.
+
     Parameters
     ----------
     path : str or Path
@@ -360,6 +405,15 @@ def read_csv(path, tag=None):
 
 
 # -- Write -----------------------------------------------------------------
+
+
+def _encode_flank(value):
+    """Keep sequence text readable while distinguishing missing flank cells."""
+    if isinstance(value, str):
+        return "\\" + value if value == _MISSING_FLANK or value.startswith("\\") else value
+    if pd.api.types.is_scalar(value) and pd.isna(value):
+        return _MISSING_FLANK
+    raise TypeError(f"Flank cells must be strings or missing, got {value!r}")
 
 
 def _write_delimited(df, path, sep, metadata, index):
@@ -403,7 +457,17 @@ def _write_delimited(df, path, sep, metadata, index):
         metadata.extra = OrderedDict(metadata.extra)
         metadata.extra["topiary_model_keys"] = normalize_python_types(model_keys)
 
-    comment_block = _format_comment_block(metadata)
+    flank_columns = [column for column in _FLANK_COLUMNS if column in df.columns]
+    if flank_columns:
+        df = df.copy()
+        for column in flank_columns:
+            # Encode every cell, including missing categorical values, rather
+            # than relying on an extension array's category-level mapping.
+            df[column] = df[column].astype(object).map(_encode_flank)
+    # The flag describes this particular file, not the source result. Derive
+    # it anew on every write, including after columns/rows have been removed.
+    file_metadata = replace(metadata, topiary_flank_encoding=_FLANK_ENCODING if flank_columns else None)
+    comment_block = _format_comment_block(file_metadata)
 
     with open(path, "w") as f:
         if comment_block:
@@ -414,12 +478,17 @@ def _write_delimited(df, path, sep, metadata, index):
 def to_tsv(df, path, metadata=None, index=False):
     """Write a topiary DataFrame to TSV with comment-block metadata.
 
+    Canonical flank columns preserve empty strings versus missing context
+    through :func:`read_tsv`. Other columns retain normal pandas formatting.
+
     Raises
     ------
     ValueError
         A top-level ``Metadata.extra`` key is reserved or cannot be represented
         in the comment syntax. The output file is not opened in this case.
         See :class:`Metadata` for key restrictions.
+    TypeError
+        A flank cell is neither a string nor missing. The output is not opened.
     """
     _write_delimited(df, path, sep="\t", metadata=metadata, index=index)
 
@@ -427,11 +496,16 @@ def to_tsv(df, path, metadata=None, index=False):
 def to_csv(df, path, metadata=None, index=False):
     """Write a topiary DataFrame to CSV with comment-block metadata.
 
+    Canonical flank columns preserve empty strings versus missing context
+    through :func:`read_csv`. Other columns retain normal pandas formatting.
+
     Raises
     ------
     ValueError
         A top-level ``Metadata.extra`` key is reserved or cannot be represented
         in the comment syntax. The output file is not opened in this case.
         See :class:`Metadata` for key restrictions.
+    TypeError
+        A flank cell is neither a string nor missing. The output is not opened.
     """
     _write_delimited(df, path, sep=",", metadata=metadata, index=index)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 5.70.2
+
+- Preserve known-empty terminal flanks separately from missing context through
+  CSV/TSV save and reload, in both long and wide tables. Context-dependent
+  re-scoring retains its original inputs and predictions after reload (#388).
+
 ## 5.70.1
 
 - Reject conflicting numeric column values within a DSL observation instead
