@@ -71,6 +71,7 @@ def _repeated_measurements(values, **columns):
     ("affinity.value", "value"), ("affinity.score", "score"),
     ("affinity.rank", "percentile_rank"), ("wt.affinity.value", "wt_value"),
     ("affinity.best_value", "value"), ("peptide_view(affinity.value)", "value"),
+    ("percentile_rank", "percentile_rank"), ("column(review_score)", "review_score"),
 ])
 @pytest.mark.parametrize("version", ["1", None, "nan"])
 def test_conflicting_measurements_reject_every_consumer_in_both_orders(door, run, expression, column, version):
@@ -84,14 +85,20 @@ def test_conflicting_measurements_reject_every_consumer_in_both_orders(door, run
 
 
 @pytest.mark.parametrize("door,run", DSL_MEASUREMENT_TWINS)
+@pytest.mark.parametrize("expression,column", [
+    ("affinity.value", "value"), ("percentile_rank", "percentile_rank"),
+    ("column(review_score)", "review_score"),
+])
 @pytest.mark.parametrize("values,expected", [([50., 50.], 50.), ([None, 50.], 50.),
-                                              ([None, None], None), (["50", 50.], 50.)])
-def test_equal_and_missing_measurements_compose_without_order_dependence(door, run, values, expected):
+                                              ([None, None], None), (["50", 50.], 50.),
+                                              ([50. + 1e-10, 50.], 50.)])
+def test_equal_and_missing_measurements_compose_without_order_dependence(door, run, expression, column, values, expected):
     frame = pd.concat([_repeated_measurements(values),
                        _repeated_measurements([55.], peptide="GILGFVFTL")], ignore_index=True)
+    frame[column] = frame.value
     original = frame.copy(deep=True)
     for ordered in (frame, frame.iloc[::-1]):
-        answer = run(ordered, "affinity.value")
+        answer = run(ordered, expression)
         if door == "score":
             target = answer.loc[ordered.peptide.eq("SIINFEKL")]
             assert target.isna().all() if expected is None else target.eq(expected).all()
@@ -101,7 +108,12 @@ def test_equal_and_missing_measurements_compose_without_order_dependence(door, r
         else:
             assert sorted(answer.peptide) == sorted(frame.peptide)
             if expected is not None:
-                assert answer.peptide.tolist() == ["SIINFEKL", "SIINFEKL", "GILGFVFTL"]
+                order = ["SIINFEKL", "SIINFEKL", "GILGFVFTL"]
+                # Result sorting infers direction: affinity values ascend,
+                # arbitrary numeric columns descend unless transformed.
+                if door == "result_sort" and column != "value":
+                    order = order[::-1]
+                assert answer.peptide.tolist() == order
     pd.testing.assert_frame_equal(frame, original)
 
 
@@ -169,30 +181,72 @@ PVACSEQ_PRESENTATION = (
 )
 
 
-def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, tmp_path):
-    from topiary import combine_sources, melt_pvacseq_algorithms, rank_candidates, read_tsv
+@pytest.mark.parametrize("wide", [False, True])
+def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, tmp_path, wide):
+    from topiary import (
+        combine_sources, melt_pvacseq_algorithms, protein_evidence_view,
+        rank_candidates, read_tsv, rescore_candidates,
+    )
+    from .test_candidate_tables import Model
+
+    direct = TopiaryPredictor(models=RandomBindingPredictor(
+        alleles=["HLA-A*02:01"], default_peptide_lengths=[9],
+    )).predict_from_named_sequences({"ORF1": "MAAASIINFEKLGGGSYFPEITHII"})
+    orfs = pd.DataFrame(dict(
+        event_id=["event-1", "event-1"],
+        protein_sequence=["MAAASIINFEKLGGGSYFPEITHII", "MQQQSIINFEKL"],
+        transcript_expression=[11., 22.], expression_unit=["TPM", "TPM"],
+    ))
 
     def forbidden(*args, **kwargs):
         raise AssertionError("Table-only ranking must not execute a predictor")
 
     monkeypatch.setattr(TopiaryPredictor, "__init__", forbidden)
-    sources = {"lens": read_lens(LENS), "pvacseq": melt_pvacseq_algorithms(read_pvacseq(PVACSEQ))}
+    sources = {"lens": read_lens(LENS), "pvacseq": melt_pvacseq_algorithms(read_pvacseq(PVACSEQ)),
+               "direct": direct, "exacto_normalized": orfs}
     combined = combine_sources(sources, sample_name="fixture-patient")
     expression = "affinity['netmhcpan'].value"
     pooled = rank_candidates(combined, expression, ascending=True, duplicates="best")
     strata = rank_candidates(combined, expression, ascending=True, duplicates="best",
                              strata=["source_label", "candidate_mhc_class"])
-    assert set(strata.loc[strata.candidate_score.notna(), "source_label"]) == set(sources)
+    assert set(strata.loc[strata.candidate_score.notna(), "source_label"]) == {"lens", "pvacseq"}
+    assert strata.loc[strata.source_label.eq("direct"), "ranking_status"].eq("missing_score").all()
     assert set(pooled.candidate_id) == set(combined.df.candidate_id.dropna())
+    assert len(protein_evidence_view(combined)) == 2
     selected = combined.filter_by("n_rna_alt > 5")
     assert 0 < len(selected) < len(combined)
     path = tmp_path / "combined.tsv"
-    combined.to_tsv(path)
+    (combined.to_wide() if wide else combined).to_tsv(path)
     restored = read_tsv(path)
     reranked = rank_candidates(restored, expression, ascending=True, duplicates="best")
     assert reranked.candidate_id.tolist() == pooled.candidate_id.tolist()
     np.testing.assert_allclose(reranked.candidate_score, pooled.candidate_score, equal_nan=True)
     assert restored.extra["combined_sources"] == combined.extra["combined_sources"]
+    restored_orfs = restored.long_df.loc[restored.long_df.source_label.eq("exacto_normalized")]
+    pd.testing.assert_frame_equal(restored_orfs[orfs.columns].reset_index(drop=True), orfs,
+                                  check_dtype=False)
+    assert restored_orfs.candidate_id.isna().all()
+    assert restored_orfs.prediction_method_name.isna().all()
+
+    # A raw multi-model measurement is ambiguous even with a source-selection
+    # policy. Select a model through the DSL, as above, before ranking sources.
+    for result in (combined, restored):
+        for policy in ("error", "best", "worst"):
+            with pytest.raises(ValueError, match="Conflicting prediction measurements"):
+                rank_candidates(result, "percentile_rank", ascending=True, duplicates=policy)
+
+    model = Model()
+    enriched = rescore_candidates(restored, model, prefix="fresh", select="source_label == 'direct'",
+                                  use_flanks=False)
+    assert len(model.calls) == len(direct)
+    original_again = rank_candidates(enriched, expression, ascending=True, duplicates="best")
+    assert original_again.candidate_id.tolist() == pooled.candidate_id.tolist()
+    np.testing.assert_allclose(original_again.candidate_score, pooled.candidate_score, equal_nan=True)
+    feature = "fresh__testmodel__pMHC_affinity__value"
+    fresh = rank_candidates(enriched, feature, ascending=True, duplicates="best")
+    assert set(fresh.loc[fresh.candidate_score.notna(), "source_label"]) == {"direct"}
+    assert set(fresh.candidate_id) == set(pooled.candidate_id)
+    assert enriched.df.loc[~enriched.df.source_label.eq("direct"), feature].isna().all()
 
 
 def test_table_rescoring_changes_only_the_explicit_dsl_policy(tmp_path):

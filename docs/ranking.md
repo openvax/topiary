@@ -407,6 +407,20 @@ score = (
 )
 ```
 
+Numeric values must agree within each peptide-allele observation. Equal repeats
+and missing-plus-present values are accepted; conflicting values raise instead
+of selecting whichever row appears first. The shared
+`prediction_field_values` reducer allows floating-point differences within
+`1e-9 * max(1, abs(minimum), abs(maximum))` and returns the minimum equivalent
+value. An entirely missing group remains missing.
+
+For multi-model predictions, use a qualified field such as
+`affinity['netmhcpan'].rank` instead of the raw `percentile_rank` column.
+For independent measurements, retain their identities in `group_keys`.
+Candidate-ranking `duplicates='best'` or `'worst'` selects among source
+observations after DSL evaluation; it does not resolve conflicting columns
+within an observation.
+
 If the column doesn't exist, you get a clear error with close-match suggestions:
 
 ```
