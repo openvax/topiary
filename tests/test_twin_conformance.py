@@ -163,6 +163,44 @@ def test_candidate_ranking_and_dsl_scoring_agree(expression, missing):
     )
 
 
+@pytest.mark.parametrize("axis,labels", [
+    ("prediction_method_name", ["first", "second"]),
+    ("predictor_version", ["1", "2"]),
+    ("kind", ["pMHC_affinity", "pMHC_presentation"]),
+])
+@pytest.mark.parametrize("values", [[9., 1.], [None, 1.], [1., 1.], [None, None]])
+def test_candidate_ranking_and_dsl_reject_ambiguous_columns(axis, labels, values):
+    from topiary import Column, parse
+    from .test_candidate_tables import source
+
+    original = source(peptides=("SIINFEKL", "SIINFEKL"), values=(50., 50.),
+                      percentile_rank=values, original_rank=1, n_rna_alt=5,
+                      **{axis: labels}).df
+    rank, score = CANDIDATE_SCORE_TWINS
+    for ordered in (original, original.iloc[::-1]):
+        combined = combine_sources({"original": ordered}, sample_name="p")
+        assert combined.df.source_observation_id.nunique() == 1
+        for expression in (parse("percentile_rank"), Column("percentile_rank")):
+            if ordered.percentile_rank.nunique() > 1:
+                with pytest.raises(ValueError, match="Conflicting prediction measurements"):
+                    score(combined.df, expression)
+                for policy in ("error", "best", "worst"):
+                    with pytest.raises(ValueError, match="Conflicting prediction measurements"):
+                        rank(combined, expression, duplicates=policy)
+            else:
+                expected = ordered.percentile_rank.min()
+                scored = score(combined.df, expression)
+                ranked = rank(combined, expression)
+                if pd.isna(expected):
+                    assert scored.isna().all()
+                    assert ranked.candidate_score.isna().all()
+                    assert ranked.ranking_status.eq("missing_score").all()
+                else:
+                    assert scored.eq(expected).all()
+                    assert ranked.candidate_score.eq(expected).all()
+                    assert ranked.candidate_rank.tolist() == [1]
+
+
 # Real aggregated/all-epitopes doors, paired by original run and MHC view.
 PVACSEQ_CORPUS_TWINS = tuple(
     (aggregate, next(report for report in PVACSEQ_REPORTS

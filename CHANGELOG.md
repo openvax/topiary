@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.70.1
+
+- Reject conflicting numeric column values within a DSL observation instead
+  of silently selecting the first row. Filtering, scoring, sorting and combined
+  candidate ranking share the existing measurement-consistency check; equal
+  repeats and missing values remain supported (#387).
+
 ## 5.69.0
 
 - Add opt-in cache-miss reporting to retain successful model/input pairs while

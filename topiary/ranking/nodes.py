@@ -364,22 +364,26 @@ def _normalize_group_keys(df, group_keys):
     return keys
 
 
-def prediction_field_values(df, column, *, group_keys):
-    """Read one consistent numeric prediction measurement per group.
+def prediction_field_values(df, column, *, group_keys, errors="coerce"):
+    """Read one consistent numeric measurement or annotation per group.
 
     Parameters
     ----------
     df : pandas.DataFrame
         Prediction rows already selected for the desired kind, model and
-        version. The input is not modified. An empty frame with the requested
-        columns returns an empty Series.
+        version, or rows carrying a numeric annotation. The input is not
+        modified. An empty frame with the requested columns returns an empty
+        Series.
     column : str
         Measurement column, including any comparator prefix, such as
-        ``value``, ``percentile_rank`` or ``wt_score``. Values are coerced to
-        numeric as in DSL field evaluation; unparseable values are missing.
+        ``value``, ``percentile_rank`` or ``wt_score``, or a numeric annotation.
     group_keys : sequence of str
         Columns identifying an observation and its peptide/allele. Include
         independent source or run identities when they should remain separate.
+    errors : {'coerce', 'raise'}
+        Default 'coerce' treats unparseable values as missing, as prediction
+        fields do. 'raise' requires numeric values and raises TypeError for
+        invalid input, as arbitrary DSL column expressions do.
 
     Returns
     -------
@@ -398,11 +402,26 @@ def prediction_field_values(df, column, *, group_keys):
         A group contains distinct nonmissing values, or its keys are invalid.
         Conflicting measurements require explicit selection or independent
         observation identities, never an input-order choice or an average.
+    TypeError
+        A value is not numeric and ``errors='raise'``.
     """
     keys = _normalize_group_keys(df, group_keys)
     if column not in df.columns:
         raise _missing_column_error(column, df.columns)
-    numeric = pd.to_numeric(df[column], errors="coerce")
+    if errors not in {"coerce", "raise"}:
+        raise ValueError("errors must be 'coerce' or 'raise'")
+    try:
+        if errors == "raise":
+            # Keep Column's float conversion, including booleans and textual
+            # NaN, while accepting pandas' nullable dtypes as missing values.
+            numeric = df[column].astype(object).where(df[column].notna(), np.nan).astype(float)
+        else:
+            numeric = pd.to_numeric(df[column], errors="coerce")
+    except (ValueError, TypeError) as exc:
+        raise TypeError(
+            f"Column {column!r} contains non-numeric values ({exc}). "
+            "Only numeric columns can be used in DSL expressions."
+        ) from exc
     groups = numeric.groupby([df[key] for key in keys], sort=False, dropna=False)
     bounds = groups.agg(["min", "max"])
     low, high = bounds["min"], bounds["max"]
@@ -1671,7 +1690,11 @@ def _fmt_num(v):
 class Column(DSLNode):
     """Reference an arbitrary column in the predictions DataFrame.
 
-    Reads one value per peptide-allele group (first row per group).
+    Reads one consistent numeric value per peptide-allele group. Equal repeats
+    and missing values follow :func:`prediction_field_values`; contradictory
+    values raise instead of selecting a row by input order. Select a model
+    with a prediction field such as ``affinity['netmhcpan'].rank``, or retain
+    independent observation identities in ``group_keys``.
     """
 
     __slots__ = ("col_name",)
@@ -1682,20 +1705,10 @@ class Column(DSLNode):
     def eval(self, ctx: EvalContext) -> pd.Series:
         if ctx.df.empty:
             return ctx.empty_series()
-        if self.col_name not in ctx.df.columns:
-            raise _missing_column_error(self.col_name, ctx.df.columns)
-        vals = ctx.df.groupby(
-            ctx.group_keys, sort=False, dropna=False
-        )[self.col_name].first()
-        vals = vals.reindex(ctx.group_index)
-        try:
-            return vals.astype(float)
-        except (ValueError, TypeError) as exc:
-            raise TypeError(
-                f"Column {self.col_name!r} contains non-numeric values "
-                f"({exc}). Only numeric columns can be used in DSL "
-                f"expressions."
-            ) from exc
+        vals = prediction_field_values(
+            ctx.df, self.col_name, group_keys=ctx.group_keys, errors="raise",
+        )
+        return vals.reindex(ctx.group_index).astype(float)
 
     def __repr__(self):
         return f"column({self.col_name})"

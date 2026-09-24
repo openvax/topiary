@@ -217,6 +217,37 @@ class TestColumn:
         with pytest.raises(TypeError, match="non-numeric value"):
             Column("gene_name").evaluate(df)
 
+    @pytest.mark.parametrize("values,dtype,expected", [
+        ([True, True], bool, 1.), ([False, False], bool, 0.),
+        ([2, 2], int, 2.),
+        ([pd.NA, True], "boolean", 1.), ([pd.NA, 2], "Int64", 2.),
+        (["nan", "NaN"], object, float("nan")),
+        ([pd.NA, "3"], "string", 3.),
+    ])
+    def test_numeric_conversion_preserves_boolean_and_missing_columns(self, values, dtype, expected):
+        from topiary import evaluate_scores
+
+        frame = pd.DataFrame({"observation": ["one", "one"],
+                              "annotation": pd.Series(values, dtype=dtype)})
+        for ordered in (frame, frame.iloc[::-1]):
+            scores = evaluate_scores(ordered, Column("annotation"), group_keys=["observation"])
+            assert scores.isna().all() if math.isnan(expected) else scores.eq(expected).all()
+
+    def test_conflicting_boolean_annotations_raise(self):
+        from topiary import evaluate_scores
+
+        frame = pd.DataFrame({"observation": ["one", "one"], "annotation": [True, False]})
+        with pytest.raises(ValueError, match="Conflicting prediction measurements"):
+            evaluate_scores(frame, Column("annotation"), group_keys=["observation"])
+
+    def test_datetime_column_is_not_a_numeric_annotation(self):
+        from topiary import evaluate_scores
+
+        frame = pd.DataFrame({"observation": ["one", "one"],
+                              "annotation": pd.to_datetime(["2026-01-01"] * 2)})
+        with pytest.raises(TypeError, match="non-numeric values"):
+            evaluate_scores(frame, Column("annotation"), group_keys=["observation"])
+
 
 class TestColumnFilter:
     def test_parse_column_filter(self):

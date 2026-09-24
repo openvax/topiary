@@ -290,20 +290,23 @@ def test_equivalent_missing_identity_spellings_pool_as_one_group(
     original = df.copy(deep=True)
 
     context = EvalContext(df, group_keys=GROUP_KEYS)
-    scores = evaluate_scores(df, Column("n_rna_alt"), context=context)
+    # The normalized identity is shared, but independent sample counts cannot
+    # be chosen by row order. Pool explicitly before reading one numeric value.
+    with pytest.raises(ValueError, match="Conflicting prediction measurements"):
+        evaluate_scores(df, Column("n_rna_alt"), context=context)
     custom_scores = evaluate_scores(
         df, CustomGroupingNode(), context=context,
     )
     pooled = aggregate_evidence_across_samples(df, group_keys=GROUP_KEYS)
 
     assert len(context.group_index) == 1
-    assert scores.tolist() == [20, 20]
     assert custom_scores.tolist() == [20, 20]
     pd.testing.assert_frame_equal(df, original)
     assert len(pooled) == 1
     assert pd.isna(pooled.loc[0, "allele"])
     assert pooled.loc[0, "n_samples"] == 2
     assert pooled.loc[0, "n_rna_alt"] == 41
+    assert evaluate_scores(pooled, Column("n_rna_alt"), group_keys=GROUP_KEYS).tolist() == [41]
 
 
 # "NA" is not a spelling of missing (only "<na>" is), so this frame has
