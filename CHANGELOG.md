@@ -5,6 +5,8 @@
 - Preserve known-empty terminal flanks separately from missing context through
   CSV/TSV save and reload, in both long and wide tables. Context-dependent
   re-scoring retains its original inputs and predictions after reload (#388).
+- Keep the rearrangement provenance regression compatible with Isovar's v1 and
+  v2 fusion schemas, including its stricter input-field validation (#392).
 
 ## 5.70.1
 
