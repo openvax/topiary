@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.71.1
+
+- Reject malformed Isovar translation entries, missing nucleotide identities
+  and invalid coordinate/evidence structures instead of importing anonymous
+  comparison observations (#394).
+- Preserve literal text and missing values through CSV/TSV save/reload,
+  including sample IDs like `001` and sequences like `NA` (#395).
+
 ## 5.71.0
 
 - Import Isovar protein-hypothesis JSON exports for comparison, preserving

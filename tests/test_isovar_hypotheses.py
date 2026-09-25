@@ -156,3 +156,58 @@ def test_unknown_read_identity_does_not_admit_invalid_counts(tmp_path, count):
     for _, reader in ISOVAR_HYPOTHESIS_INPUT_TWINS:
         with pytest.raises(ValueError, match="nonnegative integer"):
             reader(export, path)
+
+
+@pytest.mark.parametrize("bad", [None, {}, [], False, 0, ""])
+def test_nonempty_translation_list_requires_real_translations(tmp_path, bad):
+    export = hypothesis_export()
+    export["events"][0]["protein_hypotheses"][0]["translations"] = [bad]
+    path = tmp_path / "invalid.json"
+    path.write_text(json.dumps(export))
+    for _, reader in ISOVAR_HYPOTHESIS_INPUT_TWINS:
+        with pytest.raises(ValueError, match="translation"):
+            reader(export, path)
+
+
+@pytest.mark.parametrize("fault", [
+    "nucleotide_sequence_id", "nucleotide_sequence", "translated_interval", "variant_cdna_interval",
+    "protein_hypotheses", "evidence_set", "support", "starts_at_annotated_start_codon",
+])
+def test_reader_rejects_malformed_comparison_identity_and_evidence(tmp_path, fault):
+    export = hypothesis_export()
+    event = export["events"][0]
+    protein = event["protein_hypotheses"][0]
+    translation = protein["translations"][0]
+    if fault in {"nucleotide_sequence_id", "nucleotide_sequence"}:
+        del translation[fault]
+    elif fault in {"translated_interval", "variant_cdna_interval"}:
+        translation[fault] = [0, len(translation["nucleotide_sequence"]) + 1]
+    elif fault == "protein_hypotheses":
+        event[fault] = {}
+    elif fault == "evidence_set":
+        export["evidence_sets"][protein["rna_support"]["evidence_set_id"]] = []
+    elif fault == "support":
+        protein["rna_support"] = False
+    else:
+        translation[fault] = "false"
+    path = tmp_path / "invalid.json"
+    path.write_text(json.dumps(export))
+    for _, reader in ISOVAR_HYPOTHESIS_INPUT_TWINS:
+        with pytest.raises(ValueError):
+            reader(export, path)
+
+
+@pytest.mark.parametrize("field", [
+    "protein_hypotheses_complete", "passes_all_filters", "representative", "ends_with_stop_codon",
+])
+def test_reader_rejects_text_instead_of_boolean_outcomes(tmp_path, field):
+    export = hypothesis_export()
+    event = export["events"][0]
+    target = (event if field == "protein_hypotheses_complete" else
+              event["filters"] if field == "passes_all_filters" else event["protein_hypotheses"][0])
+    target[field] = "false"
+    path = tmp_path / "invalid.json"
+    path.write_text(json.dumps(export))
+    for _, reader in ISOVAR_HYPOTHESIS_INPUT_TWINS:
+        with pytest.raises(ValueError, match="boolean or null"):
+            reader(export, path)

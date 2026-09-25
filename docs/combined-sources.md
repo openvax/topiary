@@ -145,6 +145,8 @@ reference contexts, observed edits, filters and RNA evidence sets. After
 combination it is under
 `combined.extra['combined_sources']['isovar']['extra']['isovar_hypotheses']`.
 Topiary CSV/TSV saving retains that metadata in both long and wide form.
+Literal sample IDs and sequences also survive reload: for example, `001` stays
+a string and the amino-acid window `NA` stays a sequence, not a missing value.
 
 Read and fragment counts have separate `protein_*` and `translation_*` columns.
 They are not TPM or independent molecule counts. To combine support explicitly:
@@ -277,7 +279,10 @@ Files with canonical flank columns include
 written as `<NA>` and known-empty strings remain empty cells. Ordinary sequence
 text, including `NA`, remains literal text. A literal `<NA>` or a string starting
 with a backslash gains one leading backslash, which the reader removes.
-Other columns keep their existing formatting and type inference.
+Other columns containing only strings and missing values use the same cell
+encoding. The `#topiary_text_encoding` metadata records `escaped-v1` and the
+affected column names, preserving literal identifiers and sequence text.
+Numeric measurements retain their normal numeric representation and inference.
 
 Legacy files without this flag retain the earlier missing-value interpretation.
 Their blank flank cells cannot distinguish termini from unknown context. Recover

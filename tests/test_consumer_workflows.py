@@ -440,6 +440,46 @@ def test_isovar_comparison_import_does_not_change_default_fragment_selection(mon
         assert creator.min_protein_sequence_support_fraction == 0.85
 
 
+@pytest.mark.parametrize("form", ["native", "long", "wide"])
+@pytest.mark.parametrize("sample", ["001", "NA"])
+def test_isovar_comparison_roundtrip_preserves_literal_identity_and_sequence(tmp_path, form, sample):
+    from topiary import combine_sources, protein_evidence_view, read_isovar_hypotheses
+    from .test_isovar_hypotheses import hypothesis_export
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    export = hypothesis_export()
+    export["sample_id"] = sample
+    export["evidence_scope"][0] = sample
+    for evidence in export["evidence_sets"].values():
+        evidence["evidence_scope"][0] = sample
+    partial = export["events"][0]["protein_hypotheses"][-1]
+    partial["amino_acids"] = "NA"
+    partial["mutation_interval"] = [0, 1]
+    partial["translations"][0].update(
+        nucleotide_sequence="AATGCT", translated_interval=[0, 6], variant_cdna_interval=[0, 1])
+    imported = read_isovar_hypotheses(export)
+    baseline = combine_sources({"hypotheses": imported})
+    result = imported if form == "native" else baseline.to_wide() if form == "wide" else baseline
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("literal-hypotheses." + suffix)
+        method(result, path)
+        restored = reader(path)
+        if form == "native":
+            restored = combine_sources({"hypotheses": restored})
+        frame = restored.long_df
+        assert frame.sample_name.tolist() == [sample] * 4
+        assert frame.candidate_sample.tolist() == [sample] * 4
+        assert frame.protein_hypothesis_sequence.tolist() == ["MAQG", "MAQG", "MAQD", "NA"]
+        assert frame.candidate_id.isna().all()
+        assert restored.filter_by('protein_hypothesis_sequence == "NA"').df.translation_id.tolist() == [
+            partial["translations"][0]["translation_id"]]
+        view = protein_evidence_view(restored)
+        assert view.candidate_sample.tolist() == [sample, sample]
+        assert view.protein_sequence.tolist() == ["MAQG", "MAQD"]
+        saved = restored.extra["combined_sources"]["hypotheses"]["extra"]["isovar_hypotheses"]
+        assert saved == export
+
+
 def test_orf_abundance_can_enrich_matching_candidates_without_blending_alternative_orfs():
     from topiary import combine_sources, join_annotations, protein_evidence_view, rank_candidates
     from .test_candidate_tables import source

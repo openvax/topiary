@@ -280,6 +280,70 @@ def test_flank_io_twins_keep_legacy_blank_cells_unknown(tmp_path):
         assert restored.df.c_flank.iloc[0] == "GGG"
 
 
+@pytest.mark.parametrize("call_style", ["dataframe", "result-function", "result-method"])
+@pytest.mark.parametrize("dtype", [object, "string", "category"])
+def test_literal_text_io_twins_preserve_ids_missingness_and_numeric_values(tmp_path, call_style, dtype):
+    values = ["001", "NA", "NULL", "", None, pd.NA, "<NA>", r"\<NA>", r"\tail", "1e10"]
+    frame = pd.DataFrame({
+        "sample_name": pd.Series(values, dtype=dtype),
+        "value": [1., 2., np.nan, 4., 5., 6., 7., 8., 9., 10.],
+        "row_id": range(len(values)),
+    })
+    original = frame.copy(deep=True)
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("literal-text." + suffix)
+        result = TopiaryResult(frame)
+        if call_style == "dataframe":
+            writer(frame, path)
+        elif call_style == "result-function":
+            writer(result, path)
+        else:
+            method(result, path)
+        restored = reader(path)
+        for expected, actual in zip(values, restored.df.sample_name):
+            assert pd.isna(actual) if pd.isna(expected) else actual == expected
+        pd.testing.assert_series_equal(restored.df.value, frame.value)
+        pd.testing.assert_series_equal(restored.df.row_id, frame.row_id)
+        assert "topiary_text_encoding" not in restored.extra
+        # The declaration follows the table being written, not stale metadata.
+        selected = restored.df.iloc[[7, 0, 4]].copy()
+        second = tmp_path / ("rewritten." + suffix)
+        writer(selected, second, metadata=restored.metadata)
+        again = reader(second).df
+        assert again.sample_name.iloc[:2].tolist() == [r"\<NA>", "001"]
+        assert pd.isna(again.sample_name.iloc[2])
+        writer(selected.drop(columns="sample_name"), second, metadata=restored.metadata)
+        assert "sample_name" not in reader(second).df
+    pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("encoding", [
+    "unknown", {"version": "future", "columns": ["sample_name"]},
+    {"version": "escaped-v1", "columns": "sample_name"},
+    {"version": "escaped-v1", "columns": [1]},
+    {"version": "escaped-v1", "columns": ["sample_name", "sample_name"]},
+    {"version": "escaped-v1", "columns": ["absent"]},
+])
+def test_literal_text_io_twins_refuse_malformed_declarations(tmp_path, encoding):
+    import json
+
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("invalid-text." + suffix)
+        path.write_text("#topiary_text_encoding=json:" + json.dumps(encoding) + "\nsample_name\n001\n")
+        with pytest.raises(ValueError, match="[Tt]ext encoding"):
+            reader(path)
+
+
+def test_literal_text_io_twins_keep_unmarked_files_under_legacy_inference(tmp_path):
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        sep = "\t" if suffix == "tsv" else ","
+        path = tmp_path / ("legacy-text." + suffix)
+        path.write_text(sep.join(["sample_name", "sequence"]) + "\n" + sep.join(["001", "NA"]) + "\n")
+        restored = reader(path).df
+        assert restored.sample_name.iloc[0] == 1
+        assert pd.isna(restored.sequence.iloc[0])
+
+
 @pytest.mark.parametrize("values", [[], [""], [None], ["", None]])
 @pytest.mark.parametrize("column", ["n_flank", "c_flank"])
 def test_flank_io_twins_handle_empty_tables_and_single_columns(tmp_path, values, column):
@@ -334,7 +398,8 @@ def _write_extra_case(writer, method, path, extra, call_style):
 
 @pytest.mark.parametrize("call_style", ["dataframe", "result-function", "result-method", "override"])
 @pytest.mark.parametrize("key", [
-    "topiary_version", "form", "source", "filter_by", "sort_by", "topiary_flank_encoding", "model:", "model:netmhcpan",
+    "topiary_version", "form", "source", "filter_by", "sort_by", "topiary_flank_encoding", "topiary_text_encoding",
+    "model:", "model:netmhcpan",
     " source", "form\t", "", " ", "custom=source", "custom\n#source", "custom\r#form", 1, None,
 ])
 def test_metadata_extra_keys_fail_before_touching_output(tmp_path, key, call_style):
