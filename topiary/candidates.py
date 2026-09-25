@@ -76,6 +76,9 @@ def combine_sources(sources, *, sample_name=None):
         allele or prediction columns. Every original column is retained.
         ``protein_sequence`` means a full translated ORF/protein; contextual
         fragments in ``sequence``/``pep_context`` are not promoted to ORFs.
+        ``protein_hypothesis_sequence`` also admits comparison-only translated
+        windows. These have no candidate ID, and partial windows do not receive
+        a full-protein identity or enter ``protein_evidence_view``.
     sample_name : str, optional
         Sample identity for rows whose ``sample_name`` is unstated. Existing
         sample names take precedence. Unlabelled nonempty input requires this
@@ -126,8 +129,10 @@ def combine_sources(sources, *, sample_name=None):
             if column not in frame:
                 frame[column] = None
         proteins = frame.get("protein_sequence", pd.Series(None, index=frame.index, dtype=object))
-        if not (frame.peptide.map(is_stated) | proteins.map(is_stated)).all():
-            raise ValueError(f"Source {label!r} needs a peptide or explicit protein_sequence on every row")
+        hypotheses = frame.get("protein_hypothesis_sequence", pd.Series(None, index=frame.index, dtype=object))
+        if not (frame.peptide.map(is_stated) | proteins.map(is_stated) | hypotheses.map(is_stated)).all():
+            raise ValueError(f"Source {label!r} needs a peptide or explicit protein_sequence "
+                             "or protein_hypothesis_sequence on every row")
         samples = frame.get("sample_name", pd.Series(None, index=frame.index, dtype=object))
         samples = samples.where(samples.map(is_stated), sample_name)
         if not samples.map(is_stated).all():

@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.71.0
+
+- Import Isovar protein-hypothesis JSON exports for comparison, preserving
+  alternatives, synonymous translations, completeness and scoped RNA evidence.
+  Comparison-only protein windows can join source tables without changing
+  default fragment selection, reported candidates, ranking or re-scoring (#390).
+
 ## 5.70.2
 
 - Preserve known-empty terminal flanks separately from missing context through

@@ -335,6 +335,111 @@ def test_table_rescoring_changes_only_the_explicit_dsl_policy(tmp_path):
     assert set(filtered.df.peptide) == {"GILGFVFTL"}
 
 
+@pytest.mark.parametrize("wide", [False, True])
+def test_isovar_comparison_import_keeps_default_candidates_and_calls_unchanged(tmp_path, wide):
+    from topiary import combine_sources, protein_evidence_view, rank_candidates, read_isovar_hypotheses
+    from topiary import fragments_from_dataframe, rescore_candidates
+    from .test_candidate_tables import Model, source
+    from .test_isovar_hypotheses import hypothesis_export
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    export = hypothesis_export()
+    export["events"][0]["filters"] = {"values": {"min_support": False}, "passes_all_filters": False}
+    imported = read_isovar_hypotheses(export)
+    with pytest.raises(ValueError, match="No sequence column found"):
+        fragments_from_dataframe(imported.df)
+    # Keep the report's source identity across file I/O; an absent source would
+    # correctly acquire the output filename when the file is first read.
+    baseline = combine_sources({"reported": source(source="reported-input")}, sample_name="tumor-1")
+    comparison = combine_sources({"reported": source(source="reported-input"), "hypotheses": imported},
+                                 sample_name="tumor-1")
+    baseline_model = Model()
+    enriched = rescore_candidates(baseline, baseline_model, prefix="fresh")
+    expected = rank_candidates(enriched, "fresh__testmodel__pMHC_affinity__value", ascending=True)
+    keys = ["candidate_id", "peptide", "candidate_score", "candidate_rank"]
+
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("comparisons." + suffix)
+        method(comparison.to_wide() if wide else comparison, path)
+        restored = reader(path)
+        for result in (comparison, restored):
+            assert [(f.fragment_id, f.sequence, f.target_intervals)
+                    for f in fragments_from_dataframe(result.long_df)] == [
+                        (f.fragment_id, f.sequence, f.target_intervals)
+                        for f in fragments_from_dataframe(baseline.long_df)]
+            model = Model()
+            rescored = rescore_candidates(result, model, prefix="fresh")
+            assert model.calls == baseline_model.calls
+            actual = rank_candidates(rescored, "fresh__testmodel__pMHC_affinity__value", ascending=True)
+            pd.testing.assert_frame_equal(actual[keys], expected[keys])
+            # Importing alternatives also leaves the original scoring policy intact.
+            pd.testing.assert_frame_equal(
+                rank_candidates(result, "affinity.value")[keys],
+                rank_candidates(baseline, "affinity.value")[keys])
+            alternatives = result.filter_by("isovar_rank > 1").df
+            assert alternatives.protein_hypothesis_sequence.tolist() == ["MAQD", "AQG"]
+            assert alternatives.candidate_id.isna().all()
+            assert alternatives.passes_all_filters.eq(False).all()
+            assert len(protein_evidence_view(result)) == 2
+            assert result.extra["combined_sources"]["hypotheses"]["extra"]["isovar_hypotheses"] == export
+
+
+@pytest.mark.isovar
+def test_imported_isovar_rna_union_counts_shared_reads_once_after_reload(tmp_path):
+    from importlib.metadata import version
+    from packaging.version import Version
+
+    if Version(version("isovar")) < Version("1.32"):
+        pytest.skip("The hypothesis export and evidence union were introduced in Isovar 1.32")
+    from isovar import union_rna_support
+    from topiary import combine_sources, read_isovar_hypotheses
+    from .test_isovar_hypotheses import hypothesis_export
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    export = hypothesis_export()
+    combined = combine_sources({"hypotheses": read_isovar_hypotheses(export)})
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("rna-comparison." + suffix)
+        method(combined.to_wide(), path)
+        for result in (combined, reader(path)):
+            provenance = result.extra["combined_sources"]["hypotheses"]["extra"]["isovar_hypotheses"]
+            selected = result.filter_by("isovar_rank <= 2").df
+            sets = [provenance["evidence_sets"][key] for key in selected.protein_evidence_set_id]
+            # Synonymous rows repeat a protein's support, and another protein
+            # shares one of those reads. Neither repetition adds new evidence.
+            support = union_rna_support(sets)
+            assert (support["segments"], support["fragments"]) == (5, 4)
+            other_scope = dict(sets[0], evidence_scope=["tumor-1", "reprocessed reads"])
+            with pytest.raises(ValueError, match="different evidence scopes"):
+                union_rna_support([sets[0], other_scope])
+            counts_only = provenance["events"][0]["protein_hypotheses"][0]["rna_support"]
+            with pytest.raises(ValueError, match="without read identities"):
+                union_rna_support([counts_only])
+
+
+def test_isovar_comparison_import_does_not_change_default_fragment_selection(monkeypatch):
+    from copy import deepcopy
+    from topiary import fragment_from_isovar_result, fragments_from_variants, read_isovar_hypotheses
+    from .test_isovar_hypotheses import hypothesis_export
+    from .test_isovar_run import _Result, _fake
+
+    result = _Result()
+    module = _fake(monkeypatch, [result])
+    completed = fragment_from_isovar_result(result).to_dict()
+    assembled = [f.to_dict() for f in fragments_from_variants(["v"], alignment_file=object())]
+    extra = deepcopy(result.top_protein_sequence)
+    extra.amino_acids = "MQQQQQQQQQQQQQQQQQQQQ"
+    extra.num_supporting_reads = extra.num_supporting_fragments = 1
+    result.sorted_protein_sequences = [result.top_protein_sequence, extra]
+    assert len(read_isovar_hypotheses(hypothesis_export())) == 4
+    assert fragment_from_isovar_result(result).to_dict() == completed
+    assert [f.to_dict() for f in fragments_from_variants(["v"], alignment_file=object())] == assembled
+    for call in module.calls:
+        creator = call["protein_sequence_creator"]
+        assert creator.protein_sequence_preference == "balanced"
+        assert creator.min_protein_sequence_support_fraction == 0.85
+
+
 def test_orf_abundance_can_enrich_matching_candidates_without_blending_alternative_orfs():
     from topiary import combine_sources, join_annotations, protein_evidence_view, rank_candidates
     from .test_candidate_tables import source
