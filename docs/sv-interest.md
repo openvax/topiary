@@ -3,7 +3,7 @@
 `build_sv_interest_report` retains the complete shared candidate set, including
 DNA-only, RNA-only, unresolved, unproductive and unassessed entries. It accepts
 the mapping returned by Osteosarc's SV interest catalogue and Isovar SV ORF
-v1/v2 exports. Source observations and their original warnings remain intact.
+v1-v4 exports. Source observations and their original warnings remain intact.
 
 ```python
 from topiary import build_sv_interest_report, write_sv_interest_report
@@ -13,7 +13,8 @@ report = build_sv_interest_report(catalogue, orf_exports,
 paths = write_sv_interest_report(report, "output/all-svs")
 ```
 
-The optional comparisons are Isovar `compare_sv_rna_predictions` results.
+The optional comparisons are Isovar `compare_sv_rna_predictions` results
+(`sv_rna_prediction_comparison.v1` through `v3`).
 They add annotated-frame translations separately from ATG hypotheses, including
 partial frame-anchored sequence. Their full-interval RNA counts remain unknown;
 junction counts never substitute for support of a complete ORF.
@@ -55,6 +56,17 @@ source aliases, synonymous sequences and geometry aliases are not independent
 discoveries. No across-library abundance rank is calculated. Gene TPM is shown
 with its actual sample and remains separate from mutant-transcript abundance.
 Protein abundance is null. Missing acquisitions are not zero support.
+
+Isovar 1.37's ORF v4 records carry `reads`/`read_ids`, optional `umis` and
+`cells`, their completeness flags, label-resolution details, signal lineage,
+and read orientations. Each `source_observations` entry includes the original
+`candidate` and a normalized `rna_support` record. Legacy `segments` and
+`segment_ids` normalize to `reads` and `read_ids`. These measurements, including
+null and false completeness flags, survive JSON and the nested TSV columns.
+UMI/cell counts remain per observation and never contribute to the template
+rank: their label memberships are not exported, so adding them would be unsafe.
+An assessed empty set remains zero with false completeness; unassessed labels
+remain null. UMIs are label counts, not independent molecules.
 
 For a different explicit ordering, use Topiary's existing `apply_sort` DSL on
 the candidate or protein DataFrame. Keep source-specific template counts out

@@ -203,7 +203,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        isovar: ["isovar==1.18.1", "isovar"]
+        isovar: ["isovar==1.37.0", "isovar<2"]
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python 3.12

@@ -1,6 +1,7 @@
 """Retain every SV nomination while ranking explicit protein evidence."""
 
 from collections import defaultdict
+from collections.abc import Mapping
 from copy import deepcopy
 import csv
 from hashlib import sha256
@@ -11,6 +12,7 @@ from pathlib import Path
 import pandas as pd
 
 from .ranking import Column, apply_sort
+from .isovar_rna_support import normalize_isovar_rna_support
 
 
 SV_PROTEIN_EVIDENCE_TIERS = {
@@ -39,10 +41,10 @@ def build_sv_interest_report(catalogue, orf_exports=(), *, comparisons=(), event
         ``osteosarc.load_sv_interest()`` or an equivalent mapping with
         ``targets``. Every target is retained, including unresolved entries.
     orf_exports : iterable of dict
-        Isovar SV ORF v1/v2 exports. Duplicate reconstructions are reconciled
+        Isovar SV ORF v1-v4 exports. Duplicate reconstructions are reconciled
         by source-scoped fragment membership, never by adding their counts.
     comparisons : iterable of dict
-        Optional Isovar ``sv_rna_prediction_comparison.v1`` results. Their
+        Optional Isovar ``sv_rna_prediction_comparison.v1`` through ``v3`` results. Their
         annotated-frame hypotheses remain separate from exploratory ATGs.
     event_aliases : mapping, optional
         Explicit original export event ID to catalogue target ID mapping.
@@ -67,6 +69,9 @@ def build_sv_interest_report(catalogue, orf_exports=(), *, comparisons=(), event
     orientation never penalizes a candidate. Sequence completeness does not
     establish mutant specificity, mature transcript identity or presentation.
     Aliases and synonymous alternatives are not independent discoveries.
+    Each source observation includes a normalized ``rna_support`` record.
+    Optional UMI/cell counts and completeness flags remain per observation:
+    the export lacks the label identities needed to union those measurements.
     """
     targets = catalogue["targets"]
     aliases = event_aliases or {}
@@ -104,25 +109,30 @@ def build_sv_interest_report(catalogue, orf_exports=(), *, comparisons=(), event
             raise ValueError("Conflicting sequence for one hypothesis identity")
         support = candidate.get("rna_support")
         if support is not None:
-            ids = support["fragment_ids"]
-            if len(set(ids)) != support["fragments"] or len(ids) != len(set(ids)):
-                raise ValueError("Fragment count disagrees with source-scoped membership")
+            # Early exports predate explicit scope. Current exports and any
+            # legacy record supplying scope must agree with the source wrapper.
+            scope = ([sample, source] if (isinstance(support, Mapping) and "evidence_scope" in support)
+                     or provenance["schema"] in ("isovar.sv_rna_orfs.v3", "isovar.sv_rna_orfs.v4") else None)
+            support = normalize_isovar_rna_support(support, evidence_scope=scope)
+            ids = support.get("fragment_ids")
+            if ids is None:
+                raise ValueError("Isovar SV RNA support requires fragment membership")
             row["fragment_ids"].update(ids)
         observation = dict(original_event_id=event, provenance=deepcopy(provenance),
-                           candidate=deepcopy(candidate))
+                           candidate=deepcopy(candidate), rna_support=support)
         if observation not in row["source_observations"]:
             row["source_observations"].append(observation)
 
     for export in orf_exports:
-        if export.get("schema") not in ("isovar.sv_rna_orfs.v1", "isovar.sv_rna_orfs.v2"):
-            raise ValueError("Expected an Isovar SV ORF v1/v2 export")
+        if export.get("schema") not in tuple(f"isovar.sv_rna_orfs.v{i}" for i in (1, 2, 3, 4)):
+            raise ValueError("Expected an Isovar SV ORF v1-v4 export")
         target_id(export["event_id"])  # Validate even empty exports.
         provenance = {k: deepcopy(v) for k, v in export.items() if k != "candidates"}
         for candidate in export["candidates"]:
             observe(export["event_id"], export["sample_id"], export["source"], candidate,
                     "exploratory_orf", provenance)
     for comparison in comparisons:
-        if comparison.get("schema") != "isovar.sv_rna_prediction_comparison.v1":
+        if comparison.get("schema") not in tuple(f"isovar.sv_rna_prediction_comparison.v{i}" for i in (1, 2, 3)):
             raise ValueError("Expected an Isovar RNA protein comparison")
         target_id(comparison["event_id"])
         provenance = {k: deepcopy(v) for k, v in comparison.items() if k != "hypotheses"}

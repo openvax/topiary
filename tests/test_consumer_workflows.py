@@ -336,14 +336,15 @@ def test_table_rescoring_changes_only_the_explicit_dsl_policy(tmp_path):
 
 
 @pytest.mark.parametrize("wide", [False, True])
-def test_isovar_comparison_import_keeps_default_candidates_and_calls_unchanged(tmp_path, wide):
+@pytest.mark.parametrize("export_name", [None, "protein-v2", "protein-v2-labelled"])
+def test_isovar_comparison_import_keeps_default_candidates_and_calls_unchanged(tmp_path, wide, export_name):
     from topiary import combine_sources, protein_evidence_view, rank_candidates, read_isovar_hypotheses
     from topiary import fragments_from_dataframe, rescore_candidates
     from .test_candidate_tables import Model, source
     from .test_isovar_hypotheses import hypothesis_export
     from .test_twin_conformance import DELIMITED_IO_TWINS
 
-    export = hypothesis_export()
+    export = hypothesis_export(export_name)
     export["events"][0]["filters"] = {"values": {"min_support": False}, "passes_all_filters": False}
     imported = read_isovar_hypotheses(export)
     with pytest.raises(ValueError, match="No sequence column found"):
@@ -385,18 +386,14 @@ def test_isovar_comparison_import_keeps_default_candidates_and_calls_unchanged(t
 
 
 @pytest.mark.isovar
-def test_imported_isovar_rna_union_counts_shared_reads_once_after_reload(tmp_path):
-    from importlib.metadata import version
-    from packaging.version import Version
-
-    if Version(version("isovar")) < Version("1.32"):
-        pytest.skip("The hypothesis export and evidence union were introduced in Isovar 1.32")
+@pytest.mark.parametrize("export_name", [None, "protein-v2", "protein-v2-labelled"])
+def test_imported_isovar_rna_union_counts_shared_reads_once_after_reload(tmp_path, export_name):
     from isovar import union_rna_support
-    from topiary import combine_sources, read_isovar_hypotheses
+    from topiary import combine_sources, read_isovar_hypotheses, normalize_isovar_rna_support
     from .test_isovar_hypotheses import hypothesis_export
     from .test_twin_conformance import DELIMITED_IO_TWINS
 
-    export = hypothesis_export()
+    export = hypothesis_export(export_name)
     combined = combine_sources({"hypotheses": read_isovar_hypotheses(export)})
     for suffix, writer, method, reader in DELIMITED_IO_TWINS:
         path = tmp_path / ("rna-comparison." + suffix)
@@ -404,17 +401,103 @@ def test_imported_isovar_rna_union_counts_shared_reads_once_after_reload(tmp_pat
         for result in (combined, reader(path)):
             provenance = result.extra["combined_sources"]["hypotheses"]["extra"]["isovar_hypotheses"]
             selected = result.filter_by("isovar_rank <= 2").df
-            sets = [provenance["evidence_sets"][key] for key in selected.protein_evidence_set_id]
+            sets = [normalize_isovar_rna_support(provenance["evidence_sets"][key])
+                    for key in selected.protein_evidence_set_id]
             # Synonymous rows repeat a protein's support, and another protein
             # shares one of those reads. Neither repetition adds new evidence.
             support = union_rna_support(sets)
-            assert (support["segments"], support["fragments"]) == (5, 4)
+            assert (support["reads"], support["fragments"]) == (5, 4)
             other_scope = dict(sets[0], evidence_scope=["tumor-1", "reprocessed reads"])
             with pytest.raises(ValueError, match="different evidence scopes"):
                 union_rna_support([sets[0], other_scope])
             counts_only = provenance["events"][0]["protein_hypotheses"][0]["rna_support"]
             with pytest.raises(ValueError, match="without read identities"):
                 union_rna_support([counts_only])
+
+
+@pytest.mark.parametrize("wide", [False, True])
+@pytest.mark.parametrize("export_name", ["protein-v2", "protein-v2-labelled"])
+def test_isovar_label_completeness_controls_filtering_after_reload(tmp_path, wide, export_name):
+    from topiary import combine_sources, read_isovar_hypotheses
+    from .test_isovar_hypotheses import hypothesis_export
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    export = hypothesis_export(export_name)
+    result = combine_sources({"rna": read_isovar_hypotheses(export)})
+    for suffix, _, write, read in DELIMITED_IO_TWINS:
+        path = tmp_path / ("labels." + suffix)
+        write(result.to_wide() if wide else result, path)
+        restored = read(path)
+        assert restored.extra["combined_sources"]["rna"]["extra"]["isovar_hypotheses"] == export
+        for observed in (result, restored):
+            assert observed.df.candidate_id.isna().all()
+            if export_name.endswith("labelled"):
+                # Lower bounds stay visible, but only the short window's UMI
+                # count is complete. Cells can be complete despite a missing UMI.
+                assert observed.filter_by("protein_umis_complete").df.isovar_rank.tolist() == [3]
+                assert observed.filter_by("protein_cells_complete").df.isovar_rank.tolist() == [1, 1, 3]
+                assert observed.filter_by("protein_umis >= 2").df.isovar_rank.tolist() == [1, 1]
+                assert observed.filter_by("protein_umis_complete & protein_umis >= 2").df.empty
+            else:
+                assert observed.df.protein_umis.isna().all()
+                assert observed.df.protein_umis_complete.isna().all()
+
+
+@pytest.mark.isovar
+def test_current_isovar_sv_producers_compose_with_report_api_and_cli(tmp_path):
+    import json
+
+    from isovar import export_sv_rna_orfs, compare_sv_rna_predictions
+    from topiary import build_sv_interest_report, write_sv_interest_report
+    from .test_twin_conformance import SV_INTEREST_REPORT_TWINS
+
+    root = Path(__file__).parent / "data" / "isovar_exports"
+    orfs = export_sv_rna_orfs(json.loads((root / "orfs-input.json").read_text()))
+    comparison = compare_sv_rna_predictions(*json.loads((root / "comparison-input.json").read_text()))
+    assert orfs == json.loads((root / "orfs-v4.json").read_text())
+    assert comparison == json.loads((root / "comparison-v3.json").read_text())
+    catalogue = dict(targets={orfs["event_id"]: {}, comparison["event_id"]: {}})
+    api, cli = SV_INTEREST_REPORT_TWINS
+    expected = api(catalogue, [orfs], comparisons=[comparison])
+    inputs = {"catalogue": catalogue, "orf-export": orfs, "comparison": comparison}
+    args = []
+    for flag, data in inputs.items():
+        path = tmp_path / (flag + ".json")
+        path.write_text(json.dumps(data))
+        args.extend(["--" + flag, str(path)])
+    assert cli(args + ["--output-prefix", str(tmp_path / "cli")]) == 0
+    assert json.loads((tmp_path / "cli.json").read_text()) == json.loads(json.dumps(expected))
+    assert {p["kind"] for p in expected["protein_hypotheses"]} == {"exploratory_orf", "annotated_frame"}
+    assert all(p["translation_observed"] is False for p in expected["protein_hypotheses"])
+
+
+def test_isovar_v2_zero_and_unknown_labels_and_missing_identity_survive_reload(tmp_path):
+    from topiary import combine_sources, read_isovar_hypotheses
+    from .test_isovar_hypotheses import hypothesis_export
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    export = hypothesis_export("protein-v2")
+    empty = dict(reads=0, fragments=0, evidence_set_id="empty",
+                 evidence_scope=export["evidence_scope"], read_ids=[], fragment_ids=[])
+    export["evidence_sets"]["empty"] = empty
+    proteins = export["events"][0]["protein_hypotheses"]
+    proteins[0]["rna_support"] = dict(reads=0, fragments=0, evidence_set_id="empty", umis=0, cells=0,
+        umis_complete=False, cells_complete=False, unlabeled_reads=0, unknown_library_reads=0, label_statuses={})
+    proteins[1]["rna_support"]["evidence_set_id"] = None
+    combined = combine_sources({"rna": read_isovar_hypotheses(export)})
+    for suffix, _, write, read in DELIMITED_IO_TWINS:
+        path = tmp_path / ("zero-and-unknown." + suffix)
+        write(combined.to_wide(), path)
+        for result in (combined, read(path)):
+            first = result.df.iloc[0]
+            assert first.protein_reads == first.protein_umis == 0
+            assert not pd.isna(first.protein_umis_complete) and not first.protein_umis_complete
+            assert first.protein_evidence_set_id == "empty"
+            unknown = result.df.iloc[2]
+            assert unknown.protein_reads == 2
+            assert pd.isna(unknown.protein_umis) and pd.isna(unknown.protein_umis_complete)
+            assert pd.isna(unknown.protein_evidence_set_id)
+            assert result.extra["combined_sources"]["rna"]["extra"]["isovar_hypotheses"] == export
 
 
 def test_isovar_comparison_import_does_not_change_default_fragment_selection(monkeypatch):

@@ -1,0 +1,620 @@
+{
+  "schema": "isovar.protein_hypotheses.v2",
+  "isovar_version": "1.37.0",
+  "sample_id": "tumor-1",
+  "source": "synthetic-rna.bam",
+  "evidence_scope": [
+    "tumor-1",
+    "synthetic-rna.bam"
+  ],
+  "interval_convention": "zero_based_half_open",
+  "evidence_identity_policy": "sha256_of_domain_and_canonical_json; sample/source scoped",
+  "read_group_metadata": "alignment_header",
+  "read_groups": {
+    "rg1": {
+      "sample": "tumor-1",
+      "library": "library",
+      "platform": null
+    },
+    "rg2": {
+      "sample": "tumor-1",
+      "library": null,
+      "platform": null
+    }
+  },
+  "interpretation": "RNA-derived protein hypotheses in Isovar's ranked order; nothing is selected. Counts are reads, fragments, UMIs and cells, not molecules or abundance.",
+  "events": [
+    {
+      "event_id": "variant_e48fc69e8cfb5527cf4c3119bedbcccbdc8cb070129f4282998732a1bac179e8",
+      "variant": {
+        "reference_name": "GRCh38",
+        "contig": "1",
+        "start": 108,
+        "ref": "A",
+        "alt": "C",
+        "description": "chr1 g.108A>C"
+      },
+      "reference_prediction": null,
+      "allele_support": {
+        "ref": {
+          "scope": "ref_allele_reads_at_locus",
+          "reads": 0,
+          "fragments": 0,
+          "umis": 0,
+          "cells": 0,
+          "umis_complete": false,
+          "cells_complete": false,
+          "unlabeled_reads": 0,
+          "unknown_library_reads": 0,
+          "label_statuses": {}
+        },
+        "alt": {
+          "scope": "alt_allele_reads_at_locus",
+          "reads": 5,
+          "fragments": 4,
+          "umis": 3,
+          "cells": 3,
+          "umis_complete": false,
+          "cells_complete": false,
+          "unlabeled_reads": 1,
+          "unknown_library_reads": 1,
+          "label_statuses": {
+            "missing_umi": 1,
+            "resolved_label": 4
+          },
+          "evidence_set_id": "evidence_0ac4ce9dca0c8b706f9a18581814aef981c9b673ab31055e7dc5d2e4a8cda56e"
+        },
+        "other": {
+          "scope": "other_allele_reads_at_locus",
+          "reads": 0,
+          "fragments": 0,
+          "umis": 0,
+          "cells": 0,
+          "umis_complete": false,
+          "cells_complete": false,
+          "unlabeled_reads": 0,
+          "unknown_library_reads": 0,
+          "label_statuses": {}
+        },
+        "total": {
+          "scope": "all_reads_at_locus",
+          "reads": 5,
+          "fragments": 4,
+          "umis": 3,
+          "cells": 3,
+          "umis_complete": false,
+          "cells_complete": false,
+          "unlabeled_reads": 1,
+          "unknown_library_reads": 1,
+          "label_statuses": {
+            "missing_umi": 1,
+            "resolved_label": 4
+          }
+        },
+        "cells_with_ref_and_alt": 0
+      },
+      "filters": {
+        "values": {},
+        "passes_all_filters": true
+      },
+      "phased_variants": {
+        "supporting_reads": [],
+        "top_protein_sequence": []
+      },
+      "protein_sequence_limit": 0,
+      "protein_hypotheses_complete": true,
+      "edit_attribution": null,
+      "protein_sequence_settings": {
+        "max_protein_sequences_per_variant": 0
+      },
+      "protein_hypotheses": [
+        {
+          "hypothesis_id": "protein_hypothesis_991b9607cf0c0b6a3a1275854a4f42b9774828ec06859a208196f6f4ddea31e8",
+          "isovar_rank": 1,
+          "amino_acids": "MAQG",
+          "protein_sequence_id": "aa_253c54207ea6f43b28905093ba42c52c2cbe54d8be25bec13077468a116c2059",
+          "mutation_interval": [
+            2,
+            3
+          ],
+          "mutant_amino_acids": "Q",
+          "contains_mutation": true,
+          "frameshift": false,
+          "ends_with_stop_codon": true,
+          "n_terminus": "annotated_start_codon",
+          "c_terminus": "stop_codon",
+          "transcript_ids": [
+            "tx-1"
+          ],
+          "transcript_names": [
+            "TX1"
+          ],
+          "gene_ids": [
+            "gene-1"
+          ],
+          "gene_names": [
+            "GENE1"
+          ],
+          "rna_support": {
+            "scope": "reads_assembled_into_this_protein",
+            "reads": 4,
+            "fragments": 3,
+            "umis": 2,
+            "cells": 2,
+            "umis_complete": false,
+            "cells_complete": true,
+            "unlabeled_reads": 1,
+            "unknown_library_reads": 0,
+            "label_statuses": {
+              "missing_umi": 1,
+              "resolved_label": 3
+            },
+            "evidence_set_id": "evidence_43613df39cf9f8f0667c67efc9eeeab239f03cc26b13201ff005f485ea9a2ec7"
+          },
+          "translations": [
+            {
+              "translation_id": "translation_6d0ef7719308fe5934c88676abf0e6588380f0dc713fa14bdd86519c7cd28553",
+              "nucleotide_sequence": "CCATGGCCCAAGGCTAA",
+              "nucleotide_sequence_id": "nt_59ee44899943c401d9848a19b3645fc6848033cededda63f1e0597462672fc92",
+              "translated_interval": [
+                2,
+                17
+              ],
+              "variant_cdna_interval": [
+                8,
+                9
+              ],
+              "starts_at_annotated_start_codon": true,
+              "reference_context": {
+                "strand": "+",
+                "transcript_ids": [
+                  "tx-1"
+                ],
+                "transcript_names": [
+                  "TX1"
+                ],
+                "contains_start_codon": true,
+                "overlaps_start_codon": true,
+                "contains_five_prime_utr": true,
+                "amino_acids_before_variant": "MA"
+              },
+              "mismatches_before_variant": 1,
+              "mismatches_after_variant": 0,
+              "observed_edits": [
+                {
+                  "transcript_id": "tx-1",
+                  "cdna_interval": [
+                    7,
+                    8
+                  ],
+                  "alt_bases": "C",
+                  "origin": "unexplained",
+                  "source_event_id": null
+                },
+                {
+                  "transcript_id": "tx-1",
+                  "cdna_interval": [
+                    8,
+                    9
+                  ],
+                  "alt_bases": "C",
+                  "origin": "nominated_variant",
+                  "source_event_id": "variant_e48fc69e8cfb5527cf4c3119bedbcccbdc8cb070129f4282998732a1bac179e8"
+                }
+              ],
+              "rna_support": {
+                "scope": "reads_assembled_into_this_cdna",
+                "reads": 1,
+                "fragments": 1,
+                "umis": 1,
+                "cells": 1,
+                "umis_complete": true,
+                "cells_complete": true,
+                "unlabeled_reads": 0,
+                "unknown_library_reads": 0,
+                "label_statuses": {
+                  "resolved_label": 1
+                },
+                "evidence_set_id": "evidence_900d7ff8e76ddc22194d9b0aa2e5e0c162233b243581ac873adc67faca87ca73"
+              }
+            },
+            {
+              "translation_id": "translation_f8ce01a6a3f9783dd4b1749c507669fdfa819f3bc7a1bb5b56658f46839c60db",
+              "nucleotide_sequence": "CCATGGCTCAAGGCTAA",
+              "nucleotide_sequence_id": "nt_e6d90d4ae8cdc703a090e7d3cbe0b65261281945abd63cac82f07f37366f79ae",
+              "translated_interval": [
+                2,
+                17
+              ],
+              "variant_cdna_interval": [
+                8,
+                9
+              ],
+              "starts_at_annotated_start_codon": true,
+              "reference_context": {
+                "strand": "+",
+                "transcript_ids": [
+                  "tx-1"
+                ],
+                "transcript_names": [
+                  "TX1"
+                ],
+                "contains_start_codon": true,
+                "overlaps_start_codon": true,
+                "contains_five_prime_utr": true,
+                "amino_acids_before_variant": "MA"
+              },
+              "mismatches_before_variant": 0,
+              "mismatches_after_variant": 0,
+              "observed_edits": [
+                {
+                  "transcript_id": "tx-1",
+                  "cdna_interval": [
+                    8,
+                    9
+                  ],
+                  "alt_bases": "C",
+                  "origin": "nominated_variant",
+                  "source_event_id": "variant_e48fc69e8cfb5527cf4c3119bedbcccbdc8cb070129f4282998732a1bac179e8"
+                }
+              ],
+              "rna_support": {
+                "scope": "reads_assembled_into_this_cdna",
+                "reads": 3,
+                "fragments": 2,
+                "umis": 1,
+                "cells": 1,
+                "umis_complete": false,
+                "cells_complete": true,
+                "unlabeled_reads": 1,
+                "unknown_library_reads": 0,
+                "label_statuses": {
+                  "missing_umi": 1,
+                  "resolved_label": 2
+                },
+                "evidence_set_id": "evidence_749d9e64793d17da4ecda5175e1c4fab52c7f1c383a369bb726d99db1bd25417"
+              }
+            }
+          ],
+          "representative": true,
+          "covered_by": []
+        },
+        {
+          "hypothesis_id": "protein_hypothesis_d8dc0b09358133831c3dc9c1a733f3ccc3a71994b44c25fea0d754e2a1888479",
+          "isovar_rank": 2,
+          "amino_acids": "MAQD",
+          "protein_sequence_id": "aa_b7c65fc4cb4e9893e8378dbc640dc7d1a0cccf04e901214f2c7a40b130e3b050",
+          "mutation_interval": [
+            2,
+            3
+          ],
+          "mutant_amino_acids": "Q",
+          "contains_mutation": true,
+          "frameshift": false,
+          "ends_with_stop_codon": true,
+          "n_terminus": "annotated_start_codon",
+          "c_terminus": "stop_codon",
+          "transcript_ids": [
+            "tx-1"
+          ],
+          "transcript_names": [
+            "TX1"
+          ],
+          "gene_ids": [
+            "gene-1"
+          ],
+          "gene_names": [
+            "GENE1"
+          ],
+          "rna_support": {
+            "scope": "reads_assembled_into_this_protein",
+            "reads": 2,
+            "fragments": 2,
+            "umis": 1,
+            "cells": 2,
+            "umis_complete": false,
+            "cells_complete": false,
+            "unlabeled_reads": 1,
+            "unknown_library_reads": 1,
+            "label_statuses": {
+              "missing_umi": 1,
+              "resolved_label": 1
+            },
+            "evidence_set_id": "evidence_c41c8eac2dab002a14c3c4fcb9d80e6939bf4296bbde1b22c8879d01e4479520"
+          },
+          "translations": [
+            {
+              "translation_id": "translation_a03455f3afda4c3f383863b99b575ed3c01967d42542d5e8bba273f7433093f2",
+              "nucleotide_sequence": "CCATGGCTCAAGACTAA",
+              "nucleotide_sequence_id": "nt_c4105b5623102c6e0430129d2264cfe7a6e7c843e4fe8fecf7fd4727bc60209b",
+              "translated_interval": [
+                2,
+                17
+              ],
+              "variant_cdna_interval": [
+                8,
+                9
+              ],
+              "starts_at_annotated_start_codon": true,
+              "reference_context": {
+                "strand": "+",
+                "transcript_ids": [
+                  "tx-1"
+                ],
+                "transcript_names": [
+                  "TX1"
+                ],
+                "contains_start_codon": true,
+                "overlaps_start_codon": true,
+                "contains_five_prime_utr": true,
+                "amino_acids_before_variant": "MA"
+              },
+              "mismatches_before_variant": 0,
+              "mismatches_after_variant": 1,
+              "observed_edits": [
+                {
+                  "transcript_id": "tx-1",
+                  "cdna_interval": [
+                    8,
+                    9
+                  ],
+                  "alt_bases": "C",
+                  "origin": "nominated_variant",
+                  "source_event_id": "variant_e48fc69e8cfb5527cf4c3119bedbcccbdc8cb070129f4282998732a1bac179e8"
+                },
+                {
+                  "transcript_id": "tx-1",
+                  "cdna_interval": [
+                    12,
+                    13
+                  ],
+                  "alt_bases": "A",
+                  "origin": "unexplained",
+                  "source_event_id": null
+                }
+              ],
+              "rna_support": {
+                "scope": "reads_assembled_into_this_cdna",
+                "reads": 2,
+                "fragments": 2,
+                "umis": 1,
+                "cells": 2,
+                "umis_complete": false,
+                "cells_complete": false,
+                "unlabeled_reads": 1,
+                "unknown_library_reads": 1,
+                "label_statuses": {
+                  "missing_umi": 1,
+                  "resolved_label": 1
+                },
+                "evidence_set_id": "evidence_c41c8eac2dab002a14c3c4fcb9d80e6939bf4296bbde1b22c8879d01e4479520"
+              }
+            }
+          ],
+          "representative": true,
+          "covered_by": []
+        },
+        {
+          "hypothesis_id": "protein_hypothesis_9606f55519494ed2e854b76784f1190901dd886041ae3d194dbdc1632d4e2385",
+          "isovar_rank": 3,
+          "amino_acids": "AQG",
+          "protein_sequence_id": "aa_018ff4543900e7472a4a7be9638edcf8b8699951b73dcb869855b9ed376bc919",
+          "mutation_interval": [
+            1,
+            2
+          ],
+          "mutant_amino_acids": "Q",
+          "contains_mutation": true,
+          "frameshift": false,
+          "ends_with_stop_codon": false,
+          "n_terminus": "local_window",
+          "c_terminus": "no_stop_in_context",
+          "transcript_ids": [
+            "tx-1"
+          ],
+          "transcript_names": [
+            "TX1"
+          ],
+          "gene_ids": [
+            "gene-1"
+          ],
+          "gene_names": [
+            "GENE1"
+          ],
+          "rna_support": {
+            "scope": "reads_assembled_into_this_protein",
+            "reads": 1,
+            "fragments": 1,
+            "umis": 1,
+            "cells": 1,
+            "umis_complete": true,
+            "cells_complete": true,
+            "unlabeled_reads": 0,
+            "unknown_library_reads": 0,
+            "label_statuses": {
+              "resolved_label": 1
+            },
+            "evidence_set_id": "evidence_ad4ee33f9cfc9c9d4320b7df66fdd92dd26982bf0c50f564a55c19a733181e8e"
+          },
+          "translations": [
+            {
+              "translation_id": "translation_c49d2d6fd938e4d13e2bd73f6785541453cb51782c9d191402d83959e80788c6",
+              "nucleotide_sequence": "GCTCAAGGC",
+              "nucleotide_sequence_id": "nt_9d975ce046abb9c858ed623ff6d48be1714adab9d65785871289805ad7f579d5",
+              "translated_interval": [
+                0,
+                9
+              ],
+              "variant_cdna_interval": [
+                3,
+                4
+              ],
+              "starts_at_annotated_start_codon": false,
+              "reference_context": {
+                "strand": "+",
+                "transcript_ids": [
+                  "tx-1"
+                ],
+                "transcript_names": [
+                  "TX1"
+                ],
+                "contains_start_codon": true,
+                "overlaps_start_codon": true,
+                "contains_five_prime_utr": true,
+                "amino_acids_before_variant": "MA"
+              },
+              "mismatches_before_variant": 0,
+              "mismatches_after_variant": 0,
+              "observed_edits": [
+                {
+                  "transcript_id": "tx-1",
+                  "cdna_interval": [
+                    8,
+                    9
+                  ],
+                  "alt_bases": "C",
+                  "origin": "nominated_variant",
+                  "source_event_id": "variant_e48fc69e8cfb5527cf4c3119bedbcccbdc8cb070129f4282998732a1bac179e8"
+                }
+              ],
+              "rna_support": {
+                "scope": "reads_assembled_into_this_cdna",
+                "reads": 1,
+                "fragments": 1,
+                "umis": 1,
+                "cells": 1,
+                "umis_complete": true,
+                "cells_complete": true,
+                "unlabeled_reads": 0,
+                "unknown_library_reads": 0,
+                "label_statuses": {
+                  "resolved_label": 1
+                },
+                "evidence_set_id": "evidence_ad4ee33f9cfc9c9d4320b7df66fdd92dd26982bf0c50f564a55c19a733181e8e"
+              }
+            }
+          ],
+          "representative": false,
+          "covered_by": [
+            {
+              "hypothesis_id": "protein_hypothesis_991b9607cf0c0b6a3a1275854a4f42b9774828ec06859a208196f6f4ddea31e8",
+              "protein_interval": [
+                1,
+                4
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "evidence_sets": {
+    "evidence_0ac4ce9dca0c8b706f9a18581814aef981c9b673ab31055e7dc5d2e4a8cda56e": {
+      "evidence_scope": [
+        "tumor-1",
+        "synthetic-rna.bam"
+      ],
+      "reads": 5,
+      "fragments": 4,
+      "read_ids": [
+        "segment_4fd3d8e64c6f0b472db5d1205ed65a8d80552d38dba5547b5ea62d976fdd11cb",
+        "segment_afad717d63689fdca7a8b4a12d075528b953277f06d3a24cdf00f73882ef092e",
+        "segment_fc0656e867dc335bd747128e6ddcbe5513f4b2f373c8fe9851a5766c9736fae7",
+        "segment_27e5a0f8ddae2ead3b772d9526caa9c517292d883e579747a3e6f8e68c37e09b",
+        "segment_e64715084688ae6ccfd6dd23f29e89908ab8c4ec0a27e44064f9d65bf84db225"
+      ],
+      "fragment_ids": [
+        "fragment_bf6d0b427e7018e23d6a28d4c6b870084d729f906f918810a70a5e71d7b33fc6",
+        "fragment_850966bc757797855481e7db5cea3bcf7c4781cc62f53beb54e306db3c7e9c9c",
+        "fragment_e9580bc33adbd41c4fff3084946b985c4a50189248fb58bbf13c6d1f61ff962c",
+        "fragment_d168a0a1219f4dbaefa22fa974acf4f45bb9a2064cfd465599bb88588a8c3ae6"
+      ],
+      "evidence_set_id": "evidence_0ac4ce9dca0c8b706f9a18581814aef981c9b673ab31055e7dc5d2e4a8cda56e"
+    },
+    "evidence_43613df39cf9f8f0667c67efc9eeeab239f03cc26b13201ff005f485ea9a2ec7": {
+      "evidence_scope": [
+        "tumor-1",
+        "synthetic-rna.bam"
+      ],
+      "reads": 4,
+      "fragments": 3,
+      "read_ids": [
+        "segment_4fd3d8e64c6f0b472db5d1205ed65a8d80552d38dba5547b5ea62d976fdd11cb",
+        "segment_afad717d63689fdca7a8b4a12d075528b953277f06d3a24cdf00f73882ef092e",
+        "segment_fc0656e867dc335bd747128e6ddcbe5513f4b2f373c8fe9851a5766c9736fae7",
+        "segment_27e5a0f8ddae2ead3b772d9526caa9c517292d883e579747a3e6f8e68c37e09b"
+      ],
+      "fragment_ids": [
+        "fragment_bf6d0b427e7018e23d6a28d4c6b870084d729f906f918810a70a5e71d7b33fc6",
+        "fragment_850966bc757797855481e7db5cea3bcf7c4781cc62f53beb54e306db3c7e9c9c",
+        "fragment_e9580bc33adbd41c4fff3084946b985c4a50189248fb58bbf13c6d1f61ff962c"
+      ],
+      "evidence_set_id": "evidence_43613df39cf9f8f0667c67efc9eeeab239f03cc26b13201ff005f485ea9a2ec7"
+    },
+    "evidence_749d9e64793d17da4ecda5175e1c4fab52c7f1c383a369bb726d99db1bd25417": {
+      "evidence_scope": [
+        "tumor-1",
+        "synthetic-rna.bam"
+      ],
+      "reads": 3,
+      "fragments": 2,
+      "read_ids": [
+        "segment_4fd3d8e64c6f0b472db5d1205ed65a8d80552d38dba5547b5ea62d976fdd11cb",
+        "segment_afad717d63689fdca7a8b4a12d075528b953277f06d3a24cdf00f73882ef092e",
+        "segment_fc0656e867dc335bd747128e6ddcbe5513f4b2f373c8fe9851a5766c9736fae7"
+      ],
+      "fragment_ids": [
+        "fragment_bf6d0b427e7018e23d6a28d4c6b870084d729f906f918810a70a5e71d7b33fc6",
+        "fragment_850966bc757797855481e7db5cea3bcf7c4781cc62f53beb54e306db3c7e9c9c"
+      ],
+      "evidence_set_id": "evidence_749d9e64793d17da4ecda5175e1c4fab52c7f1c383a369bb726d99db1bd25417"
+    },
+    "evidence_900d7ff8e76ddc22194d9b0aa2e5e0c162233b243581ac873adc67faca87ca73": {
+      "evidence_scope": [
+        "tumor-1",
+        "synthetic-rna.bam"
+      ],
+      "reads": 1,
+      "fragments": 1,
+      "read_ids": [
+        "segment_27e5a0f8ddae2ead3b772d9526caa9c517292d883e579747a3e6f8e68c37e09b"
+      ],
+      "fragment_ids": [
+        "fragment_e9580bc33adbd41c4fff3084946b985c4a50189248fb58bbf13c6d1f61ff962c"
+      ],
+      "evidence_set_id": "evidence_900d7ff8e76ddc22194d9b0aa2e5e0c162233b243581ac873adc67faca87ca73"
+    },
+    "evidence_ad4ee33f9cfc9c9d4320b7df66fdd92dd26982bf0c50f564a55c19a733181e8e": {
+      "evidence_scope": [
+        "tumor-1",
+        "synthetic-rna.bam"
+      ],
+      "reads": 1,
+      "fragments": 1,
+      "read_ids": [
+        "segment_4fd3d8e64c6f0b472db5d1205ed65a8d80552d38dba5547b5ea62d976fdd11cb"
+      ],
+      "fragment_ids": [
+        "fragment_bf6d0b427e7018e23d6a28d4c6b870084d729f906f918810a70a5e71d7b33fc6"
+      ],
+      "evidence_set_id": "evidence_ad4ee33f9cfc9c9d4320b7df66fdd92dd26982bf0c50f564a55c19a733181e8e"
+    },
+    "evidence_c41c8eac2dab002a14c3c4fcb9d80e6939bf4296bbde1b22c8879d01e4479520": {
+      "evidence_scope": [
+        "tumor-1",
+        "synthetic-rna.bam"
+      ],
+      "reads": 2,
+      "fragments": 2,
+      "read_ids": [
+        "segment_fc0656e867dc335bd747128e6ddcbe5513f4b2f373c8fe9851a5766c9736fae7",
+        "segment_e64715084688ae6ccfd6dd23f29e89908ab8c4ec0a27e44064f9d65bf84db225"
+      ],
+      "fragment_ids": [
+        "fragment_850966bc757797855481e7db5cea3bcf7c4781cc62f53beb54e306db3c7e9c9c",
+        "fragment_d168a0a1219f4dbaefa22fa974acf4f45bb9a2064cfd465599bb88588a8c3ae6"
+      ],
+      "evidence_set_id": "evidence_c41c8eac2dab002a14c3c4fcb9d80e6939bf4296bbde1b22c8879d01e4479520"
+    }
+  }
+}

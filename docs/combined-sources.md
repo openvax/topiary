@@ -103,8 +103,9 @@ predictions per algorithm. Preserve these distinctions when defining a policy.
 
 ## Isovar hypotheses for comparison
 
-`read_isovar_hypotheses` reads Isovar 1.32+'s `isovar.protein_hypotheses.v1`
-JSON export or the mapping returned by `export_protein_hypotheses`. The companion
+`read_isovar_hypotheses` reads `isovar.protein_hypotheses.v1` and `v2`
+JSON exports or the mapping returned by `export_protein_hypotheses`. Version 2
+is produced by Isovar 1.37+. The companion
 Isovar TSV lacks the evidence sets and full provenance; supply JSON here.
 
 ```python
@@ -149,18 +150,36 @@ Literal sample IDs and sequences also survive reload: for example, `001` stays
 a string and the amino-acid window `NA` stays a sequence, not a missing value.
 
 Read and fragment counts have separate `protein_*` and `translation_*` columns.
-They are not TPM or independent molecule counts. To combine support explicitly:
+Both export versions populate `protein_reads` and `translation_reads`; the
+older `*_segments` columns remain aliases for compatibility. Optional `*_umis`
+and `*_cells` are label counts with separate `*_umis_complete` and
+`*_cells_complete` flags. Null means unassessed, false means the count is not
+exact, and true means the producer assessed complete labels. `*_unlabeled_reads`
+and `*_unknown_library_reads` explain incomplete measurements; detailed
+`label_statuses` and allele-level support stay in the original metadata.
+These are not TPM or independent molecule counts.
+
+For example, the existing filter DSL can restrict comparisons to complete
+UMI measurements with `combined.filter_by("protein_umis_complete & protein_umis >= 2")`.
+This filters comparison observations; it does not admit alternatives as candidates.
+To combine read support explicitly with Isovar 1.37+:
 
 ```python
 from isovar import union_rna_support
+from topiary import normalize_isovar_rna_support
 
 export = hypotheses.extra["isovar_hypotheses"]
 keys = hypotheses.df.loc[hypotheses.df.isovar_rank <= 2, "protein_evidence_set_id"]
-support = union_rna_support([export["evidence_sets"][key] for key in keys])
+support = union_rna_support([
+    normalize_isovar_rna_support(export["evidence_sets"][key]) for key in keys])
 ```
 
 This counts shared reads once, including support repeated across synonymous
-translation rows. It refuses incompatible evidence scopes. Missing evidence-set
+translation rows. Normalization translates legacy `segments`/`segment_ids`
+into `reads`/`read_ids` and validates counts and membership without changing the
+saved export. The union refuses incompatible evidence scopes. It does not union
+UMI/cell counts: exports do not include the label identities needed for that.
+Missing evidence-set
 IDs cannot be resolved or safely combined from counts alone. The comparison
 reader itself does not import Isovar or run any reconstruction or predictor.
 

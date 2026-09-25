@@ -128,6 +128,7 @@ from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
 from .io_protein_fragment import read_fragments, write_fragments, iter_fragments
 from .io_lens import detect_lens_version, read_lens
 from .io_isovar_hypotheses import read_isovar_hypotheses
+from .isovar_rna_support import normalize_isovar_rna_support
 from .io_pvacseq import (
     derive_mhc_class,
     detect_pvacseq_format,
@@ -185,9 +186,10 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.71.1"
+__version__ = "5.71.2"
 
 __all__ = [
+    "normalize_isovar_rna_support",
     "read_isovar_hypotheses",
     "build_sv_interest_report",
     "write_sv_interest_report",

@@ -64,20 +64,13 @@ def test_observed_rearrangement_rna_does_not_imply_a_coding_peptide(
                    for k in ("sam", "partner_sam"))
     result = reconstruct_fusion(fusion, refs, reads)
     assert result["reasons"] == ["no_exact_collinear_annotated_donor"]
-    if "schema" in result:
-        assert result["schema"] == "isovar.fusion_rna.v2"
-        assert result["status"] == "unresolved"
-        assert len(result["paths"]) == 1
-        path = result["paths"][0]
-        assert path["sequence"] == fusion.sequence
-        assert path["frame_status"] == "unresolved"
-        assert path["translations"] == []
-    else:
-        # The minimum supported Isovar still returns the v1 fusion schema.
-        assert result["schema_version"] == 1
-        assert result["status"] == "unresolved_frame"
-        assert result["cdna_sequence"] == fusion.sequence
-        assert result["translations"] == []
+    assert result["schema"] == "isovar.fusion_rna.v3"
+    assert result["status"] == "unresolved"
+    assert len(result["paths"]) == 1
+    path = result["paths"][0]
+    assert path["sequence"] == fusion.sequence
+    assert path["frame_status"] == "unresolved"
+    assert path["translations"] == []
     paths = [p for p in manifest["observed_paths"]
              if p["event"] == event and p["source"] == sample + "-ONT-tagged"]
     assert len(paths) == (8 if event == "OTUD7A--FMN1" else support)

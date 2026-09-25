@@ -216,7 +216,8 @@ def support(fragment):
 `pip install 'topiary[isovar]'`; only `fragments_from_variants` with an
 `alignment_file` needs it.
 
-The extra's Isovar floor is enforced at run time as well as at install time:
+The extra requires `isovar>=1.37,<2`, including the current RNA support record
+and export schemas. This range is enforced at run time as well as at install time:
 an older release can import cleanly and still return wrong evidence (1.17.x
 miscounts reads at insertion boundaries), so Topiary refuses it with an
 upgrade instruction. Upgrade with `pip install --upgrade 'topiary[isovar]'`.
