@@ -337,7 +337,11 @@ def test_table_rescoring_changes_only_the_explicit_dsl_policy(tmp_path):
 
 @pytest.mark.parametrize("wide", [False, True])
 @pytest.mark.parametrize("export_name", [None, "protein-v2", "protein-v2-labelled"])
-def test_isovar_comparison_import_keeps_default_candidates_and_calls_unchanged(tmp_path, wide, export_name):
+@pytest.mark.parametrize("repeated", [False, True])
+def test_isovar_comparison_import_keeps_default_candidates_and_calls_unchanged(
+    tmp_path, wide, export_name, repeated,
+):
+    from copy import deepcopy
     from topiary import combine_sources, protein_evidence_view, rank_candidates, read_isovar_hypotheses
     from topiary import fragments_from_dataframe, rescore_candidates
     from .test_candidate_tables import Model, source
@@ -345,6 +349,9 @@ def test_isovar_comparison_import_keeps_default_candidates_and_calls_unchanged(t
     from .test_twin_conformance import DELIMITED_IO_TWINS
 
     export = hypothesis_export(export_name)
+    if repeated:
+        translations = export["events"][0]["protein_hypotheses"][0]["translations"]
+        translations.extend(deepcopy(translations))
     export["events"][0]["filters"] = {"values": {"min_support": False}, "passes_all_filters": False}
     imported = read_isovar_hypotheses(export)
     with pytest.raises(ValueError, match="No sequence column found"):
@@ -413,6 +420,71 @@ def test_imported_isovar_rna_union_counts_shared_reads_once_after_reload(tmp_pat
             counts_only = provenance["events"][0]["protein_hypotheses"][0]["rna_support"]
             with pytest.raises(ValueError, match="without read identities"):
                 union_rna_support([counts_only])
+
+
+@pytest.mark.isovar
+def test_real_repeated_isovar_translations_survive_import_and_reload(tmp_path):
+    from collections import Counter
+    import json
+    from pathlib import Path
+
+    import isovar
+    import pysam
+    from varcode import Variant
+    from scripts.osteosarc_rna_overlay import POLICY
+    from scripts.osteosarc_variant_audit import digest, reference_genome
+    from topiary import combine_sources, normalize_isovar_rna_support
+    from .sid_data import sid_data_root
+    from .test_isovar_hypotheses import read_both
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    root = Path(__file__).parent / "data" / "isovar_repeats"
+    manifest = json.loads((root / "manifest.json").read_text())
+    assert digest(root / "recipe.json") == manifest["recipe_sha256"]
+    for name, checksum in manifest["files"].items():
+        assert digest(root / name) == checksum
+    original = sid_data_root("osteosarc_all_variants")
+    assert digest(original / "source/t2-all-variant-regions.bam") == manifest["source_sha256"]
+    genome = reference_genome(original, tmp_path / "reference")
+    variant = Variant("MT", 12994, "G", "A", ensembl=genome)
+    with pysam.AlignmentFile(root / "reads.bam") as bam:
+        upstream, = isovar.run_isovar(
+            [variant], bam, read_collector=isovar.ReadCollector(**POLICY),
+            protein_sequence_creator=isovar.ProteinSequenceCreator(
+                protein_context_peptide_length=25, variant_sequence_assembly=True,
+                max_protein_sequences_per_variant=0))
+        export = isovar.export_protein_hypotheses(
+            [upstream], sample_id="Sid-T2-UCLA-2025-01-06",
+            source="osteosarc-0.7.0-repeat-fixture", alignment_header=bam.header)
+    proteins = export["events"][0]["protein_hypotheses"]
+    counts = [Counter(t["translation_id"] for t in p["translations"]) for p in proteins]
+    assert sorted(n for c in counts for n in c.values() if n > 1) == [3, 3, 3]
+    expected_rows = sum(len(c) for c in counts)
+    raw_rows = sum(sum(c.values()) for c in counts)
+    repeated = next(p for p, c in zip(proteins, counts) if max(c.values()) > 1)
+
+    for imported in read_both(export, tmp_path):
+        assert len(imported.df) == expected_rows == raw_rows - 6
+        assert imported.df.hypothesis_id.nunique() == len(proteins)
+        assert imported.extra["isovar_hypotheses"] == export
+    combined = combine_sources({"rna": imported})
+    for wide in (False, True):
+        for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+            path = tmp_path / (f"real-rna-{wide}." + suffix)
+            method(combined.to_wide() if wide else combined, path)
+            restored = reader(path)
+            assert len(restored.long_df) == expected_rows
+            assert restored.long_df.candidate_id.isna().all()
+            saved = restored.extra["combined_sources"]["rna"]["extra"]["isovar_hypotheses"]
+            assert saved == export
+            selected = restored.filter_by(f"hypothesis_id == '{repeated['hypothesis_id']}'").long_df
+            assert len(selected) == 2
+            assert selected.translation_reads.tolist() == [685, 685]
+            assert selected.translation_fragments.tolist() == [419, 419]
+            support = isovar.union_rna_support([
+                normalize_isovar_rna_support(saved["evidence_sets"][key])
+                for key in selected.translation_evidence_set_id])
+            assert (support["reads"], support["fragments"]) == (685, 419)
 
 
 @pytest.mark.parametrize("wide", [False, True])

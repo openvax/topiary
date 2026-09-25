@@ -37,7 +37,7 @@
     "fixture_selection": {
       "original_alignment_url": "https://sid-sijbrandij-osteosarc-dataset.s3.us-west-2.amazonaws.com/genomics/genomics-bulk/2025.01.06/RNA/2025.01.06.rna.ucla-core/processed/STAR/25.03.23.rna.ucla.2025.01.resection.tcga.d32.protocolAligned.sorted.bam",
       "original_records": 16497,
-      "osteosarc_version": "0.1.1",
+      "osteosarc_version": "0.7.0",
       "regions": [
         [
           "chr1",

@@ -91,16 +91,23 @@ python -m scripts.osteosarc_test_data \
 
 # Generate the minimal corpus from pinned regional archives (first run fetches).
 # The recipe, including source hashes and requested loci, is checked in.
-python -m scripts.generate_sid_fixtures --output /path/to/new/sid-fixtures \
+python -m venv /tmp/osteosarc-fixtures
+/tmp/osteosarc-fixtures/bin/python -m pip install osteosarc==0.7.0
+/tmp/osteosarc-fixtures/bin/python -m scripts.generate_sid_fixtures --output /path/to/new/sid-fixtures \
   --cache-root /path/to/shared-openvax
 
 # Repeat without any acquisition after the original input objects are cached.
-python -m scripts.generate_sid_fixtures --output /path/to/new/reproduction \
+/tmp/osteosarc-fixtures/bin/python -m scripts.generate_sid_fixtures --output /path/to/new/reproduction \
   --cache-root /path/to/shared-openvax --offline
 
 # Regenerate derived fixtures offline into a NEW directory for comparison.
 PYTHONPATH=. python tests/data/osteosarc_shared/regenerate.py /path/to/new/derived
 ```
+
+The current corpus was regenerated with Osteosarc 0.7.0; read and reference
+bytes match the earlier corpus. The separate generator environment avoids the
+older Osteosarc runtime constraint in published Isovar until the coordinated
+dependency update tracked in [#399](https://github.com/openvax/topiary/issues/399).
 
 The default root is Osteosarc's `openvax` cache, overridable through
 `OPENVAX_DATA_CACHE` or an explicit `osteosarc.Cache(root)`. Objects use the

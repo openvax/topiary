@@ -73,8 +73,10 @@ def read_isovar_hypotheses(data, *, tag=None):
     Returns
     -------
     TopiaryResult
-        One comparison row per translation (one protein-only row when no
-        translations were exported). Every hypothesis, including lower-ranked
+        One comparison row per distinct translation identity within each
+        hypothesis (one protein-only row when no translations were exported).
+        Exact repeated records are coalesced; conflicting records sharing an
+        identity are rejected. Every hypothesis, including lower-ranked
         and filtered hypotheses, remains visible. ``isovar_rank`` records the
         producer's order and ``passes_all_filters`` its event-level outcome;
         neither field admits a row to prediction. No peptide, allele, score or
@@ -90,7 +92,8 @@ def read_isovar_hypotheses(data, *, tag=None):
 
         The complete, independently copied export is retained in
         ``extra['isovar_hypotheses']``, including reference contexts, edits,
-        filters, cap/completeness settings, empty events and evidence sets.
+        filters, cap/completeness settings, empty events, evidence sets and
+        original repeated translation records.
         Counts stay separate by protein and translation. To combine support,
         normalize legacy evidence sets with ``normalize_isovar_rna_support``
         before passing them to Isovar 1.37+'s ``union_rna_support``;
@@ -171,7 +174,7 @@ def read_isovar_hypotheses(data, *, tag=None):
                     passes_all_filters=passing, isovar_source=source,
                     **_support_columns(protein["rna_support"], "protein", export),
                 )
-                translation_ids = set()
+                translation_records = {}
                 stop = _flag(protein["ends_with_stop_codon"], "ends_with_stop_codon")
                 if not isinstance(protein["translations"], list):
                     raise ValueError("Isovar translations must be a list")
@@ -184,9 +187,15 @@ def read_isovar_hypotheses(data, *, tag=None):
                     identity = translation.get("translation_id")
                     if translations:
                         _named(identity, "translation_id")
-                        if identity in translation_ids:
-                            raise ValueError(f"Duplicate Isovar translation_id: {identity!r}")
-                        translation_ids.add(identity)
+                        # Compare the complete wire record, including metadata
+                        # not projected into columns. JSON keeps true distinct
+                        # from 1 and makes mapping key order irrelevant.
+                        record = json.dumps(translation, sort_keys=True, allow_nan=False)
+                        if identity in translation_records:
+                            if record != translation_records[identity]:
+                                raise ValueError(f"Conflicting Isovar translation_id: {identity!r}")
+                            continue
+                        translation_records[identity] = record
                         _named(translation["nucleotide_sequence_id"], "nucleotide_sequence_id")
                         nucleotide = _named(translation["nucleotide_sequence"], "nucleotide_sequence")
                         for field in ("translated_interval", "variant_cdna_interval"):
