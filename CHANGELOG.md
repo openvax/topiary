@@ -8,6 +8,9 @@
   `osteosarc_version` (0.1.1 to 0.7.0) and the manifest hashes covering it
   changed. The bundled fixture export and offline verification also pass on
   0.7.0.
+- CI tests the Isovar integration against Isovar 1.37.3, the first release
+  that accepts osteosarc 0.7, and the Vaxrank candidate workflow against its
+  osteosarc 0.7 migration (openvax/vaxrank#521).
 
 ## 5.71.3
 
