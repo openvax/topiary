@@ -85,3 +85,11 @@ def test_normalization_preserves_empty_sets_and_unknown_measurements():
     assert result == empty
     result["read_ids"].append("modified")
     assert empty["read_ids"] == []
+
+
+@pytest.mark.parametrize("scope", [None, [], ["sample"], ["sample", ""], [1, "source"]])
+def test_normalization_rejects_an_explicit_unusable_scope(scope):
+    support = support_record()
+    support["evidence_scope"] = scope
+    with pytest.raises(ValueError, match="evidence_scope"):
+        normalize_isovar_rna_support(support)

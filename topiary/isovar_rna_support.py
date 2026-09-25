@@ -50,6 +50,11 @@ def normalize_isovar_rna_support(support, *, evidence_sets=None, evidence_scope=
     if not isinstance(support, Mapping):
         raise ValueError("Isovar RNA support must be a mapping")
     result = deepcopy(dict(support))
+    if "evidence_scope" in result:
+        scope = result["evidence_scope"]
+        if (not isinstance(scope, list) or len(scope) != 2
+                or any(not isinstance(part, str) or not part.strip() for part in scope)):
+            raise ValueError("Isovar evidence_scope requires [sample_id, source]")
     for old, new in (("segments", "reads"), ("segment_ids", "read_ids")):
         if old in result:
             if new in result and result[new] != result[old]:
