@@ -30,7 +30,7 @@ def _named(value, field):
 
 def _support_columns(support, prefix, export):
     """Project one wire-format measurement, checking its evidence reference."""
-    support = support or {}
+    support = {} if support is None else support
     if not isinstance(support, dict):
         raise ValueError("Isovar RNA support must be a mapping")
     for unit in ("segments", "fragments"):
@@ -43,14 +43,32 @@ def _support_columns(support, prefix, export):
         if key not in sets:
             raise ValueError(f"Unknown Isovar evidence_set_id: {key!r}")
         evidence = sets[key]
+        if not isinstance(evidence, dict):
+            raise ValueError(f"Isovar evidence set must be a mapping: {key!r}")
         if evidence.get("evidence_set_id") != key or evidence.get("evidence_scope") != export["evidence_scope"]:
             raise ValueError(f"Inconsistent Isovar evidence identity or scope: {key!r}")
         for unit in ("segments", "fragments"):
             identities = evidence.get("segment_ids" if unit == "segments" else "fragment_ids")
             if (not isinstance(identities, list) or any(not isinstance(i, str) for i in identities)
+                    or type(evidence.get(unit)) is not int
                     or len(set(identities)) != evidence.get(unit) or support.get(unit) != evidence.get(unit)):
                 raise ValueError(f"Inconsistent Isovar {unit} count for {key!r}")
     return {f"{prefix}_{field}": support.get(field) for field in ("segments", "fragments", "evidence_set_id")}
+
+
+def _interval(value, field, length):
+    """Validate a required half-open interval in the exchange format."""
+    if (not isinstance(value, list) or len(value) != 2
+            or any(type(i) is not int for i in value) or not 0 <= value[0] <= value[1] <= length):
+        raise ValueError(f"Invalid Isovar {field}")
+    return value
+
+
+def _flag(value, field):
+    """Preserve unknown wire-format flags without accepting truthy strings."""
+    if value is not None and type(value) is not bool:
+        raise ValueError(f"Isovar {field} must be boolean or null")
+    return value
 
 
 def read_isovar_hypotheses(data, *, tag=None):
@@ -134,7 +152,11 @@ def read_isovar_hypotheses(data, *, tag=None):
             if event_id in event_ids:
                 raise ValueError(f"Duplicate Isovar event_id: {event_id!r}")
             event_ids.add(event_id)
+            complete = _flag(event["protein_hypotheses_complete"], "protein_hypotheses_complete")
+            passing = _flag(event["filters"]["passes_all_filters"], "passes_all_filters")
             hypothesis_ids = set()
+            if not isinstance(event["protein_hypotheses"], list):
+                raise ValueError("Isovar protein_hypotheses must be a list")
             for protein in event["protein_hypotheses"]:
                 hypothesis_id = _named(protein["hypothesis_id"], "hypothesis_id")
                 if hypothesis_id in hypothesis_ids:
@@ -144,42 +166,46 @@ def read_isovar_hypotheses(data, *, tag=None):
                 rank = protein["isovar_rank"]
                 if type(rank) is not int or rank < 1:
                     raise ValueError("Isovar rank must be a positive integer")
-                interval = protein["mutation_interval"]
-                if (not isinstance(interval, list) or len(interval) != 2
-                        or any(type(i) is not int for i in interval) or not 0 <= interval[0] <= interval[1] <= len(sequence)):
-                    raise ValueError("Invalid Isovar mutation_interval")
+                interval = _interval(protein["mutation_interval"], "mutation_interval", len(sequence))
                 common = dict(
                     sample_name=sample, event_id=event_id, hypothesis_id=hypothesis_id,
                     isovar_protein_sequence_id=_named(protein["protein_sequence_id"], "protein_sequence_id"),
                     protein_hypothesis_sequence=sequence, isovar_rank=rank,
-                    representative=protein["representative"], n_terminus=protein["n_terminus"],
+                    representative=_flag(protein["representative"], "representative"), n_terminus=protein["n_terminus"],
                     c_terminus=protein["c_terminus"], mutation_start=interval[0], mutation_end=interval[1],
-                    protein_hypotheses_complete=event["protein_hypotheses_complete"],
+                    protein_hypotheses_complete=complete,
                     protein_sequence_limit=event["protein_sequence_limit"],
-                    passes_all_filters=event["filters"]["passes_all_filters"], isovar_source=source,
+                    passes_all_filters=passing, isovar_source=source,
                     **_support_columns(protein["rna_support"], "protein", export),
                 )
                 translation_ids = set()
+                stop = _flag(protein["ends_with_stop_codon"], "ends_with_stop_codon")
                 if not isinstance(protein["translations"], list):
                     raise ValueError("Isovar translations must be a list")
-                for translation in protein["translations"] or [None]:
-                    translation = translation or {}
-                    if not isinstance(translation, dict):
-                        raise ValueError("Isovar translation must be a mapping")
+                # Only an empty list represents a protein-only hypothesis.
+                # A malformed element must never become an anonymous row.
+                translations = protein["translations"]
+                for translation in translations or [{}]:
+                    if not isinstance(translation, dict) or (translations and not translation):
+                        raise ValueError("Isovar translation must be a nonempty mapping")
                     identity = translation.get("translation_id")
-                    if translation:
+                    if translations:
                         _named(identity, "translation_id")
                         if identity in translation_ids:
                             raise ValueError(f"Duplicate Isovar translation_id: {identity!r}")
                         translation_ids.add(identity)
-                    complete = (translation.get("starts_at_annotated_start_codon") is True
-                                and protein["c_terminus"] == "stop_codon"
-                                and protein["ends_with_stop_codon"] is True)
+                        _named(translation["nucleotide_sequence_id"], "nucleotide_sequence_id")
+                        nucleotide = _named(translation["nucleotide_sequence"], "nucleotide_sequence")
+                        for field in ("translated_interval", "variant_cdna_interval"):
+                            _interval(translation[field], field, len(nucleotide))
+                        _flag(translation["starts_at_annotated_start_codon"], "starts_at_annotated_start_codon")
+                    full_protein = (translation.get("starts_at_annotated_start_codon") is True
+                                    and protein["c_terminus"] == "stop_codon" and stop is True)
                     rows.append(dict(
                         common, translation_id=identity,
                         nucleotide_sequence_id=translation.get("nucleotide_sequence_id"),
                         nucleotide_sequence=translation.get("nucleotide_sequence"),
-                        protein_sequence=sequence if complete else None,
+                        protein_sequence=sequence if full_protein else None,
                         **_support_columns(translation.get("rna_support"), "translation", export),
                     ))
     except (KeyError, TypeError) as error:

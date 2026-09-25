@@ -96,14 +96,15 @@ TWINS = (
 )
 
 
-# Both file formats expose a function and a result method. Drive all four
-# through the same metadata validation and write/read battery in test_io.py.
+# Drive both input forms through the same hypothesis validation battery.
 ISOVAR_HYPOTHESIS_INPUT_TWINS = (
     ("mapping", lambda export, path: read_isovar_hypotheses(export, tag="hypotheses")),
     ("json", lambda export, path: read_isovar_hypotheses(path, tag="hypotheses")),
 )
 
 
+# Both file formats expose a function and a result method. Drive all four
+# through the same metadata validation and write/read battery in test_io.py.
 DELIMITED_IO_TWINS = (
     ("tsv", to_tsv, TopiaryResult.to_tsv, read_tsv),
     ("csv", to_csv, TopiaryResult.to_csv, read_csv),

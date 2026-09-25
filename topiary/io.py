@@ -20,6 +20,11 @@ a known empty sequence and ``<NA>`` is missing context. Literal ``<NA>`` and
 strings starting with a backslash are escaped with one leading backslash.
 Readers of unmarked legacy files keep the original pandas NA interpretation;
 their blank cells cannot establish known termini.
+
+Other columns containing only strings and missing values use the same cell
+encoding, declared by ``#topiary_text_encoding`` with its version and column
+names. This preserves identifiers such as ``001`` and literal sequence text
+such as ``NA`` without changing numeric measurement columns.
 """
 
 import ast
@@ -38,9 +43,10 @@ _JSON_EXTRA_PREFIX = "json:"
 _SCALAR_METADATA_KEYS = frozenset((
     "topiary_version", "form", "filter_by", "sort_by", "topiary_flank_encoding",
 ))
-_FLANK_ENCODING = "escaped-v1"
+_STRUCTURED_METADATA_KEYS = frozenset(("topiary_text_encoding",))
+_TEXT_ENCODING = "escaped-v1"
 _FLANK_COLUMNS = ("n_flank", "c_flank")
-_MISSING_FLANK = "<NA>"
+_MISSING_TEXT = "<NA>"
 
 
 @dataclass
@@ -49,7 +55,8 @@ class Metadata:
 
     ``extra`` holds custom comment keys. Writers reject top-level keys used
     by built-in metadata (``topiary_version``, ``form``, ``source``,
-    ``filter_by``, ``sort_by``, ``topiary_flank_encoding``, and the ``model:``
+    ``filter_by``, ``sort_by``, ``topiary_flank_encoding``,
+    ``topiary_text_encoding``, and the ``model:``
     prefix). Nest such names under a custom key when they describe a dataset
     rather than this result.
     Keys must be nonempty strings without surrounding whitespace, line breaks
@@ -60,6 +67,8 @@ class Metadata:
     ``topiary_flank_encoding`` records the file's representation of empty versus
     missing flank sequences. Writers derive it from the columns being written;
     readers decode it into the cells rather than carrying it as result metadata.
+    ``topiary_text_encoding`` does the same for other literal text columns,
+    recording a mapping with ``version`` and ``columns``.
     """
 
     topiary_version: str = None
@@ -70,6 +79,7 @@ class Metadata:
     sort_by: str = None
     extra: dict = dataclass_field(default_factory=OrderedDict)
     topiary_flank_encoding: str = None
+    topiary_text_encoding: dict = None
 
 
 # -- Comment block parsing / formatting ------------------------------------
@@ -96,6 +106,8 @@ def _parse_comment_block(lines):
 
         if key in _SCALAR_METADATA_KEYS:
             setattr(meta, key, value)
+        elif key in _STRUCTURED_METADATA_KEYS:
+            setattr(meta, key, _parse_extra_value(key, value))
         elif key == "source":
             meta.sources.append(value)
         elif key.startswith("model:"):
@@ -139,13 +151,15 @@ def _format_comment_block(meta):
         lines.append(f"#sort_by={meta.sort_by}")
     if meta.topiary_flank_encoding:
         lines.append(f"#topiary_flank_encoding={meta.topiary_flank_encoding}")
+    if meta.topiary_text_encoding:
+        lines.append(f"#topiary_text_encoding={_format_extra_value(meta.topiary_text_encoding)}")
     for key, value in meta.extra.items():
         if (not isinstance(key, str) or not key or key != key.strip()
                 or any(c in key for c in "=\r\n")):
             raise ValueError(
                 f"Metadata.extra key {key!r} must be a nonempty string without "
                 "surrounding whitespace, line breaks or '='")
-        if key in _SCALAR_METADATA_KEYS or key == "source" or key.startswith("model:"):
+        if key in _SCALAR_METADATA_KEYS | _STRUCTURED_METADATA_KEYS or key == "source" or key.startswith("model:"):
             raise ValueError(
                 f"Metadata.extra key {key!r} is reserved for built-in metadata; "
                 "set the corresponding metadata field or nest it under a custom extra key")
@@ -308,15 +322,29 @@ def _fill_missing_model_versions(models, *fallbacks):
 # -- Read ------------------------------------------------------------------
 
 
-def _decode_flank(value):
-    """Decode one cell in the explicitly marked flank wire format."""
-    if value == _MISSING_FLANK:
+def _decode_text(value, *, label="text"):
+    """Decode one cell in the explicitly marked nullable text wire format."""
+    if value == _MISSING_TEXT:
         return None
-    if value == "\\" + _MISSING_FLANK or value.startswith("\\\\"):
+    if value == "\\" + _MISSING_TEXT or value.startswith("\\\\"):
         return value[1:]
     if value.startswith("\\"):
-        raise ValueError(f"Invalid escaped flank cell: {value!r}")
+        raise ValueError(f"Invalid escaped {label} cell: {value!r}")
     return value
+
+
+def _text_columns(encoding):
+    """Validate the file-only declaration before applying its cell decoder."""
+    if encoding is None:
+        return []
+    if (not isinstance(encoding, dict) or set(encoding) != {"version", "columns"}
+            or encoding["version"] != _TEXT_ENCODING):
+        raise ValueError(f"Unsupported text encoding: {encoding!r}")
+    columns = encoding["columns"]
+    if (not isinstance(columns, list) or any(not isinstance(c, str) for c in columns)
+            or len(set(columns)) != len(columns)):
+        raise ValueError("Text encoding columns must be distinct strings")
+    return columns
 
 
 def _read_delimited(path, sep, tag=None):
@@ -328,8 +356,9 @@ def _read_delimited(path, sep, tag=None):
         all_lines = f.readlines()
 
     meta, n_comment = _parse_comment_block(all_lines)
-    if meta.topiary_flank_encoding not in (None, _FLANK_ENCODING):
+    if meta.topiary_flank_encoding not in (None, _TEXT_ENCODING):
         raise ValueError(f"Unsupported flank encoding: {meta.topiary_flank_encoding!r}")
+    text_columns = _text_columns(meta.topiary_text_encoding)
 
     data_text = "".join(all_lines[n_comment:])
     if not data_text.strip():
@@ -339,17 +368,23 @@ def _read_delimited(path, sep, tag=None):
         # "1.10" into 1.1 before the wide decoder can match model identities.
         # Keep measurement and annotation columns under normal numeric inference.
         columns = pd.read_csv(StringIO(data_text), sep=sep, nrows=0).columns
+        if set(text_columns) - set(columns):
+            raise ValueError("Text encoding names columns absent from the file")
         version_types = {}
         for column in columns:
             parsed = _parse_wide_column(column)
             if (column == "predictor_version" or column.endswith("_predictor_version")
                     or (parsed is not None and parsed[2] == "wt_version")):
                 version_types[column] = str
-        # A converter bypasses pandas' NA inference for just the flank columns:
-        # "" is known terminal context, and "NA" can be a real sequence.
-        converters = {column: _decode_flank for column in _FLANK_COLUMNS if column in columns}
+        # Explicitly marked strings bypass numeric and NA inference. Missing
+        # cells use a sentinel, so literal "NA" and empty strings stay text.
+        converters = {column: _decode_text for column in text_columns}
+        if meta.topiary_flank_encoding:
+            converters.update({column: lambda value: _decode_text(value, label="flank")
+                               for column in _FLANK_COLUMNS if column in columns})
+        version_types = {key: value for key, value in version_types.items() if key not in converters}
         df = pd.read_csv(StringIO(data_text), sep=sep, dtype=version_types,
-                         converters=converters if meta.topiary_flank_encoding else None)
+                         converters=converters)
 
     # Record source (tag overrides filename).
     source_label = tag if tag is not None else path.name
@@ -369,6 +404,8 @@ def read_tsv(path, tag=None):
     Decode explicitly marked flank columns so empty strings remain known
     termini and missing cells remain unknown. Legacy unmarked blank cells
     retain their missing-value interpretation.
+    Marked text columns preserve literal identifiers and sequences without
+    numeric or missing-value inference.
 
     Parameters
     ----------
@@ -390,6 +427,8 @@ def read_csv(path, tag=None):
     Decode explicitly marked flank columns so empty strings remain known
     termini and missing cells remain unknown. Legacy unmarked blank cells
     retain their missing-value interpretation.
+    Marked text columns preserve literal identifiers and sequences without
+    numeric or missing-value inference.
 
     Parameters
     ----------
@@ -407,13 +446,13 @@ def read_csv(path, tag=None):
 # -- Write -----------------------------------------------------------------
 
 
-def _encode_flank(value):
-    """Keep sequence text readable while distinguishing missing flank cells."""
+def _encode_text(value, *, label="Text"):
+    """Keep text readable while distinguishing missing cells."""
     if isinstance(value, str):
-        return "\\" + value if value == _MISSING_FLANK or value.startswith("\\") else value
+        return "\\" + value if value == _MISSING_TEXT or value.startswith("\\") else value
     if pd.api.types.is_scalar(value) and pd.isna(value):
-        return _MISSING_FLANK
-    raise TypeError(f"Flank cells must be strings or missing, got {value!r}")
+        return _MISSING_TEXT
+    raise TypeError(f"{label} cells must be strings or missing, got {value!r}")
 
 
 def _write_delimited(df, path, sep, metadata, index):
@@ -458,15 +497,25 @@ def _write_delimited(df, path, sep, metadata, index):
         metadata.extra["topiary_model_keys"] = normalize_python_types(model_keys)
 
     flank_columns = [column for column in _FLANK_COLUMNS if column in df.columns]
-    if flank_columns:
+    text_columns = []
+    for column in df.columns:
+        if isinstance(column, str) and column not in flank_columns:
+            stated = df[column].dropna()
+            if len(stated) and stated.map(lambda value: isinstance(value, str)).all():
+                text_columns.append(column)
+    if flank_columns or text_columns:
         df = df.copy()
         for column in flank_columns:
             # Encode every cell, including missing categorical values, rather
             # than relying on an extension array's category-level mapping.
-            df[column] = df[column].astype(object).map(_encode_flank)
+            df[column] = df[column].astype(object).map(lambda value: _encode_text(value, label="Flank"))
+        for column in text_columns:
+            df[column] = df[column].astype(object).map(_encode_text)
     # The flag describes this particular file, not the source result. Derive
     # it anew on every write, including after columns/rows have been removed.
-    file_metadata = replace(metadata, topiary_flank_encoding=_FLANK_ENCODING if flank_columns else None)
+    file_metadata = replace(
+        metadata, topiary_flank_encoding=_TEXT_ENCODING if flank_columns else None,
+        topiary_text_encoding=dict(version=_TEXT_ENCODING, columns=text_columns) if text_columns else None)
     comment_block = _format_comment_block(file_metadata)
 
     with open(path, "w") as f:
