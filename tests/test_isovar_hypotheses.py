@@ -119,7 +119,7 @@ def test_missing_translation_or_read_id_never_fabricates_identity(tmp_path):
     ("schema", "Expected isovar.protein_hypotheses.v1"),
     ("interval", "zero_based_half_open"), ("scope", "evidence_scope"),
     ("event", "Duplicate Isovar event"), ("hypothesis", "Duplicate Isovar hypothesis"),
-    ("translation", "Duplicate Isovar translation"), ("rank", "positive integer"),
+    ("translation", "Conflicting Isovar translation"), ("rank", "positive integer"),
     ("mutation", "mutation_interval"), ("reference", "Unknown Isovar evidence_set_id"),
     ("evidence_scope", "identity or scope"), ("count", "count"),
 ])
@@ -138,7 +138,9 @@ def test_reader_twins_refuse_ambiguous_or_inconsistent_exports(tmp_path, fault, 
     elif fault == "hypothesis":
         event["protein_hypotheses"].append(deepcopy(protein))
     elif fault == "translation":
-        protein["translations"].append(deepcopy(protein["translations"][0]))
+        conflicting = deepcopy(protein["translations"][0])
+        conflicting["nucleotide_sequence"] += "A"
+        protein["translations"].append(conflicting)
     elif fault == "rank":
         protein["isovar_rank"] = True
     elif fault == "mutation":
@@ -169,6 +171,51 @@ def test_reader_does_not_import_isovar_or_invoke_reconstruction(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", guard)
     assert len(read_isovar_hypotheses(FIXTURE)) == 4
+
+
+@pytest.mark.parametrize("name", [None, "protein-v2", "protein-v2-labelled"])
+def test_reader_twins_coalesce_exact_repeats_without_changing_support(tmp_path, name):
+    export = hypothesis_export(name)
+    expected = read_isovar_hypotheses(export).df
+    proteins = export["events"][0]["protein_hypotheses"]
+    translations = proteins[0]["translations"]
+    # Nonadjacent repeats, with a different mapping insertion order, still
+    # represent the same records. The synonymous distinct ID must survive.
+    translations.extend(dict(reversed(list(deepcopy(t).items()))) for t in translations[:])
+    translations.append(deepcopy(translations[0]))
+    original = deepcopy(export)
+    for result in read_both(export, tmp_path):
+        pd.testing.assert_frame_equal(result.df, expected)
+        assert result.df.translation_id.nunique() == 4
+        assert result.extra["isovar_hypotheses"] == original
+        assert len(result.extra["isovar_hypotheses"]["events"][0]
+                   ["protein_hypotheses"][0]["translations"]) == 5
+    assert export == original
+
+
+@pytest.mark.parametrize("name", [None, "protein-v2", "protein-v2-labelled"])
+@pytest.mark.parametrize("field", ["sequence", "support", "reference", "edits", "flag_type"])
+def test_reader_twins_reject_conflicts_in_entire_repeated_record(tmp_path, name, field):
+    export = hypothesis_export(name)
+    translations = export["events"][0]["protein_hypotheses"][0]["translations"]
+    conflict = deepcopy(translations[0])
+    if field == "sequence":
+        conflict["nucleotide_sequence"] += "A"
+    elif field == "support":
+        conflict["rna_support"]["fragments"] += 1
+    elif field == "reference":
+        conflict["reference_context"]["transcript_names"] = ["different"]
+    elif field == "edits":
+        conflict["observed_edits"].append({"origin": "unexplained"})
+    else:
+        # Python mapping equality alone considers these values equal.
+        conflict["starts_at_annotated_start_codon"] = int(conflict["starts_at_annotated_start_codon"])
+    translations.append(conflict)
+    path = tmp_path / "conflict.json"
+    path.write_text(json.dumps(export))
+    for _, reader in ISOVAR_HYPOTHESIS_INPUT_TWINS:
+        with pytest.raises(ValueError, match="Conflicting Isovar translation_id"):
+            reader(export, path)
 
 
 @pytest.mark.parametrize("count", [-1, 1.5, True])

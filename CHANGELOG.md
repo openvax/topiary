@@ -1,5 +1,19 @@
 # Changelog
 
+## 5.71.3
+
+- Coalesce identical repeated Isovar translation records without multiplying
+  comparison rows or RNA support. Reject conflicting records with the same
+  translation ID and preserve the original export in provenance (#397).
+- Regenerate the Sid regression corpus with Osteosarc 0.7.0, retaining the
+  original read and reference bytes.
+
+## 5.71.2
+
+- Accept current Isovar protein and SV export versions, preserving RNA read,
+  UMI, cell and label-completeness measurements without changing default
+  candidate selection (#398).
+
 ## 5.71.1
 
 - Reject malformed Isovar translation entries, missing nucleotide identities
