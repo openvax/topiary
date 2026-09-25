@@ -467,6 +467,7 @@ Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use
 | `read_lens(path, binding_metrics=None)` | LENS report (v1.4 / v1.5.1 / v1.9) | `TopiaryResult` (wide form) |
 | `read_pvacseq(path)` | pVACseq aggregated or `all_epitopes` TSV (MHC-I or MHC-II) | `TopiaryResult` (long form) |
 | `read_isovar_hypotheses(data, tag=None)` | Isovar hypothesis JSON export or mapping | `TopiaryResult` of comparison observations; no generated candidates |
+| `normalize_isovar_rna_support(support, evidence_sets=None, evidence_scope=None)` | Legacy or current Isovar RNA support mapping | Validated copy with canonical read fields, optional label counts/completeness, and preserved provenance |
 | `melt_pvacseq_algorithms(result)` | Loaded pVACseq `all_epitopes` result | `TopiaryResult` with one row per (peptide, allele, algorithm) |
 | `parse_prediction_metric(model_name, metric_name)` | External predictor and metric labels | `PredictionMetric(method, kind, field, sequence)` or `None` when ambiguous |
 | `derive_mhc_class(allele_series)` | Allele Series (mhcgnomes-normalized or raw) | Series of `"I"` / `"II"` / `pd.NA` |

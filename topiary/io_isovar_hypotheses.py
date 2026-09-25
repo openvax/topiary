@@ -8,9 +8,11 @@ from pathlib import Path
 import pandas as pd
 
 from .result import TopiaryResult
+from .isovar_rna_support import normalize_isovar_rna_support, RNA_SUPPORT_COUNTS, RNA_SUPPORT_FLAGS
 
 
-_SCHEMA = "isovar.protein_hypotheses.v1"
+_SCHEMAS = ("isovar.protein_hypotheses.v1", "isovar.protein_hypotheses.v2")
+_SUPPORT_FIELDS = (*RNA_SUPPORT_COUNTS, *RNA_SUPPORT_FLAGS, "evidence_set_id")
 _COLUMNS = (
     "sample_name", "event_id", "hypothesis_id", "translation_id",
     "isovar_protein_sequence_id", "nucleotide_sequence_id", "nucleotide_sequence",
@@ -19,6 +21,8 @@ _COLUMNS = (
     "protein_hypotheses_complete", "protein_sequence_limit", "passes_all_filters",
     "isovar_source", "protein_segments", "protein_fragments", "protein_evidence_set_id",
     "translation_segments", "translation_fragments", "translation_evidence_set_id",
+    *(f"{prefix}_{field}" for prefix in ("protein", "translation")
+      for field in _SUPPORT_FIELDS if field not in ("fragments", "evidence_set_id")),
 )
 
 
@@ -30,30 +34,10 @@ def _named(value, field):
 
 def _support_columns(support, prefix, export):
     """Project one wire-format measurement, checking its evidence reference."""
-    support = {} if support is None else support
-    if not isinstance(support, dict):
-        raise ValueError("Isovar RNA support must be a mapping")
-    for unit in ("segments", "fragments"):
-        count = support.get(unit)
-        if count is not None and (type(count) is not int or count < 0):
-            raise ValueError(f"Isovar {unit} count must be a nonnegative integer or null")
-    key = support.get("evidence_set_id")
-    if key is not None:
-        sets = export["evidence_sets"]
-        if key not in sets:
-            raise ValueError(f"Unknown Isovar evidence_set_id: {key!r}")
-        evidence = sets[key]
-        if not isinstance(evidence, dict):
-            raise ValueError(f"Isovar evidence set must be a mapping: {key!r}")
-        if evidence.get("evidence_set_id") != key or evidence.get("evidence_scope") != export["evidence_scope"]:
-            raise ValueError(f"Inconsistent Isovar evidence identity or scope: {key!r}")
-        for unit in ("segments", "fragments"):
-            identities = evidence.get("segment_ids" if unit == "segments" else "fragment_ids")
-            if (not isinstance(identities, list) or any(not isinstance(i, str) for i in identities)
-                    or type(evidence.get(unit)) is not int
-                    or len(set(identities)) != evidence.get(unit) or support.get(unit) != evidence.get(unit)):
-                raise ValueError(f"Inconsistent Isovar {unit} count for {key!r}")
-    return {f"{prefix}_{field}": support.get(field) for field in ("segments", "fragments", "evidence_set_id")}
+    support = normalize_isovar_rna_support(
+        support, evidence_sets=export["evidence_sets"], evidence_scope=export["evidence_scope"])
+    return {f"{prefix}_{field}": support.get(field) for field in _SUPPORT_FIELDS} | {
+        f"{prefix}_segments": support["reads"]}  # Retain the v1 reader's column alias.
 
 
 def _interval(value, field, length):
@@ -77,7 +61,7 @@ def read_isovar_hypotheses(data, *, tag=None):
     Parameters
     ----------
     data : str, pathlib.Path or mapping
-        Path to an ``isovar.protein_hypotheses.v1`` JSON export, or the mapping
+        Path to an ``isovar.protein_hypotheses.v1`` or ``v2`` JSON export, or the mapping
         returned by ``isovar.export_protein_hypotheses``. Use the JSON export:
         its companion TSV omits evidence sets and other required provenance.
         An export with no hypotheses returns an empty table with the same
@@ -108,9 +92,14 @@ def read_isovar_hypotheses(data, *, tag=None):
         ``extra['isovar_hypotheses']``, including reference contexts, edits,
         filters, cap/completeness settings, empty events and evidence sets.
         Counts stay separate by protein and translation. To combine support,
-        pass the referenced evidence sets to ``isovar.union_rna_support``;
+        normalize legacy evidence sets with ``normalize_isovar_rna_support``
+        before passing them to Isovar 1.37+'s ``union_rna_support``;
         adding counts would double-count shared reads. Missing evidence IDs
         stay missing. Read/fragment counts are not expression or molecule counts.
+        Both versions populate ``protein_reads`` and ``translation_reads``;
+        the older ``*_segments`` columns remain aliases. Optional ``*_umis``,
+        ``*_cells`` and ``*_complete`` fields retain unknown versus measured
+        values. Label-resolution details remain in the original export.
 
     Raises
     ------
@@ -135,8 +124,8 @@ def read_isovar_hypotheses(data, *, tag=None):
         with path.open(encoding="utf-8") as handle:
             export = json.load(handle)
         label = path.name
-    if not isinstance(export, dict) or export.get("schema") != _SCHEMA:
-        raise ValueError(f"Expected {_SCHEMA} JSON export")
+    if not isinstance(export, dict) or export.get("schema") not in _SCHEMAS:
+        raise ValueError("Expected isovar.protein_hypotheses.v1 or v2 JSON export")
     if export.get("interval_convention") != "zero_based_half_open":
         raise ValueError("Isovar export requires zero_based_half_open intervals")
     sample = _named(export.get("sample_id"), "sample_id")
@@ -152,6 +141,10 @@ def read_isovar_hypotheses(data, *, tag=None):
             if event_id in event_ids:
                 raise ValueError(f"Duplicate Isovar event_id: {event_id!r}")
             event_ids.add(event_id)
+            for allele in ("ref", "alt", "other", "total"):
+                normalize_isovar_rna_support(event.get("allele_support", {}).get(allele),
+                                            evidence_sets=export["evidence_sets"],
+                                            evidence_scope=export["evidence_scope"])
             complete = _flag(event["protein_hypotheses_complete"], "protein_hypotheses_complete")
             passing = _flag(event["filters"]["passes_all_filters"], "passes_all_filters")
             hypothesis_ids = set()

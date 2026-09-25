@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import json
+from pathlib import Path
 
 import pytest
 
@@ -103,3 +104,51 @@ def test_annotated_frame_never_substitutes_junction_count_for_full_orf_support(t
     assert row["full_orf_templates"] is None and row["rna_support_rank_within_source"] is None
     assert not row["complete"]
     write_sv_interest_report(report, tmp_path / "annotated")
+
+
+def test_published_current_exports_keep_labels_lineage_and_annotated_frames(tmp_path):
+    root = Path(__file__).parent / "data" / "isovar_exports"
+    orfs = json.loads((root / "orfs-v4.json").read_text())
+    comparison = json.loads((root / "comparison-v3.json").read_text())
+    cat = dict(targets={orfs["event_id"]: {}, comparison["event_id"]: {}})
+    before = deepcopy(orfs)
+    report = build_sv_interest_report(cat, [orfs, deepcopy(orfs)], comparisons=[comparison])
+    assert orfs == before
+    rows = {r["kind"]: r for r in report["protein_hypotheses"]}
+    orf = rows["exploratory_orf"]
+    assert orf["full_orf_templates"] == 1
+    observation, = orf["source_observations"]
+    assert observation["candidate"] == orfs["candidates"][0]
+    support = observation["rna_support"]
+    assert (support["reads"], support["fragments"], support["umis"], support["cells"]) == (1, 1, 1, 1)
+    assert support["umis_complete"] is support["cells_complete"] is True
+    assert support["read_lineage"] == orfs["candidates"][0]["rna_support"]["read_lineage"]
+    assert orf["translation_observed"] is False
+    annotated = rows["annotated_frame"]
+    assert annotated["evidence_priority"] == 10
+    assert annotated["full_orf_templates"] is None
+    paths = write_sv_interest_report(report, tmp_path / "current")
+    assert json.loads(paths["json"].read_text()) == json.loads(json.dumps(report))
+
+
+@pytest.mark.parametrize("schema", ["isovar.sv_rna_orfs.v1", "isovar.sv_rna_orfs.v2",
+                                    "isovar.sv_rna_orfs.v3", "isovar.sv_rna_orfs.v4"])
+def test_orf_versions_keep_the_same_evidence_priority(schema):
+    value = export()
+    value["schema"] = schema
+    if schema.endswith(("v3", "v4")):
+        value["candidates"][0]["rna_support"]["evidence_scope"] = [value["sample_id"], value["source"]]
+    row, = build_sv_interest_report(catalogue(), [value])["protein_hypotheses"]
+    assert row["evidence_priority"] == 30 and row["full_orf_templates"] == 2
+
+
+@pytest.mark.parametrize("schema", ["isovar.sv_rna_prediction_comparison.v1",
+                                    "isovar.sv_rna_prediction_comparison.v2",
+                                    "isovar.sv_rna_prediction_comparison.v3"])
+def test_comparison_versions_keep_annotated_frame_support_unknown(schema):
+    root = Path(__file__).parent / "data" / "isovar_exports"
+    comparison = json.loads((root / "comparison-v3.json").read_text())
+    comparison["schema"] = schema
+    row, = build_sv_interest_report(dict(targets={comparison["event_id"]: {}}),
+                                   comparisons=[comparison])["protein_hypotheses"]
+    assert row["evidence_priority"] == 10 and row["full_orf_templates"] is None

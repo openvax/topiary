@@ -1,0 +1,74 @@
+{
+  "schema": "isovar.sv_rna_prediction_comparison.v3",
+  "event_id": "event",
+  "reference_name": "test",
+  "sample_id": "sample",
+  "rna_source": "reads.bam",
+  "predictions": {
+    "event_id": "event",
+    "reference_name": "test",
+    "source": {
+      "caller": "varcode",
+      "version": "9.4.2"
+    },
+    "predictions": [
+      {
+        "prediction_id": "model",
+        "amino_acids": "MMAKM",
+        "complete": true
+      }
+    ]
+  },
+  "hypotheses": [
+    {
+      "kind": "annotated_frame",
+      "amino_acids": "MAK",
+      "nucleotide_sequence": "ATGGCTAAA",
+      "complete_candidate": false,
+      "initiation_observed": false,
+      "translation_observed": false,
+      "paths": {
+        "p": {
+          "linkage": "breakpoint_junction",
+          "query_interval": [
+            0,
+            9
+          ],
+          "candidate": {
+            "amino_acids": "MAK",
+            "translation_start": 0,
+            "translation_end": 9,
+            "ends_with_stop_codon": false,
+            "frame_evidence": [
+              {
+                "complete_5prime": false
+              }
+            ],
+            "departure_relations": [
+              "breakpoint_junction"
+            ]
+          }
+        }
+      },
+      "full_interval_fragments": null,
+      "comparisons": [
+        {
+          "prediction_id": "model",
+          "status": "rna_fragment_matches_prediction",
+          "intervals": [
+            [
+              1,
+              4
+            ]
+          ],
+          "scope": "partial_or_unknown"
+        }
+      ],
+      "hypothesis_id": "6d1a73fa02b70d8529422a7e60eb972d5afbe14e8dd578c63f0e31660c85f28e"
+    }
+  ],
+  "reconstruction_limitations": [],
+  "status": "sequence_comparisons",
+  "translation_observed": false,
+  "somatic_causation_proven": false
+}

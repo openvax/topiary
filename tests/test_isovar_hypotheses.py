@@ -14,8 +14,9 @@ from .test_twin_conformance import ISOVAR_HYPOTHESIS_INPUT_TWINS
 FIXTURE = Path(__file__).parent / "data" / "isovar_hypotheses.json"
 
 
-def hypothesis_export():
-    return json.loads(FIXTURE.read_text())
+def hypothesis_export(name=None):
+    path = FIXTURE if name is None else FIXTURE.parent / "isovar_exports" / (name + ".json")
+    return json.loads(path.read_text())
 
 
 def read_both(export, tmp_path):
@@ -24,8 +25,9 @@ def read_both(export, tmp_path):
     return [reader(export, path) for _, reader in ISOVAR_HYPOTHESIS_INPUT_TWINS]
 
 
-def test_reader_twins_keep_synonymous_alternative_and_partial_observations(tmp_path):
-    export = hypothesis_export()
+@pytest.mark.parametrize("name", [None, "protein-v2", "protein-v2-labelled"])
+def test_reader_twins_keep_synonymous_alternative_and_partial_observations(tmp_path, name):
+    export = hypothesis_export(name)
     original = deepcopy(export)
     outputs = read_both(export, tmp_path)
     for result in outputs:
@@ -38,16 +40,39 @@ def test_reader_twins_keep_synonymous_alternative_and_partial_observations(tmp_p
         assert frame.protein_sequence.iloc[:3].tolist() == ["MAQG", "MAQG", "MAQD"]
         assert pd.isna(frame.protein_sequence.iloc[3])
         assert frame.protein_segments.tolist() == [4, 4, 2, 1]
+        assert frame.protein_reads.tolist() == frame.protein_segments.tolist()
+        assert frame.translation_reads.tolist() == frame.translation_segments.tolist()
         assert sorted(frame.translation_segments.iloc[:2]) == [1, 3]
         assert result.extra["isovar_hypotheses"] == export
         combined = combine_sources({"isovar": result})
         assert combined.df.candidate_id.isna().all()
         assert len(protein_evidence_view(combined)) == 2
-        assert combined.df.iloc[-1].protein_sequence_id is None
+        assert pd.isna(combined.df.iloc[-1].protein_sequence_id)
     pd.testing.assert_frame_equal(outputs[0].df, outputs[1].df)
     outputs[0].extra["isovar_hypotheses"]["events"].clear()
     assert outputs[1].extra["isovar_hypotheses"] == original
     assert export == original
+
+
+@pytest.mark.parametrize("name", ["protein-v2", "protein-v2-labelled"])
+def test_new_support_measurements_keep_unknown_and_incomplete_distinct(tmp_path, name):
+    export = hypothesis_export(name)
+    for result in read_both(export, tmp_path):
+        for _, row in result.df.iterrows():
+            proteins = export["events"][0]["protein_hypotheses"]
+            protein = next(p for p in proteins if p["hypothesis_id"] == row.hypothesis_id)
+            translation = next(t for t in protein["translations"] if t["translation_id"] == row.translation_id)
+            for prefix, support in (("protein", protein["rna_support"]),
+                                    ("translation", translation["rna_support"])):
+                for field in ("reads", "fragments", "umis", "cells", "umis_complete", "cells_complete",
+                              "unlabeled_reads", "unknown_library_reads"):
+                    actual = row[prefix + "_" + field]
+                    expected = support[field]
+                    assert pd.isna(actual) if expected is None else actual == expected
+        if name.endswith("labelled"):
+            assert result.df.protein_umis.tolist() == [2, 2, 1, 1]
+            assert result.df.protein_umis_complete.tolist() == [False, False, False, True]
+            assert result.df.protein_cells_complete.tolist() == [True, True, False, True]
 
 
 @pytest.mark.parametrize("passing", [True, False, None])

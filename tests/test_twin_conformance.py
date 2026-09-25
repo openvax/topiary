@@ -103,6 +103,27 @@ ISOVAR_HYPOTHESIS_INPUT_TWINS = (
 )
 
 
+def _protein_support_record(support):
+    from .test_isovar_hypotheses import hypothesis_export
+    export = hypothesis_export("protein-v2")
+    export["events"][0]["protein_hypotheses"][0]["rna_support"] = support
+    return read_isovar_hypotheses(export)
+
+
+def _sv_support_record(support):
+    from .test_sv_interest import catalogue, export
+    value = export()
+    value["schema"] = "isovar.sv_rna_orfs.v4"
+    value["sample_id"], value["source"] = "tumor-1", "synthetic-rna.bam"
+    value["candidates"][0]["rna_support"] = support
+    return build_sv_interest_report(catalogue(), [value])
+
+
+# Both Isovar readers validate the same RNA support record, including labels.
+# One receives inline evidence and the other can resolve a referenced set.
+ISOVAR_RNA_SUPPORT_TWINS = (_protein_support_record, _sv_support_record)
+
+
 # Both file formats expose a function and a result method. Drive all four
 # through the same metadata validation and write/read battery in test_io.py.
 DELIMITED_IO_TWINS = (
@@ -528,7 +549,7 @@ OPTIONAL_DEPENDENCY_TWINS = (
         ("run_isovar", "ProteinSequenceCreator"),
         _check_isovar,
         "assembling protein fragments from RNA alignments",
-        ">=1.18.1",
+        "<2,>=1.37",
     ),
     (
         "pirlygenes",
@@ -859,7 +880,8 @@ def test_optional_dependency_floors_refuse_older_releases_through_both_doors(
     assert feature in message and specifier in message
     assert f"pip install --upgrade 'topiary[{dependency}]'" in message
 
-    installed[dependency] = specifier.removeprefix(">=")
+    installed[dependency] = next(s.version for s in Requirement(dependency + specifier).specifier
+                                 if s.operator == ">=")
     assert check() is module
 
     # Metadata from another copy of Topiary may carry another floor.

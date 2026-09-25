@@ -1,0 +1,58 @@
+[
+  {
+    "event_id": "event",
+    "reference_name": "test",
+    "sample_id": "sample",
+    "source": "reads.bam",
+    "limitations": [],
+    "observations": {},
+    "paths": [
+      {
+        "path_id": "p",
+        "sequence": "ATGGCTAAA",
+        "event_linkage": {
+          "status": "breakpoint_junction"
+        },
+        "translations": [
+          {
+            "amino_acids": "MAK",
+            "translation_start": 0,
+            "translation_end": 9,
+            "ends_with_stop_codon": false,
+            "frame_evidence": [
+              {
+                "complete_5prime": false
+              }
+            ],
+            "departure_relations": [
+              "breakpoint_junction"
+            ]
+          }
+        ],
+        "junctions": [
+          {
+            "relation": "breakpoint_junction"
+          }
+        ],
+        "exploratory_orfs": {
+          "candidates": []
+        }
+      }
+    ]
+  },
+  {
+    "event_id": "event",
+    "reference_name": "test",
+    "source": {
+      "caller": "varcode",
+      "version": "9.4.2"
+    },
+    "predictions": [
+      {
+        "prediction_id": "model",
+        "amino_acids": "MMAKM",
+        "complete": true
+      }
+    ]
+  }
+]
