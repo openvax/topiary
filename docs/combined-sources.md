@@ -101,6 +101,67 @@ in different workflows. A common column name does not make them interchangeable.
 also distinguish transcript expression from tumor RNA depth/VAF and report
 predictions per algorithm. Preserve these distinctions when defining a policy.
 
+## Isovar hypotheses for comparison
+
+`read_isovar_hypotheses` reads Isovar 1.32+'s `isovar.protein_hypotheses.v1`
+JSON export or the mapping returned by `export_protein_hypotheses`. The companion
+Isovar TSV lacks the evidence sets and full provenance; supply JSON here.
+
+```python
+from topiary import read_isovar_hypotheses, combine_sources, rank_candidates
+
+hypotheses = read_isovar_hypotheses("tumor-1.hypotheses.json")
+combined = combine_sources({"reported": reported_candidates, "isovar": hypotheses})
+alternatives = combined.filter_by("isovar_rank > 1")
+ranked = rank_candidates(combined, "affinity.value", ascending=True)
+```
+
+Each imported row is one translation, including synonymous nucleotide sequences
+and lower-ranked alternatives. A hypothesis with no translations still has a
+protein-only observation. The reader creates no peptides, alleles or scores;
+these rows have no `candidate_id` after combination. Adding them leaves the
+reported candidates, their scores/ranks, and exact-peptide re-scoring calls
+unchanged. Existing top-protein fragment selection, reconstruction settings and
+filter defaults also remain unchanged. Using alternative ORFs to generate new
+candidates requires a separate, explicit choice.
+
+`isovar_rank`, `representative` and `passes_all_filters` describe the producer's
+results; they do not establish default eligibility. Filtered and uncertain
+outcomes stay visible for comparison. `protein_hypotheses_complete` and
+`protein_sequence_limit` report whether the upstream export may be truncated.
+RNA support and reconstructed sequence alone do not establish tumor specificity.
+
+`protein_hypothesis_sequence` includes partial translated windows.
+`protein_sequence` is populated only for translations explicitly starting at the
+annotated start codon whose protein ends at a stop codon. Only these full
+sequences enter `protein_evidence_view`; a partial window is never promoted to a
+full ORF. The producer's exact sequence identifier is kept as
+`isovar_protein_sequence_id`, while the combined table reserves
+`protein_sequence_id` for its full-protein grouping.
+
+The complete original export is retained in
+`hypotheses.extra['isovar_hypotheses']`, including events without proteins,
+reference contexts, observed edits, filters and RNA evidence sets. After
+combination it is under
+`combined.extra['combined_sources']['isovar']['extra']['isovar_hypotheses']`.
+Topiary CSV/TSV saving retains that metadata in both long and wide form.
+
+Read and fragment counts have separate `protein_*` and `translation_*` columns.
+They are not TPM or independent molecule counts. To combine support explicitly:
+
+```python
+from isovar import union_rna_support
+
+export = hypotheses.extra["isovar_hypotheses"]
+keys = hypotheses.df.loc[hypotheses.df.isovar_rank <= 2, "protein_evidence_set_id"]
+support = union_rna_support([export["evidence_sets"][key] for key in keys])
+```
+
+This counts shared reads once, including support repeated across synonymous
+translation rows. It refuses incompatible evidence scopes. Missing evidence-set
+IDs cannot be resolved or safely combined from counts alone. The comparison
+reader itself does not import Isovar or run any reconstruction or predictor.
+
 ## Full ORFs and RNA-only tables
 
 ```python

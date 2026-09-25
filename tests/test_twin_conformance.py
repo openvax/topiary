@@ -44,6 +44,7 @@ from topiary import (
     read_fragments, read_pvacseq, write_fragments, unique_fragments,
     describe_isovar_result, fragment_from_isovar_result, TopiaryResult,
     to_tsv, to_csv, read_tsv, read_csv,
+    read_isovar_hypotheses,
     combine_sources, rank_candidates, evaluate_scores,
 )
 from topiary.io_isovar import _check_isovar
@@ -97,6 +98,12 @@ TWINS = (
 
 # Both file formats expose a function and a result method. Drive all four
 # through the same metadata validation and write/read battery in test_io.py.
+ISOVAR_HYPOTHESIS_INPUT_TWINS = (
+    ("mapping", lambda export, path: read_isovar_hypotheses(export, tag="hypotheses")),
+    ("json", lambda export, path: read_isovar_hypotheses(path, tag="hypotheses")),
+)
+
+
 DELIMITED_IO_TWINS = (
     ("tsv", to_tsv, TopiaryResult.to_tsv, read_tsv),
     ("csv", to_csv, TopiaryResult.to_csv, read_csv),

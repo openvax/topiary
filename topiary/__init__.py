@@ -127,6 +127,7 @@ from .self_proteome import SelfProteome
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
 from .io_protein_fragment import read_fragments, write_fragments, iter_fragments
 from .io_lens import detect_lens_version, read_lens
+from .io_isovar_hypotheses import read_isovar_hypotheses
 from .io_pvacseq import (
     derive_mhc_class,
     detect_pvacseq_format,
@@ -184,9 +185,10 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.70.2"
+__version__ = "5.71.0"
 
 __all__ = [
+    "read_isovar_hypotheses",
     "build_sv_interest_report",
     "write_sv_interest_report",
     "SV_PROTEIN_EVIDENCE_TIERS",
