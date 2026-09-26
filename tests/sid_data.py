@@ -4,16 +4,13 @@ Everything except the reads is checked in under ``tests/data`` and verified
 offline against ``tests/data/manifest.json``. The reads come from openvax-v1,
 the OpenVax libraries' shared Sid test data (iskandr/osteosarc#56): each file
 listed in ``SHARED_READS`` is the openvax-v1 member ``topiary/<path>``, holding
-exactly its original records. The first read in a test process downloads the
-bundle into the osteosarc cache if needed and exports the reads once.
+exactly its original records. The first read downloads the bundle into the
+osteosarc cache if needed; each read file is exported there once and reused.
 """
 
-import atexit
 from functools import lru_cache
 import json
 from pathlib import Path
-import shutil
-import tempfile
 
 from topiary import osteosarc_fixture_paths
 
@@ -53,25 +50,15 @@ def sid_data_root(dataset):
     return ROOT / dataset
 
 
-@lru_cache(maxsize=1)
-def shared_reads():
-    """Export every file in ``SHARED_READS`` from openvax-v1, once per process.
+def sid_read(name):
+    """The Sid read file ``tests/data/<name>`` as a read-only, indexed BAM.
 
-    Returns the path of each as a coordinate-sorted, indexed BAM (``.bai``
-    alongside), whatever its original format. Records, including repeats, are
-    exactly the original file's; the order of records at one position may
-    differ.
+    Whatever the original format, the BAM (``.bai`` alongside) holds exactly
+    the original file's records, repeats included, coordinate-sorted; the order
+    of records at one position may differ.
     """
+    if name not in SHARED_READS:
+        raise KeyError(f"Not a shared Sid read file: {name}")
     import osteosarc
 
-    directory = Path(tempfile.mkdtemp(prefix="topiary-sid-reads-"))
-    atexit.register(shutil.rmtree, directory, ignore_errors=True)
-    exported = osteosarc.export_bundle(
-        osteosarc.fetch_bundle(SHARED_BUNDLE), directory,
-        members=["topiary/" + name for name in SHARED_READS])
-    return {name: Path(exported["topiary/" + name]) for name in SHARED_READS}
-
-
-def sid_read(name):
-    """The exported, indexed BAM for the Sid read file ``tests/data/<name>``."""
-    return shared_reads()[name]
+    return Path(osteosarc.bundle_file(SHARED_BUNDLE, "topiary/" + name))
