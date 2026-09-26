@@ -327,8 +327,8 @@ def osteosarc_cache_paths(manifest, directory, cache):
     return osteosarc_fixture_paths(manifest, cache=cache)
 
 
-# One set of original bytes must give identical scientific answers through
-# both the checked-in offline export and another consumer's shared cache.
+# One set of bytes must give identical scientific answers through both an
+# offline export directory and another consumer's shared cache.
 OSTEOSARC_SOURCE_TWINS = (osteosarc_export_paths, osteosarc_cache_paths)
 
 

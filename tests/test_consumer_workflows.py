@@ -432,22 +432,20 @@ def test_real_repeated_isovar_translations_survive_import_and_reload(tmp_path):
     import pysam
     from varcode import Variant
     from scripts.osteosarc_rna_overlay import POLICY
-    from scripts.osteosarc_variant_audit import digest, reference_genome
+    from scripts.osteosarc_variant_audit import reference_genome
     from topiary import combine_sources, normalize_isovar_rna_support
-    from .sid_data import sid_data_root
+    from .sid_data import sid_data_root, sid_read
     from .test_isovar_hypotheses import read_both
     from .test_twin_conformance import DELIMITED_IO_TWINS
 
-    root = Path(__file__).parent / "data" / "isovar_repeats"
-    manifest = json.loads((root / "manifest.json").read_text())
-    assert digest(root / "recipe.json") == manifest["recipe_sha256"]
-    for name, checksum in manifest["files"].items():
-        assert digest(root / name) == checksum
-    original = sid_data_root("osteosarc_all_variants")
-    assert digest(original / "source/t2-all-variant-regions.bam") == manifest["source_sha256"]
-    genome = reference_genome(original, tmp_path / "reference")
+    manifest = json.loads((Path(__file__).parent / "data/isovar_repeats/manifest.json").read_text())
+    reads = sid_read("isovar_repeats/reads.bam")
+    with pysam.AlignmentFile(reads) as bam:
+        names = [read.query_name for read in bam]
+    assert (len(names), len(set(names))) == (manifest["records"], manifest["templates"])
+    genome = reference_genome(sid_data_root("osteosarc_all_variants"), tmp_path / "reference")
     variant = Variant("MT", 12994, "G", "A", ensembl=genome)
-    with pysam.AlignmentFile(root / "reads.bam") as bam:
+    with pysam.AlignmentFile(reads) as bam:
         upstream, = isovar.run_isovar(
             [variant], bam, read_collector=isovar.ReadCollector(**POLICY),
             protein_sequence_creator=isovar.ProteinSequenceCreator(
@@ -2676,6 +2674,7 @@ def test_every_reader_frame_reaches_predictions_with_its_own_evidence(reader, pa
 def test_shared_osteosarc_reads_reconstruct_and_rank_identically(tmp_path):
     """Original export and shared cache compose through real RNA reconstruction."""
     import json
+    import shutil
     import isovar
     from osteosarc import Cache, Variant, Variants, digest, extract_reads
     from topiary import (
@@ -2685,7 +2684,7 @@ def test_shared_osteosarc_reads_reconstruct_and_rank_identically(tmp_path):
     )
     from scripts.osteosarc_variant_audit import check_mutation_windows, reference_genome
     from tests.osteosarc_all_helpers import reference_models, validate_rna_protein
-    from tests.test_osteosarc_shared import MANIFEST, ROOT, SOURCE
+    from tests.test_osteosarc_shared import MANIFEST, ROOT, SOURCE, exported_manifest
     from tests.test_twin_conformance import OSTEOSARC_SOURCE_TWINS
 
     translated = json.loads((ROOT / "translation-v1.json").read_text())
@@ -2704,14 +2703,18 @@ def test_shared_osteosarc_reads_reconstruct_and_rank_identically(tmp_path):
     )], source={"dataset_sha256": translated["parent_dataset_sha256"], "case": case})
     native = native_source.to_varcode(genome=genome, assembly="GRCh38")
     assert native.metadata[native[0]]["source"]["dataset_sha256"] == translated["parent_dataset_sha256"]
+    manifest, files = exported_manifest()
+    export = tmp_path / "export"
+    export.mkdir()
+    (export / "manifest.json").write_text(json.dumps(manifest))
     cache = Cache(tmp_path / "shared", offline=True)
-    manifest = MANIFEST
     for asset in manifest["assets"]:
-        cache.import_file(SOURCE / asset["filename"], asset["url"],
+        shutil.copyfile(files[asset["filename"]], export / asset["filename"])
+        cache.import_file(files[asset["filename"]], asset["url"],
                           sha256=asset["sha256"], size=asset["size_bytes"])
     answers = []
     for door in OSTEOSARC_SOURCE_TWINS:
-        paths = door(manifest, SOURCE, cache)
+        paths = door(manifest, export, cache)
         # Content-addressed BAM and BAI paths have different hashes, so always
         # pass the index explicitly; adjacency is not a shared-cache contract.
         subset = extract_reads(paths[case["bam"]], native_source.regions(padding=100),
@@ -2765,7 +2768,7 @@ def test_malformed_osteosarc_catalogue_row_survives_audit_and_report(tmp_path):
     import shutil
     from scripts.osteosarc_variant_audit import variant_inventory, audit, report
     from scripts.osteosarc_rna_overlay import digest, write_json
-    from .sid_data import sid_data_root
+    from .sid_data import sid_data_root, sid_read
     from .test_osteosarc_audit_inventory import HEADER, INDEX
 
     data = sid_data_root("osteosarc_all_variants")
@@ -2783,9 +2786,9 @@ def test_malformed_osteosarc_catalogue_row_survives_audit_and_report(tmp_path):
     (tmp_path / "reference").symlink_to(data / "reference", target_is_directory=True)
     source = tmp_path / "source"
     source.mkdir()
+    shared = sid_read("osteosarc_all_variants/source/t2-all-variant-regions.bam")
     for suffix in ("", ".bai"):
-        name = "t2-all-variant-regions.bam" + suffix
-        shutil.copyfile(data / "source" / name, source / name)
+        shutil.copyfile(str(shared) + suffix, source / ("t2-all-variant-regions.bam" + suffix))
     bam = source / "t2-all-variant-regions.bam"
     write_json(source / "bam.receipt.json", dict(sha256=digest(bam), index_sha256=digest(str(bam) + ".bai")))
     audit(tmp_path)

@@ -1,8 +1,10 @@
 # Original RNA for peptide-aware Topiary integration tests
 
-The unmodified alignment, selection, manifest and reference files are copied
-from Isovar 1.8.0, commit `7bee9bef690a0184a41a0d8397879915dd86fe37`:
+The unmodified selection, manifest and reference files are copied from
+Isovar 1.8.0, commit `7bee9bef690a0184a41a0d8397879915dd86fe37`:
 https://github.com/openvax/isovar/tree/7bee9bef690a0184a41a0d8397879915dd86fe37/tests/data/osteosarc
+The alignments, `bulk_star_t0.sam.gz` and `ont_t1.sam.gz`, are now the
+`openvax-v1` members of those names, with the same records (see `../README.md`).
 
 These are public CC0 data from https://osteosarc.com/data/ (the original AWS
 license entry is preserved in `source_registry.yaml`). The subset contains

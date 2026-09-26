@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from .osteosarc_overlay_helpers import ROOT
+from .sid_data import sid_read
 
 
 def test_overlay_fixture_checksums():
@@ -51,18 +52,21 @@ def test_recount_all_twenty_alleles_and_rebuild_expression_sidecar_offline(
     monkeypatch.setattr(Variant, "gene_names", property(no_network))
     shutil.copytree(ROOT / "source", tmp_path / "source")
     shutil.copyfile(ROOT / "acquisition.json", tmp_path / "acquisition.json")
+    path = tmp_path / "source/t2-pvac-regions.bam"
+    shutil.copyfile(sid_read("osteosarc_rna_overlay/source/t2-pvac-regions.bam"), path)
     if zero_coverage:
-        path = tmp_path / "source/t2-pvac-regions.bam"
         with pysam.AlignmentFile(path) as bam:
             header = bam.header.to_dict()
         # Controlled empty alignment: real contigs, explicitly no observations.
         with pysam.AlignmentFile(path, "wb", header=header):
             pass
-        acquisition_path = tmp_path / "acquisition.json"
-        acquisition = json.loads(acquisition_path.read_text())
-        acquisition["alignment"]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-        acquisition_path.write_text(json.dumps(acquisition))
-    pysam.index(str(tmp_path / "source/t2-pvac-regions.bam"))
+    # The acquisition receipt pins the bytes originally acquired; the
+    # openvax-v1 export holds the same records, serialized differently.
+    acquisition_path = tmp_path / "acquisition.json"
+    acquisition = json.loads(acquisition_path.read_text())
+    acquisition["alignment"]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    acquisition_path.write_text(json.dumps(acquisition))
+    pysam.index(str(path))
     build(tmp_path)
     if zero_coverage:
         observed = pd.read_csv(tmp_path / "transcript-evidence.tsv", sep="\t")
@@ -93,7 +97,7 @@ def test_selected_snv_counts_against_independent_aligned_base_oracle(chrom, pos,
     # Scan the small original BAM without an index and inspect CIGAR-aligned
     # bases directly. No Isovar classification/merging function is called.
     called = {ref: set(), alt: set()}
-    with pysam.AlignmentFile(ROOT / "source/t2-pvac-regions.bam") as bam:
+    with pysam.AlignmentFile(sid_read("osteosarc_rna_overlay/source/t2-pvac-regions.bam")) as bam:
         for read in bam.fetch(until_eof=True):
             if (read.reference_name != chrom or read.is_unmapped or read.is_secondary
                     or read.is_duplicate or read.mapping_quality < 20):

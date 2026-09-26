@@ -2,9 +2,11 @@
 
 Offline input for all 20 exact alleles in the 21 historical pVAC reports.
 
-- `source/t2-pvac-regions.bam`: unchanged 684-KiB regional acquisition from the
-  public original January UCLA STAR BAM, all records around all 20 loci.
-  Its header records GRCh38/GENCODE v36 and the source RNA FASTQ names.
+- `source/t2-pvac-regions.bam`: the `openvax-v1` member of that name holds the
+  unchanged records of the 684-KiB regional acquisition from the public
+  original January UCLA STAR BAM, all records around all 20 loci. Its header
+  (`source/t2-pvac-regions.header.sam`) records GRCh38/GENCODE v36 and the
+  source RNA FASTQ names. Tests export it; see `../README.md`.
 - `source/*.results`: unchanged original RSEM lines for 21 genes and 63
   transcripts in the retained pVAC input. The read-through NME1-NME2 gene
   explains why there are more genes than genomic alleles.
@@ -14,7 +16,7 @@ Offline input for all 20 exact alleles in the 21 historical pVAC reports.
   numbers, regional acquisition command and source reference checks.
 - `allele-evidence.tsv`, `transcript-evidence.tsv`: pinned recount/join results;
   these are derived outputs, not an independent biological oracle.
-- `manifest.json`: all fixture-file SHA256 hashes.
+- `manifest.json`: SHA256 hashes of the checked-in files.
 
 The full original expression files, 6.7-MB source BAM index and regional
 BAM index remain in the local acquisition cache. CI rebuilds the regional
