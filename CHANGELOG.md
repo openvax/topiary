@@ -1,5 +1,17 @@
 # Changelog
 
+## 5.72.0
+
+- Require osteosarc `>=0.7.0,<0.8` (#399) and generate the Sid/osteosarc test
+  data with it. Regenerating the Sid corpus from its pinned sources with
+  Osteosarc 0.7.0 reproduced every read file byte for byte; only the recorded
+  `osteosarc_version` (0.1.1 to 0.7.0) and the manifest hashes covering it
+  changed. The bundled fixture export and offline verification also pass on
+  0.7.0.
+- CI tests the Isovar integration against Isovar 1.37.3, the first release
+  that accepts osteosarc 0.7, and the Vaxrank candidate workflow against its
+  osteosarc 0.7 migration (openvax/vaxrank#521).
+
 ## 5.71.3
 
 - Coalesce identical repeated Isovar translation records without multiplying
