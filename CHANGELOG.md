@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.77.0
+
+- Require osteosarc `>=0.13.0,<0.14`. 0.13 only removes osteosarc code
+  Topiary doesn't use.
+- CI tests the Isovar integration against Isovar 1.39.3, the first release
+  that accepts osteosarc 0.13, and the Vaxrank candidate workflow against its
+  osteosarc 0.13 migration.
+
 ## 5.76.0
 
 - Require osteosarc `>=0.12.0,<0.13`. Every osteosarc name Topiary uses is
