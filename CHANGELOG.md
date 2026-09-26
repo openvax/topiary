@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.73.0
+
+- Require osteosarc `>=0.9.0,<0.10`. Osteosarc 0.9 renamed `Asset` to `File`;
+  Topiary uses none of the renamed names. The Sid/osteosarc test data is
+  unchanged and still records 0.7.0, the version that generated it.
+- CI tests the Isovar integration against Isovar 1.38.1, the first release
+  that accepts osteosarc 0.9, and the Vaxrank candidate workflow against its
+  osteosarc 0.9 migration (openvax/vaxrank#523).
+
 ## 5.72.0
 
 - Require osteosarc `>=0.7.0,<0.8` (#399) and generate the Sid/osteosarc test
