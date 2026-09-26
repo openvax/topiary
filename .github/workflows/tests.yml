@@ -31,6 +31,8 @@ jobs:
       # The cache below is only useful if it names the directory pyensembl
       # actually writes to, and "~/.pyensembl" was not it.
       PYENSEMBL_CACHE_DIR: ${{ github.workspace }}/pyensembl-data
+      # Tests read Sid alignments from the shared openvax-v1 test data.
+      OSTEOSARC_CACHE: ${{ github.workspace }}/osteosarc-cache
     strategy:
       fail-fast: true
       matrix:
@@ -103,6 +105,15 @@ jobs:
       - name: Verify Osteosarc is installed in the base environment
         run: |
           python -c "from importlib.metadata import version; import osteosarc, pysam; print('Osteosarc', version('osteosarc'))"
+      - name: Key the openvax-v1 test reads by their manifest
+        id: openvax-v1
+        run: |
+          echo "manifest=$(python -c 'from osteosarc.shared import published; print(published("openvax-v1")["manifest_sha256"])')" >> "$GITHUB_OUTPUT"
+      - name: Cache the openvax-v1 test reads
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.OSTEOSARC_CACHE }}/osteosarc/bundles
+          key: openvax-v1-${{ steps.openvax-v1.outputs.manifest }}
       - name: Lint with ruff
         run: |
           ./lint.sh
@@ -200,6 +211,7 @@ jobs:
     env:
       TOPIARY_TEST_REQUIRE_ISOVAR: "1"
       PYENSEMBL_CACHE_DIR: ${{ github.workspace }}/empty-ensembl-cache
+      OSTEOSARC_CACHE: ${{ github.workspace }}/osteosarc-cache
     strategy:
       fail-fast: false
       matrix:
@@ -224,6 +236,15 @@ jobs:
       - name: Verify Isovar imports
         run: |
           python -c "import sys; from importlib.metadata import version; import topiary; assert 'isovar' not in sys.modules; import isovar; print('Isovar', version('isovar'))"
+      - name: Key the openvax-v1 test reads by their manifest
+        id: openvax-v1
+        run: |
+          echo "manifest=$(python -c 'from osteosarc.shared import published; print(published("openvax-v1")["manifest_sha256"])')" >> "$GITHUB_OUTPUT"
+      - name: Cache the openvax-v1 test reads
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.OSTEOSARC_CACHE }}/osteosarc/bundles
+          key: openvax-v1-${{ steps.openvax-v1.outputs.manifest }}
       - name: Test Isovar integration
         run: |
           ./test.sh -m 'isovar or osteosarc' --strict-markers

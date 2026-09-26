@@ -1,7 +1,8 @@
 # Shared Osteosarc inputs and regional audit continuity
 
-Topiary uses **Osteosarc 0.1.2** for new audit downloads, indexed regional read
-extraction and access to the shared OpenVax source objects. Osteosarc and its
+Topiary uses **Osteosarc 0.11** for new audit downloads, indexed regional read
+extraction, access to the shared OpenVax source objects, and the shared
+`openvax-v1` test reads. Osteosarc and its
 read-extraction dependency are installed by `pip install topiary` on Python
 3.10+. From a checkout, use `pip install -e .`; add `.[isovar]` for RNA
 reconstruction. Extraction also needs `samtools` on PATH. Importing Topiary
@@ -11,24 +12,33 @@ does not acquire data.
 
 `tests/data/manifest.json` describes all seven Sid fixture groups: six-locus
 RNA, GLIS3/KTN1 indels, rearrangements, the RNA overlay, the 184-entry audit,
-shared NTF3 reads and historical pVACseq reports. Tests verify every bundled
-file through Osteosarc without downloading anything. The 104 assets total
-10,623,870 bytes; alignments and indexes account for 7,133,515 bytes.
-They ship in the **source distribution**, alongside the tests and generator;
+shared NTF3 reads and historical pVACseq reports. Tests verify every checked-in
+file through Osteosarc without downloading anything. The 87 checked-in assets
+total 3,427,536 bytes and ship in the **source distribution** with the tests;
 the installed wheel retains its existing runtime-only layout.
 
-The checked-in recipe, `tests/data/sid-fixtures.json`, pins original regional
-inputs and zero-based half-open test intervals. `generate_sid_fixtures` uses
-Osteosarc's cache and `extract_reads` to select the union of those intervals.
-Allele intervals use Osteosarc's `Variant.region(padding=2)`, intersected
-with the archived extraction scope for the indel fixtures. These tight
-windows retain the bases needed at indel boundaries without broadening the
-historical input selection. Original SAM records,
-including qualities, flags, tags and mate fields, are never rewritten. Reads
-outside the selected intervals are omitted, and no entire remote BAM is
-fetched. The six-locus fixtures retain their original template-selection and
-quality-stress policies. The rearrangement fixtures already contain only the
-nine tested junction paths and their 18 original SAM records.
+The alignment records are not checked in. They come from `openvax-v1`, the
+OpenVax libraries' shared Sid test data, published by Osteosarc 0.11
+([iskandr/osteosarc#56](https://github.com/iskandr/osteosarc/issues/56)). Each
+of Topiary's 14 read files is the `openvax-v1` member `topiary/<path under
+tests/data>`, holding exactly its original records, repeats included; together
+they are 70,382 records, formerly 7.2 MB of checked-in BAM, index and SAM files.
+Tests download the bundle once into the osteosarc cache and export the reads
+per test process (see `tests/data/README.md`). Exports are coordinate-sorted
+with the source's full header, so tests compare records rather than file bytes.
+Every export must match its file's record-multiset hash in the manifest's
+`read_selections`.
+
+Those reads were selected with Osteosarc 0.7.0 from the original regional
+inputs and zero-based half-open test intervals. Allele intervals used
+Osteosarc's `Variant.region(padding=2)`, intersected with the archived
+extraction scope for the indel fixtures. These tight windows retain the bases
+needed at indel boundaries without broadening the historical input selection.
+Original SAM records, including qualities, flags, tags and mate fields, are
+never rewritten. The six-locus fixtures retain their original
+template-selection and quality-stress policies. The rearrangement fixtures
+contain only the nine tested junction paths and their 18 original SAM records,
+kept in their JSON inputs and checked against `openvax-v1`.
 
 The audit BAM contains 55,610 records instead of 124,046; the overlay contains
 8,312 instead of 16,497. All 184 audit outcomes and the overlay evidence remain
@@ -37,12 +47,14 @@ independent biological replicates. The original public data are
 [CC0](https://registry.opendata.aws/sid-osteosarc/).
 
 `tests/data/osteosarc_shared/vaccine-rna-v1` retains just the NTF3 case exercised
-by Topiary's shared reconstruction/ranking workflow: 15 reads, one BAM and its
-index (43,966 bytes), byte-identical to the objects adopted by
-[Vaxrank #486](https://github.com/openvax/vaxrank/pull/486). The other 48 cases
-are omitted. Its subset manifest retains the upstream manifest's digest,
-original source products, native allele and selection policy. Input objects
-remain pinned to Isovar commit `0cad5b275c852263a1c77722aa463fe5568b2c76`.
+by Topiary's shared reconstruction/ranking workflow. Its 15 reads are the same
+records as Isovar's `vaccine-rna-v1` NTF3 file; Vaxrank's file of the same name
+has since been trimmed to one of them. The other 48 cases are omitted. The
+subset manifest retains the upstream manifest's digest, original source
+products, native allele and selection policy, and still pins the Isovar file's
+bytes at commit `0cad5b275c852263a1c77722aa463fe5568b2c76`. Tests read the same
+records from `openvax-v1` and exercise the manifest machinery with the
+exported files' sizes and hashes.
 
 `translation-v1.json` separately pins a real NTF3 RNA reconstruction, including
 its exact protein window and target interval, transcripts, gene, species,
@@ -89,25 +101,13 @@ python -m scripts.osteosarc_test_data --cache-root /path/to/shared-openvax \
 python -m scripts.osteosarc_test_data \
   --verify tests/data
 
-# Generate the minimal corpus from pinned regional archives (first run fetches).
-# The recipe, including source hashes and requested loci, is checked in.
-python -m venv /tmp/osteosarc-fixtures
-/tmp/osteosarc-fixtures/bin/python -m pip install osteosarc==0.7.0
-/tmp/osteosarc-fixtures/bin/python -m scripts.generate_sid_fixtures --output /path/to/new/sid-fixtures \
-  --cache-root /path/to/shared-openvax
-
-# Repeat without any acquisition after the original input objects are cached.
-/tmp/osteosarc-fixtures/bin/python -m scripts.generate_sid_fixtures --output /path/to/new/reproduction \
-  --cache-root /path/to/shared-openvax --offline
+# Export Topiary's reads from openvax-v1 (first run downloads the bundle).
+osteosarc test-data export openvax-v1 /path/to/new/reads \
+  --member topiary/osteosarc_rna_overlay/source/t2-pvac-regions.bam
 
 # Regenerate derived fixtures offline into a NEW directory for comparison.
 PYTHONPATH=. python tests/data/osteosarc_shared/regenerate.py /path/to/new/derived
 ```
-
-The current corpus was regenerated with Osteosarc 0.7.0; read and reference
-bytes match the earlier corpus. The separate generator environment avoids the
-older Osteosarc runtime constraint in published Isovar until the coordinated
-dependency update tracked in [#399](https://github.com/openvax/topiary/issues/399).
 
 The default root is Osteosarc's `openvax` cache, overridable through
 `OPENVAX_DATA_CACHE` or an explicit `osteosarc.Cache(root)`. Objects use the
@@ -133,19 +133,14 @@ Complete SAM records are compared before/after migration, including qualities,
 flags, mate fields, CIGARs, tags and repeated-record multiplicity. Topiary retains
 its scientific selection/reconstruction policy while Osteosarc owns parsing.
 
-The generator's `--source-directory` accepts the historical input tree named
-by the recipe's source commit; it does not accept already-trimmed outputs as
-original inputs. `--live-alignments` additionally compares complete selected
-SAM records with indexed extraction from the original remote BAMs. Default
-regeneration uses immutable archived regional inputs, making it independent of
-changes to the live site. Complete-record comparisons include repeated-record
-multiplicity. Tests inject an irrelevant read and prove extraction removes it.
-BAM compression can vary between tool versions; scientific equality is checked
-using canonical complete-record digests as well as the published file hashes.
+Selecting reads is now `openvax-v1`'s job: its recipe keeps every record's
+source and selection reason, and Osteosarc verifies the bundle before any
+export. Complete-record comparisons include repeated-record multiplicity.
 
 The built source distribution is checked against every asset's size and hash,
-its exact alignment-file membership, and an 11 MiB corpus budget. Full BAMs and
-unused vaccine read sets cannot enter a release silently. Receipts distinguish
+its exact alignment-file membership (none, now that reads come from
+`openvax-v1`), and an 11 MiB corpus budget. BAMs and unused vaccine read sets
+cannot enter a release silently. Receipts distinguish
 the archived broader source from the new fixture selection; historical audit
 run provenance still identifies the original run.
 

@@ -6,7 +6,7 @@ import gzip
 import json
 from pathlib import Path
 
-from .sid_data import sid_data_root
+from .sid_data import sid_data_root, sid_read
 
 import pandas as pd
 import pytest
@@ -118,7 +118,7 @@ def test_every_literal_allele_has_a_checked_rna_and_consumer_outcome(entry, all_
 
     genome, models = all_variant_reference
     variant = audit_variant(entry, genome)
-    bam_path = ROOT / "source/t2-all-variant-regions.bam"
+    bam_path = sid_read("osteosarc_all_variants/source/t2-all-variant-regions.bam")
     options = dict(read_collector=isovar.ReadCollector(**POLICY),
                    protein_sequence_creator=isovar.ProteinSequenceCreator(
                        protein_context_peptide_length=25, variant_sequence_assembly=True))

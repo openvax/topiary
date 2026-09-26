@@ -12,7 +12,7 @@ from itertools import product
 import json
 from pathlib import Path
 
-from .sid_data import sid_data_root
+from .sid_data import sid_data_root, sid_read
 import re
 
 
@@ -107,7 +107,7 @@ def reference_expectations(reference, metadata, selection):
 
 
 def load_osteosarc(directory, dataset="osteosarc"):
-    """Verify the original assets, then build private temporary indices."""
+    """Verify the reference subset, then index it; reads come from openvax-v1."""
     import pysam
     from pyensembl import Genome
     from varcode import Variant
@@ -138,14 +138,10 @@ def load_osteosarc(directory, dataset="osteosarc"):
         ) for record in selection["variants"]
     }
     bams = {}
-    for name, dataset in manifest["datasets"].items():
-        sam_data = gzip.decompress((data / dataset["file"]).read_bytes())
-        assert sha256(sam_data).hexdigest() == dataset["sam_sha256"]
-        sam = directory / (name + ".sam")
-        sam.write_bytes(sam_data)
-        bam = directory / (name + ".bam")
-        pysam.sort("--no-PG", "-o", str(bam), str(sam))
-        pysam.index(str(bam))
+    for name, entry in manifest["datasets"].items():
+        bam = sid_read(f"{dataset}/{entry['file']}")
+        with pysam.AlignmentFile(bam) as handle:
+            assert sum(1 for _ in handle) == entry.get("fixture_records", entry.get("records"))
         bams[name] = str(bam)
     return variants, bams, reference_expectations(reference, metadata, selection)
 

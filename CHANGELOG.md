@@ -1,5 +1,26 @@
 # Changelog
 
+## 5.75.0
+
+- Sid test reads come from `openvax-v1`, the OpenVax libraries' shared Sid
+  test data (iskandr/osteosarc#56, #403). Each of the 14 read files the tests
+  used is the `openvax-v1` member `topiary/<path>`, with exactly its original
+  records (70,382 in all); the checked-in copies, 7.2 MB of BAM, index and SAM
+  files, are removed. Tests download the 28 MB bundle once into the osteosarc
+  cache (`OSTEOSARC_CACHE`) and export the reads once per test process; CI
+  caches the bundle. Every scientific assertion is unchanged, and each export
+  must still match its file's record-multiset hash.
+- Byte pins on the removed files become record checks. Tests that rebuild the
+  RNA overlay or audit from a copied BAM point its receipt at the exported
+  bytes, and the shared NTF3 manifest tests use the exported files' hashes.
+- The rearrangement inputs keep their embedded original records as the audit
+  envelope of Isovar's supplied-fusion input; a new test checks them against
+  their `openvax-v1` members.
+- Removed `scripts/generate_sid_fixtures.py`, its recipe `sid-fixtures.json`,
+  and the `isovar_repeats` read extractor, whose only job was producing the
+  removed copies. `scripts.osteosarc_test_data` still verifies and exports the
+  87 checked-in files.
+
 ## 5.74.0
 
 - Require osteosarc `>=0.11.1,<0.12`. Osteosarc 0.10 renamed

@@ -1,36 +1,39 @@
 # Sid regression data
 
-The Sid fixtures are an offline, checksum-verified Osteosarc export described by
-`manifest.json`. Only reads overlapping the loci exercised by the tests are
-bundled; unused vaccine read sets and whole alignments are excluded.
+The Sid fixtures are checked-in files plus shared reads. Every checked-in file
+is pinned in `manifest.json` and verified offline. The alignment records come
+from `openvax-v1`, the OpenVax libraries' shared Sid test data
+([iskandr/osteosarc#56](https://github.com/iskandr/osteosarc/issues/56)): each
+read file the tests use is the `openvax-v1` member `topiary/<path under
+tests/data>`, which holds exactly its original records, repeats included.
 
-The corpus was regenerated with published Osteosarc 0.7.0. Its original read
-and reference bytes remain unchanged. From the repository root, generate the
-complete corpus into a **new** directory using a separate generation environment:
+`tests/sid_data.py` lists those files in `SHARED_READS`. The first test that
+reads one downloads and verifies the bundle (28 MB) into the osteosarc cache,
+`OSTEOSARC_CACHE`, else the shared OpenVax cache, then exports Topiary's reads
+once per test process as indexed BAMs. Later runs are offline. Exports are
+coordinate-sorted with the source's full header, so records at one position
+may be ordered differently from the original files; tests compare records, not
+file bytes. `read_selections` in `manifest.json` keeps each file's regions,
+source and record-multiset hash, and the tests check every export against it.
+
+The rearrangement inputs in `osteosarc_rearrangements/*.json.gz` keep their
+original records as the audit envelope of Isovar's supplied-fusion input; a
+test checks those records against their `openvax-v1` members.
+
+To look at the reads outside the tests:
 
 ```sh
-python -m venv /tmp/osteosarc-fixtures
-/tmp/osteosarc-fixtures/bin/python -m pip install osteosarc==0.7.0
-/tmp/osteosarc-fixtures/bin/python -m scripts.generate_sid_fixtures --output /tmp/new-sid-fixtures
+osteosarc test-data list openvax-v1
+osteosarc test-data export openvax-v1 /tmp/topiary-reads \
+  --member topiary/osteosarc_all_variants/source/t2-all-variant-regions.bam
 ```
 
-This uses Osteosarc's cache and indexed extractor with the pinned sources and
-regions in `sid-fixtures.json`. After the first acquisition, pass `--offline`
-to regenerate from cache. `--live-alignments` additionally compares the selected
-records against the original public indexed BAMs. Neither mode downloads an
-entire BAM. Extraction needs samtools. Generation is separate from Topiary's
-runtime environment while its Isovar integration pins an older Osteosarc
-([Topiary #399](https://github.com/openvax/topiary/issues/399),
-[Isovar #386](https://github.com/openvax/isovar/issues/386)). Before publishing
-changed fixture bytes, set the recipe's `export_url` to their new release tag;
-the generated manifest's download URLs must serve its recorded checksums.
-
-Verify the checked-in bundle without downloading or changing anything:
+Verify the checked-in files without downloading or changing anything:
 
 ```sh
 python -m scripts.osteosarc_test_data --verify tests/data
 ```
 
-Fixtures, tests and generators ship in the source distribution. See the
+Fixtures and tests ship in the source distribution. See the
 [provenance and regeneration guide](../../docs/osteosarc-shared-data.md) for
 selection policies, source identity, scientific expectations and cache options.

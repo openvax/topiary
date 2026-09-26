@@ -5,8 +5,10 @@ all 20 historical pVAC alleles, plus ACSL6 and KTN1 from the candidate report.
 174 literal GRCh38 alleles are reference-verified; ten incomplete inputs have
 explicit statuses and null RNA results, never invented zero counts.
 
-The BAM retains unmodified records from the union of ±100-base source intervals
-in January-2025 UCLA T2 STAR RNA. Reference files retain original Ensembl 87
+The BAM, the `openvax-v1` member
+`topiary/osteosarc_all_variants/source/t2-all-variant-regions.bam` (see
+`../README.md`), retains unmodified records from the union of ±100-base source
+intervals in January-2025 UCLA T2 STAR RNA. Reference files retain original Ensembl 87
 GTF/cDNA/protein records for all transcripts at the exact alleles. Manifests
 record original source URLs, full-source hashes, subset hashes, extraction
 command and read/reconstruction settings. Public collection labels establish

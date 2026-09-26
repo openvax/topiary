@@ -5,7 +5,7 @@ import gzip
 import hashlib
 from pathlib import Path
 
-from .sid_data import sid_data_root
+from .sid_data import sid_data_root, sid_read
 import shutil
 
 import pytest
@@ -66,9 +66,9 @@ def test_reference_build_to_report_keeps_annotation_gaps(tmp_path, monkeypatch, 
     write_json(tmp_path / "checked-inventory.json", dict(variants=variants))
     alignments = tmp_path / "source"
     alignments.mkdir()
+    shared = sid_read("osteosarc_all_variants/source/t2-all-variant-regions.bam")
     for suffix in ("", ".bai"):
-        filename = "t2-all-variant-regions.bam" + suffix
-        shutil.copyfile(DATA / "source" / filename, alignments / filename)
+        shutil.copyfile(str(shared) + suffix, alignments / ("t2-all-variant-regions.bam" + suffix))
     bam = alignments / "t2-all-variant-regions.bam"
     write_json(alignments / "bam.receipt.json", dict(
         sha256=digest(bam), index_sha256=digest(str(bam) + ".bai")))

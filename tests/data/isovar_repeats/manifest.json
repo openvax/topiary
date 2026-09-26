@@ -1,11 +1,6 @@
 {
-  "osteosarc_version": "0.7.0",
-  "recipe_sha256": "551230c85822e0d584c43a252b07125ee42fff6b241bb97c081b127b864d685f",
-  "source_sha256": "1787492e8a67f214711f5fe0a8f79bd6e3442e48e7b3a9ebfebb520e87037e0c",
+  "bundle": "openvax-v1",
+  "member": "topiary/isovar_repeats/reads.bam",
   "records": 711,
-  "templates": 419,
-  "files": {
-    "reads.bam": "ad76ebc8776999f0b95a25ac638ff2210c82db8b85b051d4900f0159a113c9c8",
-    "reads.bam.bai": "35a47c3e490f28a66aac5d930c879dfc33646f9e67f0214c7f7cfcc2d714a063"
-  }
+  "templates": 419
 }

@@ -1,5 +1,6 @@
 """Preserve unresolved frame status for actual observed rearrangement RNA."""
 
+from collections import Counter
 import gzip
 import hashlib
 import json
@@ -75,3 +76,26 @@ def test_observed_rearrangement_rna_does_not_imply_a_coding_peptide(
              if p["event"] == event and p["source"] == sample + "-ONT-tagged"]
     assert len(paths) == (8 if event == "OTUD7A--FMN1" else support)
     assert len({p["cell_umi"] for p in paths}) == (6 if event == "OTUD7A--FMN1" else support)
+
+
+@pytest.mark.osteosarc
+def test_embedded_original_records_are_their_openvax_v1_members(tmp_path):
+    """Each junction read path's SAM records, as the openvax-v1 member named after it.
+
+    The inputs keep their original records as an audit envelope beside
+    Isovar's supplied-fusion payload; openvax-v1 holds the same records.
+    """
+    import osteosarc
+
+    embedded = {}
+    for entry in json.loads((ROOT / "manifest.json").read_text())["inputs"]:
+        for record in json.loads(gzip.decompress((ROOT / entry["file"]).read_bytes()))["original_records"]:
+            read_id = record["sam"].split("\t", 1)[0]
+            member = f"topiary/osteosarc_rearrangements/{entry['file']}#{read_id}"
+            embedded[member] = Counter([record["sam"], record["partner_sam"]])
+    exported = osteosarc.export_bundle(osteosarc.fetch_bundle("openvax-v1"), tmp_path,
+                                       members=list(embedded), format="sam")
+    assert len(exported) == len(embedded) == 9
+    for member, path in exported.items():
+        lines = [line for line in Path(path).read_text().splitlines() if not line.startswith("@")]
+        assert Counter(lines) == embedded[member], member
