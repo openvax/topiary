@@ -38,7 +38,7 @@ def build_sv_interest_report(catalogue, orf_exports=(), *, comparisons=(), event
     Parameters
     ----------
     catalogue : dict
-        ``osteosarc.load_sv_interest()`` or an equivalent mapping with
+        ``osteosarc.load_sv_candidates()`` or an equivalent mapping with
         ``targets``. Every target is retained, including unresolved entries.
     orf_exports : iterable of dict
         Isovar SV ORF v1-v4 exports. Duplicate reconstructions are reconciled

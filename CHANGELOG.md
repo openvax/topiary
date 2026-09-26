@@ -1,5 +1,16 @@
 # Changelog
 
+## 5.74.0
+
+- Require osteosarc `>=0.11.1,<0.12`. Osteosarc 0.10 renamed
+  `load_sv_interest()` to `load_sv_candidates()`, which returns the same
+  `targets` mapping `build_sv_interest_report` accepts; the docs now name it.
+  The Sid/osteosarc test data is unchanged and still records 0.7.0, the version
+  that generated it.
+- CI tests the Isovar integration against Isovar 1.38.2, the first release
+  that accepts osteosarc 0.11, and the Vaxrank candidate workflow against its
+  osteosarc 0.11 migration.
+
 ## 5.73.0
 
 - Require osteosarc `>=0.9.0,<0.10`. Osteosarc 0.9 renamed `Asset` to `File`;

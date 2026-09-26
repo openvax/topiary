@@ -2,7 +2,7 @@
 
 `build_sv_interest_report` retains the complete shared candidate set, including
 DNA-only, RNA-only, unresolved, unproductive and unassessed entries. It accepts
-the mapping returned by Osteosarc's SV interest catalogue and Isovar SV ORF
+the mapping returned by `osteosarc.load_sv_candidates()` and Isovar SV ORF
 v1-v4 exports. Source observations and their original warnings remain intact.
 
 ```python
