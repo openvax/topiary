@@ -9,8 +9,9 @@ tests/data>`, which holds exactly its original records, repeats included.
 
 `tests/sid_data.py` lists those files in `SHARED_READS`. The first test that
 reads one downloads and verifies the bundle (28 MB) into the osteosarc cache,
-`OSTEOSARC_CACHE`, else the shared OpenVax cache, then exports Topiary's reads
-once per test process as indexed BAMs. Later runs are offline. Exports are
+`OSTEOSARC_CACHE`, else the shared OpenVax cache, and each read file is
+exported there once as a read-only, indexed BAM (`osteosarc.bundle_file`).
+Later runs are offline. Exports are
 coordinate-sorted with the source's full header, so records at one position
 may be ordered differently from the original files; tests compare records, not
 file bytes. `read_selections` in `manifest.json` keeps each file's regions,

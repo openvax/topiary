@@ -1,5 +1,16 @@
 # Changelog
 
+## 5.76.0
+
+- Require osteosarc `>=0.12.0,<0.13`. Every osteosarc name Topiary uses is
+  unchanged in 0.12.
+- The Sid tests read each openvax-v1 read file with `osteosarc.bundle_file`,
+  which exports it into the osteosarc cache once and reuses it, instead of
+  exporting all of them into a temporary directory in every test process.
+- CI tests the Isovar integration against Isovar 1.39.1, the first release
+  that accepts osteosarc 0.12, and the Vaxrank candidate workflow against its
+  osteosarc 0.12 migration.
+
 ## 5.75.0
 
 - Sid test reads come from `openvax-v1`, the OpenVax libraries' shared Sid
