@@ -778,6 +778,11 @@ class TestReferenceVersionIdentity:
         monkeypatch.setattr(
             "topiary.sources._pirlygenes_cta_gene_ids", lambda: {"CTA_GENE"},
         )
+        # pirlygenes is optional and absent from CI's core jobs; pin the
+        # version the label reads so this checks labelling, not installs.
+        monkeypatch.setattr(
+            "topiary.self_proteome.package_version", lambda name: "9.9.9",
+        )
         versions = {
             cta_source: SelfProteome.from_ensembl(
                 species="human", release=93, peptide_lengths=[9],
@@ -788,7 +793,7 @@ class TestReferenceVersionIdentity:
         # The same proteome, asked for two ways, and both name the
         # pirlygenes release whose CTA list was removed.
         assert versions[None] == versions["pirlygenes"]
-        assert "+cta-pirlygenes-" in versions["pirlygenes"]
+        assert "+cta-pirlygenes-9.9.9+" in versions["pirlygenes"]
 
     def test_an_unrequested_release_records_the_one_selected(self, monkeypatch):
         fake = TestEnsemblHappyPath()._fake_genome()
