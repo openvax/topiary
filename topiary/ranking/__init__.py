@@ -89,7 +89,7 @@ from .nodes import (
     wt,
 )
 from .apply import apply_filter, apply_sort, evaluate_scores
-from .parser import parse
+from .parser import as_dsl_node, as_dsl_nodes, parse
 
 __all__ = [
     # Core node classes
@@ -139,6 +139,8 @@ __all__ = [
     "apply_sort",
     "evaluate_scores",
     "parse",
+    "as_dsl_node",
+    "as_dsl_nodes",
     "format_allele_set",
     "split_allele_set",
     "peptide_view",

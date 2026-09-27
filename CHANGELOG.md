@@ -1,5 +1,21 @@
 # Changelog
 
+## 5.79.0
+
+- Every argument that takes a DSL expression now goes through one public
+  coercion, `as_dsl_node` (`as_dsl_nodes` for sort keys), so they accept and
+  refuse the same things (#414). `apply_filter`, `apply_sort` and
+  `evaluate_scores` now accept a DSL string or a kind accessor like the
+  other entry points, and `rank_candidates` accepts a kind accessor.
+- A `bool` passed as an expression raises `TypeError` naming `.eq()` /
+  `.ne()` / `.isin()`. It is almost always `Column("x") == "y"`, which is
+  Python equality rather than a DSL comparison. `apply_sort` used to accept
+  it and return the frame unsorted, and `apply_filter` and `evaluate_scores`
+  failed with an `AttributeError` about internals.
+- `apply_sort` takes one expression as well as a list. A string used to be
+  iterated character by character, and a bare node failed as "not
+  iterable".
+
 ## 5.78.0
 
 - `to_tsv`/`to_csv` write columns of dicts and lists, such as

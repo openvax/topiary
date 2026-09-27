@@ -19,6 +19,7 @@ from .nodes import (
     _normalize_group_keys,
     _unwrap_peptide_view,
 )
+from .parser import as_dsl_node, as_dsl_nodes
 
 
 def _check_group_keys(df, group_keys):
@@ -305,10 +306,14 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
     been built on this same *df*, and it is mutually exclusive with the
     individual options above.
 
+    *node* is anything :func:`as_dsl_node` accepts: a DSL string, a node,
+    or a kind accessor such as ``Affinity``.
+
     Returns a ``pd.Series`` with ``df.index`` and a numeric dtype.
     """
     if node is None:
         raise ValueError("evaluate_scores requires a DSL node")
+    node = as_dsl_node(node)
     if df is None or df.empty:
         _check_group_keys(df, group_keys)
         return pd.Series([], index=df.index if df is not None else None,
@@ -334,10 +339,11 @@ def evaluate_scores(df, node, *, group_keys=None, default_methods=None,
 def apply_filter(df, node, *, group_keys=None, default_methods=None,
                  kind_support=None, alleles=None, context=None,
                  default_versions=None):
-    """Apply a boolean-valued DSL node to *df*.
+    """Apply a boolean-valued DSL expression to *df*.
 
     Keeps all rows for peptide-allele groups whose evaluated value is
-    truthy.  ``None`` for *node* is a no-op.
+    truthy.  *node* is anything :func:`as_dsl_node` accepts; ``None`` is
+    a no-op.
 
     *group_keys*, *default_methods*, *default_versions*, *kind_support*
     and *alleles* are the shared context options, forwarded to
@@ -346,6 +352,8 @@ def apply_filter(df, node, *, group_keys=None, default_methods=None,
     been built on this same *df*, and it is mutually exclusive with the
     individual options above.
     """
+    if node is not None:
+        node = as_dsl_node(node)
     if node is None or df.empty:
         _check_group_keys(df, group_keys)
         return df if node is None else df.reset_index(drop=True)
@@ -373,7 +381,9 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
                context=None, default_versions=None):
     """Sort groups by one or more DSL nodes (lexicographic fallthrough).
 
-    *sort_nodes* is a list of DSLNode.  Each node's direction is inferred
+    *sort_nodes* is one expression or a list of them, each anything
+    :func:`as_dsl_node` accepts; ``None`` or an empty list is a no-op.
+    The first is the primary key.  Each node's direction is inferred
     from its shape (percentile_rank → asc; affinity.value → asc; other →
     desc) when *sort_direction* is ``"auto"``; otherwise the string
     value is used for all nodes.
@@ -390,6 +400,7 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
     been built on this same *df*, and it is mutually exclusive with the
     individual options above.
     """
+    sort_nodes = as_dsl_nodes(sort_nodes)
     if not sort_nodes or df.empty:
         _check_group_keys(df, group_keys)
         return df if not sort_nodes else df.reset_index(drop=True)

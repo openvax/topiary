@@ -461,7 +461,7 @@ apply_filter(
 apply_filter(df, ~Column("source").isin(["control", "blacklist"]))
 ```
 
-`DSLNode.__eq__` is intentionally not overridden — `Column("x") == "y"` still does Python identity equality and won't compose. Always use `.eq()` / `.ne()` / `.isin()`.
+`DSLNode.__eq__` is intentionally not overridden — `Column("x") == "y"` still does Python identity equality and won't compose. Always use `.eq()` / `.ne()` / `.isin()`. Passing the resulting `bool` as a filter, sort or score expression raises a `TypeError` that says so, rather than filtering or sorting on a constant.
 
 NaN handling matches pandas, not SQL: missing values evaluate to `False` for `.eq()` / `.isin()` and to `True` for `.ne()` / `~.eq()` (the inverse). To exclude NaN explicitly, compose with the source-of-truth column — e.g. `Column("mhc_class").ne("II") & Column("mhc_class").isin(["I", "II"])`.
 

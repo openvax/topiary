@@ -15,8 +15,8 @@ from mhctools.pred import value_unit
 from .io_pvacseq import derive_mhc_class
 from .predictor import from_predictions
 from .ranking import (
-    DSLNode, apply_filter, evaluate_scores, format_allele_set, is_stated,
-    mhc_dependence, parse, split_allele_set,
+    apply_filter, as_dsl_node, evaluate_scores, format_allele_set, is_stated,
+    mhc_dependence, split_allele_set,
 )
 from .result import TopiaryResult, stack_results
 from .serialization import normalize_python_types
@@ -262,14 +262,6 @@ def _combined_frame(result):
     return frame
 
 
-def _node(expression):
-    if isinstance(expression, str):
-        return parse(expression)
-    if isinstance(expression, DSLNode):
-        return expression
-    raise TypeError("Use a DSL expression string or DSLNode")
-
-
 def rank_candidates(result, score_by, *, filter_by=None, ascending=False,
                     duplicates="error", strata=("candidate_mhc_class",),
                     default_methods=None, default_versions=None):
@@ -279,10 +271,10 @@ def rank_candidates(result, score_by, *, filter_by=None, ascending=False,
     ----------
     result : TopiaryResult
         Output of :func:`combine_sources`, optionally with added features.
-    score_by : str or DSLNode
+    score_by : str, DSLNode or KindAccessor
         Explicit scoring expression. Original predictions remain the default
         namespace even after re-scoring. Missing scores remain missing.
-    filter_by : str or DSLNode, optional
+    filter_by : str, DSLNode or KindAccessor, optional
         Existing Topiary filter semantics, applied per source observation.
         The original result is not modified or narrowed.
     ascending : bool
@@ -322,9 +314,9 @@ def rank_candidates(result, score_by, *, filter_by=None, ascending=False,
     context = dict(default_methods=default_methods, default_versions=default_versions,
                    kind_support=result._kind_support())
     if filter_by is not None:
-        frame = apply_filter(frame, _node(filter_by), **context)
+        frame = apply_filter(frame, as_dsl_node(filter_by), **context)
     frame = frame.copy()
-    frame["candidate_score"] = evaluate_scores(frame, _node(score_by), **context)
+    frame["candidate_score"] = evaluate_scores(frame, as_dsl_node(score_by), **context)
     frame = frame[frame.candidate_id.notna()]
     observation_keys = list(dict.fromkeys(["source_observation_id", "candidate_id", "allele",
                                            *( ["allele_set"] if "allele_set" in frame else []), *strata]))
@@ -365,7 +357,7 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
         Unique run identifier used in added feature names, for example
         ``fresh__mhcflurry__pMHC_affinity__value``. Double separators keep
         features distinct from native prediction columns during wide/long IO.
-    select : str or DSLNode, optional
+    select : str, DSLNode or KindAccessor, optional
         Filter selecting source observations to re-score. Other rows receive
         missing features. No new peptide windows or HLA candidates are added.
     use_flanks : bool
@@ -395,7 +387,7 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
     if not models or any(not callable(getattr(m, method, None))
                          for m in models for method in ("predict_dataframe", "kind_support")):
         raise TypeError("models must expose predict_dataframe and kind_support; pass configured mhctools instances")
-    selected = apply_filter(frame, _node(select)) if select is not None else frame
+    selected = apply_filter(frame, as_dsl_node(select)) if select is not None else frame
     selected = selected[selected.candidate_id.notna()]
     selected = selected.drop_duplicates(["source_observation_id", "candidate_id", "allele_set"]
                                         if "allele_set" in selected else ["source_observation_id", "candidate_id"])
@@ -483,6 +475,6 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
     runs[prefix] = dict(producer="topiary", created_at=datetime.now(timezone.utc).isoformat(),
                         features=descriptors, use_flanks=use_flanks,
                         input_sources=sorted(set(selected.source_label)),
-                        select=_node(select).to_expr_string() if select is not None else None)
+                        select=as_dsl_node(select).to_expr_string() if select is not None else None)
     return TopiaryResult(output, metadata=metadata, form="long",
                          filter_by_ast=result.filter_by_ast, sort_by_ast=result.sort_by_ast)

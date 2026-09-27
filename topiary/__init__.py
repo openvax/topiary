@@ -68,6 +68,8 @@ from .ranking import (
     minimum,
     format_allele_set,
     parse,
+    as_dsl_node,
+    as_dsl_nodes,
     peptide_view,
     prediction_field_values,
     split_allele_set,
@@ -186,7 +188,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.78.0"
+__version__ = "5.79.0"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -284,6 +286,8 @@ __all__ = [
     "minimum",
     "format_allele_set",
     "parse",
+    "as_dsl_node",
+    "as_dsl_nodes",
     "peptide_view",
     "prediction_field_values",
     "split_allele_set",

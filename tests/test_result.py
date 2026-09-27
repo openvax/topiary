@@ -524,7 +524,7 @@ class TestFilterBy:
 
     def test_invalid_type_raises(self):
         r = TopiaryResult(_multi_row_df())
-        with pytest.raises(TypeError, match="filter_by expects"):
+        with pytest.raises(TypeError, match="Expected a DSL expression"):
             r.filter_by(500)
 
     def test_filter_on_empty_df_is_noop(self):
@@ -596,7 +596,7 @@ class TestSortBy:
 
     def test_invalid_type_raises(self):
         r = TopiaryResult(_multi_row_df())
-        with pytest.raises(TypeError, match="sort_by expects"):
+        with pytest.raises(TypeError, match="Expected a DSL expression"):
             r.sort_by(42)
 
     def test_sort_on_empty_df_is_noop(self):

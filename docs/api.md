@@ -224,6 +224,11 @@ For string / boolean / mixed-dtype columns, `Column.eq` / `Column.ne` / `Column.
 | `Column("mhc_class").isin(["I", "II"])` | True for either value |
 | `~Column("mhc_class").isin([...])` | Negate via `~` |
 
+`Column("x") == "y"` is Python equality, not one of these: `DSLNode` keeps
+ordinary `==`, so it evaluates to a plain `bool`. Every expression argument
+refuses a `bool` with a `TypeError` that names `.eq()`, rather than
+filtering or sorting on a constant.
+
 In the string DSL, string literals are legal on the RHS of `==` / `!=` only:
 
 ```python
@@ -380,6 +385,16 @@ It renames to topiary's column vocabulary, fills the context columns a producer 
 | `(A) & (B)` | `BoolOp(&, [A, B])` |
 
 Apply with `apply_filter(df, node)` and `apply_sort(df, [nodes])`.
+
+Every argument that takes an expression -- `apply_filter`, `apply_sort`,
+`evaluate_scores`, `rank_candidates`, `TopiaryResult.filter_by` / `sort_by`
+and `TopiaryPredictor(filter_by=..., sort_by=...)` -- accepts the same three
+forms: a DSL string, a node, or a kind accessor such as `Affinity`, which
+stands for its `.value`. Sort arguments also take a list, primary key first.
+They all route through `as_dsl_node` / `as_dsl_nodes`, which you can call
+directly to validate an expression before using it. Anything else raises
+`TypeError`; a `bool` gets a message pointing at `.eq()`, since it is almost
+always `Column("x") == "y"` (see below).
 
 ### Context options
 

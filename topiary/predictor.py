@@ -26,13 +26,12 @@ from .filters import (
 )
 from .ranking import (
     ALLELE_SET_COLUMN,
-    DSLNode,
     _kind_value,
     format_allele_set,
-    KindAccessor,
     apply_filter,
     apply_sort,
-    parse,
+    as_dsl_node,
+    as_dsl_nodes,
 )
 from .io import _model_version_str
 from mhctools.pred import COLUMNS as _PRED_COLUMNS
@@ -273,30 +272,6 @@ def _attach_expression_data(df, expression_data):
                 level, name_prefix or "unnamed", n_matched, n_before,
             )
     return df
-
-
-def _coerce_filter_node(expr):
-    """Return a DSLNode for *expr* (string → parsed, KindAccessor → .value)."""
-    if expr is None:
-        return None
-    if isinstance(expr, str):
-        return parse(expr)
-    if isinstance(expr, KindAccessor):
-        return expr.value
-    if isinstance(expr, DSLNode):
-        return expr
-    raise TypeError(
-        f"Expected a DSL expression or string, got {type(expr).__name__}"
-    )
-
-
-def _coerce_sort_nodes(expr):
-    """Return a list[DSLNode] for *expr*."""
-    if expr is None:
-        return []
-    if isinstance(expr, (list, tuple)):
-        return [_coerce_filter_node(e) for e in expr]
-    return [_coerce_filter_node(expr)]
 
 
 # Annotation keys used to plumb per-effect bookkeeping through
@@ -904,8 +879,8 @@ class TopiaryPredictor(object):
         )
 
         # --- filter / sort ---
-        self.filter_by = _coerce_filter_node(filter_by)
-        self.sort_by = _coerce_sort_nodes(sort_by)
+        self.filter_by = as_dsl_node(filter_by) if filter_by is not None else None
+        self.sort_by = as_dsl_nodes(sort_by)
         self.sort_direction = sort_direction
         self.default_methods = default_methods
 
