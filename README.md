@@ -541,6 +541,34 @@ Explicit CSV/HTML paths save all rows and suppress the automatic preview:
 
 **Expression data adds:** columns named `{prefix}_{column}` as described in [Column naming](#column-naming), e.g. `gene_tpm`, `transcript_tpm`, `variant_num_alt_reads`.
 
+### Output files
+
+Saved CSV/TSV and HTML files hold one row per prediction, with no index
+column, so `pandas.read_csv(path)` and topiary's own `read_csv` / `read_tsv`
+read them back as written. (Through 5.81.0 the row number was saved under the
+header `#`, which readers that treat `#` as a comment — including topiary's —
+took for a metadata line.)
+
+Floats are written to six significant digits: a predictor reporting `6.296`
+had been saved as `6.296000000000002`. The digits past the sixth come from
+binary floating point, not from the model. Values keep their decimal point, so
+a reloaded measurement column is still a float.
+
+Row order is the ranking when `--sort-by` is given, and otherwise follows each
+source sequence's windows in position order (`peptide_offset` ascending), with
+source sequences in the order they first appear. A peptide list keeps its input
+order. With `--sort-by`, an `output_row` column numbers the rows from 1 so the
+order survives re-sorting in a spreadsheet; it is a row position in this file,
+not a per-candidate rank — see `rank_candidates` and `candidate_rank` for that.
+
+HTML output is a complete page, and a missing value is an empty cell whatever
+its type.
+
+**Units** are fixed by the row's `kind`, which output files do not restate:
+`value` and `affinity` are nM for `pMHC_affinity`; `value` and `score` are 0–1
+for `pMHC_presentation` and `antigen_processing`; `percentile_rank` is a
+percentage.
+
 ### Exit status
 
 | Status | Meaning |

@@ -1,5 +1,36 @@
 # Changelog
 
+## 5.83.0
+
+- **CLI output files no longer carry the pandas index (#326).** It was written
+  under the header `#`, so any reader treating `#` as a comment — including
+  topiary's own `read_csv` / `read_tsv` — skipped the header, took the first
+  data row as the column names and lost a row. A CLI file now reloads as
+  written. Anything reading the old files with `index_col="#"` must drop it.
+- Floats are written to six significant digits: `6.296000000000002` becomes
+  `6.296` and `11927.161249112096` becomes `11927.2`. Whole values keep their
+  decimal point, so a reloaded measurement column stays `float64` rather than
+  becoming `int64`. Predictions were never accurate past the sixth digit, but
+  a workflow comparing exact text or replaying a file as a cache will see the
+  rounded values.
+- Without `--sort-by`, rows follow each source sequence's windows in position
+  order instead of alphabetically by peptide, so a scan reads 0, 1, 2 rather
+  than 16, 1, 13. Source sequences keep the order they first appear, and a
+  peptide list keeps its input order.
+- With `--sort-by`, a new first column `output_row` numbers the rows from 1, so
+  the order survives re-sorting elsewhere. It is a row position, not a
+  per-candidate rank: sorting on a measurement leaves a peptide's other kinds
+  further down the file. `rank_candidates` still produces `candidate_rank` for
+  a real ranking.
+- HTML output is a complete page (doctype, `<head>`, charset, title) rather
+  than a bare `<table>`, and a missing value is an empty cell whatever its
+  Python type; `None` used to print literally beside empty strings for the
+  same missing value.
+- `wt_peptide_length` is `Int64`, so a 9-mer's comparator is `9` and not `9.0`
+  once any row lacks a WT peptide.
+- README documents the output-file format, the row order and the units each
+  `kind` implies.
+
 ## 5.82.0
 
 - Require osteosarc `>=0.14.0,<0.15`. 0.14 removes `osteosarc.legacy_fixtures`

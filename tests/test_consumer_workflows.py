@@ -967,7 +967,7 @@ def test_cli_csv_stdout_and_file_carry_the_same_selected_results(
     main(options + ["--output-csv", "-"])
     captured = capsys.readouterr()
     assert captured.out == output.read_text()
-    frame = pd.read_csv(StringIO(captured.out), sep=separator, index_col="#")
+    frame = pd.read_csv(StringIO(captured.out), sep=separator)
     assert list(frame.columns) == ["peptide", "kind", "measurement"]
     assert list(frame.peptide) == ["SIINFEKL"] * 3
     assert "Columns:" in captured.err
@@ -1001,7 +1001,7 @@ def test_cli_csv_can_be_consumed_by_another_process(cli_output_request):
          *cli_output_request, "--output-csv", "-"],
         capture_output=True, text=True, check=True,
     )
-    frame = pd.read_csv(StringIO(result.stdout), index_col="#")
+    frame = pd.read_csv(StringIO(result.stdout))
     assert len(frame) == 6
     assert set(frame.peptide) == {"SIINFEKL", "GILGFVFTL"}
     assert "6 prediction rows" in result.stderr
@@ -1095,7 +1095,7 @@ def test_cached_scan_selects_lengths_without_changing_stored_values(
     args, stored = cached_length_request
     files_before = {path: path.read_bytes() for path in tmp_path.rglob("*.csv")}
     assert main(args + length_args + ["--mhc-alleles", "HLA-A*02:01", "--output-csv", "-"]) == 0
-    result = pd.read_csv(StringIO(capsys.readouterr().out), index_col="#")
+    result = pd.read_csv(StringIO(capsys.readouterr().out))
     assert set(result.peptide) == peptides
     assert set(result.kind) == {"pMHC_affinity", "antigen_processing"}
     columns = ["peptide", "kind", "value", "affinity", "percentile_rank", "score"]
@@ -1212,7 +1212,7 @@ def test_cache_loading_fills_missing_provenance_without_changing_measurements(
         "--mhc-cache-predictor-name", "synthetic",
         "--mhc-cache-predictor-version", "bundle-1", "--output-csv", "-",
     ]) == 0
-    result = pd.read_csv(StringIO(capsys.readouterr().out), index_col="#")
+    result = pd.read_csv(StringIO(capsys.readouterr().out))
     assert set(result.prediction_method_name) == {"synthetic"}
     assert set(result.predictor_version) == {"bundle-1"}
     columns = ["peptide", "kind", "affinity", "score", "percentile_rank"]
@@ -1266,7 +1266,7 @@ def test_tsv_kind_mapping_and_missing_kind_guidance(tmp_path, capsys):
     assert "kind" in message and "--mhc-cache-tsv-column kind=" in message
     assert "predictor_name / predictor_version" not in message
     assert main(args + ["--mhc-cache-tsv-column", "kind=assay"]) == 0
-    result = pd.read_csv(StringIO(capsys.readouterr().out), index_col="#")
+    result = pd.read_csv(StringIO(capsys.readouterr().out))
     assert result.kind.tolist() == ["pMHC_affinity"]
     assert result.affinity.tolist() == [12.5]
 
@@ -1387,7 +1387,7 @@ def test_live_mhcflurry_cli_output_replays_with_identical_provenance_and_values(
         "--mhc-peptide-lengths", "9", "--output-csv", str(live),
     ]) == 0
     capsys.readouterr()
-    stored = pd.read_csv(live, index_col="#")
+    stored = pd.read_csv(live)
     assert set(stored.predictor_version) == {"2.2.1+release-2.2.0"}
     assert set(stored.loc[stored.kind == "pMHC_affinity", "value"]) == {11.0, 22.0}
 
@@ -1395,7 +1395,7 @@ def test_live_mhcflurry_cli_output_replays_with_identical_provenance_and_values(
     monkeypatch.setitem(sys.modules, "mhcflurry", None)
     monkeypatch.setitem(sys.modules, "mhcflurry.downloads", None)
     assert main([*inputs, "--mhc-cache-file", str(live), "--output-csv", "-"]) == 0
-    replayed = pd.read_csv(StringIO(capsys.readouterr().out), index_col="#")
+    replayed = pd.read_csv(StringIO(capsys.readouterr().out))
     columns = [
         "peptide", "kind", "allele", "value", "score", "percentile_rank",
         "prediction_method_name", "predictor_version", "n_flank", "c_flank",
@@ -3113,3 +3113,30 @@ def test_sv_annotated_product_requires_its_own_event_linkage_in_both_doors(tmp_p
     assert cli(["--catalogue", str(tmp_path / "catalogue.json"), "--comparison", str(tmp_path / "comparison.json"),
                 "--output-prefix", str(tmp_path / "report")]) == 0
     assert json.loads((tmp_path / "report.json").read_text()) == json.loads(json.dumps(expected))
+
+
+def test_cli_output_can_be_read_back_by_topiary(cli_output_request, tmp_path, capsys):
+    """The CLI's own CSV/TSV must survive topiary's readers (#326).
+
+    The row number was written under the header ``#``, so every reader that
+    treats a leading ``#`` as a comment -- including ``read_csv``/``read_tsv``
+    -- skipped the header, took the first data row as the column names and
+    lost a row.
+    """
+    from topiary import read_csv, read_tsv
+    from topiary.cli.script import main
+
+    for suffix, sep, reader in (("csv", ",", read_csv), ("tsv", "\t", read_tsv)):
+        written = tmp_path / f"cli-output.{suffix}"
+        main([*cli_output_request, "--output-csv", str(written),
+              "--output-csv-sep", sep])
+        capsys.readouterr()
+
+        reloaded = reader(written).df
+        assert len(reloaded) == 6
+        assert set(reloaded.peptide) == {"SIINFEKL", "GILGFVFTL"}
+        assert "#" not in reloaded.columns
+        # The measurements survive the round trip, at the precision written.
+        affinity = reloaded[reloaded.kind == "pMHC_affinity"].set_index("peptide")
+        assert affinity.value.dtype == "float64"
+        assert affinity.value.to_dict() == {"SIINFEKL": 50.0, "GILGFVFTL": 500.0}
