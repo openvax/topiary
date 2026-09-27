@@ -46,6 +46,7 @@ follow-up alongside seed-and-extend for larger reference corpora.  See
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from collections import defaultdict
 from importlib.metadata import PackageNotFoundError, version as package_version
@@ -135,16 +136,20 @@ class SelfProteome:
     def __init__(
         self,
         *,
+        source: str,
         species: str,
         release: Optional[str],
         include_label: str,
+        content_digest: str,
         reference_arrays: Dict[int, np.ndarray],
         reference_peptides: Dict[int, List[str]],
         provenance: Dict[str, List[Tuple[str, str, int]]],
     ):
+        self.source = source
         self.species = species
         self.release = release
         self.include_label = include_label
+        self.content_digest = content_digest
         self._reference_arrays = reference_arrays
         self._reference_peptides = reference_peptides
         self._provenance = provenance
@@ -164,12 +169,22 @@ class SelfProteome:
         """Composite version string for reproducibility.
 
         Stamped on every row of :meth:`nearest`'s output; two runs with
-        matching strings produce interchangeable ``self_nearest_peptide``
-        values.
+        matching strings produce interchangeable ``self_nearest_*`` values.
+
+        The form is
+        ``{source}-{species}[-{release}]+include-{scope}+sha256:{digest}``,
+        where *source* is ``ensembl``, ``fasta`` or ``peptides``. The
+        leading parts describe the proteome for a reader; the digest is
+        what identifies it. It covers every record the index was built
+        from and the peptide lengths, so two proteomes share a string only
+        when they hold the same sequences under the same identifiers --
+        however they were labelled, and whatever a callable filter's
+        ``repr`` happened to be.
         """
         release_part = f"-{self.release}" if self.release is not None else ""
         return (
-            f"ensembl-{self.species}{release_part}+include-{self.include_label}"
+            f"{self.source}-{self.species}{release_part}"
+            f"+include-{self.include_label}+sha256:{self.content_digest}"
         )
 
     # --- lookup ---
@@ -420,7 +435,7 @@ class SelfProteome:
         ``transcript_id`` in the provenance index since this constructor
         doesn't distinguish between them.
         """
-        reference_arrays, reference_peptides, provenance = _build_index(
+        reference_arrays, reference_peptides, provenance, digest = _build_index(
             (
                 (source_id, source_id, source_id, seq)
                 for source_id, seq in peptides_by_source.items()
@@ -428,9 +443,11 @@ class SelfProteome:
             peptide_lengths,
         )
         return cls(
+            source="peptides",
             species=species,
             release=release,
             include_label=include_label,
+            content_digest=digest,
             reference_arrays=reference_arrays,
             reference_peptides=reference_peptides,
             provenance=provenance,
@@ -457,13 +474,15 @@ class SelfProteome:
         """
         records = list(_parse_fasta(path))
         include_label, records = _apply_fasta_scope(include, records)
-        reference_arrays, reference_peptides, provenance = _build_index(
+        reference_arrays, reference_peptides, provenance, digest = _build_index(
             records, peptide_lengths,
         )
         return cls(
+            source="fasta",
             species=species,
             release=release,
             include_label=include_label,
+            content_digest=digest,
             reference_arrays=reference_arrays,
             reference_peptides=reference_peptides,
             provenance=provenance,
@@ -519,13 +538,17 @@ class SelfProteome:
             min_tissue_ntpm=min_tissue_ntpm,
         )
         records = list(_iter_ensembl_proteins(genome, gene_filter))
-        reference_arrays, reference_peptides, provenance = _build_index(
+        reference_arrays, reference_peptides, provenance, digest = _build_index(
             records, peptide_lengths,
         )
         return cls(
+            source="ensembl",
             species=species,
-            release=str(release) if release is not None else None,
+            # release=None means "whatever pyensembl selects"; record the
+            # release it actually selected, not the absence of a request.
+            release=str(release if release is not None else genome.release),
             include_label=include_label,
+            content_digest=digest,
             reference_arrays=reference_arrays,
             reference_peptides=reference_peptides,
             provenance=provenance,
@@ -563,11 +586,7 @@ def _apply_fasta_scope(include, records):
     if include == "all":
         return "all", records
     if callable(include):
-        label = (
-            "callable-"
-            + hashlib.sha256(repr(include).encode()).hexdigest()[:12]
-        )
-        return label, [r for r in records if include(r[0])]
+        return _callable_label(include), [r for r in records if include(r[0])]
     raise ValueError(
         f"include={include!r} isn't available for from_fasta (FASTA has no "
         f"gene/tissue metadata).  Use 'all', a callable, or switch to "
@@ -587,11 +606,7 @@ def _resolve_ensembl_scope(
     """Return (include_label, gene_filter) where gene_filter takes a gene_id
     and returns True to keep."""
     if callable(include):
-        label = (
-            "callable-"
-            + hashlib.sha256(repr(include).encode()).hexdigest()[:12]
-        )
-        return label, include
+        return _callable_label(include), include
     if include == "all":
         return "all", lambda _gene_id: True
     if include == "non_cta":
@@ -656,10 +671,27 @@ def _resolve_protected_tissues(species, tissues, tissue_gene_ids, min_ntpm):
     )
 
 
+def _callable_label(fn):
+    """Name a callable scope filter the same way on every run.
+
+    ``repr`` of a function embeds its memory address, which changes from
+    run to run; the qualified name does not. The content digest in
+    ``reference_version`` is what tells two filters apart, so the label
+    only has to be stable and readable.
+    """
+    name = getattr(fn, "__qualname__", None) or type(fn).__name__
+    return f"callable-{name}"
+
+
 def _cta_label(species, cta_source, cta_set):
-    """Compose a human-readable label for the non_cta scope."""
-    if cta_source is None and species == "human":
-        # Using pirlygenes default.
+    """Compose a human-readable label for the non_cta scope.
+
+    The species default is resolved first, so ``cta_source=None`` and
+    naming that default explicitly give the same label.
+    """
+    if cta_source is None:
+        cta_source = _SPECIES_DEFAULTS.get(species, {}).get("cta_source")
+    if cta_source == "pirlygenes":
         try:
             version = package_version("pirlygenes")
             return f"non_cta+cta-pirlygenes-{version}"
@@ -704,14 +736,19 @@ def _build_index(records, peptide_lengths):
 
     ``records`` yields ``(gene_id, transcript_id, protein_id, sequence)``.
 
-    Returns (reference_arrays, reference_peptides, provenance) where:
+    Returns (reference_arrays, reference_peptides, provenance, digest) where:
     - ``reference_arrays[L]`` is an ``(M_L, L)`` int8 NumPy array.
     - ``reference_peptides[L]`` is a list of peptide strings aligned to
       the rows of ``reference_arrays[L]``.
     - ``provenance[peptide]`` is a list of
       ``(gene_id, transcript_id, offset)`` tuples — one entry per
       occurrence, so paralogs / repeats all contribute.
+    - ``digest`` is 12 hex characters of SHA-256 over exactly what the
+      index is built from: each record's gene id, transcript id and
+      sequence, in order (order decides ties between equally near
+      peptides), then the lengths actually indexed.
     """
+    content = hashlib.sha256()
     peptide_lengths = sorted(set(peptide_lengths))
     # Dedupe peptides per length while accumulating provenance.
     peptides_by_length: Dict[int, Dict[str, None]] = {
@@ -720,6 +757,9 @@ def _build_index(records, peptide_lengths):
     provenance: Dict[str, List[Tuple[str, str, int]]] = defaultdict(list)
 
     for gene_id, transcript_id, _protein_id, seq in records:
+        content.update(
+            (json.dumps([gene_id, transcript_id, seq], default=repr) + "\n").encode()
+        )
         for L in peptide_lengths:
             if L > len(seq):
                 continue
@@ -747,4 +787,7 @@ def _build_index(records, peptide_lengths):
         sum(len(v) for v in reference_peptides.values()),
         peptide_lengths,
     )
-    return reference_arrays, reference_peptides, dict(provenance)
+    # A requested length with no bucket is not part of what was indexed.
+    content.update(f"lengths:{sorted(reference_arrays)}".encode())
+    digest = content.hexdigest()[:12]
+    return reference_arrays, reference_peptides, dict(provenance), digest

@@ -36,8 +36,8 @@ class TestConstruction:
         ref = SelfProteome.from_peptides(
             {"g": "SIINFEKLA"}, peptide_lengths=[9],
         )
-        assert "ensembl-synthetic" in ref.reference_version
-        assert "include-all" in ref.reference_version
+        # Built from peptides, not Ensembl (#409).
+        assert ref.reference_version.startswith("peptides-synthetic+include-all+sha256:")
 
     def test_from_peptides_short_sequence_skips_longer_lengths(self):
         # 5aa sequence — can't produce any 9-mers
@@ -277,10 +277,12 @@ class TestEnsemblHappyPath:
         )
         # Only KEEP_GENE's 9-mers (5 of them) should be indexed.
         assert ref.n_reference_peptides == 5
-        assert ref.reference_version == (
+        prefix, digest = ref.reference_version.rsplit("+sha256:", 1)
+        assert prefix == (
             "ensembl-human-93+include-non_cta+cta-sha256:"
             + __import__("hashlib").sha256(b"CTA_GENE").hexdigest()[:12]
         )
+        assert digest == ref.content_digest and len(digest) == 12
 
     def test_from_ensembl_nearest_returns_real_provenance(
         self, monkeypatch,
@@ -729,3 +731,97 @@ class TestIndels:
         # BLOSUM distance is None for indel matches (different lengths
         # can't be scored positionally).
         assert row["self_nearest_blosum_distance"] is None
+
+
+class TestReferenceVersionIdentity:
+    """reference_version identifies the proteome it stamps (#409).
+
+    Two proteomes may share a string only when they hold the same
+    sequences under the same identifiers; the same proteome must get the
+    same string however it was asked for.
+    """
+
+    def test_different_content_gets_different_versions(self, tmp_path):
+        a = SelfProteome.from_peptides({"p1": "SIINFEKLSIINFEKL"})
+        b = SelfProteome.from_peptides({"p1": "AAAAAAAAWWWWWWWW"})
+        assert a.reference_version != b.reference_version
+
+        first, second = tmp_path / "a.fa", tmp_path / "b.fa"
+        first.write_text(">protA\nSIINFEKLSIINFEKL\n")
+        second.write_text(">protA\nAAAAAAAAWWWWWWWW\n")
+        assert (SelfProteome.from_fasta(first).reference_version
+                != SelfProteome.from_fasta(second).reference_version)
+
+    def test_rebuilding_the_same_content_reproduces_the_version(self, tmp_path):
+        peptides = {"p1": "SIINFEKLSIINFEKL", "p2": "GILGFVFTLGILGFVFTL"}
+        assert (SelfProteome.from_peptides(peptides).reference_version
+                == SelfProteome.from_peptides(dict(peptides)).reference_version)
+        path = tmp_path / "ref.fa"
+        path.write_text(">protA\nSIINFEKLSIINFEKL\n")
+        assert (SelfProteome.from_fasta(path).reference_version
+                == SelfProteome.from_fasta(path).reference_version)
+
+    def test_sources_other_than_ensembl_say_where_they_came_from(self, tmp_path):
+        path = tmp_path / "ref.fa"
+        path.write_text(">protA\nSIINFEKLSIINFEKL\n")
+        fasta = SelfProteome.from_fasta(path).reference_version
+        peptides = SelfProteome.from_peptides({"p1": "SIINFEKL"}).reference_version
+        assert fasta.startswith("fasta-fasta+include-all+sha256:")
+        assert peptides.startswith("peptides-synthetic+include-all+sha256:")
+
+    def test_default_and_explicit_cta_source_agree(self, monkeypatch):
+        fake = TestEnsemblHappyPath()._fake_genome()
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        monkeypatch.setattr(
+            "topiary.sources._pirlygenes_cta_gene_ids", lambda: {"CTA_GENE"},
+        )
+        # pirlygenes is optional and absent from CI's core jobs; pin the
+        # version the label reads so this checks labelling, not installs.
+        monkeypatch.setattr(
+            "topiary.self_proteome.package_version", lambda name: "9.9.9",
+        )
+        versions = {
+            cta_source: SelfProteome.from_ensembl(
+                species="human", release=93, peptide_lengths=[9],
+                include="non_cta", cta_source=cta_source,
+            ).reference_version
+            for cta_source in (None, "pirlygenes")
+        }
+        # The same proteome, asked for two ways, and both name the
+        # pirlygenes release whose CTA list was removed.
+        assert versions[None] == versions["pirlygenes"]
+        assert "+cta-pirlygenes-9.9.9+" in versions["pirlygenes"]
+
+    def test_an_unrequested_release_records_the_one_selected(self, monkeypatch):
+        fake = TestEnsemblHappyPath()._fake_genome()
+        fake.release = 115
+        monkeypatch.setattr(
+            "pyensembl.EnsemblRelease",
+            lambda release=None, species=None: fake,
+        )
+        ref = SelfProteome.from_ensembl(
+            species="human", peptide_lengths=[9], include="all",
+        )
+        assert ref.reference_version.startswith("ensembl-human-115+include-all+")
+
+    def test_a_callable_filter_labels_the_same_on_every_run(self, tmp_path):
+        path = tmp_path / "ref.fa"
+        path.write_text(">keep\nSIINFEKLSIINFEKL\n>drop\nAAAAAAAAWWWWWWWW\n")
+
+        def make_filter(kept):
+            def keep_named(source_id):
+                return source_id == kept
+            return keep_named
+
+        # Fresh function objects, as a rerun would create: their repr
+        # differs by address, but they select the same records.
+        first = SelfProteome.from_fasta(path, include=make_filter("keep"))
+        again = SelfProteome.from_fasta(path, include=make_filter("keep"))
+        other = SelfProteome.from_fasta(path, include=make_filter("drop"))
+        assert first.reference_version == again.reference_version
+        assert "include-callable-" in first.reference_version
+        # Same label, different records: the digest tells them apart.
+        assert other.reference_version != first.reference_version
