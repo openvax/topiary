@@ -1668,8 +1668,11 @@ class TopiaryPredictor(object):
             return base[start:end]
 
         df["wt_peptide"] = df.apply(_wt_peptide, axis=1)
-        df["wt_peptide_length"] = df["wt_peptide"].map(
-            lambda p: len(p) if isinstance(p, str) else None
+        # Int64, not float64: a frameshift row has no WT peptide, and one
+        # missing value used to turn every length into 9.0 (#326).
+        df["wt_peptide_length"] = pd.array(
+            [len(p) if isinstance(p, str) else None for p in df["wt_peptide"]],
+            dtype="Int64",
         )
         df[_WT_OFFSET_COLUMN] = df["peptide_offset"].where(
             df["wt_peptide"].notna(), other=None,

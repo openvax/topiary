@@ -427,6 +427,22 @@ class TestWtPeptide:
         aff = df[df["kind"] == "pMHC_affinity"]
         assert aff["wt_peptide"].isna().all()
 
+    def test_wt_peptide_length_stays_a_whole_number_beside_a_missing_one(self):
+        """One fragment without a WT peptide used to make every length a
+        float, so a 9-mer's comparator was written as ``9.0`` (#326)."""
+        matched = ProteinFragment(
+            fragment_id="a__00000000", sequence="MAAVTDVG",
+            reference_sequence="REFXXXXX",
+        )
+        unmatched = ProteinFragment(
+            fragment_id="b__00000000", sequence="WWWWWWWW",
+        )
+        df = _predictor(lengths=[8]).predict_from_fragments([matched, unmatched])
+        lengths = df["wt_peptide_length"]
+        assert lengths.dtype == "Int64"
+        assert set(lengths.dropna()) == {8}
+        assert lengths.isna().any()
+
     def test_predict_wt_false_does_not_score_wt_peptides(self):
         f = ProteinFragment.from_variant(
             sequence="MAAGVTDVGMAV",
