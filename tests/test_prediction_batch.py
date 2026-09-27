@@ -178,14 +178,14 @@ def test_cli_default_is_still_strict(tmp_path, capsys):
     args, _, _ = cli_inputs(tmp_path, [PEPTIDE, MISSING])
     with pytest.raises(SystemExit) as error:
         main(args)
-    assert error.value.code == 2 and capsys.readouterr().out == ""
+    assert error.value.code == 1 and capsys.readouterr().out == ""
 
 
 def test_cli_report_write_failure_prevents_prediction_output(tmp_path, capsys):
     args, _, _ = cli_inputs(tmp_path, [PEPTIDE, MISSING])
     with pytest.warns(PartialPredictionWarning), pytest.raises(SystemExit) as error:
         main(args + ["--cache-miss-report", str(tmp_path / "absent" / "report.json")])
-    assert error.value.code == 2 and capsys.readouterr().out == ""
+    assert error.value.code == 1 and capsys.readouterr().out == ""
 
 
 @pytest.mark.parametrize("collision", ["cache", "input", "output", "stdout", "hardlink"])

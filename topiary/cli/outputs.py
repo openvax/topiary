@@ -15,7 +15,7 @@ Common commandline arguments for output files
 """
 
 
-import logging
+import argparse
 import sys
 
 from ..io import _encode_json, _json_columns
@@ -26,6 +26,17 @@ _PREVIEW_COLUMNS = (
     "peptide", "allele", "kind", "value", "value_unit", "score",
     "percentile_rank", "source_sequence_name",
 )
+
+
+def _single_character(value):
+    """argparse type for --output-csv-sep: pandas writes only one-character separators.
+
+    Checked while parsing, so a bad separator fails before predicting
+    rather than after, leaving an empty file behind (#310).
+    """
+    if len(value) != 1:
+        raise argparse.ArgumentTypeError(f"must be a single character, got {value!r}")
+    return value
 
 
 def add_output_args(arg_parser):
@@ -46,7 +57,8 @@ def add_output_args(arg_parser):
     )
 
     output_group.add_argument(
-        "--output-csv-sep", default=",", help="Separator for CSV file"
+        "--output-csv-sep", default=",", type=_single_character,
+        help="Separator for CSV file (one character)",
     )
 
     output_group.add_argument(
@@ -96,17 +108,16 @@ def write_outputs(
     if print_df_before_filtering:
         print(df, file=diagnostic_stream)
 
+    # An unknown column is an error, raised before anything is written: a
+    # warning let a typo produce an index-only file and exit 0 (#326).
+    all_columns = list(df.columns)
     if args.subset_output_columns:
-        subset_columns = []
-        for column in args.subset_output_columns:
-            if column not in df.columns:
-                logging.warning(
-                    "Invalid column name '%s', available: %s"
-                    % (column, list(df.columns))
-                )
-            else:
-                subset_columns.append(column)
-        df = df.loc[:, subset_columns].copy()
+        unknown = [c for c in args.subset_output_columns if c not in all_columns]
+        if unknown:
+            raise ValueError(
+                f"--subset-output-columns: no column named {', '.join(map(repr, unknown))}; "
+                f"available: {', '.join(all_columns)}")
+        df = df.loc[:, args.subset_output_columns].copy()
 
     preview_columns = (
         list(df.columns) if args.subset_output_columns else
@@ -118,16 +129,16 @@ def write_outputs(
     if args.rename_output_column:
         for old_name, new_name in args.rename_output_column:
             if old_name not in df.columns:
-                logging.warning(
-                    "Can't rename column '%s' since it doesn't exist, available: %s"
-                    % (old_name, list(df.columns))
-                )
-            else:
-                df = df.rename(columns={old_name: new_name})
-                preview_columns = [
-                    new_name if column == old_name else column
-                    for column in preview_columns
-                ]
+                reason = ("--subset-output-columns removed it"
+                          if old_name in all_columns else "no such column")
+                raise ValueError(
+                    f"--rename-output-column: cannot rename {old_name!r}: {reason}; "
+                    f"available: {', '.join(map(str, df.columns))}")
+            df = df.rename(columns={old_name: new_name})
+            preview_columns = [
+                new_name if column == old_name else column
+                for column in preview_columns
+            ]
 
     if print_df_after_filtering:
         print(df, file=diagnostic_stream)

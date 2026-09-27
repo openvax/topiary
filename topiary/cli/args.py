@@ -193,6 +193,18 @@ def _add_input_args(arg_parser):
     return input_group
 
 
+class CommandLineError(ValueError):
+    """The command line itself is malformed: flags missing or in conflict.
+
+    argparse cannot express these checks, but they are the same kind of
+    mistake it reports, so ``main`` reports them the same way: with the
+    usage block and exit status 2. Everything else it catches (a missing
+    file, an allele a predictor rejects, an unwritable output) exits 1
+    without the usage block (#310). A ``ValueError`` subclass, so code
+    calling these validators directly sees no change.
+    """
+
+
 MHC_SOURCE_ERROR = (
     "Must supply either --mhc-predictor (live predictor) or "
     "--mhc-cache-file / --mhc-cache-directory (cached predictions). "
@@ -542,7 +554,7 @@ def _validate_input_modes(args):
         incompatible_flags.append("--variant-expression")
 
     if incompatible_flags:
-        raise ValueError(
+        raise CommandLineError(
             "Direct sequence inputs can't be combined with variant/RNA inputs: %s"
             % ", ".join(incompatible_flags)
         )
@@ -574,7 +586,7 @@ def _validate_required_prediction_args(args):
         # passing both ran the cache and ignored --mhc-predictor without
         # a word -- so a command naming mhcflurry got NetMHCpan rows from
         # the file (#321). Say so instead of picking one silently.
-        raise ValueError(
+        raise CommandLineError(
             "--mhc-predictor and --mhc-cache-file / --mhc-cache-directory "
             "are mutually exclusive: a cache supplies predictions instead "
             "of running a predictor. Drop --mhc-predictor to score from "
@@ -587,11 +599,11 @@ def _validate_required_prediction_args(args):
         missing.append(INPUT_SOURCE_ERROR)
 
     if len(missing) > 1:
-        raise ValueError(
+        raise CommandLineError(
             "No prediction request specified.\n\n" + "\n\n".join(missing)
         )
     if missing:
-        raise ValueError(missing[0])
+        raise CommandLineError(missing[0])
 
 
 def predict_epitopes_from_args(args):
@@ -613,12 +625,22 @@ def predict_epitopes_from_args(args):
             df.attrs["topiary_cache_misses"] = cache_misses
         return df
 
+    # Read inputs and parse expressions before building predictors, which
+    # can take seconds: a missing file or a bad --filter-by fails at once (#310).
+    filter_by, sort_by, sort_direction = _build_filter_and_sort(args)
+    _validate_input_modes(args)
+    direct_input, is_peptides = _get_direct_input(args)
+    if direct_input is None:
+        _require_variant_input(args)
+        variants = variant_collection_from_args(args)
+        gene_expression_dict = rna_gene_expression_dict_from_args(args)
+        transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
+        expr_data = expression_data_from_args(args)
+
     if cached_predictor_in_use(args):
         models = cached_predictor_from_args(args)
     else:
         models = predictors_from_args(args)
-
-    filter_by, sort_by, sort_direction = _build_filter_and_sort(args)
 
     predictor = TopiaryPredictor(
         models=models,
@@ -634,10 +656,6 @@ def predict_epitopes_from_args(args):
         cache_miss_handler=cache_misses.append if report_cache_misses else None,
     )
 
-    _validate_input_modes(args)
-
-    # Check for direct peptide/sequence inputs first
-    direct_input, is_peptides = _get_direct_input(args)
     if direct_input is not None:
         if not direct_input:
             logging.warning(
@@ -650,23 +668,6 @@ def predict_epitopes_from_args(args):
             df = predictor.predict_from_named_sequences(direct_input)
         return finish(df)
 
-    # Check that at least some variant input is present
-    has_variant_input = any([
-        getattr(args, "vcf", None),
-        getattr(args, "maf", None),
-        getattr(args, "variant", None),
-        getattr(args, "json_variants", None),
-        getattr(args, "protein_change", None),
-    ])
-    if not has_variant_input:
-        raise ValueError(INPUT_SOURCE_ERROR)
-
-    # Use variant pipeline
-    variants = variant_collection_from_args(args)
-    gene_expression_dict = rna_gene_expression_dict_from_args(args)
-    transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
-    expr_data = expression_data_from_args(args)
-
     df = predictor.predict_from_variants(
         variants=variants,
         transcript_expression_dict=transcript_expression_dict,
@@ -674,6 +675,13 @@ def predict_epitopes_from_args(args):
         expression_data=expr_data,
     )
     return finish(df)
+
+
+def _require_variant_input(args):
+    """Without a direct peptide/sequence input, some variant source is required."""
+    if not any(getattr(args, name, None) for name in (
+            "vcf", "maf", "variant", "json_variants", "protein_change")):
+        raise CommandLineError(INPUT_SOURCE_ERROR)
 
 
 def _apply_exclusion(df, args):
