@@ -115,19 +115,25 @@ ref = SelfProteome.from_peptides(
 ## Reference version
 
 Every row of the output carries a `self_nearest_reference_version`
-string that captures the species + scope + filter identity. Two runs
-produce interchangeable `self_nearest_peptide` values iff the strings
-match:
+string. Two runs produce interchangeable `self_nearest_*` values iff the
+strings match. Its form is
+`{source}-{species}[-{release}]+include-{scope}+sha256:{digest}`:
 
 ```
-ensembl-human-93+scope-non_cta+cta-pirlygenes-3.12.1
-ensembl-mouse-102+scope-all
-ensembl-human+scope-non_cta+cta-sha256:abc123...
+ensembl-human-115+include-non_cta+cta-pirlygenes-6.0.4+sha256:3f2a9c1e7b40
+ensembl-mouse-102+include-all+sha256:91d0c4e2a8b7
+fasta-fasta+include-callable-keep_named+sha256:0be51d2c9f63
+peptides-synthetic+include-all+sha256:bd8a4e854d1c
 ```
 
-Custom filters (user-supplied CTA sets or callables) hash into the
-version string so reproducibility holds even when no stable label is
-available.
+`source` is the constructor: `ensembl`, `fasta` or `peptides`. When
+`from_ensembl` is called without a release, the string records the release
+pyensembl selected. The leading parts describe the proteome for a reader;
+the digest identifies it. It covers every record the index was built from
+(gene id, transcript id and sequence, in order) and the lengths indexed, so
+two proteomes share a string only when they hold the same sequences under
+the same identifiers. A callable filter is labelled by its qualified name,
+which is the same on every run; the digest tells two filters apart.
 
 ## Algorithm
 

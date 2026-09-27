@@ -1,5 +1,20 @@
 # Changelog
 
+## 5.80.0
+
+- `SelfProteome.reference_version` now identifies the proteome it stamps
+  (#409). It ends in `+sha256:<digest>` over every record the index was
+  built from and the lengths indexed, so different content can no longer
+  share a string. Proteomes from `from_fasta` and `from_peptides` start
+  with `fasta-` and `peptides-` instead of `ensembl-`.
+- `cta_source="pirlygenes"` records the pirlygenes version, as the default
+  `cta_source=None` already did, so the two spellings give the same string.
+- `from_ensembl()` without a release records the release pyensembl
+  selected, and a callable `include=` is labelled by its qualified name
+  rather than a `repr` containing a memory address, so reruns reproduce
+  the string.
+- New `SelfProteome.source` and `SelfProteome.content_digest` attributes.
+
 ## 5.79.0
 
 - Every argument that takes a DSL expression now goes through one public
