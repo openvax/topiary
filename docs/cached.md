@@ -72,8 +72,10 @@ topiary --fasta proteins.fasta --mhc-cache-file predictions.csv \
 
 The sidecar records `complete`, `prediction_rows` (after filters), and `failures`,
 including when all inputs fail or all succeed. Exit status **3** means a partial
-prediction run; **0** means no reported cache misses. Existing fatal CLI errors
-retain status 2. CSV stdout remains parseable. The report is written before the
+prediction run; **0** means no reported cache misses. A malformed command line
+exits 2 with the usage text; any other fatal error, including a cache that
+cannot answer without this option, exits 1 with one line. CSV stdout remains
+parseable. The report is written before the
 prediction output, and its path must differ from inputs and outputs.
 `complete` concerns cache coverage only, not biological evidence, filtering,
 or variant annotation skipped under `--skip-variant-errors`.

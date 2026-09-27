@@ -120,3 +120,20 @@ def test_csv_stdout_stays_clean_with_html_and_legacy_diagnostic_prints(tmp_path,
     assert captured.out == "#,peptide\n0,SIINFEKL\n"
     assert "Columns:" in captured.err and "Saving" in captured.err
     assert "SIINFEKL" in html.read_text()
+
+
+def test_renaming_a_column_the_subset_removed_says_so():
+    df = pd.DataFrame({"peptide": ["SIINFEKL"], "value": [1.0]})
+    args = arg_parser.parse_args([
+        "--subset-output-columns", "peptide",
+        "--rename-output-column", "value", "ic50",
+    ])
+    with pytest.raises(ValueError, match="--subset-output-columns removed it"):
+        write_outputs(df, args)
+
+
+def test_renaming_an_absent_column_is_an_error():
+    df = pd.DataFrame({"peptide": ["SIINFEKL"]})
+    args = arg_parser.parse_args(["--rename-output-column", "valu", "ic50"])
+    with pytest.raises(ValueError, match="cannot rename 'valu': no such column"):
+        write_outputs(df, args)

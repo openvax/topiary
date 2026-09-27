@@ -541,6 +541,18 @@ Explicit CSV/HTML paths save all rows and suppress the automatic preview:
 
 **Expression data adds:** columns named `{prefix}_{column}` as described in [Column naming](#column-naming), e.g. `gene_tpm`, `transcript_tpm`, `variant_num_alt_reads`.
 
+### Exit status
+
+| Status | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Something topiary found after reading the command: a missing or unreadable input, an allele a predictor rejects, a missing optional dependency, a predictor that isn't set up, an output that can't be written. One `topiary: error:` line on stderr. |
+| 2 | The command line is malformed: an unknown flag, a bad value, required flags missing or in conflict. The error follows the usage text. |
+| 3 | Partial result under `--cache-miss-report` (see [cached predictions](docs/cached.md)). |
+
+Output paths, `--mhc-predictor-path` and the inputs are checked before any
+predictor is loaded, so these fail in the first second, not after the run.
+
 ## Peptide properties
 
 Compute amino acid properties and use them in ranking:

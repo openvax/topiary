@@ -1,5 +1,24 @@
 # Changelog
 
+## 5.81.0
+
+- **CLI exit status changes (#310).** Errors found after the command line is
+  read now exit **1** with a single `topiary: error:` line: a missing or
+  unreadable input or cache file, a cache that cannot answer, a predictor
+  that isn't set up, an output that can't be written. They used to print the
+  whole usage block and exit 2. A malformed command line (an unknown flag, a
+  bad value, required flags missing or in conflict) keeps exit 2 with the
+  usage text, so scripts can tell the two apart.
+- A mistyped allele and a missing optional dependency print one line instead
+  of a traceback (#324).
+- Output paths and `--mhc-predictor-path` are checked before predicting, and
+  inputs and `--filter-by` / `--sort-by` are read before any predictor is
+  loaded, so these fail in the first second rather than after the run
+  (#310). `--output-csv-sep` must be one character.
+- An unknown `--subset-output-columns` or `--rename-output-column` name is an
+  error, raised before anything is written; it used to warn and write an
+  index-only file (#326).
+
 ## 5.80.0
 
 - `SelfProteome.reference_version` now identifies the proteome it stamps

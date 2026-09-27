@@ -1,6 +1,7 @@
 import pathlib
 
 import pytest
+from mhcgnomes.errors import ParseError as AlleleParseError
 
 import topiary.cli.script as cli_script
 from topiary.cli.script import main
@@ -81,9 +82,9 @@ def test_main_reports_cached_predictor_miss_as_a_clean_cli_error(
             "--mhc-cache-format", "netmhcpan",
         ])
 
-    assert exc_info.value.code == 2
+    assert exc_info.value.code == 1
     captured = capsys.readouterr()
-    assert "usage: topiary" in captured.err
+    assert "usage: topiary" not in captured.err
     assert "topiary: error:" in captured.err
     assert "GILGFVFTL" in captured.err
     assert "no fallback set" in captured.err
@@ -149,7 +150,7 @@ def test_main_reports_a_missing_input_file_readably(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exc_info:
         main(["--peptide-csv", missing])
 
-    assert exc_info.value.code == 2
+    assert exc_info.value.code == 1
     captured = capsys.readouterr()
     error_line = _error_line(captured.err)
     assert "No such file or directory" in error_line
@@ -178,7 +179,7 @@ def test_a_real_missing_peptide_csv_reaches_the_handler(tmp_path, capsys):
             "--mhc-cache-format", "netmhcpan",
         ])
 
-    assert exc_info.value.code == 2
+    assert exc_info.value.code == 1
     captured = capsys.readouterr()
     error_line = _error_line(captured.err)
     assert "No such file or directory" in error_line
@@ -224,7 +225,7 @@ def test_main_reports_predictor_setup_failure_readably(
             "--mhc-cache-format", "mhcflurry",
         ])
 
-    assert exc_info.value.code == 2
+    assert exc_info.value.code == 1
     captured = capsys.readouterr()
     error_line = _error_line(captured.err)
     assert "mhcflurry-downloads fetch" in error_line
@@ -265,3 +266,106 @@ def test_main_never_prints_a_blank_error(monkeypatch, capsys):
         main(["--peptide-csv", "unused.csv"])
 
     assert _error_line(capsys.readouterr().err) == "topiary: error: ValueError"
+
+
+# Exit status (#310, #324): a malformed command line keeps argparse's usage
+# block and status 2; anything found after parsing exits 1 with one line.
+
+_REQUEST = ["--mhc-predictor", "random", "--mhc-alleles", "HLA-A*02:01"]
+
+
+def _run(argv, capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        main(argv)
+    return exc_info.value.code, capsys.readouterr().err
+
+
+@pytest.mark.parametrize("error,expected", [
+    (ImportError("pirlygenes is required for cancer-testis antigen gene lists"),
+     "pirlygenes is required"),
+    (AlleleParseError("Could not parse 'HLA-Q99:99'"),
+     "could not parse MHC allele: Could not parse 'HLA-Q99:99'"),
+    (FileNotFoundError(2, "No such file or directory", "absent.csv"),
+     "No such file or directory"),
+])
+def test_runtime_failures_exit_1_with_one_line(monkeypatch, capsys, error, expected):
+    def fail(args):
+        raise error
+    monkeypatch.setattr(cli_script, "predict_epitopes_from_args", fail)
+    code, err = _run([*_REQUEST, "--peptide-csv", "peptides.csv"], capsys)
+    assert code == 1
+    assert expected in _error_line(err)
+    assert "usage:" not in err and "Traceback" not in err
+
+
+def _must_not_predict(args):
+    pytest.fail("predicted before checking the paths")
+
+
+@pytest.mark.parametrize("flag", ["--output-csv", "--output-html"])
+def test_an_output_in_a_missing_directory_fails_before_predicting(
+    monkeypatch, capsys, tmp_path, flag,
+):
+    monkeypatch.setattr(cli_script, "predict_epitopes_from_args", _must_not_predict)
+    target = tmp_path / "absent" / "results"
+    code, err = _run([*_REQUEST, "--peptide-csv", "p.csv", flag, str(target)], capsys)
+    assert code == 1
+    assert "does not exist" in _error_line(err) and "usage:" not in err
+
+
+def test_a_missing_predictor_path_fails_before_predicting(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(cli_script, "predict_epitopes_from_args", _must_not_predict)
+    program = tmp_path / "nonexistent" / "netMHCpan"
+    code, err = _run([*_REQUEST, "--peptide-csv", "p.csv",
+                      "--mhc-predictor-path", str(program)], capsys)
+    assert code == 1
+    assert "--mhc-predictor-path" in _error_line(err)
+
+
+def test_predictor_path_accepts_a_directory_or_a_program_on_path(tmp_path):
+    from argparse import Namespace
+    for program in (str(tmp_path), "python3"):
+        cli_script._check_paths_before_predicting(Namespace(
+            output_csv=None, output_html=None, mhc_predictor_path=program))
+
+
+def test_a_missing_input_fails_before_predictors_are_built(monkeypatch, capsys, tmp_path):
+    import topiary.cli.args as cli_args
+
+    def must_not_build(args):
+        pytest.fail("built predictors before reading the input")
+    monkeypatch.setattr(cli_args, "predictors_from_args", must_not_build)
+    code, err = _run([*_REQUEST, "--peptide-csv", str(tmp_path / "absent.csv")], capsys)
+    assert code == 1
+    assert "No such file" in _error_line(err)
+
+
+def test_a_multi_character_csv_separator_is_a_command_line_error(capsys):
+    code, err = _run([*_REQUEST, "--peptide-csv", "p.csv", "--output-csv-sep", "||"], capsys)
+    assert code == 2
+    assert "usage: topiary" in err and "single character" in _error_line(err)
+
+
+def test_an_unknown_output_column_fails_without_writing(monkeypatch, capsys, tmp_path):
+    import pandas as pd
+
+    frame = pd.DataFrame({"peptide": ["SIINFEKL"], "value": [1.0]})
+    monkeypatch.setattr(cli_script, "predict_epitopes_from_args", lambda args: frame)
+    out = tmp_path / "results.csv"
+    code, err = _run([*_REQUEST, "--peptide-csv", "p.csv", "--output-csv", str(out),
+                      "--subset-output-columns", "peptide", "ic50"], capsys)
+    assert code == 1
+    assert "'ic50'" in _error_line(err) and not out.exists()
+
+
+def test_a_write_failure_after_predicting_exits_1(monkeypatch, capsys):
+    import pandas as pd
+
+    def fail(df, args):
+        raise PermissionError(13, "Permission denied", "results.csv")
+    monkeypatch.setattr(cli_script, "predict_epitopes_from_args",
+                        lambda args: pd.DataFrame({"peptide": ["SIINFEKL"]}))
+    monkeypatch.setattr(cli_script, "write_outputs", fail)
+    code, err = _run([*_REQUEST, "--peptide-csv", "p.csv"], capsys)
+    assert code == 1
+    assert "Permission denied" in _error_line(err) and "Traceback" not in err

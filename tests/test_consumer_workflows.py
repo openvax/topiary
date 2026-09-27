@@ -1236,7 +1236,7 @@ def test_cache_loading_refuses_to_relabel_stated_provenance(
     frame.to_csv(path, sep=sep, index=False)
     with pytest.raises(SystemExit) as error:
         main(args + [flag, "different"])
-    assert error.value.code == 2
+    assert error.value.code == 1
     message = capsys.readouterr().err
     assert column in message and "conflict" in message
     assert "different" in message
@@ -1260,7 +1260,7 @@ def test_tsv_kind_mapping_and_missing_kind_guidance(tmp_path, capsys):
     ]
     with pytest.raises(SystemExit) as error:
         main(args)
-    assert error.value.code == 2
+    assert error.value.code == 1
     message = capsys.readouterr().err.split("topiary: error:", 1)[-1]
     assert str(path) in message
     assert "kind" in message and "--mhc-cache-tsv-column kind=" in message
@@ -1283,7 +1283,7 @@ def test_cache_missing_file_reports_the_path_not_format_detection(
         args += ["--mhc-cache-format", "topiary_output"]
     with pytest.raises(SystemExit) as error:
         main(args)
-    assert error.value.code == 2
+    assert error.value.code == 1
     message = capsys.readouterr().err.split("topiary: error:", 1)[-1]
     assert str(missing) in message and "No such file" in message
     assert "auto-detect" not in message
@@ -1308,7 +1308,7 @@ def test_cache_unreadable_file_reports_permission_error(
     monkeypatch.setattr(builtins, "open", denied)
     with pytest.raises(SystemExit) as error:
         main(cli_output_request[:4])  # exercise automatic detection
-    assert error.value.code == 2
+    assert error.value.code == 1
     message = capsys.readouterr().err.split("topiary: error:", 1)[-1]
     assert path in message and "Permission denied" in message
     assert "auto-detect" not in message
@@ -1325,7 +1325,7 @@ def test_bad_cache_directory_shard_names_the_file_and_expected_format(
     bad.write_text("# NetMHCpan version 4.1\none,two,three\nfour,five,six,seven\n")
     with pytest.raises(SystemExit) as error:
         main([*cli_output_request[:2], "--mhc-cache-directory", str(directory)])
-    assert error.value.code == 2
+    assert error.value.code == 1
     message = capsys.readouterr().err.split("topiary: error:", 1)[-1]
     assert str(bad) in message and "topiary_output" in message
 
