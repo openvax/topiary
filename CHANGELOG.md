@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.82.0
+
+- Require osteosarc `>=0.14.0,<0.15`. 0.14 removes `osteosarc.legacy_fixtures`
+  and changes `make_bundle` defaults, neither of which Topiary uses.
+- CI tests the Isovar integration against Isovar 1.39.5, the first release
+  that accepts osteosarc 0.14, and the Vaxrank candidate workflow against its
+  osteosarc 0.14 migration.
+
 ## 5.81.0
 
 - **CLI exit status changes (#310).** Errors found after the command line is
