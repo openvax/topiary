@@ -1,5 +1,16 @@
 # Changelog
 
+## 5.78.0
+
+- `to_tsv`/`to_csv` write columns of dicts and lists, such as
+  `measurement_context`, as one JSON document per cell, declared by
+  `#topiary_json_encoding=json-v1`; `read_tsv`/`read_csv` decode them back
+  into the same dicts and lists (#410). They were written as Python reprs
+  and read back as strings. A cell JSON cannot represent raises `TypeError`
+  before the file is opened. Files from earlier versions read as before.
+- The CLI's `--output-csv` and `--output-html` write those cells as JSON
+  instead of Python reprs.
+
 ## 5.77.0
 
 - Require osteosarc `>=0.13.0,<0.14`. 0.13 only removes osteosarc code

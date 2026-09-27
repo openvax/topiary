@@ -18,6 +18,8 @@ Common commandline arguments for output files
 import logging
 import sys
 
+from ..io import _encode_json, _json_columns
+
 
 _PREVIEW_ROWS = 20
 _PREVIEW_COLUMNS = (
@@ -134,6 +136,17 @@ def write_outputs(
         print("Columns:", file=diagnostic_stream)
         for column in df.columns:
             print("-- %s" % column, file=diagnostic_stream)
+
+    # Dicts and lists such as measurement_context would otherwise be written
+    # as Python reprs, which only Python can read back. Missing cells stay
+    # missing: these outputs carry no topiary encoding declaration.
+    json_columns = _json_columns(df)
+    if json_columns:
+        df = df.copy()
+        for column in json_columns:
+            df[column] = df[column].map(
+                lambda value, column=column: _encode_json(value, column=column)
+                if isinstance(value, (dict, list)) else value)
 
     # Finish file outputs before streaming: a pipe consumer may stop early.
     if args.output_html:

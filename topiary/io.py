@@ -25,6 +25,12 @@ Other columns containing only strings and missing values use the same cell
 encoding, declared by ``#topiary_text_encoding`` with its version and column
 names. This preserves identifiers such as ``001`` and literal sequence text
 such as ``NA`` without changing numeric measurement columns.
+
+Columns whose stated cells are all dicts or lists, such as
+``measurement_context``, are written as one JSON document per cell and
+declared by ``#topiary_json_encoding``; missing cells are ``<NA>``. Readers
+decode them back into dicts and lists. Values follow JSON's data model:
+tuples come back as lists and non-string keys as strings.
 """
 
 import ast
@@ -43,8 +49,9 @@ _JSON_EXTRA_PREFIX = "json:"
 _SCALAR_METADATA_KEYS = frozenset((
     "topiary_version", "form", "filter_by", "sort_by", "topiary_flank_encoding",
 ))
-_STRUCTURED_METADATA_KEYS = frozenset(("topiary_text_encoding",))
+_STRUCTURED_METADATA_KEYS = frozenset(("topiary_text_encoding", "topiary_json_encoding"))
 _TEXT_ENCODING = "escaped-v1"
+_JSON_ENCODING = "json-v1"
 _FLANK_COLUMNS = ("n_flank", "c_flank")
 _MISSING_TEXT = "<NA>"
 
@@ -56,7 +63,7 @@ class Metadata:
     ``extra`` holds custom comment keys. Writers reject top-level keys used
     by built-in metadata (``topiary_version``, ``form``, ``source``,
     ``filter_by``, ``sort_by``, ``topiary_flank_encoding``,
-    ``topiary_text_encoding``, and the ``model:``
+    ``topiary_text_encoding``, ``topiary_json_encoding``, and the ``model:``
     prefix). Nest such names under a custom key when they describe a dataset
     rather than this result.
     Keys must be nonempty strings without surrounding whitespace, line breaks
@@ -68,7 +75,8 @@ class Metadata:
     missing flank sequences. Writers derive it from the columns being written;
     readers decode it into the cells rather than carrying it as result metadata.
     ``topiary_text_encoding`` does the same for other literal text columns,
-    recording a mapping with ``version`` and ``columns``.
+    recording a mapping with ``version`` and ``columns``, and
+    ``topiary_json_encoding`` for columns of dicts and lists.
     """
 
     topiary_version: str = None
@@ -80,6 +88,7 @@ class Metadata:
     extra: dict = dataclass_field(default_factory=OrderedDict)
     topiary_flank_encoding: str = None
     topiary_text_encoding: dict = None
+    topiary_json_encoding: dict = None
 
 
 # -- Comment block parsing / formatting ------------------------------------
@@ -153,6 +162,8 @@ def _format_comment_block(meta):
         lines.append(f"#topiary_flank_encoding={meta.topiary_flank_encoding}")
     if meta.topiary_text_encoding:
         lines.append(f"#topiary_text_encoding={_format_extra_value(meta.topiary_text_encoding)}")
+    if meta.topiary_json_encoding:
+        lines.append(f"#topiary_json_encoding={_format_extra_value(meta.topiary_json_encoding)}")
     for key, value in meta.extra.items():
         if (not isinstance(key, str) or not key or key != key.strip()
                 or any(c in key for c in "=\r\n")):
@@ -333,17 +344,30 @@ def _decode_text(value, *, label="text"):
     return value
 
 
-def _text_columns(encoding):
-    """Validate the file-only declaration before applying its cell decoder."""
+def _decode_json(value):
+    """Decode one cell of a declared JSON column into a dict or list."""
+    if value == _MISSING_TEXT:
+        return None
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        decoded = None
+    if not isinstance(decoded, (dict, list)):
+        raise ValueError(f"Invalid JSON cell: {value!r}")
+    return decoded
+
+
+def _declared_columns(encoding, *, version, label):
+    """Validate a file-only column declaration before applying its cell decoder."""
     if encoding is None:
         return []
     if (not isinstance(encoding, dict) or set(encoding) != {"version", "columns"}
-            or encoding["version"] != _TEXT_ENCODING):
-        raise ValueError(f"Unsupported text encoding: {encoding!r}")
+            or encoding["version"] != version):
+        raise ValueError(f"Unsupported {label} encoding: {encoding!r}")
     columns = encoding["columns"]
     if (not isinstance(columns, list) or any(not isinstance(c, str) for c in columns)
             or len(set(columns)) != len(columns)):
-        raise ValueError("Text encoding columns must be distinct strings")
+        raise ValueError(f"{label[0].upper()}{label[1:]} encoding columns must be distinct strings")
     return columns
 
 
@@ -358,7 +382,12 @@ def _read_delimited(path, sep, tag=None):
     meta, n_comment = _parse_comment_block(all_lines)
     if meta.topiary_flank_encoding not in (None, _TEXT_ENCODING):
         raise ValueError(f"Unsupported flank encoding: {meta.topiary_flank_encoding!r}")
-    text_columns = _text_columns(meta.topiary_text_encoding)
+    text_columns = _declared_columns(
+        meta.topiary_text_encoding, version=_TEXT_ENCODING, label="text")
+    json_columns = _declared_columns(
+        meta.topiary_json_encoding, version=_JSON_ENCODING, label="JSON")
+    if set(text_columns) & set(json_columns):
+        raise ValueError("Text and JSON encodings both name the same column")
 
     data_text = "".join(all_lines[n_comment:])
     if not data_text.strip():
@@ -370,6 +399,8 @@ def _read_delimited(path, sep, tag=None):
         columns = pd.read_csv(StringIO(data_text), sep=sep, nrows=0).columns
         if set(text_columns) - set(columns):
             raise ValueError("Text encoding names columns absent from the file")
+        if set(json_columns) - set(columns):
+            raise ValueError("JSON encoding names columns absent from the file")
         version_types = {}
         for column in columns:
             parsed = _parse_wide_column(column)
@@ -379,6 +410,7 @@ def _read_delimited(path, sep, tag=None):
         # Explicitly marked strings bypass numeric and NA inference. Missing
         # cells use a sentinel, so literal "NA" and empty strings stay text.
         converters = {column: _decode_text for column in text_columns}
+        converters.update({column: _decode_json for column in json_columns})
         if meta.topiary_flank_encoding:
             converters.update({column: lambda value: _decode_text(value, label="flank")
                                for column in _FLANK_COLUMNS if column in columns})
@@ -405,7 +437,8 @@ def read_tsv(path, tag=None):
     termini and missing cells remain unknown. Legacy unmarked blank cells
     retain their missing-value interpretation.
     Marked text columns preserve literal identifiers and sequences without
-    numeric or missing-value inference.
+    numeric or missing-value inference. Marked JSON columns decode back into
+    dicts and lists, with missing cells as ``None``.
 
     Parameters
     ----------
@@ -428,7 +461,8 @@ def read_csv(path, tag=None):
     termini and missing cells remain unknown. Legacy unmarked blank cells
     retain their missing-value interpretation.
     Marked text columns preserve literal identifiers and sequences without
-    numeric or missing-value inference.
+    numeric or missing-value inference. Marked JSON columns decode back into
+    dicts and lists, with missing cells as ``None``.
 
     Parameters
     ----------
@@ -453,6 +487,27 @@ def _encode_text(value, *, label="Text"):
     if pd.api.types.is_scalar(value) and pd.isna(value):
         return _MISSING_TEXT
     raise TypeError(f"{label} cells must be strings or missing, got {value!r}")
+
+
+def _json_columns(df, exclude=()):
+    """Columns whose stated cells are all dicts or lists."""
+    columns = []
+    for column in df.columns:
+        if isinstance(column, str) and column not in exclude:
+            stated = df[column].dropna()
+            if len(stated) and stated.map(lambda value: isinstance(value, (dict, list))).all():
+                columns.append(column)
+    return columns
+
+
+def _encode_json(value, *, column):
+    """One JSON document per stated cell; the missing-text sentinel otherwise."""
+    if not isinstance(value, (dict, list)):
+        return _MISSING_TEXT
+    try:
+        return json.dumps(normalize_python_types(value), separators=(",", ":"))
+    except (TypeError, ValueError) as error:
+        raise TypeError(f"Column {column!r} has a cell JSON cannot represent: {value!r}") from error
 
 
 def _write_delimited(df, path, sep, metadata, index):
@@ -503,7 +558,8 @@ def _write_delimited(df, path, sep, metadata, index):
             stated = df[column].dropna()
             if len(stated) and stated.map(lambda value: isinstance(value, str)).all():
                 text_columns.append(column)
-    if flank_columns or text_columns:
+    json_columns = _json_columns(df, exclude=flank_columns)
+    if flank_columns or text_columns or json_columns:
         df = df.copy()
         for column in flank_columns:
             # Encode every cell, including missing categorical values, rather
@@ -511,11 +567,14 @@ def _write_delimited(df, path, sep, metadata, index):
             df[column] = df[column].astype(object).map(lambda value: _encode_text(value, label="Flank"))
         for column in text_columns:
             df[column] = df[column].astype(object).map(_encode_text)
+        for column in json_columns:
+            df[column] = df[column].map(lambda value, column=column: _encode_json(value, column=column))
     # The flag describes this particular file, not the source result. Derive
     # it anew on every write, including after columns/rows have been removed.
     file_metadata = replace(
         metadata, topiary_flank_encoding=_TEXT_ENCODING if flank_columns else None,
-        topiary_text_encoding=dict(version=_TEXT_ENCODING, columns=text_columns) if text_columns else None)
+        topiary_text_encoding=dict(version=_TEXT_ENCODING, columns=text_columns) if text_columns else None,
+        topiary_json_encoding=dict(version=_JSON_ENCODING, columns=json_columns) if json_columns else None)
     comment_block = _format_comment_block(file_metadata)
 
     with open(path, "w") as f:
@@ -528,7 +587,9 @@ def to_tsv(df, path, metadata=None, index=False):
     """Write a topiary DataFrame to TSV with comment-block metadata.
 
     Canonical flank columns preserve empty strings versus missing context
-    through :func:`read_tsv`. Other columns retain normal pandas formatting.
+    through :func:`read_tsv`. Columns of dicts and lists, such as
+    ``measurement_context``, are written as JSON and read back as the same
+    values. Other columns retain normal pandas formatting.
 
     Raises
     ------
@@ -537,7 +598,8 @@ def to_tsv(df, path, metadata=None, index=False):
         in the comment syntax. The output file is not opened in this case.
         See :class:`Metadata` for key restrictions.
     TypeError
-        A flank cell is neither a string nor missing. The output is not opened.
+        A flank cell is neither a string nor missing, or a dict/list cell
+        holds a value JSON cannot represent. The output is not opened.
     """
     _write_delimited(df, path, sep="\t", metadata=metadata, index=index)
 
@@ -546,7 +608,9 @@ def to_csv(df, path, metadata=None, index=False):
     """Write a topiary DataFrame to CSV with comment-block metadata.
 
     Canonical flank columns preserve empty strings versus missing context
-    through :func:`read_csv`. Other columns retain normal pandas formatting.
+    through :func:`read_csv`. Columns of dicts and lists, such as
+    ``measurement_context``, are written as JSON and read back as the same
+    values. Other columns retain normal pandas formatting.
 
     Raises
     ------
@@ -555,6 +619,7 @@ def to_csv(df, path, metadata=None, index=False):
         in the comment syntax. The output file is not opened in this case.
         See :class:`Metadata` for key restrictions.
     TypeError
-        A flank cell is neither a string nor missing. The output is not opened.
+        A flank cell is neither a string nor missing, or a dict/list cell
+        holds a value JSON cannot represent. The output is not opened.
     """
     _write_delimited(df, path, sep=",", metadata=metadata, index=index)
