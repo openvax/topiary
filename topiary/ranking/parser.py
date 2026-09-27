@@ -25,6 +25,8 @@ import operator
 import re
 from difflib import get_close_matches
 
+import numpy as np
+
 from .nodes import (
     Affinity,
     BinOp,
@@ -808,3 +810,73 @@ def parse(text: str) -> DSLNode:
     combinators, transforms, aggregations, scoped fields.
     """
     return _Parser(text).parse()
+
+
+def as_dsl_node(expression) -> DSLNode:
+    """Return the DSL node a filter or score expression argument denotes.
+
+    Every entry point that takes one expression -- ``apply_filter``,
+    ``evaluate_scores``, ``rank_candidates``, :meth:`TopiaryResult.filter`,
+    ``TopiaryPredictor(filter_by=...)`` -- routes through here, so they all
+    accept and refuse the same things.
+
+    Parameters
+    ----------
+    expression : str, DSLNode or KindAccessor
+        A DSL string is parsed with :func:`parse`. A kind accessor such as
+        ``Affinity`` stands for its ``.value``. A node is returned unchanged.
+        ``None`` is not an expression; each entry point decides what an
+        absent one means.
+
+    Returns
+    -------
+    DSLNode
+
+    Raises
+    ------
+    TypeError
+        For anything else. A ``bool`` gets a pointed message because it is
+        almost always the result of ``Column("x") == "y"``: ``DSLNode``
+        deliberately keeps Python equality, so that comparison never builds
+        a node. Accepting the bool would filter or sort on a constant.
+    """
+    if isinstance(expression, str):
+        return parse(expression)
+    if isinstance(expression, KindAccessor):
+        return expression.value
+    if isinstance(expression, DSLNode):
+        return expression
+    if isinstance(expression, (bool, np.bool_)):
+        raise TypeError(
+            f"Expected a DSL expression, got the bool {expression!r}. "
+            "Column(...) == value is Python equality, not a DSL comparison; "
+            "use Column(...).eq(value), .ne(value) or .isin(values), "
+            "or the string form 'column == \"value\"'."
+        )
+    raise TypeError(
+        f"Expected a DSL expression string or node, got {type(expression).__name__}"
+    )
+
+
+def as_dsl_nodes(expressions) -> list:
+    """Return the sort keys an expression, or a sequence of them, denotes.
+
+    Used by ``apply_sort``, :meth:`TopiaryResult.sort` and
+    ``TopiaryPredictor(sort_by=...)``.
+
+    Parameters
+    ----------
+    expressions : None, expression, or list/tuple of expressions
+        Each expression is anything :func:`as_dsl_node` accepts. ``None``
+        and an empty sequence mean no sort keys.
+
+    Returns
+    -------
+    list of DSLNode
+        In the given order; the first is the primary key.
+    """
+    if expressions is None:
+        return []
+    if isinstance(expressions, (list, tuple)):
+        return [as_dsl_node(expression) for expression in expressions]
+    return [as_dsl_node(expressions)]

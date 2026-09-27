@@ -27,6 +27,7 @@ from importlib.metadata import requires
 from types import SimpleNamespace
 from typing import Callable, Dict, Tuple
 
+import numpy as np
 import pandas as pd
 from osteosarc import parse_variants
 from scripts.osteosarc_variant_audit import variant_inventory
@@ -46,6 +47,7 @@ from topiary import (
     to_tsv, to_csv, read_tsv, read_csv,
     read_isovar_hypotheses,
     combine_sources, rank_candidates, evaluate_scores,
+    Affinity, Column, apply_filter, apply_sort,
 )
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
@@ -228,6 +230,88 @@ def test_candidate_ranking_and_dsl_reject_ambiguous_columns(axis, labels, values
                     assert scored.eq(expected).all()
                     assert ranked.candidate_score.eq(expected).all()
                     assert ranked.candidate_rank.tolist() == [1]
+
+
+def _predictor(**options):
+    return TopiaryPredictor(models=RandomBindingPredictor(alleles=["HLA-A*02:01"]), **options)
+
+
+# Every door that takes one DSL expression argument. All route through
+# as_dsl_node, so they accept and refuse the same things (#414): before,
+# rank_candidates refused a kind accessor the predictor accepted, and the
+# apply_* functions crashed on strings and on the bool `Column(...) == x`.
+DSL_FILTER_DOORS = (
+    ("apply_filter", lambda combined, x: apply_filter(combined.df, x)),
+    ("rank_candidates filter_by",
+     lambda combined, x: rank_candidates(combined, "affinity.value", filter_by=x)),
+    ("TopiaryResult.filter_by", lambda combined, x: combined.filter_by(x)),
+    ("TopiaryPredictor filter_by", lambda combined, x: _predictor(filter_by=x)),
+)
+DSL_SCORE_DOORS = (
+    ("evaluate_scores", lambda combined, x: evaluate_scores(combined.df, x)),
+    ("rank_candidates score_by", lambda combined, x: rank_candidates(combined, x)),
+)
+# Doors taking sort keys route through as_dsl_nodes: one expression or a list.
+DSL_SORT_DOORS = (
+    ("apply_sort", lambda combined, x: apply_sort(combined.df, x)),
+    ("TopiaryResult.sort_by", lambda combined, x: combined.sort_by(x)),
+    ("TopiaryPredictor sort_by", lambda combined, x: _predictor(sort_by=x)),
+)
+DSL_EXPRESSION_DOORS = (
+    *DSL_FILTER_DOORS, *DSL_SCORE_DOORS, *DSL_SORT_DOORS,
+    *((f"{name} [list]", lambda combined, x, door=door: door(combined, [x]))
+      for name, door in DSL_SORT_DOORS),
+)
+
+
+def _door_outcome(value):
+    """What a door produced, in a form two calls can be compared by."""
+    if isinstance(value, TopiaryPredictor):
+        nodes = [value.filter_by] if value.filter_by is not None else value.sort_by
+        return [node.to_expr_string() for node in nodes]
+    return value.df if isinstance(value, TopiaryResult) else value
+
+
+def _assert_same_outcome(left, right):
+    if isinstance(left, pd.DataFrame):
+        pd.testing.assert_frame_equal(left, right)
+    elif isinstance(left, pd.Series):
+        pd.testing.assert_series_equal(left, right)
+    else:
+        assert left == right
+
+
+@pytest.mark.parametrize("value,is_bool", [
+    # Python equality, not a DSL comparison: this is False, not a node.
+    pytest.param(Column("gene") == "TP53", True, id="column-eq-string"),
+    pytest.param(True, True, id="true"),
+    pytest.param(np.bool_(False), True, id="numpy-bool"),
+    pytest.param(5, False, id="int"),
+    pytest.param(object(), False, id="object"),
+])
+def test_dsl_expression_doors_refuse_the_same_non_expressions(value, is_bool):
+    from .test_candidate_tables import source
+
+    combined = combine_sources({"original": source()}, sample_name="p")
+    for name, door in DSL_EXPRESSION_DOORS:
+        with pytest.raises(TypeError) as raised:
+            door(combined, value)
+        # Only a bool points at .eq(): it is almost always `Column(...) == x`.
+        assert (".eq(" in str(raised.value)) == is_bool, name
+
+
+@pytest.mark.parametrize("doors,forms", [
+    (DSL_FILTER_DOORS, ("affinity.value < 55", Affinity.value < 55)),
+    (DSL_SCORE_DOORS + DSL_SORT_DOORS, ("affinity.value", Affinity.value, Affinity)),
+], ids=["filter", "score-and-sort"])
+def test_dsl_expression_doors_treat_a_string_node_and_accessor_alike(doors, forms):
+    from .test_candidate_tables import source
+
+    combined = combine_sources({"original": source()}, sample_name="p")
+    for name, door in doors:
+        first, *rest = (_door_outcome(door(combined, form)) for form in forms)
+        for other in rest:
+            _assert_same_outcome(first, other)
 
 
 # Real aggregated/all-epitopes doors, paired by original run and MHC view.

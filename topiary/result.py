@@ -339,9 +339,9 @@ class TopiaryResult:
 
         Parameters
         ----------
-        expr : str or DSLNode
+        expr : str, DSLNode or KindAccessor
             A string like ``"affinity <= 500"`` or a DSL node like
-            ``Affinity <= 500``.
+            ``Affinity <= 500``; anything :func:`as_dsl_node` accepts.
         default_methods : dict, optional
             Per-kind default ``prediction_method_name``, for resolving
             unqualified references when several methods produce the
@@ -357,22 +357,10 @@ class TopiaryResult:
             New result with rows filtered and filter_by_str /
             filter_by_ast updated (ANDed with any previous filter).
         """
-        from .ranking import DSLNode, KindAccessor, apply_filter, parse
+        from .ranking import apply_filter, as_dsl_node
 
-        if isinstance(expr, str):
-            new_str = expr
-            new_ast = parse(expr)
-        elif isinstance(expr, KindAccessor):
-            new_ast = expr.value
-            new_str = new_ast.to_expr_string()
-        elif isinstance(expr, DSLNode):
-            new_ast = expr
-            new_str = expr.to_expr_string()
-        else:
-            raise TypeError(
-                f"filter_by expects a string or DSLNode, "
-                f"got {type(expr).__name__}"
-            )
+        new_ast = as_dsl_node(expr)
+        new_str = expr if isinstance(expr, str) else new_ast.to_expr_string()
 
         df = self.long_df
         if df.empty:
@@ -401,8 +389,9 @@ class TopiaryResult:
 
         Parameters
         ----------
-        expr : str, DSLNode, or list of DSLNode
-            Sort expression(s).
+        expr : expression, or list/tuple of expressions
+            Sort expression(s), each anything :func:`as_dsl_node` accepts.
+            The first in a list is the primary key.
         default_methods : dict, optional
             Per-kind default ``prediction_method_name``.  Sorting is
             strict about ambiguity — unlike filtering it does not
@@ -416,38 +405,16 @@ class TopiaryResult:
         TopiaryResult
             New result with rows sorted.
         """
-        from .ranking import DSLNode, KindAccessor, apply_sort, parse
+        from .ranking import apply_sort, as_dsl_node, as_dsl_nodes
 
-        if isinstance(expr, str):
-            new_str = expr
-            new_ast = parse(expr)
-            sort_nodes = [new_ast]
-        elif isinstance(expr, KindAccessor):
-            new_ast = expr.value
-            new_str = new_ast.to_expr_string()
-            sort_nodes = [new_ast]
-        elif isinstance(expr, DSLNode):
-            new_ast = expr
-            new_str = expr.to_expr_string()
-            sort_nodes = [new_ast]
-        elif isinstance(expr, (list, tuple)):
-            sort_nodes = [
-                e.value if isinstance(e, KindAccessor) else e
-                for e in expr
-            ]
-            for n in sort_nodes:
-                if not isinstance(n, DSLNode):
-                    raise TypeError(
-                        f"sort_by list must contain DSLNode values, "
-                        f"got {type(n).__name__}"
-                    )
+        if isinstance(expr, (list, tuple)):
+            sort_nodes = as_dsl_nodes(expr)
             new_ast = sort_nodes
             new_str = ", ".join(n.to_expr_string() for n in sort_nodes)
         else:
-            raise TypeError(
-                f"sort_by expects a string, DSLNode, or list, "
-                f"got {type(expr).__name__}"
-            )
+            new_ast = as_dsl_node(expr)
+            new_str = expr if isinstance(expr, str) else new_ast.to_expr_string()
+            sort_nodes = [new_ast]
 
         df = self.long_df
         if df.empty:
