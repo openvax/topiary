@@ -275,6 +275,38 @@ def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, t
     assert enriched.df.loc[~enriched.df.source_label.eq("direct"), feature].isna().all()
 
 
+def test_measurement_context_survives_save_reload_into_a_candidate_table(tmp_path):
+    """Saved predictions keep the context each value was measured under (#410).
+
+    The context used to be written as a Python repr and read back as a
+    string, so a reloaded source reached the candidate table with text
+    where the in-memory source had a mapping.
+    """
+    from topiary import combine_sources, from_predictions
+    from .test_from_predictions import _prediction
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    frame = from_predictions([
+        _prediction(),
+        _prediction(kind="pMHC_presentation", score=0.8, percentile_rank=1.0),
+    ])
+    contexts = dict(zip(frame.kind, frame.measurement_context))
+    # Distinct mappings, so a reload that swapped or flattened them would show.
+    assert all(isinstance(context, dict) for context in contexts.values())
+    assert contexts["pMHC_affinity"] != contexts["pMHC_presentation"]
+
+    def by_kind(result):
+        return dict(zip(result.df.kind, result.df.measurement_context))
+
+    expected = by_kind(combine_sources({"saved": frame}, sample_name="p"))
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("predictions." + suffix)
+        writer(frame, path)
+        restored = reader(path)
+        assert dict(zip(restored.df.kind, restored.df.measurement_context)) == contexts
+        assert by_kind(combine_sources({"saved": restored}, sample_name="p")) == expected
+
+
 @pytest.mark.parametrize("wide", [False, True])
 def test_terminal_flanks_survive_save_reload_and_contextual_rescoring(tmp_path, wide):
     from topiary import combine_sources, rank_candidates, rescore_candidates

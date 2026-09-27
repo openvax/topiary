@@ -88,6 +88,29 @@ def test_explicit_file_output_does_not_also_print_a_preview(tmp_path, capsys, fl
     assert "SIINFEKL" in path.read_text()
 
 
+def test_csv_and_html_outputs_write_dict_and_list_cells_as_json(tmp_path):
+    import html
+    import json
+
+    context = {"estimate_type": "ml_predicted", "unit": "nM", "analyte": None}
+    df = pd.DataFrame({
+        "peptide": ["SIINFEKL", "SIINFEKLL", "SIINFEKLLL"],
+        "measurement_context": [context, None, ["a", 1]],
+    })
+    csv_path, html_path = tmp_path / "results.csv", tmp_path / "results.html"
+    write_outputs(df, arg_parser.parse_args([
+        "--output-csv", str(csv_path), "--output-html", str(html_path),
+    ]))
+    written = pd.read_csv(csv_path)
+    assert json.loads(written.measurement_context.iloc[0]) == context
+    assert pd.isna(written.measurement_context.iloc[1])
+    assert json.loads(written.measurement_context.iloc[2]) == ["a", 1]
+    page = html.unescape(html_path.read_text())
+    assert '"analyte":null' in page and "'analyte': None" not in page
+    # The caller's frame keeps its mappings.
+    assert df.measurement_context.iloc[0] is context
+
+
 def test_csv_stdout_stays_clean_with_html_and_legacy_diagnostic_prints(tmp_path, capsys):
     html = tmp_path / "results.html"
     write_outputs(pd.DataFrame({"peptide": ["SIINFEKL"]}), arg_parser.parse_args([

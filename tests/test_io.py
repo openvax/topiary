@@ -344,6 +344,105 @@ def test_literal_text_io_twins_keep_unmarked_files_under_legacy_inference(tmp_pa
         assert pd.isna(restored.sequence.iloc[0])
 
 
+# Cells a delimiter, quote, line break or the missing sentinel could corrupt
+# if they were written as reprs or unescaped text.
+_JSON_CELLS = [
+    {"estimate_type": "ml_predicted", "unit": "nM", "analyte": None, "timepoint": 1.5},
+    {"detail": {"note": 'a,b\t"c"\nd', "tags": ["x", "<NA>"]}, "count": 3},
+    [1, "two", None, {"three": 3.0}],
+    {}, [], None, np.nan,
+    {"label": "\\<NA>", "unicode": "α-β"},
+]
+
+
+@pytest.mark.parametrize("call_style", ["dataframe", "result-function", "result-method"])
+def test_json_io_twins_round_trip_dicts_lists_and_missing(tmp_path, call_style):
+    frame = pd.DataFrame({
+        "measurement_context": pd.Series(_JSON_CELLS, dtype=object),
+        "value": np.arange(len(_JSON_CELLS), dtype=float),
+        "row_id": range(len(_JSON_CELLS)),
+    })
+    original = frame.copy(deep=True)
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("json-cells." + suffix)
+        result = TopiaryResult(frame)
+        if call_style == "dataframe":
+            writer(frame, path)
+        elif call_style == "result-function":
+            writer(result, path)
+        else:
+            method(result, path)
+        restored = reader(path)
+        for expected, actual in zip(_JSON_CELLS, restored.df.measurement_context):
+            if expected is None or expected is np.nan:
+                assert actual is None
+            else:
+                assert type(actual) is type(expected) and actual == expected
+        pd.testing.assert_series_equal(restored.df.value, frame.value)
+        assert "topiary_json_encoding" not in restored.extra
+        # The declaration follows the table being written, not stale metadata.
+        selected = restored.df.iloc[[5, 1]].copy()
+        second = tmp_path / ("rewritten." + suffix)
+        writer(selected, second, metadata=restored.metadata)
+        again = reader(second).df
+        assert again.measurement_context.iloc[0] is None
+        assert again.measurement_context.iloc[1] == _JSON_CELLS[1]
+        writer(selected.drop(columns="measurement_context"), second, metadata=restored.metadata)
+        assert "topiary_json_encoding" not in second.read_text()
+        assert "measurement_context" not in reader(second).df
+    pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize("encoding,error", [
+    ("unknown", "Unsupported JSON encoding"),
+    ({"version": "future", "columns": ["context"]}, "Unsupported JSON encoding"),
+    ({"version": "json-v1", "columns": "context"}, "JSON encoding columns must be distinct strings"),
+    ({"version": "json-v1", "columns": ["context", "context"]}, "JSON encoding columns must be distinct strings"),
+    ({"version": "json-v1", "columns": ["absent"]}, "JSON encoding names columns absent"),
+])
+def test_json_io_twins_refuse_malformed_declarations(tmp_path, encoding, error):
+    import json
+
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("invalid-json." + suffix)
+        path.write_text("#topiary_json_encoding=json:" + json.dumps(encoding) + "\ncontext\n[]\n")
+        with pytest.raises(ValueError, match=error):
+            reader(path)
+
+
+@pytest.mark.parametrize("cell", ["{not json", "3", '"text"', "null", ""])
+def test_json_io_twins_refuse_cells_that_are_not_dicts_or_lists(tmp_path, cell):
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        sep = "\t" if suffix == "tsv" else ","
+        path = tmp_path / ("invalid-cell." + suffix)
+        path.write_text('#topiary_json_encoding=json:{"version":"json-v1","columns":["context"]}\n'
+                        + sep.join(["context", "row"]) + "\n" + sep.join([cell, "1"]) + "\n")
+        with pytest.raises(ValueError, match="Invalid JSON cell"):
+            reader(path)
+
+
+def test_json_io_twins_refuse_a_column_declared_under_both_encodings(tmp_path):
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("both." + suffix)
+        path.write_text('#topiary_text_encoding=json:{"version":"escaped-v1","columns":["context"]}\n'
+                        '#topiary_json_encoding=json:{"version":"json-v1","columns":["context"]}\n'
+                        "context\n[]\n")
+        with pytest.raises(ValueError, match="both name the same column"):
+            reader(path)
+
+
+@pytest.mark.parametrize("bad_cell", [{"when": object()}, {"ids": {1, 2}}, [b"bytes"]])
+def test_json_io_twins_reject_unrepresentable_cells_before_touching_output(tmp_path, bad_cell):
+    frame = pd.DataFrame({"context": pd.Series([{"fine": 1}, bad_cell], dtype=object)})
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("unrepresentable." + suffix)
+        path.write_bytes(b"keep original\n")
+        for write in (writer, method):
+            with pytest.raises(TypeError, match="'context' has a cell JSON cannot represent"):
+                write(TopiaryResult(frame), path)
+            assert path.read_bytes() == b"keep original\n"
+
+
 @pytest.mark.parametrize("values", [[], [""], [None], ["", None]])
 @pytest.mark.parametrize("column", ["n_flank", "c_flank"])
 def test_flank_io_twins_handle_empty_tables_and_single_columns(tmp_path, values, column):
