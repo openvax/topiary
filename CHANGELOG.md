@@ -1,5 +1,34 @@
 # Changelog
 
+## 5.86.0
+
+- **`cta_gene_ids(source, tier)`** in `topiary.sources` is now the one
+  implementation of "which genes count as cancer-testis antigens" (#124).
+  `cta_sequences`, `non_cta_sequences` and `SelfProteome`'s `include="non_cta"`
+  all read it, so they cannot disagree about which genes leave a self proteome;
+  the pirlygenes-only private helper they used is gone.
+- `cta_source="oncoref"` names the single authority directly, and
+  `cta_source="tsarina"` works instead of raising `NotImplementedError` for a
+  set identical to the default. pirlygenes and tsarina re-export oncoref's own
+  functions — `is` identity, not a copy — so all three spellings select the
+  same table. New `oncoref` extra, floored at the `>=1.8.150` tsarina audits
+  for this API.
+- `cta_tier=` selects the membership: `default` (293 genes), `filtered` (302),
+  `unfiltered` (390), `testis_restricted` (248) or `placental_restricted` (11).
+  The spread is wide enough that the choice belongs to the caller. oncoref's
+  complements (`excluded`, `never_expressed`) and its clinical-target list are
+  refused, since passing one where a CTA definition is expected would exclude
+  the wrong genes from a self proteome.
+- A non-CTA proteome's `reference_version` now records the **oncoref** version
+  rather than the shim it was reached through, and the tier when it is not the
+  default. A shim version moves without the gene set moving and — worse —
+  stays still when oncoref's table changes underneath it, which is the silent
+  divergence #124 warned about. `non_cta+cta-pirlygenes-6.0.4` becomes
+  `non_cta+cta-oncoref-1.8.194`.
+
+The downloadable proteome artifact this issue also described stays deferred;
+the CTA question is answered by delegation rather than by shipping data.
+
 ## 5.85.1
 
 Release and CI tooling only; no library change.

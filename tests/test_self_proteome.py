@@ -776,7 +776,8 @@ class TestReferenceVersionIdentity:
             lambda release=None, species=None: fake,
         )
         monkeypatch.setattr(
-            "topiary.sources._pirlygenes_cta_gene_ids", lambda: {"CTA_GENE"},
+            "topiary.sources.cta_gene_ids",
+            lambda source=None, tier="default", species="human": {"CTA_GENE"},
         )
         # pirlygenes is optional and absent from CI's core jobs; pin the
         # version the label reads so this checks labelling, not installs.
@@ -790,10 +791,11 @@ class TestReferenceVersionIdentity:
             ).reference_version
             for cta_source in (None, "pirlygenes")
         }
-        # The same proteome, asked for two ways, and both name the
-        # pirlygenes release whose CTA list was removed.
+        # The same proteome, asked for two ways, and both name the oncoref
+        # release whose CTA list was removed -- not the shim that re-exports
+        # it, which could move without the gene set moving (#124).
         assert versions[None] == versions["pirlygenes"]
-        assert "+cta-pirlygenes-9.9.9+" in versions["pirlygenes"]
+        assert "+cta-oncoref-9.9.9+" in versions["pirlygenes"]
 
     def test_an_unrequested_release_records_the_one_selected(self, monkeypatch):
         fake = TestEnsemblHappyPath()._fake_genome()
@@ -825,3 +827,121 @@ class TestReferenceVersionIdentity:
         assert "include-callable-" in first.reference_version
         # Same label, different records: the digest tells them apart.
         assert other.reference_version != first.reference_version
+
+
+class TestCtaSourcesAndTiers:
+    """oncoref is the single CTA authority; the shims re-export it (#124).
+
+    The sources are a conformance pair: a divergence between them would mean
+    one install path silently removed different genes from self.
+    """
+
+    @pytest.mark.pirlygenes
+    @pytest.mark.parametrize("cta_source", [None, "pirlygenes", "tsarina", "oncoref"])
+    def test_every_spelling_selects_the_same_genes(self, cta_source):
+        from topiary.self_proteome import _resolve_cta_gene_ids
+
+        canonical = _resolve_cta_gene_ids("human", "oncoref")
+        assert _resolve_cta_gene_ids("human", cta_source) == canonical
+        # The canonical set is oncoref's default tier, not an arbitrary size.
+        import oncoref.cta
+
+        assert canonical == set(oncoref.cta.cta_gene_ids())
+
+    @pytest.mark.pirlygenes
+    def test_tsarina_no_longer_raises_not_implemented(self):
+        """It raised NotImplementedError for a set identical to the default."""
+        from topiary.self_proteome import _resolve_cta_gene_ids
+
+        assert len(_resolve_cta_gene_ids("human", "tsarina")) > 0
+
+    @pytest.mark.pirlygenes
+    @pytest.mark.parametrize("tier", [
+        "default", "filtered", "unfiltered",
+        "testis_restricted", "placental_restricted",
+    ])
+    def test_each_tier_is_a_distinct_membership(self, tier):
+        import oncoref.cta
+
+        from topiary.self_proteome import _resolve_cta_gene_ids
+        from topiary.sources import CTA_TIERS
+
+        selected = _resolve_cta_gene_ids("human", "oncoref", tier)
+        expected = getattr(oncoref.cta, f"cta_{CTA_TIERS[tier]}")()
+        assert selected == set(expected)
+        if tier != "default":
+            assert selected != _resolve_cta_gene_ids("human", "oncoref")
+
+    @pytest.mark.pirlygenes
+    def test_the_tiers_nest_the_way_their_names_claim(self):
+        """A wider tier cannot drop a gene a narrower one counted."""
+        from topiary.self_proteome import _resolve_cta_gene_ids
+
+        def tier(name):
+            return _resolve_cta_gene_ids("human", "oncoref", name)
+
+        assert tier("default") <= tier("filtered") <= tier("unfiltered")
+        assert tier("testis_restricted") <= tier("unfiltered")
+
+    @pytest.mark.parametrize("tier", ["excluded", "never_expressed", "bananas"])
+    def test_a_tier_that_is_not_a_cta_definition_is_refused(self, tier):
+        """oncoref's complements would remove the wrong genes from self."""
+        from topiary.self_proteome import _resolve_cta_gene_ids
+
+        with pytest.raises(ValueError, match="Unsupported CTA tier"):
+            _resolve_cta_gene_ids("human", "oncoref", tier)
+
+    @pytest.mark.parametrize("cta_source", ["oncoref", "tsarina", "pirlygenes"])
+    def test_named_sources_stay_human_only(self, cta_source):
+        from topiary.self_proteome import _resolve_cta_gene_ids
+
+        with pytest.raises(ValueError, match="human-only"):
+            _resolve_cta_gene_ids("mouse", cta_source)
+
+
+class TestCtaLabel:
+    """The label names the version that decides the set, not the shim (#124)."""
+
+    @pytest.mark.parametrize("cta_source", [None, "pirlygenes", "tsarina", "oncoref"])
+    def test_one_proteome_gets_one_label(self, monkeypatch, cta_source):
+        from topiary import self_proteome
+
+        monkeypatch.setattr(
+            self_proteome, "package_version",
+            lambda name: {"oncoref": "1.8.194"}[name],
+        )
+        assert self_proteome._cta_label("human", cta_source, set()) == (
+            "non_cta+cta-oncoref-1.8.194"
+        )
+
+    def test_the_tier_appears_only_when_it_is_not_the_default(self, monkeypatch):
+        from topiary import self_proteome
+
+        monkeypatch.setattr(self_proteome, "package_version", lambda name: "1.8.194")
+        label = self_proteome._cta_label
+        assert label("human", "oncoref", set(), "default") == "non_cta+cta-oncoref-1.8.194"
+        assert label("human", "oncoref", set(), "filtered") == (
+            "non_cta+cta-oncoref-1.8.194+tier-filtered"
+        )
+
+    def test_a_shim_without_oncoref_metadata_names_what_was_asked_for(self, monkeypatch):
+        from importlib.metadata import PackageNotFoundError
+
+        from topiary import self_proteome
+
+        def missing(name):
+            raise PackageNotFoundError(name)
+
+        monkeypatch.setattr(self_proteome, "package_version", missing)
+        # No version is claimed for a table whose provenance cannot be read.
+        assert self_proteome._cta_label("human", "pirlygenes", set()) == (
+            "non_cta+cta-pirlygenes"
+        )
+
+    def test_a_supplied_set_still_hashes_its_genes(self, monkeypatch):
+        from topiary import self_proteome
+
+        monkeypatch.setattr(self_proteome, "package_version", lambda name: "1.8.194")
+        first = self_proteome._cta_label("human", {"ENSG1"}, {"ENSG1"})
+        second = self_proteome._cta_label("human", {"ENSG2"}, {"ENSG2"})
+        assert first.startswith("non_cta+cta-sha256:") and first != second

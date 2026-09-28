@@ -38,6 +38,7 @@ topiary = "topiary.cli.script:main"
 [project.optional-dependencies]
 isovar = ["isovar>=1.37,<2"]
 pirlygenes = ["pirlygenes>=5.1.0"]
+oncoref = ["oncoref>=1.8.150"]
 
 [tool.ruff.lint]
 select = ["E", "F"]
