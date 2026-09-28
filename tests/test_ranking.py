@@ -3361,3 +3361,39 @@ def test_evaluate_scores_group_keys_forwarded():
 def test_evaluate_scores_exported_at_top_level():
     import topiary
     assert topiary.evaluate_scores is evaluate_scores
+
+
+# shuffled. and self. are reserved for columns a producer supplies; Topiary
+# never populates them, so the documented fallback is what a frame without
+# them does (#313).
+
+_UNSCOPED_ROW = [
+    dict(
+        source_sequence_name="var1", peptide="SIINFEKL", peptide_offset=10,
+        allele="HLA-A*02:01", kind="pMHC_affinity", peptide_length=8,
+        score=0.8, value=120.0, percentile_rank=0.5,
+        prediction_method_name="netmhcpan",
+    ),
+]
+
+
+@pytest.mark.parametrize("expression", [
+    "shuffled.affinity", "shuffled.affinity.score", "self.affinity", "self.len",
+])
+def test_reserved_scopes_read_nan_when_the_producer_supplied_nothing(expression):
+    from topiary import evaluate_scores
+
+    df = _make_df(_UNSCOPED_ROW)
+    scores = evaluate_scores(df, parse(expression))
+    assert scores.isna().all()
+
+
+def test_a_filter_on_an_unpopulated_reserved_scope_keeps_nothing():
+    """NaN filters to False, so the guard drops rows rather than passing them."""
+    from topiary import apply_filter
+
+    df = _make_df(_UNSCOPED_ROW)
+    assert len(apply_filter(df, parse("shuffled.affinity < 500"))) == 0
+    # The same expression keeps the row once the producer supplies the column.
+    supplied = _make_df([{**_UNSCOPED_ROW[0], "shuffled_value": 400.0}])
+    assert len(apply_filter(supplied, parse("shuffled.affinity < 500"))) == 1

@@ -291,6 +291,29 @@ wt.Affinity["netmhcpan"].score    # qualified WT
 
 For ranking expressions only (not filters). Returns NaN when WT columns are absent or the row has no length-compatible WT peptide.
 
+## shuffled and self (reserved scope prefixes)
+
+Two more column-prefix scopes, reserved for values a producer computes
+elsewhere. `shuffled.affinity` reads `shuffled_value`, `self.affinity.score`
+reads `self_score`, and so on, exactly as `wt.` reads `wt_*`:
+
+```python
+from topiary import Column, apply_filter, parse
+
+# Keep peptides that bind better than their shuffled decoy.
+parse("affinity.value < shuffled.affinity.value")
+```
+
+Topiary never populates these columns. Supply them on the frame and the scope
+reads them; leave them out and every expression under the scope evaluates to
+`NaN`, which filters to `False` and sorts as a missing key. That is the
+difference from `wt.` (populated by `predict_wt=True`) and from
+`self_nearest.` (populated by `SelfProteome` / `predict_self_nearest`).
+
+`self.` is *not* nearest-self: it is a whole separate prefix kept for a
+producer's own definition of a self-match. Use `self_nearest.` for the
+columns Topiary computes.
+
 ## len and count()
 
 Peptide-level expressions that compose with scope prefixes:

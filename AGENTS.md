@@ -6,9 +6,9 @@ Guide for coding agents working in this repo. Read this before touching code.
 
 ## Golden Rules
 
-1. **Never commit to `main`.** Always `git checkout -b <feature-branch>` before editing. Land via PR.
-2. **Every PR bumps the version.** Even doc-only PRs — at minimum a patch bump. `deploy.sh <version>` handles the bump + commit + push.
-3. **"Done" means merged AND deployed to PyPI** — never stop at merge. After a PR merges, run `./deploy.sh` from a clean main. Skipping deploy = task not done.
+1. **Never commit to `master`.** Always `git checkout -b <feature-branch>` before editing. Land via PR.
+2. **Every PR bumps the version.** Even doc-only PRs — at minimum a patch bump. Edit `__version__` in `topiary/__init__.py` yourself and commit it with the change; `deploy.sh` reads that value and does not bump anything.
+3. **"Done" means merged AND deployed to PyPI** — never stop at merge. After a PR merges, run `./deploy.sh` from a clean `master`. Skipping deploy = task not done.
 4. **File problems as issues, don't silently work around them.** If you hit a bug here or in a sibling openvax/pirl-unc repo, open a GitHub issue on the correct repo and link it from the PR.
 5. **After a PR ships, look for the next block of work.** Read open issues across the relevant openvax repos, group by dependency + urgency. Prefer *foundational* changes that unblock multiple downstream improvements; otherwise chain the smallest independent improvements.
 
@@ -22,14 +22,14 @@ Before telling the user a change is "complete":
 2. **`./test.sh`** — must pass
 3. For a PR: **CI must be green on GitHub**, then merge, then **`./deploy.sh`**.
 
-`deploy.sh` gates on lint + test, refuses to run off `main`/`master`, and refuses a dirty tree — don't work around these. If deploy fails, fix the root cause.
+`deploy.sh` gates on lint + test, refuses to run off `master`, and refuses a dirty tree — don't work around these. If deploy fails, fix the root cause. See RELEASING.md for the release steps in full.
 
 ## Scripts
 
 - `./develop.sh` — editable install (dev mode)
 - `./lint.sh` — ruff check
 - `./test.sh` — pytest (with coverage where configured)
-- `./deploy.sh [version]` — lint → test → optional version bump → build → twine upload → tag → push
+- `./deploy.sh` — takes no arguments. Reads `topiary.__version__`, refuses an already-released version, then lint → test → build → twine upload → tag → push the tag.
 
 ## Two doors, one answer
 
