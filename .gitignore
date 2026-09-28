@@ -8,6 +8,7 @@ __pycache__/
 # Distribution / packaging
 .Python
 env/
+.venv/
 bin/
 build/
 develop-eggs/
@@ -31,6 +32,8 @@ htmlcov/
 .tox/
 .coverage
 .coverage.*
+.pytest_cache/
+.ruff_cache/
 .cache
 coverage.xml
 
@@ -54,4 +57,3 @@ docs/_build/
 
 # mkdocs
 site/
-

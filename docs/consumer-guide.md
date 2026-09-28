@@ -1,9 +1,8 @@
 # Consumer guide
 
-What topiary offers a downstream consumer, as of **5.49.0**, and what changed
-across 5.28.2–5.49.0.
-
-Written for vaxrank, but nothing here is vaxrank-specific.
+Prediction, evidence and ranking interfaces for downstream consumers, including
+Vaxrank. For release history and migrations, see the
+[changelog](https://github.com/openvax/topiary/blob/master/CHANGELOG.md).
 
 For table-only combination, ORF/RNA evidence, additive re-scoring and the
 Vaxrank handoff, see [Combining sources](combined-sources.md) (5.68.0+).
@@ -75,7 +74,7 @@ pVACseq aggregated report states a DNA VAF but no DNA depth, so it gets
 `dna_vaf` and no `n_dna_*` at all — a column full of nulls would make
 `available_evidence_columns()` report a capability the source lacks.
 
-This holds on every path as of 5.48.0. LENS emits no `rna_alt_expression`
+This holds on every path. LENS emits no `rna_alt_expression`
 (it has no DNA VAF to scale abundance by, and its `vaf` never names its
 assay), and a prediction run where nobody supplied expression emits no
 `gene_expression`. **This changes filter behaviour:** `gene_expression > 1`
@@ -136,9 +135,8 @@ a paper. Five fragments and five reads are different bars.
 | `tpm_x_dna_vaf` | Transcript abundance × DNA VAF | `approximated` |
 | `source_reported` | The source supplied the number without saying how | `approximated` |
 
-`topiary.provenance_for_method(method)` maps a method to its provenance, so
-there is one definition of what counts as measured. It does not: only a direct
-count does.
+`topiary.provenance_for_method(method)` maps a method to its provenance using
+the definitions above; derived estimates remain approximated.
 
 `describe_read_evidence(df)` summarises a whole frame without walking rows.
 
@@ -216,8 +214,8 @@ def support(fragment):
 `pip install 'topiary[isovar]'`; only `fragments_from_variants` with an
 `alignment_file` needs it.
 
-The extra requires `isovar>=1.37,<2`, including the current RNA support record
-and export schemas. This range is enforced at run time as well as at install time:
+The extra requires `isovar>=1.39.5,<2`, compatible with Osteosarc 0.14 and the
+current RNA support record and export schemas. This range is enforced at run time as well as at install time:
 an older release can import cleanly and still return wrong evidence (1.17.x
 miscounts reads at insertion boundaries), so Topiary refuses it with an
 upgrade instruction. Upgrade with `pip install --upgrade 'topiary[isovar]'`.
@@ -465,64 +463,11 @@ that metadata from the MT model.
 
 ---
 
-## What changed, 5.28.2 → 5.45.0
+## Cache compatibility
 
-Floors worth knowing:
-
-| Need | Floor |
-|---|---|
-| Multi-version LENS tables keep both versions | 5.28.2 |
-| `default_methods` on the predictor | 5.29.0 |
-| `read_lens(binding_metrics=...)` | 5.30.0 |
-| `default_versions` | 5.31.0 |
-| `is_stated` / `is_named_version` | 5.35.0 |
-| `allele_set` in the cache key | 5.36.0 |
-| RNA evidence from the readers | 5.37.0 |
-| Per-peptide `alleles=` | 5.33.0 |
-| Named-allele rows not broadcast | 5.39.0 |
-| `fragments_from_variants` (isovar) | 5.40.0 |
-| RNA columns scoped and cut to nine | 5.45.0 |
-| DNA evidence columns, mirroring the RNA ones | 5.47.0 |
-| `n_rna_other` / `n_dna_other` for third-allele support | 5.47.0 |
-| `rna_vaf` / `dna_vaf` canonical fractions | 5.47.0 |
-| Source prefixes: `vaf` → `lens_vaf`, `tumor_dna_vaf` → `pvacseq_tumor_dna_vaf` | 5.47.0 |
-| `PREDICTION_KEY_COLUMNS` public | 5.47.0 |
-| `dna_evidence_subject` derived, not asserted | 5.48.0 |
-| Unit columns assay-scoped: `n_alt_reads` → `n_rna_alt_reads` | 5.48.0 |
-| All-null evidence columns omitted on every path | 5.48.0 |
-| `topiary.rna_evidence` module renamed to `topiary.evidence` | 5.47.0 |
-
-### Removed in 5.45.0, with no compatibility shim
-
-`count_in`, `read_count_subject`, `count_column_for_subject`,
-`subject_for_method`, the per-subject column renaming from 5.44.0, and the
-supporting-count columns on reader frames.
-
-All of it existed to work around one mistake: topiary carried isovar's
-*fragment* counts in fields then named `n_alt_reads`, then built an API to
-explain why reads were unavailable. isovar exposes `num_alt_reads` beside
-`num_alt_fragments`; they were never unavailable. Carrying both under honest
-names left nothing for those five to do.
-
-### Caches
-
-A `CachedPredictor` store written before 5.36.0 loads fine — `_normalize` runs
-on every construction and repairs split allele buckets. What does not repair
-itself is a store whose split buckets held *different* values for what is now
-one key; that raises on load rather than silently answering, which is intended.
-
-**Both doors agree about a repeated key as of 5.48.0** (topiary#231). An exact
-duplicate is stored once; a key appearing twice is an error only when the rows disagree on a
-`PREDICTION_VALUE_COLUMNS` entry:
-
-| | before | now |
-|---|---|---|
-| shards sharing an identical row | `concat` raised, constructor accepted | both accept |
-| rows differing only in `sample_name` | `concat` raised, constructor accepted | both accept |
-| same key, different `affinity` | `concat` raised, **constructor accepted silently** | both raise |
-
-The last row was the real hazard: a lookup returned whichever row came last.
-`conflicting_predictions(df)` is the single check both use, and returns the
-offending rows so you can see them.
-`allele_set` joined the cache key in 5.36.0, so two genotypes deconvolving to
-the same best allele are two entries rather than one silently picked.
+`CachedPredictor` normalizes older stores on load. Identical repeated keys
+coalesce, including rows that differ only in source/sample labels. Conflicting
+values for one prediction key raise on construction and concatenation;
+`conflicting_predictions(df)` returns the offending rows. The key includes
+flanks and `allele_set`, so context-dependent predictions and distinct genotypes
+remain separate. See [Cached predictions](cached.md) for the complete contract.

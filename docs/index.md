@@ -53,11 +53,14 @@ pip install topiary
 ```
 
 For Ensembl-based features (variant annotation, gene lookups,
-`SelfProteome`):
+`SelfProteome`), install the default reference selected by PyEnsembl:
 
 ```bash
-pyensembl install --release 112 --species human
+pyensembl install --release "$(python -c 'from pyensembl import ensembl_grch38; print(ensembl_grch38.release)')" --species human
 ```
+
+If you install a different release, select it explicitly with `release=` or
+`--ensembl-release`; installing it does not change the default.
 
 For cancer-testis antigen and tissue expression features:
 

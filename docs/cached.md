@@ -327,7 +327,7 @@ Enforcement:
   rejected — silent "I don't know" would mask the invariant.
 - **On fallback attachment** (below): the fallback's `(name, version)`
   must equal the cache's, verified on the first fallback call.
-- **On concat / `from_directory`** (sharding — upcoming): every shard
+- **On concat / `from_directory`**: every shard
   must agree.
 
 ### Explicit opt-in equivalence
@@ -411,6 +411,12 @@ Semantics:
   empty; identity is discovered from the fallback's first output.
 - **No fallback** (default): misses raise `KeyError` with the missed
   peptides listed.
+
+A cached protein-scan occurrence with incompatible flanks or genotype raises
+`CachedPredictorCoverageError`, even when a fallback is attached. The current
+fallback path does not retry such occurrences through the fallback's protein
+scanner. Context-preserving fallback is tracked in
+[#307](https://github.com/openvax/topiary/issues/307).
 
 ## Persisting a cache
 
