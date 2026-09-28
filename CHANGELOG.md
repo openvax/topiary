@@ -1,5 +1,31 @@
 # Changelog
 
+## 5.84.0
+
+- **`--protein-change GENE CHANGE` now runs** (#322). The flag, its parser and
+  its tests have existed for years, but nothing called the parser, so
+  `--protein-change EGFR T790M` reported "No variants loaded" on its own and
+  was silently ignored beside `--variant`. It is now an input mode: the effect
+  is built from the protein change and predicted directly. `variant` is empty
+  for those rows, since no genomic position was named.
+- Passing `--protein-change` together with `--vcf` / `--maf` / `--variant` /
+  `--json-variants` is refused with an explanation instead of being ignored. A
+  protein change carries no locus, so read-level evidence and variant-level
+  expression filters cannot apply to it, and mixing both in one table would
+  hide which rows a threshold reached. Combining them in one run is #421.
+- `--predict-wt`'s help named `wt_affinity`, `wt_score` and
+  `wt_percentile_rank`. Those parse as a predictor named `wt` and then fail at
+  evaluation; the help now names the scope forms `wt.affinity`,
+  `wt.affinity.rank`, `wt.affinity.score` and `wt.presentation`, and says why
+  the underscore form is not the same thing.
+- The deprecated `--rna-gene-fpkm-tracking-file`,
+  `--rna-transcript-fpkm-tracking-file` and `--rna-transcript-fpkm-gtf-file`
+  print a one-line notice naming their replacement. They used to raise a
+  `DeprecationWarning`, which Python hides by default, so nothing reached the
+  user.
+- README documents the protein-change input mode, including how the transcript
+  is chosen.
+
 ## 5.83.0
 
 - **CLI output files no longer carry the pandas index (#326).** It was written

@@ -369,3 +369,40 @@ def test_a_write_failure_after_predicting_exits_1(monkeypatch, capsys):
     code, err = _run([*_REQUEST, "--peptide-csv", "p.csv"], capsys)
     assert code == 1
     assert "Permission denied" in _error_line(err) and "Traceback" not in err
+
+
+# The help text and the DSL must agree about how to reach the wt scope
+# (#322): the help used to name wt_affinity, which parses as "affinity from
+# a predictor called wt" and then fails at evaluation.
+
+
+def _predict_wt_help():
+    from topiary.cli.args import arg_parser
+    for action in arg_parser._actions:
+        if "--predict-wt" in action.option_strings:
+            return action.help
+    raise AssertionError("--predict-wt is not in the parser")
+
+
+@pytest.mark.parametrize("expression,expected", [
+    ("wt.affinity", "wt.affinity.value"),
+    ("wt.affinity.rank", "wt.affinity.rank"),
+    ("wt.affinity.score", "wt.affinity.score"),
+    ("wt.presentation", "wt.presentation.value"),
+])
+def test_help_names_wt_forms_the_dsl_actually_reads(expression, expected):
+    from topiary import parse
+
+    assert expression in _predict_wt_help()
+    assert parse(expression).to_expr_string() == expected
+
+
+def test_help_warns_off_the_underscore_form_that_means_something_else():
+    from topiary import parse
+
+    help_text = _predict_wt_help()
+    # Still parseable, which is why it needs saying: it resolves to a
+    # predictor named "wt" rather than the wildtype scope.
+    assert parse("wt_affinity").to_expr_string() == "affinity['wt'].value"
+    assert "wt_affinity" in help_text and "fails" in help_text
+    assert "wt.affinity" in help_text

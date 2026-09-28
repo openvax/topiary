@@ -92,9 +92,10 @@ def add_filter_args(arg_parser):
         "--predict-wt",
         help=(
             "For variant-derived predictions, score populated wildtype "
-            "peptides with the configured MHC model(s) so wt.* sort "
-            "expressions can use wt_value, wt_score, wt_affinity, and "
-            "wt_percentile_rank."
+            "peptides with the configured MHC model(s), so --filter-by and "
+            "--sort-by can read the wt scope: wt.affinity, wt.affinity.rank, "
+            "wt.affinity.score, wt.presentation. Note the dot: 'wt_affinity' "
+            "means affinity from a predictor named 'wt' instead, and fails."
         ),
         default=False,
         action="store_true",
