@@ -591,10 +591,40 @@ MT value.
 | `sequences_from_transcript_names(names)` | `{GENE\|TRANSCRIPT: seq}` |
 | `tissue_expressed_sequences(tissues)` | `{GENE\|TRANSCRIPT: seq}` |
 | `tissue_expressed_gene_ids(tissues)` | `set` of Ensembl gene IDs |
+| `cta_gene_ids(source, tier)` | `set` of CTA Ensembl gene IDs |
 | `cta_sequences()` | CTA protein sequences |
 | `non_cta_sequences()` | Non-CTA protein sequences |
 | `ensembl_proteome()` | All Ensembl proteins |
 | `available_tissues()` | List of tissue names |
+
+### Which genes count as cancer-testis antigens
+
+`cta_gene_ids()` is the one implementation, used by `cta_sequences()`,
+`non_cta_sequences()` and `SelfProteome`'s `include="non_cta"` scope, so they
+cannot disagree about which genes leave a self proteome.
+
+oncoref is the authority. `source="pirlygenes"` (the human default) and
+`"tsarina"` re-export oncoref's own functions — `is` identity, not a copy — so
+all three spellings select the same table, and a proteome's
+`reference_version` records the **oncoref** version rather than the shim it was
+reached through.
+
+`tier=` chooses the membership, because the spread is wide enough that the
+choice belongs to the caller:
+
+| Tier | Genes | Meaning |
+|------|-------|---------|
+| `default` | 293 | oncoref's canonical CTA set |
+| `filtered` | 302 | before the audited demotions |
+| `unfiltered` | 390 | the full candidate universe |
+| `testis_restricted` | 248 | restriction subset |
+| `placental_restricted` | 11 | restriction subset |
+
+oncoref's complements (`excluded`, `never_expressed`) and its clinical-target
+list are deliberately not accepted: passing one where a CTA definition is
+expected would exclude the wrong genes from a self proteome. Counts are from
+oncoref 1.8.194 and move with its table; the gene IDs, not the counts, are the
+contract.
 
 ## Peptide properties
 

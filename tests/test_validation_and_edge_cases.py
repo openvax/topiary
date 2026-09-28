@@ -455,10 +455,12 @@ def test_sequences_from_transcript_names_unknown():
 @pytest.mark.pirlygenes
 def test_non_cta_sequences_excludes_cta_genes():
     """non_cta_sequences should return proteins whose genes are NOT in the CTA set."""
-    from topiary.sources import non_cta_sequences, _pirlygenes_cta_gene_ids
+    from topiary.sources import cta_gene_ids, non_cta_sequences
     from pyensembl import ensembl_grch38
 
-    cta_ids = _pirlygenes_cta_gene_ids()
+    # The same function non_cta_sequences itself excludes by, so the two
+    # cannot disagree about membership (#124).
+    cta_ids = cta_gene_ids()
     seqs = non_cta_sequences()
 
     # Should have many proteins (most of the proteome minus CTAs)

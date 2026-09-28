@@ -8,9 +8,12 @@ Include modes
 -------------
 - ``"all"``: no filter, whole Ensembl proteome (any pyensembl-supported
   species).
-- ``"non_cta"`` (default for human): remove cancer-testis-antigen genes
-  via pirlygenes.  Non-human species require an explicit ``cta_source=``
-  set or callable — pirlygenes is human-only today.
+- ``"non_cta"`` (default for human): remove cancer-testis-antigen genes.
+  oncoref is the single authority; ``cta_source="pirlygenes"`` (the default)
+  and ``"tsarina"`` re-export its own functions, so all three select the
+  same table, and ``cta_tier=`` chooses which membership counts as a CTA.
+  Non-human species require an explicit ``cta_source=`` set or callable —
+  oncoref's table is human-only today.
 - ``"protected_tissues"``: keep only genes expressed in named tissues
   (pirlygenes/HPA for human; user-supplied ``tissue_gene_ids=`` for
   any species).
@@ -78,13 +81,16 @@ _SPECIES_DEFAULTS: Dict[str, Dict[str, str]] = {
 
 
 def _resolve_cta_gene_ids(
-    species: str, cta_source,
+    species: str, cta_source, cta_tier: str = "default",
 ) -> Union[Set[str], Callable]:
     """Produce either a set of CTA gene IDs or a callable filter.
 
-    Accepts ``"pirlygenes"``, ``"tsarina"``, a set of gene IDs, or a
-    ``Callable[[gene_id], bool]``.  When ``cta_source`` is ``None`` the
-    species default is consulted; unregistered species raise."""
+    Named sources and tiers are resolved by :func:`topiary.cta_gene_ids`, the
+    one implementation of "which genes count as cancer-testis antigens" -- the
+    exclusion sources in :mod:`topiary.sources` read the same function, so the
+    two cannot drift apart. When ``cta_source`` is ``None`` the species
+    default is consulted; unregistered species raise.
+    """
     if cta_source is None:
         defaults = _SPECIES_DEFAULTS.get(species, {})
         cta_source = defaults.get("cta_source")
@@ -100,24 +106,8 @@ def _resolve_cta_gene_ids(
         return cta_source
     if isinstance(cta_source, (set, frozenset)):
         return set(cta_source)
-    if cta_source == "pirlygenes":
-        if species != "human":
-            raise ValueError(
-                f"cta_source='pirlygenes' is human-only; got "
-                f"species={species!r}.  Pass a species-appropriate "
-                f"set or callable."
-            )
-        from topiary.sources import _pirlygenes_cta_gene_ids
-        return set(_pirlygenes_cta_gene_ids())
-    if cta_source == "tsarina":
-        raise NotImplementedError(
-            "cta_source='tsarina' is not implemented yet."
-        )
-    raise ValueError(
-        f"Unsupported cta_source: {cta_source!r}.  Use 'pirlygenes', "
-        f"a set of gene IDs, a callable, or None to use the species "
-        f"default."
-    )
+    from topiary.sources import cta_gene_ids
+    return cta_gene_ids(cta_source, cta_tier, species)
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +487,7 @@ class SelfProteome:
         peptide_lengths: Iterable[int] = (8, 9, 10, 11),
         include: Union[str, Callable] = "non_cta",
         cta_source=None,
+        cta_tier: str = "default",
         tissues: Optional[List[str]] = None,
         tissue_gene_ids: Optional[Set[str]] = None,
         min_tissue_ntpm: float = 1.0,
@@ -509,6 +500,14 @@ class SelfProteome:
         For ``include="non_cta"`` with ``species="human"``, the default
         ``cta_source="pirlygenes"`` needs no configuration.  Non-human
         species must pass ``cta_source=<set or callable>`` explicitly.
+
+        ``cta_source`` also accepts ``"oncoref"``, the single authority both
+        it and ``"tsarina"`` re-export, and ``cta_tier`` selects which of
+        oncoref's memberships counts as a CTA: ``"default"`` (293 genes),
+        ``"filtered"`` (302), ``"unfiltered"`` (390),
+        ``"testis_restricted"`` (248) or ``"placental_restricted"`` (11).
+        Which tier counts as self is the caller's decision, so Topiary makes
+        it explicit rather than choosing beyond the canonical default.
 
         For ``include="protected_tissues"``:
 
@@ -533,6 +532,7 @@ class SelfProteome:
         genome = EnsemblRelease(release=release, species=species)
         include_label, gene_filter = _resolve_ensembl_scope(
             include, species, cta_source,
+            cta_tier=cta_tier,
             tissues=tissues,
             tissue_gene_ids=tissue_gene_ids,
             min_tissue_ntpm=min_tissue_ntpm,
@@ -601,7 +601,8 @@ _DEFAULT_PROTECTED_TISSUES = [
 
 def _resolve_ensembl_scope(
     include, species, cta_source, *,
-    tissues=None, tissue_gene_ids=None, min_tissue_ntpm=1.0,
+    cta_tier="default", tissues=None, tissue_gene_ids=None,
+    min_tissue_ntpm=1.0,
 ):
     """Return (include_label, gene_filter) where gene_filter takes a gene_id
     and returns True to keep."""
@@ -610,10 +611,10 @@ def _resolve_ensembl_scope(
     if include == "all":
         return "all", lambda _gene_id: True
     if include == "non_cta":
-        cta = _resolve_cta_gene_ids(species, cta_source)
+        cta = _resolve_cta_gene_ids(species, cta_source, cta_tier)
         if callable(cta):
             return "non_cta-callable", lambda g: not cta(g)
-        label = _cta_label(species, cta_source, cta)
+        label = _cta_label(species, cta_source, cta, cta_tier)
         cta_set = cta  # set of gene IDs
         return label, lambda gene_id: gene_id not in cta_set
     if include == "protected_tissues":
@@ -683,23 +684,33 @@ def _callable_label(fn):
     return f"callable-{name}"
 
 
-def _cta_label(species, cta_source, cta_set):
+def _cta_label(species, cta_source, cta_set, cta_tier="default"):
     """Compose a human-readable label for the non_cta scope.
 
-    The species default is resolved first, so ``cta_source=None`` and
-    naming that default explicitly give the same label.
+    Every named source resolves to oncoref's table, so the label records the
+    oncoref version that determines the gene set rather than the shim it was
+    reached through: asking for ``"pirlygenes"``, ``"tsarina"`` or
+    ``"oncoref"`` describes one proteome one way (#124). A shim version would
+    move without the set moving, and -- worse -- stay still when oncoref's
+    table changed underneath it. The tier appears only when it is not the
+    default, so existing default labels are unchanged in shape.
     """
     if cta_source is None:
         cta_source = _SPECIES_DEFAULTS.get(species, {}).get("cta_source")
-    if cta_source == "pirlygenes":
+    from topiary.sources import _CTA_SOURCE_ALIASES, _CTA_SOURCES
+    named = _CTA_SOURCE_ALIASES.keys() | _CTA_SOURCES.keys()
+    if isinstance(cta_source, str) and cta_source in named:
         try:
-            version = package_version("pirlygenes")
-            return f"non_cta+cta-pirlygenes-{version}"
+            authority = f"oncoref-{package_version('oncoref')}"
         except PackageNotFoundError:
-            return "non_cta+cta-pirlygenes"
+            # Reached through a shim that vendors the table without declaring
+            # oncoref: name what was asked for rather than claim a version.
+            authority = str(cta_source)
+        tier = "" if cta_tier == "default" else f"+tier-{cta_tier}"
+        return f"non_cta+cta-{authority}{tier}"
     if isinstance(cta_source, str):
         return f"non_cta+cta-{cta_source}"
-    # Custom set — hash the gene IDs for reproducibility.
+    # Custom set -- hash the gene IDs for reproducibility.
     digest = hashlib.sha256(
         "\n".join(sorted(cta_set)).encode()
     ).hexdigest()[:12]

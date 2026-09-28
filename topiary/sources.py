@@ -202,7 +202,7 @@ def cta_sequences(release=None):
     -------
     dict : "GENE_NAME|TRANSCRIPT_ID" -> amino acid sequence
     """
-    gene_ids = _pirlygenes_cta_gene_ids()
+    gene_ids = cta_gene_ids()
     genome = _get_genome(release, "human")
     return _sequences_for_genes(genome, list(gene_ids), by="id")
 
@@ -224,7 +224,7 @@ def non_cta_sequences(release=None):
     -------
     dict : protein_id -> amino acid sequence
     """
-    cta_ids = _pirlygenes_cta_gene_ids()
+    cta_ids = cta_gene_ids()
     genome = _get_genome(release, "human")
     sequences = {}
     for protein_id in genome.protein_ids():
@@ -383,11 +383,88 @@ def _check_pirlygenes(*required_callables):
     )
 
 
-def _pirlygenes_cta_gene_ids():
-    gene_sets = require_optional_dependency(
-        "pirlygenes.gene_sets_cancer",
+# oncoref is the single authority for cancer-testis antigen membership.
+# pirlygenes and tsarina re-export its own functions -- ``is`` identity, not a
+# copy -- so every spelling below selects the same table. "tsarina" resolves
+# through oncoref rather than importing tsarina as well, since tsarina's CTA
+# API is oncoref's and defines no membership of its own (topiary#124).
+_CTA_SOURCES = {
+    "pirlygenes": ("pirlygenes.gene_sets_cancer", "CTA", "pirlygenes"),
+    "oncoref": ("oncoref.cta", "cta", "oncoref"),
+}
+_CTA_SOURCE_ALIASES = {"tsarina": "oncoref"}
+
+# Which genes count as cancer-testis antigens is a real decision with a wide
+# spread, so it belongs to the caller. These are the tiers that answer it.
+# oncoref's complements (``excluded``, ``never_expressed``) and its
+# clinical-target list are deliberately absent: passing one where a CTA
+# definition is expected would exclude the wrong genes from a self proteome.
+CTA_TIERS = {
+    "default": "gene_ids",                                    # 293 genes
+    "filtered": "filtered_gene_ids",                          # 302
+    "unfiltered": "unfiltered_gene_ids",                       # 390
+    "testis_restricted": "testis_restricted_gene_ids",         # 248
+    "placental_restricted": "placental_restricted_gene_ids",   # 11
+}
+
+
+def cta_gene_ids(source=None, tier="default", species="human"):
+    """The Ensembl gene IDs that count as cancer-testis antigens.
+
+    One implementation for every caller that needs the membership: the
+    ``cta_sequences`` / ``non_cta_sequences`` exclusion sources here, and
+    ``SelfProteome``'s ``include="non_cta"`` scope. Two copies could
+    disagree about which genes leave a self proteome.
+
+    Parameters
+    ----------
+    source : str, optional
+        ``"oncoref"``, the authority, or its shims ``"pirlygenes"`` (the
+        human default) and ``"tsarina"``, which is read through oncoref
+        because tsarina re-exports it. All three select the same table.
+    tier : str
+        Which membership counts as a CTA. ``"default"`` is oncoref's
+        canonical set; ``"filtered"`` and ``"unfiltered"`` widen it, and
+        ``"testis_restricted"`` / ``"placental_restricted"`` are its
+        restriction subsets. See :data:`CTA_TIERS`.
+    species : str
+        Only ``"human"`` has a table today; anything else raises rather than
+        returning a human list for another species.
+
+    Returns
+    -------
+    set of str
+        Ensembl gene IDs.
+
+    Raises
+    ------
+    ValueError
+        The source, tier or species is unsupported.
+    ImportError
+        The named source is not installed, with the extra to install.
+    """
+    if species != "human":
+        raise ValueError(
+            f"cancer-testis antigen lists are human-only; got "
+            f"species={species!r}. Pass a species-appropriate set or callable."
+        )
+    source = _CTA_SOURCE_ALIASES.get(source, source or "pirlygenes")
+    if source not in _CTA_SOURCES:
+        raise ValueError(
+            f"Unsupported CTA source: {source!r}. Use "
+            f"{', '.join(map(repr, sorted({**_CTA_SOURCES, **_CTA_SOURCE_ALIASES})))}."
+        )
+    if tier not in CTA_TIERS:
+        raise ValueError(
+            f"Unsupported CTA tier: {tier!r}. Use "
+            f"{', '.join(map(repr, sorted(CTA_TIERS)))}."
+        )
+    module_name, prefix, extra = _CTA_SOURCES[source]
+    attribute = f"{prefix}_{CTA_TIERS[tier]}"
+    module = require_optional_dependency(
+        module_name,
         feature="cancer-testis antigen gene lists",
-        extra="pirlygenes",
-        required_callables=("CTA_gene_ids",),
+        extra=extra,
+        required_callables=(attribute,),
     )
-    return set(gene_sets.CTA_gene_ids())
+    return set(getattr(module, attribute)())
