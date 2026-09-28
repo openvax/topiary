@@ -705,7 +705,10 @@ FRAGMENT_SERIALIZATION_DOORS = (
 
 
 def release_allowed_through_api(project, version):
-    from topiary import pypi_release_exists
+    # Release tooling lives in scripts/, not the package (#316); the two doors
+    # it offers -- the function and the command deploy.sh runs -- still must
+    # agree.
+    from scripts.check_pypi_release import pypi_release_exists
 
     try:
         return not pypi_release_exists(project, version)
@@ -714,7 +717,7 @@ def release_allowed_through_api(project, version):
 
 
 def release_allowed_through_cli(project, version):
-    from topiary.cli.release import main
+    from scripts.check_pypi_release import main
 
     return main([project, version]) == 0
 

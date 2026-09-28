@@ -44,7 +44,7 @@ if [[ "${1:-}" == "-c" ]]; then
 elif [[ "${1:-}" == "-m" && "${2:-}" == "pip" ]]; then
     printf '%s\\n' "${PYPI_LISTING:-Available versions: 5.52.4}"
     exit "${PYPI_LOOKUP_STATUS:-0}"
-elif [[ "${1:-}" == "-m" && "${2:-}" == "topiary.cli.release" ]]; then
+elif [[ "${1:-}" == "scripts/check_pypi_release.py" ]]; then
     exec "$REAL_PYTHON" "$RELEASE_CHECK_DRIVER" "$@"
 elif [[ "${1:-}" == "-m" && "${2:-}" == "build" ]]; then
     mkdir -p dist
@@ -70,22 +70,19 @@ def _release_repo(tmp_path):
         repo / "scripts" / "resolve_python.sh",
     )
     (repo / "topiary" / "__init__.py").write_text('__version__ = "5.52.5"\n')
-    for name in ("release.py", "cli/release.py"):
-        source = SOURCE_ROOT / "topiary" / name
-        destination = repo / "topiary" / name
-        destination.parent.mkdir(exist_ok=True)
-        shutil.copy2(source, destination)
-    (repo / "topiary" / "cli" / "__init__.py").touch()
-    # Exercise the real Python preflight and CLI in a subprocess; only the
-    # HTTP boundary is replaced. No test may publish or contact PyPI.
+    shutil.copy2(
+        SOURCE_ROOT / "scripts" / "check_pypi_release.py",
+        repo / "scripts" / "check_pypi_release.py",
+    )
+    # Exercise the real preflight script in a subprocess; only the HTTP
+    # boundary is replaced. No test may publish or contact PyPI.
     (repo / "pypi_response.py").write_text('''import io
 import os
-import runpy
 import socket
 import ssl
 import sys
+import importlib.util
 from urllib.error import HTTPError, URLError
-from topiary import release
 
 def response(request, timeout):
     with open(os.environ["PYPI_REQUEST_LOG"], "a") as log:
@@ -106,9 +103,11 @@ def response(request, timeout):
     result.status = status
     return result
 
+spec = importlib.util.spec_from_file_location("check_pypi_release", sys.argv[1])
+release = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(release)
 release.urlopen = response
-sys.argv = sys.argv[2:]
-runpy.run_module(sys.argv[0], run_name="__main__")
+raise SystemExit(release.main(sys.argv[2:]))
 ''')
     (repo / ".gitignore").write_text(".venv/\nbuild/\ndist/\n")
     for name in ("lint.sh", "test.sh"):
@@ -308,7 +307,7 @@ def test_deploy_uses_one_interpreter_for_every_release_step(tmp_path, selection)
     ]
     invocations = (tmp_path / "python-invocations.log").read_text().splitlines()
     assert any(command.startswith("-c import topiary") for command in invocations)
-    assert "-m topiary.cli.release topiary 5.52.5" in invocations
+    assert "scripts/check_pypi_release.py topiary 5.52.5" in invocations
     assert (tmp_path / "pypi-requests.log").read_text().splitlines() == [
         "https://pypi.org/pypi/topiary/5.52.5/json",
     ]
@@ -331,14 +330,3 @@ def test_deploy_rejects_invalid_explicit_python_without_fallback(tmp_path, kind)
     assert result.returncode == 1
     assert f"Python interpreter not found or not executable: {invalid}" in result.stderr
     assert not (tmp_path / "gate-python.log").exists()
-
-
-def test_deploy_script_uses_one_configured_python():
-    """Every Python release tool is invoked as a selected-Python module."""
-    script = Path("deploy.sh").read_text()
-    assert "resolve_topiary_python" in script
-    assert 'VERSION=$("${PYTHON}" -c' in script
-    assert '"${PYTHON}" -m topiary.cli.release topiary "${VERSION}"' in script
-    assert '"${PYTHON}" -m build' in script
-    assert '"${PYTHON}" -m twine upload dist/*' in script
-    assert "rm -rf dist build" in script
