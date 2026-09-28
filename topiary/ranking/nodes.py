@@ -3979,6 +3979,14 @@ class Scope:
 
 
 wt = Scope("wt")
+
+# Reserved for columns a producer computes elsewhere: ``shuffled.affinity``
+# reads ``shuffled_value``, ``self.affinity.score`` reads ``self_score``, the
+# way ``wt.`` reads ``wt_*``. Topiary never populates either prefix, so an
+# expression under one evaluates to NaN unless the caller supplies the column
+# — which filters to False rather than passing the row. ``self`` is a
+# producer's own definition of a self-match, not nearest-self: the columns
+# Topiary computes are ``self_nearest_*``, under the scope below.
 shuffled = Scope("shuffled")
 self_scope = Scope("self")
 

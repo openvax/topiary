@@ -27,7 +27,6 @@ nav:
   - Cross-reactivity: self_proteome.md
   - Ranking DSL: ranking.md
   - Peptide Properties: properties.md
-  - Expression Semantics: expression-semantics.md
   - API Reference: api.md
 
 markdown_extensions:

@@ -1,5 +1,27 @@
 # Changelog
 
+## 5.84.2
+
+- Deleted `docs/expression-semantics.md` and its mkdocs nav entry (#313). It
+  was a 713-line design spec documenting `predict_shuffled`,
+  `predict_self_match`, `predict_from_isovar`, an `--expression` flag and
+  `rna_alt_fraction` / `rna_total_reads` columns, none of which exist anywhere
+  in the package.
+- Documented the `shuffled.` and `self.` DSL scopes instead of leaving them
+  undocumented (#313). Both are reserved for columns a producer computes
+  elsewhere: `shuffled.affinity` reads `shuffled_value`, `self.affinity.score`
+  reads `self_score`, exactly as `wt.` reads `wt_*`. Topiary never populates
+  them, so an expression under one evaluates to NaN without the column, and a
+  filter on it keeps nothing. The README said they "work the same way" as
+  `wt.`, which is only true of the syntax. `self.` is a producer's own
+  self-match, not nearest-self — `self_nearest_*` is what Topiary computes.
+- AGENTS.md said to never commit to `main` and described `deploy.sh <version>`
+  as handling the version bump, commit and push (#317). The branch is
+  `master`, and `deploy.sh` takes no arguments: it reads
+  `topiary.__version__`, refuses a version already on PyPI, and pushes only
+  the tag, so the bump belongs in the PR. It now points at RELEASING.md, which
+  already described this correctly.
+
 ## 5.84.1
 
 - `topiary.sources` documented its default Ensembl release as "the latest

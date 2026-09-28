@@ -263,7 +263,12 @@ For CLI variant runs, add `--predict-wt` before using `wt.*` in
 --predict-wt --sort-by "affinity.score - wt.affinity.score"
 ```
 
-`shuffled.` and `self.` prefixes work the same way for shuffled-decoy and self-proteome contexts.
+`shuffled.` and `self.` are reserved for the same shape of comparison, but
+Topiary does not compute them: they read `shuffled_*` and `self_*` columns a
+producer supplies (a shuffled-decoy score, a self-proteome match from your own
+pipeline) and evaluate to `NaN` when those columns are absent. For
+nearest-self, use `self_nearest.`, which Topiary does compute — see
+[Nearest-self](docs/self_proteome.md).
 
 ### Peptide-level expressions
 
