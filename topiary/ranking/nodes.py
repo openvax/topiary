@@ -3982,12 +3982,14 @@ wt = Scope("wt")
 shuffled = Scope("shuffled")
 self_scope = Scope("self")
 
-# Reserved DSL scope for "nearest-self healthy-tissue peptide" data.
-# Topiary does not compute these columns — producers populate them
-# externally (via BLAST / edit distance against a healthy-tissue
-# proteome, with a producer-chosen definition of "self").  The scope
-# reads ``self_nearest_*`` columns; when absent, evaluates to NaN.
-# See docs/fragments.md for the reserved column namespace.
+# DSL scope for "nearest-self healthy-tissue peptide" data.  Topiary
+# computes these columns itself — ``SelfProteome`` plus
+# ``TopiaryPredictor(predict_self_nearest=True)``, added in 5.8.0 and
+# 5.26.0 — and the scope also reads them when a producer supplies them
+# instead (via BLAST / edit distance against a healthy-tissue proteome,
+# with a producer-chosen definition of "self").  The scope reads
+# ``self_nearest_*`` columns; when absent, evaluates to NaN.
+# See docs/self_proteome.md, and docs/fragments.md for the column namespace.
 self_nearest = Scope("self_nearest")
 
 
