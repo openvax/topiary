@@ -37,7 +37,10 @@ from .rna import (
 from .sequence import add_sequence_args
 from .errors import add_error_args
 from .outputs import add_output_args
-from .protein_changes import add_protein_change_args
+from .protein_changes import (
+    add_protein_change_args,
+    protein_change_effects_from_args,
+)
 from ..inputs import (
     exclude_by,
     read_fasta,
@@ -515,6 +518,25 @@ def _get_direct_input(args):
 
 def _validate_input_modes(args):
     """Reject incompatible combinations of direct and variant-style inputs."""
+    genomic_flags = [
+        flag for flag, name in (
+            ("--vcf", "vcf"), ("--maf", "maf"), ("--variant", "variant"),
+            ("--json-variants", "json_variants"),
+        ) if getattr(args, name, None)
+    ]
+    if getattr(args, "protein_change", None) and genomic_flags:
+        # A named protein change carries no locus, so it cannot take the
+        # read-level evidence or the variant-level expression filtering the
+        # genomic inputs get. Running both at once would put rows with and
+        # without that evidence in one table, with no way to tell from a
+        # threshold which rows it was able to apply to (openvax/topiary#421).
+        raise CommandLineError(
+            "--protein-change is a separate input mode from "
+            f"{', '.join(genomic_flags)}: a protein change names no genomic "
+            "position, so variant-level evidence and expression filters "
+            "cannot apply to it. Run them separately and combine the results "
+            "with combine_sources."
+        )
     direct_input_flags = [
         getattr(args, "peptide_csv", None),
         getattr(args, "sequence_csv", None),
@@ -630,9 +652,13 @@ def predict_epitopes_from_args(args):
     filter_by, sort_by, sort_direction = _build_filter_and_sort(args)
     _validate_input_modes(args)
     direct_input, is_peptides = _get_direct_input(args)
+    protein_change_effects = None
     if direct_input is None:
         _require_variant_input(args)
-        variants = variant_collection_from_args(args)
+        if getattr(args, "protein_change", None):
+            protein_change_effects = protein_change_effects_from_args(args)
+        else:
+            variants = variant_collection_from_args(args)
         gene_expression_dict = rna_gene_expression_dict_from_args(args)
         transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
         expr_data = expression_data_from_args(args)
@@ -668,12 +694,18 @@ def predict_epitopes_from_args(args):
             df = predictor.predict_from_named_sequences(direct_input)
         return finish(df)
 
-    df = predictor.predict_from_variants(
-        variants=variants,
+    shared = dict(
         transcript_expression_dict=transcript_expression_dict,
         gene_expression_dict=gene_expression_dict,
         expression_data=expr_data,
     )
+    if protein_change_effects is not None:
+        # Named protein changes are already mutation effects; they skip
+        # variant_collection_from_args entirely.
+        df = predictor.predict_from_mutation_effects(
+            effects=protein_change_effects, **shared)
+    else:
+        df = predictor.predict_from_variants(variants=variants, **shared)
     return finish(df)
 
 

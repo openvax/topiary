@@ -446,7 +446,10 @@ def fragment_from_effect(
         # so inframe=True yields the correct target_intervals for frameshifts too.
         inframe=True,
         source_type=_source_type_from_effect(effect, mut_end - mut_start),
-        variant=effect.variant.short_description,
+        # A protein change named directly (--protein-change EGFR T790M) has
+        # no genomic variant behind it, so the column stays empty rather
+        # than inventing a coordinate.
+        variant=getattr(effect.variant, "short_description", None),
         effect=effect.short_description,
         effect_type=type(effect).__name__,
         gene=effect.gene_name,

@@ -164,11 +164,16 @@ def test_rna_gene_expression_with_file():
     assert len(result) > 0
 
 
-def test_rna_gene_expression_deprecation_warning():
+def test_rna_gene_expression_deprecation_warning(caplog):
+    """A visible notice, not a DeprecationWarning Python hides (#322)."""
     path = os.path.join(DATA_DIR, "genes.fpkm_tracking")
     args = _make_rna_args(rna_gene_fpkm_tracking_file=path)
-    with pytest.warns(DeprecationWarning, match="deprecated"):
-        rna_gene_expression_dict_from_args(args)
+    with caplog.at_level("WARNING"):
+        assert rna_gene_expression_dict_from_args(args)
+    assert caplog.messages == [
+        "--rna-gene-fpkm-tracking-file is deprecated; "
+        "use --gene-expression instead."
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +206,21 @@ def test_rna_transcript_expression_gtf():
     assert len(result) > 0
 
 
-def test_rna_transcript_expression_cufflinks_deprecation():
-    path = os.path.join(DATA_DIR, "isoforms.fpkm_tracking")
-    args = _make_rna_args(rna_transcript_fpkm_tracking_file=path)
-    with pytest.warns(DeprecationWarning, match="deprecated"):
-        rna_transcript_expression_dict_from_args(args)
+@pytest.mark.parametrize("flag,replacement,fixture", [
+    ("rna_transcript_fpkm_tracking_file", "--transcript-expression",
+     "isoforms.fpkm_tracking"),
+    ("rna_transcript_fpkm_gtf_file", "--transcript-expression",
+     "B16-StringTie-chr1-subset.gtf"),
+])
+def test_rna_transcript_expression_cufflinks_deprecation(
+    caplog, flag, replacement, fixture,
+):
+    """A visible notice, not a DeprecationWarning Python hides (#322)."""
+    path = os.path.join(DATA_DIR, fixture)
+    args = _make_rna_args(**{flag: path})
+    with caplog.at_level("WARNING"):
+        assert rna_transcript_expression_dict_from_args(args)
+    named = "--" + flag.replace("_", "-")
+    assert caplog.messages == [
+        f"{named} is deprecated; use {replacement} instead."
+    ]

@@ -414,6 +414,35 @@ topiary \
   --output-csv epitopes.csv
 ```
 
+### A protein change with no genomic coordinate
+
+Hotspots are usually named at the protein level. `--protein-change GENE CHANGE`
+takes one directly, picks a protein-coding transcript whose residue at that
+position matches the reference amino acid, and tiles peptides over it:
+
+```bash
+topiary \
+  --protein-change EGFR T790M \
+  --genome grch37 \
+  --mhc-predictor netmhcpan \
+  --mhc-alleles HLA-A*02:01 \
+  --output-csv hotspot.csv
+```
+
+`variant` is empty for these rows: no genomic position was named, so none is
+invented. That also means read-level DNA/RNA evidence cannot attach to them,
+which is why this is a separate input mode — passing it together with `--vcf`,
+`--maf`, `--variant` or `--json-variants` is refused rather than mixing rows
+whose evidence differs. Run each mode separately and combine the results with
+`combine_sources`, which keeps each source labelled
+([#421](https://github.com/openvax/topiary/issues/421)).
+
+Where several transcripts match, topiary takes the one with the longest
+protein sequence, breaking ties on transcript length and then name. A change
+can therefore land on a different transcript as the annotation release
+changes; pass `--ensembl-release` to pin it. The chosen transcript is named in
+the `transcript_id` and `transcript_name` columns.
+
 ### Add expression data
 
 ```bash
