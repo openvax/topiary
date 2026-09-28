@@ -13,7 +13,8 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   duplicate history, and correct installation/consumer documentation.
 
 - Test released Vaxrank 3.32.0, align the Isovar minimum with Osteosarc 0.14, and
-  document a repository-local development/release environment.
+  document a repository-local development/release environment. Avoid duplicate CI
+  matrices for feature-branch pushes and PR updates.
 
 ## 5.86.0
 
