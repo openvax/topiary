@@ -21,13 +21,16 @@ is installed with Topiary.
 pip install topiary
 ```
 
-For variant annotation, gene lookups, and `SelfProteome`, download
-Ensembl reference data (any release that matches your reference genome
-works — GRCh38 releases are 76+; GRCh37 is release 75):
+For variant annotation, gene lookups, and `SelfProteome`, install the default
+human reference selected by your installed PyEnsembl:
 
 ```bash
-pyensembl install --release 112 --species human
+pyensembl install --release "$(python -c 'from pyensembl import ensembl_grch38; print(ensembl_grch38.release)')" --species human
 ```
+
+To use a different reference, install it and select it explicitly with the
+API's `release=` argument or `--ensembl-release`. Installing an older release
+does not change the default. GRCh37 inputs need release 75.
 
 For cancer-testis antigen and tissue expression features:
 
@@ -41,8 +44,8 @@ For RNA-assembled protein fragments from Isovar:
 pip install 'topiary[isovar]'
 ```
 
-This installs Isovar 1.18.1 or newer. Isovar is not needed for other input
-sources.
+This installs Isovar 1.39.5 or newer, compatible with Osteosarc 0.14.
+Isovar is not needed for other input sources.
 
 **MHC predictors** (NetMHCpan, mhcflurry, etc.) are installed
 separately — topiary calls them through

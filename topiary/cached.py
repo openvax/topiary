@@ -1708,12 +1708,11 @@ def _raise_on_uncovered_occurrences(
     """Fail loudly when flank mismatch left a kind with no row.
 
     A peptide whose only cached rows were predicted in a different
-    flanking context is not a cache hit for this occurrence, and it is
-    not something the fallback can repair either: the fallback API takes
-    peptides, so it cannot be asked for a specific protein context.  The
-    remaining honest options are to return a score computed for the wrong
-    neighbours or to say so, and returning it silently is what made this
-    a bug rather than a limitation.
+    flanking context is not a cache hit for this occurrence. The current
+    fallback path only requests peptide predictions; it does not retry
+    mismatched occurrences through a fallback's protein-scan API, even if
+    that API is available (see #307). Raise rather than reuse a score
+    computed for different neighbours or genotype context.
 
     Coverage is decided per :func:`_coverage_key` — ``(peptide, allele,
     kind, allele_set, source, offset)`` — rather than per occurrence,

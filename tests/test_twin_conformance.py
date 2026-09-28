@@ -633,7 +633,7 @@ OPTIONAL_DEPENDENCY_TWINS = (
         ("run_isovar", "ProteinSequenceCreator"),
         _check_isovar,
         "assembling protein fragments from RNA alignments",
-        "<2,>=1.37",
+        "<2,>=1.39.5",
     ),
     (
         "pirlygenes",

@@ -12,11 +12,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Install the pinned downstream fixture migration
-        # Released Vaxrank 3.22.0 pins Osteosarc 0.2.3. Its Osteosarc 0.7
-        # migration (openvax/vaxrank#521) needs this Topiary release first; pin
-        # its exact reviewed commit so pip validates a compatible dependency set.
-        run: bash scripts/pip_install.sh pytest 'vaxrank @ git+https://github.com/openvax/vaxrank.git@968aafed8c61b14aed76a54f881419c497c5bf0f' -e .
+      - name: Install the released downstream consumer
+        run: |
+          bash scripts/pip_install.sh pytest 'vaxrank==3.32.0' -e .
+          python -m pip check
       - name: Verify table features through DSL scoring and vaccine construction
         run: python -m pytest scripts/check_vaxrank_candidates.py -q
 

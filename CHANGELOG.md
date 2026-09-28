@@ -1,4136 +1,990 @@
 # Changelog
 
+Each 5.x section names a published PyPI release (except the current release
+while its PR is open). Changes merged under unpublished version numbers are
+included in the release that shipped them. Links show the complete changes
+between published tags; older pre-5.0 notes are retained below.
+
+For current interfaces, see the [consumer guide](docs/consumer-guide.md).
+
+## 5.86.1
+
+- Reconcile published 5.x release notes, remove completed planning documents and
+  duplicate history, and correct installation/consumer documentation.
+
+- Test released Vaxrank 3.32.0, align the Isovar minimum with Osteosarc 0.14, and
+  document a repository-local development/release environment.
+
 ## 5.86.0
 
-- **`cta_gene_ids(source, tier)`** in `topiary.sources` is now the one
-  implementation of "which genes count as cancer-testis antigens" (#124).
-  `cta_sequences`, `non_cta_sequences` and `SelfProteome`'s `include="non_cta"`
-  all read it, so they cannot disagree about which genes leave a self proteome;
-  the pirlygenes-only private helper they used is gone.
-- `cta_source="oncoref"` names the single authority directly, and
-  `cta_source="tsarina"` works instead of raising `NotImplementedError` for a
-  set identical to the default. pirlygenes and tsarina re-export oncoref's own
-  functions — `is` identity, not a copy — so all three spellings select the
-  same table. New `oncoref` extra, floored at the `>=1.8.150` tsarina audits
-  for this API.
-- `cta_tier=` selects the membership: `default` (293 genes), `filtered` (302),
-  `unfiltered` (390), `testis_restricted` (248) or `placental_restricted` (11).
-  The spread is wide enough that the choice belongs to the caller. oncoref's
-  complements (`excluded`, `never_expressed`) and its clinical-target list are
-  refused, since passing one where a CTA definition is expected would exclude
-  the wrong genes from a self proteome.
-- A non-CTA proteome's `reference_version` now records the **oncoref** version
-  rather than the shim it was reached through, and the tier when it is not the
-  default. A shim version moves without the gene set moving and — worse —
-  stays still when oncoref's table changes underneath it, which is the silent
-  divergence #124 warned about. `non_cta+cta-pirlygenes-6.0.4` becomes
-  `non_cta+cta-oncoref-1.8.194`.
+- Centralize CTA membership in `cta_gene_ids(source, tier)` and support explicit
+  oncoref/tsarina sources and CTA tiers.
 
-The downloadable proteome artifact this issue also described stays deferred;
-the CTA question is answered by delegation rather than by shipping data.
+- Record the oncoref authority and selected tier in non-CTA reference identities; add
+  the `oncoref` extra. The downloadable proteome artifact remains deferred.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.85.1...v5.86.0)
 
 ## 5.85.1
 
-Release and CI tooling only; no library change.
+- Isolate each pytest run's temporary root and retry CI dependency installs without
+  relaxing requirements.
 
-- `test.sh` gives each run its own pytest temporary root (#295). The default,
-  `$TMPDIR/pytest-of-$USER`, is shared by every pytest on the machine, and
-  during the 5.53.0 release a concurrent suite in a sibling repository emptied
-  it mid-run, failing four tests in `tmp_path` setup. The root is removed after
-  a passing run and kept after a failing one; one set in `PYTEST_DEBUG_TEMPROOT`
-  is used and left alone. `deploy.sh` inherits this through `test.sh`, so
-  RELEASING.md's manual step is gone.
-- CI dependency installs go through `scripts/pip_install.sh`, which retries up
-  to three times, fetching the index again on each retry (#335). A sibling
-  release can be on PyPI minutes before a runner's index shows it, which failed
-  PR jobs with "No matching distribution found" for mhctools 3.44.26 and
-  vaxrank 3.20.1. Requirements are passed through unchanged, so a genuine
-  conflict still fails, with pip's own last error.
-- The check that CI tests each optional integration both absent and
-  installed now reads the workflow's structure instead of matching its text,
-  which the install change above would otherwise have broken (#316's point).
+[Changes](https://github.com/openvax/topiary/compare/v5.85.0...v5.85.1)
 
 ## 5.85.0
 
-- **Removed `topiary.pypi_release_exists`** (#316). A PyPI lookup is release
-  tooling, not part of an epitope-prediction library's API; it lived in the
-  package only so `deploy.sh` could run `python -m topiary.cli.release`. The
-  preflight is now `scripts/check_pypi_release.py`, with the same fail-closed
-  behaviour, and `topiary/release.py` and `topiary/cli/release.py` no longer
-  ship in the wheel. Nothing outside topiary imported it; mhctools has its own
-  script. Its `docs/api.md` section is gone.
-- Dropped the tests that asserted on the text of `deploy.sh` or the CI
-  workflow rather than on behaviour — the coupling #316 names, where changing
-  CI plumbing meant editing tests. One grepped `deploy.sh` for literal command
-  lines; two split `.github/workflows/tests.yml` on step names and indentation.
-  The behavioural tooling tests stay, retargeted at the script: the preflight
-  still fails closed on network, HTTP and malformed-response errors and refuses
-  a published version, and `deploy.sh` still stops before every gate, build,
-  upload and tag when it does.
+- Remove `topiary.pypi_release_exists` and the release CLI module from the public
+  package; release preflight now lives under `scripts/`.
+
+- Remove tests tied to incidental CI/deployment script text.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.84.3...v5.85.0)
 
 ## 5.84.3
 
-Test cleanup only; no library change.
+- Replace duplicate and vacuous tests with behavioral assertions; no library behavior
+  change.
 
-- Removed the four copy-paste duplicate tests (#363) and gave each named path
-  the coverage it claimed. Three tests asserted the same
-  `wt.Affinity["netmhcpan"].value`; one now covers the two-argument
-  `["netmhcpan", "4.1b"]` form, including that an unmatched version raises
-  rather than reading NaN. The issue suggested testing `wt.Affinity.netmhcpan`
-  there, but `KindAccessor` has no such attribute. The duplicate `log2` test
-  now asserts the accessor and field forms build the same node, and the
-  duplicate `--sort-by` test now exercises the comma-separated fallback keys
-  its section header names, which nothing covered.
-- `test_epitope_prediction_with_invalid_zero_padding` passed 7, not 0, and its
-  premise was wrong: zero padding is valid and means "use the minimum the
-  epitope lengths need" (8 for 9-mers). It now asserts that.
-- Replaced two `len(result) >= 0` assertions in the LENS tests, true of any
-  frame, with the behaviour they were about: at a 100 nM cutoff, filtering
-  keeps 84 of 180 rows for the two-model fixture and retains affinities above
-  the cutoff whose sibling method passed, while the single-model fixture keeps
-  27 rows all under it.
-- Replaced the `hasattr` survey over `SEMANTIC_CORE` (#369), which cannot fail
-  for a dataclass, with the claim its docstring makes: all four readers state
-  the shared core, and which RNA counts each fills genuinely differs.
-- Dropped the two `__all__` membership tests; both names are imported at the
-  top of the file, so the import already proves the export. The dataclass
-  signature test keeps its drift guard — `__init__` is hand-written with a
-  manual `__signature__` — minus two assertions about `__wrapped__` and
-  `__dataclass_params__`, and gains a check that every field is accepted by
-  keyword.
-- Left the bare `return` at `tests/test_consumer_workflows.py` alone: it
-  follows `assert fragments == []` for the parametrization that expects none,
-  so `pytest.skip` would discard that assertion.
+[Changes](https://github.com/openvax/topiary/compare/v5.84.2...v5.84.3)
 
 ## 5.84.2
 
-- Deleted `docs/expression-semantics.md` and its mkdocs nav entry (#313). It
-  was a 713-line design spec documenting `predict_shuffled`,
-  `predict_self_match`, `predict_from_isovar`, an `--expression` flag and
-  `rna_alt_fraction` / `rna_total_reads` columns, none of which exist anywhere
-  in the package.
-- Documented the `shuffled.` and `self.` DSL scopes instead of leaving them
-  undocumented (#313). Both are reserved for columns a producer computes
-  elsewhere: `shuffled.affinity` reads `shuffled_value`, `self.affinity.score`
-  reads `self_score`, exactly as `wt.` reads `wt_*`. Topiary never populates
-  them, so an expression under one evaluates to NaN without the column, and a
-  filter on it keeps nothing. The README said they "work the same way" as
-  `wt.`, which is only true of the syntax. `self.` is a producer's own
-  self-match, not nearest-self — `self_nearest_*` is what Topiary computes.
-- AGENTS.md said to never commit to `main` and described `deploy.sh <version>`
-  as handling the version bump, commit and push (#317). The branch is
-  `master`, and `deploy.sh` takes no arguments: it reads
-  `topiary.__version__`, refuses a version already on PyPI, and pushes only
-  the tag, so the bump belongs in the PR. It now points at RELEASING.md, which
-  already described this correctly.
+- Remove the obsolete expression specification and document producer-supplied
+  `self`/`shuffled` scopes; correct release instructions.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.84.1...v5.84.2)
 
 ## 5.84.1
 
-- `topiary.sources` documented its default Ensembl release as "the latest
-  installed GRCh38 release (93 for human)" (#382). Neither half was true:
-  `release=None` uses the release the installed pyensembl exposes as
-  `ensembl_grch38` — 115 with pyensembl 2.14 — and having an older release
-  installed does not make the default usable, which is what caused the CI
-  cache failure fixed by #379/#381. The module now states the rule once, every
-  public function's `release` entry points at it, and `--ensembl-release`'s
-  help says the same. Tests pin the rule so the docs cannot drift from it.
-- The `self_nearest` DSL scope and `docs/fragments.md` said Topiary does not
-  compute those columns and that producers must populate them externally
-  (#413). That has been false since `SelfProteome` (5.8.0) and
-  `predict_self_nearest` (5.26.0); both now say Topiary computes them and that
-  the scope still reads externally supplied columns. What remains unimplemented
-  is the binding-aware cross-reactivity axes, now tracked in #412 rather than
-  the narrowed #124.
+- Document the actual PyEnsembl default-release rule and Topiary's nearest-self
+  computation.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.84.0...v5.84.1)
 
 ## 5.84.0
 
-- **`--protein-change GENE CHANGE` now runs** (#322). The flag, its parser and
-  its tests have existed for years, but nothing called the parser, so
-  `--protein-change EGFR T790M` reported "No variants loaded" on its own and
-  was silently ignored beside `--variant`. It is now an input mode: the effect
-  is built from the protein change and predicted directly. `variant` is empty
-  for those rows, since no genomic position was named.
-- Passing `--protein-change` together with `--vcf` / `--maf` / `--variant` /
-  `--json-variants` is refused with an explanation instead of being ignored. A
-  protein change carries no locus, so read-level evidence and variant-level
-  expression filters cannot apply to it, and mixing both in one table would
-  hide which rows a threshold reached. Combining them in one run is #421.
-- `--predict-wt`'s help named `wt_affinity`, `wt_score` and
-  `wt_percentile_rank`. Those parse as a predictor named `wt` and then fail at
-  evaluation; the help now names the scope forms `wt.affinity`,
-  `wt.affinity.rank`, `wt.affinity.score` and `wt.presentation`, and says why
-  the underscore form is not the same thing.
-- The deprecated `--rna-gene-fpkm-tracking-file`,
-  `--rna-transcript-fpkm-tracking-file` and `--rna-transcript-fpkm-gtf-file`
-  print a one-line notice naming their replacement. They used to raise a
-  `DeprecationWarning`, which Python hides by default, so nothing reached the
-  user.
-- README documents the protein-change input mode, including how the transcript
-  is chosen.
+- Execute `--protein-change GENE CHANGE`; reject mixing it with genomic inputs until a
+  combined contract is supported.
+
+- Correct WT DSL help and display deprecated expression-flag notices.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.83.0...v5.84.0)
 
 ## 5.83.0
 
-- **CLI output files no longer carry the pandas index (#326).** It was written
-  under the header `#`, so any reader treating `#` as a comment — including
-  topiary's own `read_csv` / `read_tsv` — skipped the header, took the first
-  data row as the column names and lost a row. A CLI file now reloads as
-  written. Anything reading the old files with `index_col="#"` must drop it.
-- Floats are written to six significant digits: `6.296000000000002` becomes
-  `6.296` and `11927.161249112096` becomes `11927.2`. Whole values keep their
-  decimal point, so a reloaded measurement column stays `float64` rather than
-  becoming `int64`. Predictions were never accurate past the sixth digit, but
-  a workflow comparing exact text or replaying a file as a cache will see the
-  rounded values.
-- Without `--sort-by`, rows follow each source sequence's windows in position
-  order instead of alphabetically by peptide, so a scan reads 0, 1, 2 rather
-  than 16, 1, 13. Source sequences keep the order they first appear, and a
-  peptide list keeps its input order.
-- With `--sort-by`, a new first column `output_row` numbers the rows from 1, so
-  the order survives re-sorting elsewhere. It is a row position, not a
-  per-candidate rank: sorting on a measurement leaves a peptide's other kinds
-  further down the file. `rank_candidates` still produces `candidate_rank` for
-  a real ranking.
-- HTML output is a complete page (doctype, `<head>`, charset, title) rather
-  than a bare `<table>`, and a missing value is an empty cell whatever its
-  Python type; `None` used to print literally beside empty strings for the
-  same missing value.
-- `wt_peptide_length` is `Int64`, so a 9-mer's comparator is `9` and not `9.0`
-  once any row lacks a WT peptide.
-- README documents the output-file format, the row order and the units each
-  `kind` implies.
+- Write CLI CSV without a pandas index and with six significant digits; emit complete
+  HTML pages and nullable integer WT lengths.
+
+- Preserve source-window order by default and add `output_row` for explicitly sorted
+  output. Exact-text/cache replay consumers will see rounded floats.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.82.0...v5.83.0)
 
 ## 5.82.0
 
-- Require osteosarc `>=0.14.0,<0.15`. 0.14 removes `osteosarc.legacy_fixtures`
-  and changes `make_bundle` defaults, neither of which Topiary uses.
-- CI tests the Isovar integration against Isovar 1.39.5, the first release
-  that accepts osteosarc 0.14, and the Vaxrank candidate workflow against its
-  osteosarc 0.14 migration.
+- Require Osteosarc 0.14 and test its compatible Isovar 1.39.5 and Vaxrank integrations.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.81.0...v5.82.0)
 
 ## 5.81.0
 
-- **CLI exit status changes (#310).** Errors found after the command line is
-  read now exit **1** with a single `topiary: error:` line: a missing or
-  unreadable input or cache file, a cache that cannot answer, a predictor
-  that isn't set up, an output that can't be written. They used to print the
-  whole usage block and exit 2. A malformed command line (an unknown flag, a
-  bad value, required flags missing or in conflict) keeps exit 2 with the
-  usage text, so scripts can tell the two apart.
-- A mistyped allele and a missing optional dependency print one line instead
-  of a traceback (#324).
-- Output paths and `--mhc-predictor-path` are checked before predicting, and
-  inputs and `--filter-by` / `--sort-by` are read before any predictor is
-  loaded, so these fail in the first second rather than after the run
-  (#310). `--output-csv-sep` must be one character.
-- An unknown `--subset-output-columns` or `--rename-output-column` name is an
-  error, raised before anything is written; it used to warn and write an
-  index-only file (#326).
+- Return exit 1 with concise messages for actionable runtime CLI errors; malformed
+  arguments retain exit 2.
+
+- Validate output paths, predictor paths and output-column names before
+  prediction/writing.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.80.0...v5.81.0)
 
 ## 5.80.0
 
-- `SelfProteome.reference_version` now identifies the proteome it stamps
-  (#409). It ends in `+sha256:<digest>` over every record the index was
-  built from and the lengths indexed, so different content can no longer
-  share a string. Proteomes from `from_fasta` and `from_peptides` start
-  with `fasta-` and `peptides-` instead of `ensembl-`.
-- `cta_source="pirlygenes"` records the pirlygenes version, as the default
-  `cta_source=None` already did, so the two spellings give the same string.
-- `from_ensembl()` without a release records the release pyensembl
-  selected, and a callable `include=` is labelled by its qualified name
-  rather than a `repr` containing a memory address, so reruns reproduce
-  the string.
-- New `SelfProteome.source` and `SelfProteome.content_digest` attributes.
+- Include content and indexed-length digests in `SelfProteome.reference_version`; expose
+  `source` and `content_digest` and make reference identities reproducible.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.79.0...v5.80.0)
 
 ## 5.79.0
 
-- Every argument that takes a DSL expression now goes through one public
-  coercion, `as_dsl_node` (`as_dsl_nodes` for sort keys), so they accept and
-  refuse the same things (#414). `apply_filter`, `apply_sort` and
-  `evaluate_scores` now accept a DSL string or a kind accessor like the
-  other entry points, and `rank_candidates` accepts a kind accessor.
-- A `bool` passed as an expression raises `TypeError` naming `.eq()` /
-  `.ne()` / `.isin()`. It is almost always `Column("x") == "y"`, which is
-  Python equality rather than a DSL comparison. `apply_sort` used to accept
-  it and return the frame unsorted, and `apply_filter` and `evaluate_scores`
-  failed with an `AttributeError` about internals.
-- `apply_sort` takes one expression as well as a list. A string used to be
-  iterated character by character, and a bare node failed as "not
-  iterable".
+- Route DSL arguments through `as_dsl_node`/`as_dsl_nodes`; accept strings/accessors
+  consistently and reject accidental Python booleans.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.78.0...v5.79.0)
 
 ## 5.78.0
 
-- `to_tsv`/`to_csv` write columns of dicts and lists, such as
-  `measurement_context`, as one JSON document per cell, declared by
-  `#topiary_json_encoding=json-v1`; `read_tsv`/`read_csv` decode them back
-  into the same dicts and lists (#410). They were written as Python reprs
-  and read back as strings. A cell JSON cannot represent raises `TypeError`
-  before the file is opened. Files from earlier versions read as before.
-- The CLI's `--output-csv` and `--output-html` write those cells as JSON
-  instead of Python reprs.
+- Round-trip dict/list cells as declared JSON in CSV/TSV; write structured CLI output
+  cells as JSON.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.77.0...v5.78.0)
 
 ## 5.77.0
 
-- Require osteosarc `>=0.13.0,<0.14`. 0.13 only removes osteosarc code
-  Topiary doesn't use.
-- CI tests the Isovar integration against Isovar 1.39.3, the first release
-  that accepts osteosarc 0.13, and the Vaxrank candidate workflow against its
-  osteosarc 0.13 migration.
+- Require Osteosarc 0.13 and update compatible integration checks.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.76.0...v5.77.0)
 
 ## 5.76.0
 
-- Require osteosarc `>=0.12.0,<0.13`. Every osteosarc name Topiary uses is
-  unchanged in 0.12.
-- The Sid tests read each openvax-v1 read file with `osteosarc.bundle_file`,
-  which exports it into the osteosarc cache once and reuses it, instead of
-  exporting all of them into a temporary directory in every test process.
-- CI tests the Isovar integration against Isovar 1.39.1, the first release
-  that accepts osteosarc 0.12, and the Vaxrank candidate workflow against its
-  osteosarc 0.12 migration.
+- Require Osteosarc 0.12 and reuse individual bundle files instead of repeatedly
+  exporting the whole corpus.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.75.0...v5.76.0)
 
 ## 5.75.0
 
-- Sid test reads come from `openvax-v1`, the OpenVax libraries' shared Sid
-  test data (iskandr/osteosarc#56, #403). Each of the 14 read files the tests
-  used is the `openvax-v1` member `topiary/<path>`, with exactly its original
-  records (70,382 in all); the checked-in copies, 7.2 MB of BAM, index and SAM
-  files, are removed. Tests download the 28 MB bundle once into the osteosarc
-  cache (`OSTEOSARC_CACHE`) and export the reads once per test process; CI
-  caches the bundle. Every scientific assertion is unchanged, and each export
-  must still match its file's record-multiset hash.
-- Byte pins on the removed files become record checks. Tests that rebuild the
-  RNA overlay or audit from a copied BAM point its receipt at the exported
-  bytes, and the shared NTF3 manifest tests use the exported files' hashes.
-- The rearrangement inputs keep their embedded original records as the audit
-  envelope of Isovar's supplied-fusion input; a new test checks them against
-  their `openvax-v1` members.
-- Removed `scripts/generate_sid_fixtures.py`, its recipe `sid-fixtures.json`,
-  and the `isovar_repeats` read extractor, whose only job was producing the
-  removed copies. `scripts.osteosarc_test_data` still verifies and exports the
-  87 checked-in files.
+- Read Sid test records from the shared `openvax-v1` bundle; replace duplicate read
+  files and local fixture-generation recipes with shared bundle members.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.74.0...v5.75.0)
 
 ## 5.74.0
 
-- Require osteosarc `>=0.11.1,<0.12`. Osteosarc 0.10 renamed
-  `load_sv_interest()` to `load_sv_candidates()`, which returns the same
-  `targets` mapping `build_sv_interest_report` accepts; the docs now name it.
-  The Sid/osteosarc test data is unchanged and still records 0.7.0, the version
-  that generated it.
-- CI tests the Isovar integration against Isovar 1.38.2, the first release
-  that accepts osteosarc 0.11, and the Vaxrank candidate workflow against its
-  osteosarc 0.11 migration.
+- Require Osteosarc 0.11.1 and update shared-data and integration APIs.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.73.0...v5.74.0)
 
 ## 5.73.0
 
-- Require osteosarc `>=0.9.0,<0.10`. Osteosarc 0.9 renamed `Asset` to `File`;
-  Topiary uses none of the renamed names. The Sid/osteosarc test data is
-  unchanged and still records 0.7.0, the version that generated it.
-- CI tests the Isovar integration against Isovar 1.38.1, the first release
-  that accepts osteosarc 0.9, and the Vaxrank candidate workflow against its
-  osteosarc 0.9 migration (openvax/vaxrank#523).
+- Require Osteosarc 0.9 and adopt its `File` API; update integration dependency checks.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.72.0...v5.73.0)
 
 ## 5.72.0
 
-- Require osteosarc `>=0.7.0,<0.8` (#399) and generate the Sid/osteosarc test
-  data with it. Regenerating the Sid corpus from its pinned sources with
-  Osteosarc 0.7.0 reproduced every read file byte for byte; only the recorded
-  `osteosarc_version` (0.1.1 to 0.7.0) and the manifest hashes covering it
-  changed. The bundled fixture export and offline verification also pass on
-  0.7.0.
-- CI tests the Isovar integration against Isovar 1.37.3, the first release
-  that accepts osteosarc 0.7, and the Vaxrank candidate workflow against its
-  osteosarc 0.7 migration (openvax/vaxrank#521).
+- Require Osteosarc 0.7 and use its shared fixture generation API; test compatible
+  Isovar and Vaxrank integrations.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.71.3...v5.72.0)
 
 ## 5.71.3
 
-- Coalesce identical repeated Isovar translation records without multiplying
-  comparison rows or RNA support. Reject conflicting records with the same
-  translation ID and preserve the original export in provenance (#397).
-- Regenerate the Sid regression corpus with Osteosarc 0.7.0, retaining the
-  original read and reference bytes.
+- Coalesce identical repeated Isovar translations without multiplying support and
+  refresh the Sid regression corpus with Osteosarc 0.7.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.71.2...v5.71.3)
 
 ## 5.71.2
 
-- Accept current Isovar protein and SV export versions, preserving RNA read,
-  UMI, cell and label-completeness measurements without changing default
-  candidate selection (#398).
+- Accept current Isovar protein/SV exports with read, fragment, UMI and junction support
+  preserved.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.71.1...v5.71.2)
 
 ## 5.71.1
 
-- Reject malformed Isovar translation entries, missing nucleotide identities
-  and invalid coordinate/evidence structures instead of importing anonymous
-  comparison observations (#394).
-- Preserve literal text and missing values through CSV/TSV save/reload,
-  including sample IDs like `001` and sequences like `NA` (#395).
+- Import Isovar protein hypotheses without changing default candidate selection; retain
+  nucleotide/ORF identities and reject malformed records.
 
-## 5.71.0
+- Preserve literal text, missingness and hypothesis identities through serialization.
 
-- Import Isovar protein-hypothesis JSON exports for comparison, preserving
-  alternatives, synonymous translations, completeness and scoped RNA evidence.
-  Comparison-only protein windows can join source tables without changing
-  default fragment selection, reported candidates, ranking or re-scoring (#390).
+[Changes](https://github.com/openvax/topiary/compare/v5.70.2...v5.71.1)
 
 ## 5.70.2
 
-- Preserve known-empty terminal flanks separately from missing context through
-  CSV/TSV save and reload, in both long and wide tables. Context-dependent
-  re-scoring retains its original inputs and predictions after reload (#388).
-- Keep the rearrangement provenance regression compatible with Isovar's v1 and
-  v2 fusion schemas, including its stricter input-field validation (#392).
+- Preserve known-empty terminal flanks separately from missing context through CSV/TSV;
+  support Isovar's updated rearrangement provenance.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.70.1...v5.70.2)
 
 ## 5.70.1
 
-- Reject conflicting numeric column values within a DSL observation instead
-  of silently selecting the first row. Filtering, scoring, sorting and combined
-  candidate ranking share the existing measurement-consistency check; equal
-  repeats and missing values remain supported (#387).
+- Reject conflicting numeric column values within a DSL observation.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.70.0...v5.70.1)
+
+## 5.70.0
+
+- Add SV nomination reports with explicit protein/RNA evidence tiers, candidate-local
+  sequence-change ranking and reference-conflict validation.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.69.0...v5.70.0)
 
 ## 5.69.0
 
-- Add opt-in cache-miss reporting to retain successful model/input pairs while
-  preserving strict failure by default. Protein, peptide, fragment and comparator
-  predictions share the policy; the CLI writes an explicit JSON failure report
-  and exits 3 for partial results (#304). Keep self-nearest comparator joins
-  scoped to each configured model instance (#384).
-- Accept Osteosarc `>=0.2.3,<0.3` for the shared fixture API adopted in 5.68.4.
-  Normal installation now preserves compatible editable 0.2.3 checkouts; shared fixture
-  bytes and historical scientific expectations remain pinned (#374).
+- Add opt-in partial results with explicit cache-miss reports; accept compatible
+  Osteosarc 0.2.3 patch releases.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.68.4...v5.69.0)
+
+## 5.68.4
+
+- Delegate shared Sid fixture generation and verification to Osteosarc's public API.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.68.3...v5.68.4)
+
+## 5.68.3
+
+- Preserve imported mutation geometry and comparator scope; provision and verify the
+  dependency-selected Ensembl reference in CI.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.68.2...v5.68.3)
 
 ## 5.68.2
 
-- Reject conflicting prediction measurements consistently during DSL scoring,
-  filtering, sorting and allele projection. Equal, missing and roundoff-equivalent
-  measurements remain supported; named source/run observations stay independent.
-  Expose the shared numeric reduction as `prediction_field_values` (#371).
-- Prefer exact model names over substring matches, and reject ambiguous partial
-  selectors instead of selecting whichever model's row appears first (#376).
+- Reject conflicting measurements during DSL evaluation; prefer exact model names and
+  reject ambiguous partial matches.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.68.1...v5.68.2)
 
 ## 5.68.1
 
-- Refresh README installation requirements, the explicit column-filter example,
-  and cache identity terminology; remove obsolete release and CI narration.
-- Document an isolated release environment, dependency inventory and test
-  prerequisites so local validation uses consistent dependencies (#297).
+- Refresh installation and consumer documentation; document isolated release
+  environments.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.68.0...v5.68.1)
 
 ## 5.68.0
 
-- Preserve wide-file model/version mappings and unnamed predictor values;
-  retain existing DSL aggregation of scoped predictions when adding source
-  tracking. Re-scoring validates each allele-dependent kind separately from
-  processing output. Single-input, unknown-version tables remain supported
-  (#373).
-- Combine labelled source tables without running predictors. Preserve original
-  measurements, source observations and metadata; link candidate pMHCs and
-  identical full ORFs while retaining alternative ORFs and independent RNA
-  evidence. ORF/RNA-only tables are supported without invented predictions.
-- Rank combined candidates through the existing DSL, with explicit duplicate
-  policies, missing scores and independent MHC-class/source strata. Add optional
-  prediction features with `rescore_candidates` without replacing original
-  values or changing the active ranking policy (#366).
-- Verify original, re-scored and RNA-enriched features through released
-  Vaxrank's DSL and vaccine construction for six antigen categories. Native
-  Exacto parsing (#365), context rescanning (#364), and the generalized Vaxrank
-  file loader (openvax/vaxrank#497) remain separate work.
+- Combine labelled source tables without prediction, preserve original observations, and
+  add explicit additive rescoring and duplicate-selection policies.
+
+- Preserve model/version mappings in wide files and verify combined evidence through
+  Vaxrank scoring/construction.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.67.1...v5.68.0)
 
 ## 5.67.1
 
-- Update the required Osteosarc dependency to 0.1.2. Existing packaged Sid
-  fixtures and historical audit expectations remain pinned; adopting the
-  corrected catalogue outcomes is tracked separately in #347.
+- Require Osteosarc 0.1.2 without changing pinned scientific fixtures.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.67.0...v5.67.1)
 
 ## 5.67.0
 
-- Require Osteosarc 0.1.1 and delegate website/VAF parsing to its public API.
-  Malformed rows retain per-entry diagnostics and do not stop later variants
-  (#360). Historical alleles and all 184 pinned audit outcomes are preserved.
-- Generate all seven Sid fixture groups through Osteosarc with a checked-in
-  source/region recipe. Keep only test-locus reads, remove 48 unused vaccine
-  read sets, and bundle 10.6 MB of verified data in the source distribution.
-  Packaging checks enforce file hashes, alignment membership and a size budget.
-- Route RNA-overlay acquisition through Osteosarc's cache and indexed read
-  extractor; verify offline acquisition through evidence reconstruction.
+- Require Osteosarc 0.1.1 and delegate catalogue parsing and Sid fixture
+  acquisition/generation to its public API.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.66.0...v5.67.0)
 
 ## 5.66.0
 
-- Install `osteosarc[reads]==0.1.0` with Topiary as a required dependency;
-  remove the optional `osteosarc` extra and run its offline fixture and
-  extraction tests in base CI.
-- **Breaking:** require Python 3.10+, matching Osteosarc's published minimum.
-  Python 3.9 users can continue using Topiary 5.65.2.
+- Require Python 3.10+ and install Osteosarc, including read-extraction support, as a
+  base dependency.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.65.2...v5.66.0)
 
 ## 5.65.2
 
-- Preserve plain-text extra metadata containing line breaks, surrounding
-  whitespace, `json:` prefixes or legacy `kind_support` syntax. TSV/CSV writers
-  quote ambiguous text with the existing JSON-string encoding, preventing it
-  from introducing metadata/data rows or changing type on read. Fallback text
-  uses the same encoding; existing files and structured values remain supported
-  (#357).
+- Quote ambiguous extra-metadata text so line breaks, whitespace and JSON-like strings
+  survive CSV/TSV round-trips.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.65.1...v5.65.2)
 
 ## 5.65.1
 
-- TSV/CSV writers reject reserved or malformed top-level `extra` metadata
-  keys before opening the output file, preventing custom metadata from being
-  reinterpreted as built-in provenance, model or pipeline metadata on read.
-  Nested fields inside custom metadata remain valid; existing files retain
-  their parsing behavior (#352).
+- Reject reserved or malformed top-level extra-metadata keys before opening output
+  files; preserve valid structured extras.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.65.0...v5.65.1)
 
 ## 5.65.0
 
-- Regional RNA audits keep an explicit `no_regional_annotation` outcome when
-  a valid alignment contig is absent from the transcript subset, then continue
-  to later variants. RNA evidence stays null, not zero. Entirely unannotated
-  selections and reports before prediction are supported (#348).
-- Adopt Osteosarc 0.1.0 for audit downloads, indexed extraction and shared
-  fixture access. The optional `osteosarc` extra requires Python 3.10+.
-  `osteosarc_fixture_paths` verifies the unchanged 49-case source bundle from
-  an offline export or the shared OpenVax cache. Real NTF3 reconstruction and
-  separately versioned synthetic score fixtures test filtering, ranking and
-  coverage through both paths. Historical alleles, including MAP2, stay pinned
-  until separately reviewed (#349).
-- Include Python workflow scripts in source distributions and check their
-  presence during packaging validation (#353).
+- Keep explicit unannotated-region outcomes in RNA audits; delegate data acquisition to
+  Osteosarc and include workflow scripts in sdists.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.64.0...v5.65.0)
 
 ## 5.64.0
 
-Fixes from reviewing 5.63.0. The main change: **a fragment record is identified
-by `(sample_name, fragment_id)`**. The ID names the candidate and the new
-`ProteinFragment.sample_name` field names the observation. 5.63.0 wrote the
-sample into the ID, which stopped `aggregate_evidence_across_samples` from
-pooling with its default keys and let differently spelled labels collide.
+- Separate candidate `fragment_id` from `sample_name`; use the pair for observation
+  identity and carry sample labels from fragments into predictions.
 
-- **Breaking:** sample labels no longer change `fragment_id`.
-  `fragments_for_sample`, `fragments_from_variants(sample_name=)` and a frame's
-  `sample_name` column set the field instead. Equality and hashing use the
-  pair. Fragment files gain a `sample_name` column, and a 5.63.0 label stored
-  in `annotations["sample_name"]` migrates on read. Records sharing an ID in
-  different samples must agree on `CANDIDATE_FIELDS` (sequence, target
-  intervals, reference and germline sequences). Prediction scans each
-  candidate once and writes one row per observation.
-- A prediction's `sample_name` always comes from its fragment (blank when
-  unlabelled). A `CachedPredictor` built from labelled output used to lend its
-  sample to unlabelled fragments.
-- `unique_fragments` compares content by passing it through fragment IO
-  itself, so blank or `"None"` text fields and numbers in text fields no
-  longer make a record conflict with its saved copy. Subclass fields compare
-  in either order. `write_fragments` now stores annotations with mixed key
-  types.
-- `fragments_from_dataframe` treats the transcript (`transcript_id`, or
-  pVACseq's `transcript`) as identity and fills `transcript_id` from either,
-  so a peptide on two transcripts keeps both transcript expressions instead
-  of raising. An RNA derivation method is checked only where it qualifies a
-  count. Counts use the same validator as cross-sample aggregation, which
-  refuses booleans.
-- Isovar filter outcomes must be booleans. A missing or `None` filter record
-  and NaN outcomes are unknown (not passing), and `"False"` raises instead of
-  being truthy. `sample_name` is checked before any alignment is read. Each
-  result is extracted once.
-- The optional-dependency floor is enforced only when Topiary's installed
-  metadata describes the running code, so another copy's stale floor is never
-  applied.
-- Osteosarc audit: a VAF row with the wrong number of fields is that entry's
-  `non_literal_allele` status. It no longer shifts every column or aborts
-  the inventory. Leftover pre-5.63 `*.json` fragment files are refused
-  instead of silently skipped. Accepted and filtered use the shared
-  disposition.
-- The reader end-to-end test locates its fixtures relative to the test file.
+- Normalize duplicate content through fragment IO, retain transcript identity, and
+  validate Isovar filter outcomes and malformed audit rows.
 
+[Changes](https://github.com/openvax/topiary/compare/v5.63.0...v5.64.0)
 
 ## 5.63.0
 
-Fixes found by reviewing 5.62.0, grouped by cause.
+- Derive fragment identities from producer grouping, add sample labelling, and share
+  Isovar result/filter handling.
 
-**Fragment identity is decided by the producer, from everything it groups by.**
+- Validate optional-dependency floors at runtime and preserve per-entry audit errors.
+  Sample identity handling is revised in 5.64.0.
 
-- `predict_from_fragments(fragments_from_dataframe(read_lens(p).df))` works
-  again on every LENS report; 5.62.0 raised on all three bundled fixtures. The
-  frame path grouped rows by reported peptide but hashed only the context into
-  the ID, and a missing variant became the prefix `"nan"`. Every cell is now
-  read once under the one absence rule (`stated_values`), and the ID hashes the
-  whole grouping key. A context reported for several peptides is one fragment
-  per peptide carrying that peptide's evidence and
-  `annotations["reported_peptide"]`, so LENS predictions repeat the shared
-  context per peptide; before 5.62 the peptides silently shared the last one's
-  evidence. pVACseq fragment IDs change accordingly. Rows that describe the
-  same fragment but disagree raise, and stated counts or expression that are
-  not numbers (or, for counts, whole and non-negative) raise instead of being
-  truncated or dropped.
-- New `fragments_for_sample(fragments, sample_name)` and
-  `fragments_from_variants(..., sample_name=)`: combining the same variant
-  from two alignments, or one alignment under two settings, no longer requires
-  hand-built IDs. The label namespaces the ID and fills the prediction frame's
-  `sample_name` column (mhctools' blank column used to swallow it).
-  `fragments_from_dataframe` applies a frame's `sample_name` column the same way.
-  `make_fragment_id` gains `qualifiers=` for further grouping values.
-- `unique_fragments` compares content as fragment IO stores it: a record and
-  its own saved copy (`5` vs `5.0`, NaN vs `None`, tuples vs lists, mixed key
-  types) coalesce instead of conflicting. Conflicts name the differing fields;
-  the same object repeated is accepted. Prediction deduplicates once, before
-  every downstream pass.
-
-**One reader for each Isovar result.**
-
-- `describe_isovar_result` and `fragment_from_isovar_result` share one
-  extractor, so the outcome report and the fragment agree on counts, the
-  clamped mutation interval and transcripts. Supporting transcripts are sorted
-  (Isovar keeps a set whose order varied between processes), so
-  `transcript_id` is reproducible.
-- One filter disposition: a result without `passes_all_filters` is judged by
-  its recorded `filter_values`, as Isovar does, and a result with neither is not
-  shown to pass. `fragments_from_variants` used to accept it by default.
-- The Isovar floor is enforced at run time from Topiary's own metadata (the one
-  place it is declared): an installed 1.17.x, which miscounts insertion
-  boundaries, is refused with an upgrade instruction instead of trusted. The
-  test gate uses the same check, so a stale environment reports its version
-  instead of count mismatches.
-
-**Audit and oracle.**
-
-- The osteosarc inventory parses the VAF table as typed text: an unusable
-  position (blank, `NA`, `10.0`, ...) is that entry's `non_literal_allele`
-  status rather than an exception that aborts the inventory. A missing column
-  or unreadable vaccine count is a named schema error.
-- One `audit_variant` builds every stage's variant (the diagnosis stage mapped
-  `chrM` to `M`, missing the `MT` annotation). Accepted and filtered fragment
-  files are named `.tsv`, which is what they contain. The report computes its
-  counts from the inventory. `check_mutation_windows` verifies predictions
-  against the fragments' own intervals instead of re-reading the column that
-  selected them.
-- The independent translation oracle places insertions after varcode's anchor
-  base; it was one base off, hidden only because no corpus insertion reaches
-  protein. A synthetic test covers both strands and spliced models.
-- The coverage test compares every re-derived allele and status, not just IDs.
-  A pinned-count mismatch names the pinned and installed Isovar versions. The
-  collection test runs one all-variant case in its child instead of all 174.
+[Changes](https://github.com/openvax/topiary/compare/v5.62.0...v5.63.0)
 
 ## 5.62.0
 
-- Account for all 182 osteosarc website entries plus ACSL6 and KTN1 with
-  source-pinned offline fixtures: 174 reference-verified literal alleles and
-  ten explicit incomplete inputs. Check original-RNA reconstruction, independent
-  translation, unchanged filters and prediction/save/reload/filter workflows.
-- Add `describe_isovar_result` so empty and filtered RNA results retain native
-  counts and named failure reasons instead of disappearing from audits (#344).
-- Reject contradictory fragment IDs before prediction instead of silently
-  overwriting sequence/evidence. Expose `unique_fragments` and preserve distinct
-  sample/policy observations through the complete consumer workflow (#345).
-- Require optional Isovar >=1.18.1 for corrected insertion-boundary evidence.
-  On unchanged KTN1 reads, false other assignments disappear and a falsely
-  conflicted alternate template is recovered; both T2 contexts now pass the
-  unchanged filters. Re-audit counts rather than preserving defective pins.
+- Add explicit outcomes for all 184 audited Osteosarc entries and
+  `describe_isovar_result` for empty/filtered results.
+
+- Reject contradictory fragment IDs before prediction and require Isovar 1.18.1 for
+  corrected insertion-boundary evidence.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.61.0...v5.62.0)
 
 ## 5.61.0
 
-- Add `join_annotations` for explicit, namespaced, many-to-one evidence joins
-  that preserve historical predictions and carry source provenance through TSV.
-- Add a reproducible January-2025 RNA overlay for all 21 osteosarc pVAC reports:
-  locally cached expression, reference-checked allele counts from indexed BAM
-  slices, and offline round-trip/filtering regression tests. New evidence stays
-  separate from the historical missing fields (#342; provenance history #339).
+- Add `join_annotations` for namespaced evidence joins with provenance and a
+  reproducible RNA overlay for the archived Osteosarc reports.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.60.3...v5.61.0)
 
 ## 5.60.3
 
-- Pin observed GABBR1–SLC29A1 and OTUD7A–FMN1 RNA inputs, checked against original
-  tagged-BAM records, and guard their unresolved coding status in offline CI.
-  Document all-path versus selected-window counts, the oriented RNA insertion,
-  sample/provenance boundaries and the remaining larger-deletion investigations.
+- Add source-pinned rearrangement RNA fixtures for GABBR1–SLC29A1 and OTUD7A–FMN1.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.60.2...v5.60.3)
 
 ## 5.60.2
 
-- Add original-read, offline GLIS3/KTN1 regression fixtures with exact GRCh38
-  alleles and independent Ensembl 87 coding-sequence oracles. Exercise both
-  reconstruction APIs, assembly modes, alignment-placement policies, fragment
-  serialization and mutation-overlapping prediction inputs.
-- Preserve the distinction between diagnostic reconstruction and default
-  acceptance: KTN1's alternate-to-other-template ratio can reject a successfully
-  reconstructed context. No evidence filter or reconstruction default changes.
+- Add original-read GLIS3/KTN1 fixtures with exact reference context and separate
+  diagnostic reconstruction from default acceptance.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.60.1...v5.60.2)
 
 ## 5.60.1
 
-- Pin compact, original-row fixtures covering all 21 osteosarc pVACseq reports
-  and their 20 represented alleles. Check selected columns through import,
-  algorithm expansion and save/reload; compare paired report flavors and
-  demonstrate that predictor/threshold choices change downstream selection.
-- Preserve missing RNA annotations as missing. Pin the pre-prediction input
-  that already lacks RNA depth, VAF and expression, and document what is still
-  needed to diagnose the historical VCF annotation gap.
+- Add original-source fixtures for all 21 Osteosarc pVACseq reports while retaining
+  missing RNA annotations as missing.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.60.0...v5.60.1)
 
 ## 5.60.0
 
-- Require Isovar 1.17.0 for the optional RNA integration, preserving sequenced
-  read identity rather than counting competing placements as extra support
-  (#336). Base installations still do not depend on Isovar.
-- Correct the bulk H1-2 regression contract: one unambiguous template is below
-  the unchanged default coverage floor. Retain the independent sequence,
-  edit-interval and transcript checks in an explicit coverage-one diagnostic.
-  This supersedes the support-count conclusion in the 5.58.0 note; the curated
-  deletion itself and its independently checked translation are unchanged.
+- Require Isovar 1.17.0 for RNA integration and preserve sequenced support under its
+  corrected assembly rules.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.59.2...v5.60.0)
 
 ## 5.59.2
 
-- Require mhctools 3.44.26 so live MHCflurry output records model provenance
-  and reloads as a cache (#323); reuse its public version-composition rule.
-- Honor missing-provenance arguments for topiary output and directory shards,
-  refusing conflicts with recorded method/version values. Preserve lexical
-  versions such as `2.10` across text loading (#332).
-- Explain the generic TSV `kind` requirement and mapping in CLI help/errors.
-  Preserve missing/unreadable file errors and name malformed cache shards.
+- Require mhctools 3.44.26 for model provenance; honor missing-provenance options across
+  cache loaders and explain generic TSV kind requirements.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.59.1...v5.59.2)
 
 ## 5.59.1
 
-- Honor requested peptide lengths in cached protein scans before generating
-  windows (#329). The legacy `--mhc-epitope-lengths` flag follows the same
-  precedence as live predictors; missing lengths are checked after allele
-  selection.
-- Expose available lengths separately from the selected scan lengths on
-  `CachedPredictor`. Selection preserves stored measurements and explicit
-  peptide lookups; assigning `None` restores scans across available lengths.
+- Honor requested peptide lengths in cached protein scans; expose available lengths
+  separately from selected scan lengths.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.59.0...v5.59.1)
 
 ## 5.59.0
 
-- Show a compact table of the first 20 filtered, ranked prediction rows when
-  the CLI has no output path, with an explicit count of omitted rows (#325).
-- Support `--output-csv -` for complete CSV on stdout. Column selection,
-  renaming, and separators match CSV file output; progress, column listings,
-  and summaries stay on stderr. Consumers may close the pipe early.
-- Name prediction-row, unique-peptide, and named-allele counts explicitly.
-  Report empty results and warn when direct inputs contain no sequences.
+- Show a bounded prediction preview when no output file is requested; add complete CSV
+  output through `--output-csv -` and explicit result counts.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.58.0...v5.59.0)
 
 ## 5.58.0
 
-**Isovar floor raised to 1.11.0, and an osteosarc expectation corrected
-(#327).** The H1-2 deletion in the short-read sample was expected to assemble
-no protein fragment. Isovar 1.11.0 assembles one, and it is right to: the
-curated dataset records that variant as a real in-frame deletion
-(`p.Ala197_Lys201del`), isovar now reports exactly those five residues
-(`p.AAKPK196del`) with three supporting reads and two supporting fragments —
-its own documented minimums — zero mismatches flanking the variant, and every
-supporting read backing the assembled sequence. The fixture's stricter
-sequence, edit-interval and transcript assertions, which the old `None`
-expectation skipped entirely, now run and pass.
+- Require Isovar 1.11.0 and update the H1-2 deletion regression to check its supported
+  reconstruction.
 
-So the old expectation encoded a limitation rather than the absence of an
-edit. The behavior changed exactly at 1.11.0 (1.10.2 still assembles nothing,
-checked release by release), so `topiary[isovar]` now requires it and the CI
-matrix pins that floor instead of 1.8.0. Isovar is an optional extra, so this
-raises nothing for installs that do not opt into the RNA path.
+- Honor requested alleles and lengths in CLI cache mode, reject simultaneous live/cache
+  sources, and classify whole-peptide half-life evidence.
 
-
-**Cache mode answers the genotype you asked for, or refuses (#321).** In cache
-mode the CLI never passed `--mhc-alleles` / `--mhc-alleles-file` to
-`CachedPredictor`, so the cache decided the genotype by itself. Asking for
-`HLA-A*02:01` against a cache holding only `HLA-B*07:02` returned B\*07:02
-rows, exit 0, no warning — and for the use this mode exists for, re-scoring a
-cohort per patient genotype from one shared prediction table, that answered
-every patient with whatever the table happened to hold.
-
-An allele the cache cannot cover is now refused with a message naming what was
-asked and what the cache holds, the same way a missed peptide behaves. A
-covered subset is filtered to what was requested, so an unrequested allele
-never comes back. Rows with no allele are always kept: an allele-free kind is
-not a prediction about any allele, so filtering it out alongside the
-unrequested ones would delete evidence the request never excluded. Requested
-alleles are parsed with mhctools' own `mhc_alleles_from_args`, so a spelling
-normalizes here exactly as it does on the live-predictor path.
-
-`--mhc-peptide-lengths` was silently ignored the same way — a cache of 8- and
-9-mers answered a request for 20-mers with its 8- and 9-mers. It now refuses,
-naming the lengths the cache holds.
-
-`--mhc-predictor` alongside a cache flag also ran the cache and ignored the
-predictor, so a command naming mhcflurry got NetMHCpan rows from the file. The
-Cached Predictions group already documented these as mutually exclusive; that
-is now enforced.
-
-**Kept up with mhctools.** 3.44.13 added a `peptide_half_life` kind, now
-classified peptide-level alongside the matrix-specific half-lives, and began
-requiring a unit and a linear transform alongside any set `value`. A test
-factory was building `Prediction`s with a bare `value` and no unit, and
-setting one on a score-only kind; it now asks `value_unit` what the kind
-takes and leaves `value` unset for kinds that have no unit, which is
-mhctools' own rule.
+[Changes](https://github.com/openvax/topiary/compare/v5.57.0...v5.58.0)
 
 ## 5.57.0
 
-**Declared dependencies now match what the code imports (#315).** `mhcnames`
-was a hard dependency with no importer since 2018, when `lazy_ligandome_dict`
-was deleted; allele parsing uses `mhcgnomes`. It is dropped. `mhcgnomes` and
-`pyensembl` were both imported directly while arriving only through mhctools
-and varcode. Both are declared now, with floors matching what mhctools already
-guarantees, so resolution is unchanged; the `pyensembl<3.0.0` cap matches
-mhctools and vaxrank, since leaving it open here could resolve a 3.x that
-breaks them.
+- Align declared dependencies with imports, repair GTF expression loading with gtfparse
+  2, and remove unused private CLI/filter plumbing.
 
-Two ad hoc `ImportError` guards are gone with them, for `gtfparse` in
-`topiary/rna/expression_loader.py` and `pyensembl` in
-`topiary/self_proteome.py`. Not because they were unreachable — `import
-topiary` pulls in neither `topiary.rna` nor `topiary.sources`, so both
-could fire — but because a declared dependency that is missing is a broken
-install rather than a supported configuration, and `ModuleNotFoundError`
-already says so precisely. Genuinely optional integrations still go through
-`require_optional_dependency`, which names the extra to install.
+- Add `PredictorSetupError`, make cache-coverage messages readable to library callers,
+  and classify the added pharmacokinetic prediction kinds.
 
-**GTF expression files load again.** `gtfparse` 2.x returns polars by default
-and `expression_loader._load_gtf` treats the result as pandas, so every GTF
-read through `load_expression` or the CLI's `--transcript-expression` raised
-`expected 17 values when selecting columns by boolean mask` from polars. This
-predates the dependency work above; it stayed hidden because `topiary.rna.gtf`
-reads GTFs by a second path that does handle polars, and only that path had a
-test. `_load_gtf` now asks for pandas explicitly, the untested path has a
-regression test, and the `gtfparse` floor moves to 2.7 — the release the
-`result_type` keyword arrives in, and the floor pyensembl already pins.
-
-**Dead surface removed (#314).** `_dsl_filter_to_string` and
-`CachedPredictor._row_key` had no callers. A `cache_kinds` local in
-`predict_peptides_dataframe` was computed and never read; removing it orphaned
-`_cache_kinds`, which is now the one definition of "which kinds does this cache
-hold" — `kind_support` was recomputing the same set inline.
-
-The version predicate had three names for one rule. `_known_versions`,
-documented as a deprecated internal alias, was what internal code actually
-called, while the public `known_versions` had no internal users. The five call
-sites now use `known_versions`, which is what they mean (every one reads a
-`predictor_version` column), and the private alias is gone.
-
-`NOT_STATED_VERSIONS` and `RNA_READS`, both deprecated aliases exported in
-`__all__`, are removed. Neither has a consumer in topiary, vaxrank, isovar,
-pirlygenes or tsarina; the only uses were tests asserting the alias equals its
-target. An `attach_rna_evidence` docstring that still cited `RNA_READS` as the
-current name now points at `RNA_ALIGNMENT`. This is the minor bump.
-
-The CLI module docstring advertised five flags the parser does not define
-(`--rna-gene-fpkm-file`, `--rna-transcript-fpkm-file`, `--filter-ic50`,
-`--filter-percentile`, `--output`). The example now uses real flags, and its
-`--filter-by` expression parses — the first version written for this changelog
-did not, since the DSL spells conjunction `&` rather than `and`.
-## 5.56.3
-
-**Eight pharmacokinetic kinds classified.** mhctools 3.44.10 added
-`plasma_half_life`, `systemic_elimination_half_life`, `systemic_clearance`,
-`distribution_volume`, `systemic_exposure`, `cpp_classification`,
-`cellular_uptake` and `tissue_concentration`. All describe the free peptide,
-not a peptide-MHC pair, so all are peptide-level — the same answer the ex-vivo
-half-lives already get. Without an entry each one has no declared MHC
-dependence, which is what decides whether a score may be projected across a
-patient's alleles, so `test_every_known_kind_is_classified` fails rather than
-letting an unclassified kind reach that decision.
-
-
-**The whole-peptide test fixture builds its snapshots from the artifact lists
-mhctools declares.** mhctools 3.44.5 and 3.44.6 began verifying a backend's
-assets before constructing it: the exact log-scale model directory has to
-exist, every named artifact has to be present, a pinned ESM2 snapshot has to
-resolve, and checksums have to match. The fixture's synthetic snapshots
-satisfied none of that, so CI went red on `mhctools 3.44.6` within twenty
-minutes of its release — the whole-peptide tests erred at setup with
-`training_classifiers/half_life/transformer_wt_log not found`.
-
-Chasing that file by file would not have held: the required set grew three
-times in a week. The fixture now reads `_PEPTIVERSE_ARTIFACTS`,
-`_ESM2_ARTIFACTS`, `_ESM2_WEIGHT_ARTIFACTS`, `_PLIFEPRED2_ARTIFACTS` and
-`_PFEATURE_ARTIFACTS` from the installed mhctools and creates exactly those
-paths, falling back to the older hardcoded sets when a list is absent.
-Verified against both the published 3.44.6 and a newer local checkout.
-
-Asset verification is neutralized for the fixture rather than opted out of per
-model with `allow_unverified_assets=True`, because topiary also constructs
-these models from a class or a bare name and cannot pass per-model flags on
-those paths — nor should it hardcode one. What these tests cover is topiary's
-transport of whole-peptide predictions, not mhctools' asset verification.
-
-## 5.56.2
-
-**`CachedPredictorCoverageError` formats its own message, so every caller gets
-it unquoted.** `KeyError.__str__` reprs its argument, which is right for a key
-and wrong for a prepared sentence: library users and logs saw
-`CachedPredictorCoverageError: "CachedPredictor: 'SIINFEKLA' occurs in ..."`,
-quotes included, and any newline as a literal `\n`. The class now defines
-`__str__`, so the readable form reaches tracebacks, logs and the CLI alike.
-
-The CLI's own unwrapping is gone with it. That unwrap needed a type guard to
-avoid printing `OSError`'s errno instead of its message, the guard was dropped
-once while an adjacent comment was edited (5.56.0, fixed in 5.56.1), and there
-is now no guard left to drop. The handler also falls back to the exception's
-type name when a message is empty, so an argument-less exception cannot render
-as a bare `topiary: error:` with nothing after it.
-
-**New `PredictorSetupError` for setup the user has to finish.**
-`mhcflurry_composite_version` raised bare `RuntimeError` for a reachable but
-unusable predictor — mhcflurry installed with no model release fetched, whose
-message says to run `mhcflurry-downloads fetch` — and that advice reached CLI
-users as a stack trace. It now raises `PredictorSetupError`, exported, and the
-CLI catches that specific type.
-
-Catching `RuntimeError` itself would have been wrong for the same reason bare
-`KeyError` is: `NotImplementedError` and `RecursionError` both subclass it, so
-an abstract method left unimplemented would have printed as a clean user error
-with an empty message rather than a traceback. Both narrow types exist so
-genuine bugs keep surfacing as bugs.
-
-Two test defects fixed. The assertion meant to guard the coverage-error
-quoting checked for a quote spelling that never occurs — `repr` picks double
-quotes when the text contains single ones, as both coverage messages do — so
-it could never fail, and the unwrap it guarded had no working test. It now
-asserts the exact rendered line, and fails when `__str__` is removed. The
-missing-input-file test now raises through a patched call, so the rendering it
-checks no longer depends on the NetMHC fixtures being present (the cache loads
-before the peptide CSV is read, so without them the error named the fixture
-and the test went red instead of skipping); a separate fixture-guarded test
-keeps end-to-end coverage that a real missing file still reaches the handler
-as an `OSError`. `CachedPredictorCoverageError.__str__` and the
-predictor-setup path both have direct tests now, the latter driven through
-mhcflurry's own release lookup rather than a copy of its message.
-
-Filed openvax/topiary#310 for two deferred CLI ergonomics problems the same
-review raised: `write_outputs` running outside the error handler with no
-pre-flight output-path validation, and runtime failures printing the full
-usage block and exiting 2 like a malformed command line.
+[Changes](https://github.com/openvax/topiary/compare/v5.56.1...v5.57.0)
 
 ## 5.56.1
 
-**A missing input file reports its message again, not its errno.** 5.56.0
-unwrapped `e.args[0]` for every exception its CLI handler caught, to strip the
-extra layer of repr quoting `str()` puts on a `KeyError` subclass. But
-`OSError.args` is `(errno, strerror)`, so a missing `--peptide-csv` printed
-`topiary: error: 2` instead of
-`topiary: error: [Errno 2] No such file or directory: '...'`. The unwrap is now
-scoped to `CachedPredictorCoverageError`, the only exception on this path whose
-`str()` needs it; every other error renders through `str()` as it did before
-5.56.0. Found reviewing 5.56.0's own diff, and pinned by a test that fails
-against it.
+- Expose `CachedPredictorCoverageError` for intentional cache gaps; preserve useful
+  file-error messages and let unrelated programming errors propagate.
 
-## 5.56.0
-
-**A dedicated `CachedPredictorCoverageError` for the two intentional cache
-failures, and diagnostic/efficiency fixes an ultra code review found in
-5.55.0/5.55.1.** `CachedPredictor` now raises `CachedPredictorCoverageError`
-(a `KeyError` subclass, so existing `except KeyError` handlers are
-unaffected) rather than bare `KeyError`, for a peptide the cache doesn't
-cover with no fallback, and for a protein-scan occurrence a flank or
-genotype mismatch leaves uncovered. The CLI catches this specific type
-instead of every `KeyError`, so an unrelated programming bug elsewhere in
-the same call graph surfaces as a real traceback again instead of being
-silently reported as a clean CLI error.
-
-An uncovered occurrence whose only cached rows were mismatched under more
-than one flanking context now names all of them (capped, with an accurate
-"(and N more)" past the cap) instead of silently reporting only the first
-and dropping the rest — the accumulated-but-unread mismatch rows are capped
-too, so a cache holding many mismatched contexts for one key no longer grows
-that bookkeeping without bound. The flank-matching check now slices only as
-much of the occurrence's neighbouring sequence as the cached flank's own
-length requires, rather than the entire remaining sequence on every
-(cached row, occurrence) pair a scan checks. `allele_set` normalization,
-duplicated between the cache's row key and its coverage key, is now the
-single `_allele_set_key` helper. Two dead `value is None` branches already
-subsumed by `pd.isna` (which is already `True` for `None`) are removed.
-
-A bracket after an identifier the parser doesn't recognize as a prediction
-kind now also names the possibility that the identifier was meant to be an
-ordinary DataFrame column instead — bracket indexing was never supported on
-a column, so `n_flank['x']` is far more likely a stray subscript than an
-attempted kind, and the error no longer reads as if registering a kind is
-the only possible fix.
-
-Filed two follow-ups the review raised as real design questions rather than
-bugs: openvax/topiary#307 (should a flank/genotype-mismatched occurrence try
-the fallback predictor, when it supports protein scanning, before raising)
-and a note on openvax/topiary#304 (already open) about batch abort-vs-skip
-semantics.
+[Changes](https://github.com/openvax/topiary/compare/v5.55.1...v5.56.1)
 
 ## 5.55.1
 
-**A `CachedPredictor` coverage-gap error reaches the CLI cleanly (#304).**
-`CachedPredictor` raises `KeyError` — not `ValueError` — for a peptide the
-cache doesn't cover and no fallback can resolve, and for a protein-scan
-occurrence a flank or genotype mismatch leaves uncovered (#296, #302). The
-CLI's top-level handler only caught `(OSError, ValueError)`, so this one
-`CachedPredictor` failure surfaced as a raw Python traceback instead of the
-clean `topiary: error: ...` message every other failure in this path gets.
-`main()` now catches `KeyError` too, and unwraps its message the way
-`ValueError`/`OSError` already render rather than through `str(KeyError(...))`,
-which reprs the message with an extra quoted layer.
+- Rebind cached protein scans to the requested occurrence's coordinates/flanks and
+  reject missing kind/genotype coverage instead of silently dropping it.
 
-Whether a coverage-gap failure during a multi-sequence batch scan should abort
-the whole run (current behavior) or skip and report just the offending
-occurrence is left open — that's a real design choice with its own tradeoffs,
-not a bug, and #304 stays open for it.
+- Support structured annotations in wide conversion, report cache coverage errors
+  cleanly in the CLI, and fail closed when PyPI release status cannot be verified.
 
-## 5.55.0
-
-**Genotype closes the same coverage gap #302 closed for kind.** A follow-up
-review of #302 (unreleased) found the coverage check it added still omitted
-`allele_set`, which sits beside `kind` in `PREDICTION_KEY_COLUMNS` for the
-identical reason: a haplotype-mode presentation call scores one
-`(peptide, allele)` differently per genotype, the way a multi-kind cache
-scores it differently per kind. A cache holding two genotypes' presentation
-rows for the same peptide, one flanked to match a scanned protein and one not,
-silently returned only the matching genotype's row — the exact silent-vouching
-failure #302 was written to close, one column over. Coverage is now decided
-per `(peptide, allele, kind, allele_set, source, offset)`, computed by one
-shared `_coverage_key` both sides of the check call, and the error names the
-genotype alongside the peptide, allele, source and offset.
-
-A second, independent bug in the same #302 code sorted uncovered occurrences
-by `repr()`, so a numeric offset compared as text and could report a later
-occurrence (offset 10) ahead of an earlier one (offset 9) in the raised error.
-Every element of the coverage key is a plain string or an int, all orderable
-and type-consistent within their position, so plain `sorted()` gives the
-correct numeric order and needs no key function.
-
-A truncation-suffix idiom (`" (and N more)"`) duplicated three times across
-this file's diagnostics is now the single `_more_suffix` helper.
-
-## 5.54.2
-
-**A prediction kind no longer disappears behind one that applies (#302).**
-Follow-up to #296. `CachedPredictor.predict_proteins_dataframe` declines to
-attach a flanked cache row to an occurrence whose real neighbours differ, and
-raises when flank mismatch leaves an occurrence uncovered. Coverage was decided
-per `(peptide, allele, source, offset)`, so an occurrence counted as covered as
-soon as any kind applied. A cache holding a flanked row for one kind and a
-flankless row for another therefore lost the flanked kind without a word. One
-cache holds exactly one `(method, version)` pair, so that mix is not two
-different predictors merged; it is one model whose rows arrived by two routes
-and were joined by `concat`, which the version invariant permits. A protein
-scan records the flanking context it scored in; a peptide-level run has none to
-record.
-
-The failure was absence-shaped: a caller filtering on presentation saw no rows
-for the peptide and read it as a weak presenter, when the cache in fact held no
-presentation prediction applicable to that context. Coverage is now decided per
-`(peptide, allele, kind, source, offset)`, and the error names the kind that
-did not apply alongside the peptide, source, offset and stored flank context. A
-kind the cache simply does not hold for a peptide stays quiet, since only rows
-that were found and then excluded are recorded.
-
-## 5.54.1
-
-**Wide conversion accepts the structured annotations topiary produces (#287).**
-`to_wide` grouped rows by merging the melted frame back on every
-non-prediction column, which required each of those columns to be hashable. An
-RNA-derived `ProteinFragment` carries `supporting_reference_transcripts` as a
-list of every transcript consistent with the assembled sequence, and prediction
-preserves it, so ordinary RNA results reached `TypeError: unhashable type:
-'list'`. Rows are now grouped before the melt and the group id carried through
-it, so the annotation values only have to survive the trip rather than be
-compared.
-
-Grouping is by content: two rows agree when their annotations are equal, not
-when they are the same object, and rows missing the same annotation group
-together instead of splitting on `nan != nan`. Sequence order is part of a
-list's value and distinguishes groups; key and element order in mappings and
-sets is not. Lists, tuples, sets, dicts, nested combinations and NumPy arrays
-all reach the output as themselves, so transcript identities and annotation
-types survive `to_wide` and the round trip back through `from_wide`.
-
-## 5.54.0
-
-**Cached protein scans describe the occurrence they were asked about (#296).**
-`CachedPredictor.predict_proteins_dataframe` rebinds every column that says
-*where* a peptide was found to the requested occurrence, instead of rewriting
-the source name while leaving the coordinate and flanking residues pointing at
-the protein the cache was built from. The scan emits a single coordinate,
-`offset`, in mhctools' vocabulary; it no longer also emits the cached
-`peptide_offset`, whose rename onto `offset` produced two columns of the same
-name and made `frame["peptide_offset"]` a DataFrame. Consumers saw that as
-`'DataFrame' object has no attribute 'dtype'` far from its cause. Repeated
-occurrences, nonzero offsets and distinct source names are preserved, and no
-duplicate column is dropped downstream to compensate.
-
-Flanking residues are a prediction input rather than provenance, so they select
-occurrences instead of being rewritten to fit one: a cached row predicted with
-flanks applies only where the scanned sequence really supplies them, matching a
-stored flank against the tail or head of the real context, and a row with no
-flank context still applies wherever the peptide occurs. An occurrence left
-uncovered by flank mismatch raises, naming the peptide, source, offset and
-stored context, rather than returning a score computed for different
-neighbours. `predict_from_named_peptides` resets the coordinate to zero for
-both spellings, so a cache row no longer reports a whole supplied peptide as
-sitting partway through itself. Normalizing a prediction frame that states the
-coordinate twice now reports the producer contract instead of building the
-broken frame. `PROTEIN_SCAN_COLUMNS` names the scan's output shape, and an
-empty scan result no longer carries a duplicate `source_sequence_name`.
-
-## 5.53.1
-
-**Fail-closed release preflight (#286).** Releases now query PyPI's exact-release
-JSON endpoint through the selected Python interpreter. Only a confirmed HTTP
-404 permits release to continue; network, TLS, server and malformed-response
-errors stop before lint, tests, builds or uploads, with a clear diagnostic.
-Standard packaging rules distinguish nearby versions while recognizing
-equivalent spellings. Yanked, prerelease and interpreter-incompatible releases
-cannot disappear behind pip's installability filtering. The read-only
-`pypi_release_exists` API and `python -m topiary.cli.release PROJECT VERSION`
-command share one implementation. Packaging >=23.2 supplies validated package
-names; no custom version regex or shell output parsing remains.
+[Changes](https://github.com/openvax/topiary/compare/v5.53.0...v5.55.1)
 
 ## 5.53.0
 
-**Peptide-aware RNA reconstruction (#284).** `fragments_from_variants` exposes
-the desired peptide size, sequence-selection preference, relative compatible
-read-name support budget and independent absolute per-base RNA coverage floor.
-The default ligand objective follows `max(epitope_lengths)` (11 aa, targeting
-21 aa); long vaccine workflows can request their own size. Explicit context
-lengths and custom creators remain supported, with conflicting settings
-rejected. Reference-fallback padding is independent of the new RNA objective.
-Resolved creator settings and Isovar version survive fragment serialization
-and prediction as annotations. Isovar remains optional, now requiring >=1.8.0.
-Real checksum-pinned osteosarc RNA tests compare both configuration paths,
-independent mutant-protein expectations, support controls and downstream IO.
-NumPy scalar settings and nested fragment annotations normalize to native
-Python booleans, integers, floats and strings across construction and JSON/TSV
-save/reload; custom creators are not modified.
-Structured prediction-file metadata uses the same conversion, preventing
-NumPy scalars from turning a saved mapping into an opaque string (#290).
-Normalization preserves the stored values of string/numeric subclasses and
-enums. Dates, durations (including NumPy units), extended-precision numbers
-and other rich scalar types remain intact for explicit encoders instead of
-being coerced to display strings or unitless/lower-precision numbers.
-The shared serializer also preserves complete Unicode contents and nested
-dataclass output without invoking potentially value-changing deep-copy hooks.
+- Expose peptide-aware RNA reconstruction options and integrate whole-peptide half-life
+  predictions from mhctools.
 
-**Whole-peptide mhctools integration (#291–#294).** PeptiVerse and PlifePred2
-can be passed as configured instances, classes or public names without MHC
-alleles or invented scanning lengths. Use `predict_from_named_peptides` for
-complete peptides; protein/fragment scanning rejects peptide-only models with
-a clear error before any model runs. Serum and blood half-life stay distinct
-from pMHC stability and retain allele-independent semantics through cached
-prediction, IO and ranking. NetMHCstabpan stdout caches now preserve the
-explicit half-life in hours through mhctools' native conversion. Unknown units
-and percentiles are not guessed from scores. Requires mhctools >=3.39.0,
-including the upstream PlifePred2 safety and unit fixes. These transport tests
-do not validate biological accuracy, assay assumptions or extracellular
-per-bond cleavage (separate follow-up #288).
+[Changes](https://github.com/openvax/topiary/compare/v5.52.10...v5.53.0)
 
 ## 5.52.10
 
-**Reliable CI retries and offline test collection (#282, #280).** Coverage is
-combined from every Python matrix job and published once, with a separate build
-identifier for each retry. The reporter download is version-pinned, retried with
-HTTP diagnostics, and SHA-256 verified; missing or corrupt coverage stays fatal.
-Ensembl-backed test data is now loaded by fixtures only when selected tests need
-it. Whole-suite collection and Isovar marker selection work without downloading
-reference data. Isovar integration fixtures request explicit protein windows
-and cover both 21- and 49-amino-acid windows, including mutation offsets and
-read support, so Isovar's changed default does not change test expectations.
-There are no runtime API changes.
+- Make CI coverage retries reliable and keep test collection offline.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.52.9...v5.52.10)
 
 ## 5.52.9
 
-**Require corrected Isovar RNA assembly (#279).** The optional `isovar` extra
-now requires Isovar 1.7.10 or newer. Real integration tests cover mutations
-spanning two codons, long insertions, and distinct read/fragment support through
-RNA assembly, Topiary prediction, and the ranking DSL. Dedicated CI jobs test
-the minimum and latest Isovar releases; missing or broken installations fail
-instead of silently skipping. Isovar remains optional and lazily imported.
+- Require Isovar 1.7.10 for corrected RNA assembly; test minimum and latest
+  supported releases.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.52.8...v5.52.9)
 
 ## 5.52.8
 
-**Packaging and CI cleanup (#276, #274, #270).** Wheels now install only
-Topiary's runtime packages; documentation, tests, and fixtures remain in the
-source archive. Distributions declare the SPDX license expression
-`Apache-2.0` and include the license text. CI checks the actual wheel and
-source archive contents and metadata. Test and documentation workflows use
-Node.js 24-compatible GitHub Actions.
+- Restrict wheels to runtime packages, preserve source/test resources in sdists, and
+  validate packaging metadata.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.52.7...v5.52.8)
 
 ## 5.52.7
 
-**Required PirlyGenes integration coverage (#267).** Base CI now proves the
-optional package is absent, while a dedicated job installs
-`topiary[pirlygenes]` and runs the real CTA and tissue-expression workflows as
-required tests. Integration tests skip only a genuinely absent top-level
-package; broken or transitively incomplete installations fail with their
-original import error instead of being hidden by `pytest.importorskip`.
+- Test PirlyGenes both absent and installed in CI.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.52.6...v5.52.7)
 
 ## 5.52.6
 
-**Symmetric distances for ambiguous amino acids (#268).** Nearest-self
-BLOSUM62 distance now uses NCBI's published ambiguity scores for B/J/Z and an
-explicit symmetric worst-case distance for O/U/X/* and unrecognized
-characters. Unknown query residues can no longer appear to match every
-reference residue exactly. Canonical amino-acid distances are unchanged.
+- Make nearest-self distances symmetric for ambiguous amino acids.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.52.5...v5.52.6)
 
 ## 5.52.5
 
-**One release interpreter (#261).** `deploy.sh`, `lint.sh`, and `test.sh`
-now share one Python resolver and invoke Ruff, pytest, xdist detection, build,
-and Twine through that exact interpreter. Selection follows explicit `PYTHON`,
-an active virtual environment, the repository `.venv`, then `python3`; invalid
-explicit choices fail instead of silently falling back.
+- Use the same Python interpreter for lint, tests and deployment.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.52.4...v5.52.5)
 
 ## 5.52.4
 
-**Normal ProteinFragment construction (#265).** `ProteinFragment` now defines
-its compatibility-aware constructor and legacy read-only properties in the
-class itself. The import-time `__init__` replacement and post-definition class
-mutation are gone. Direct construction and serialized input still accept the
-5.x legacy evidence names, while current-name-only output, positional behavior,
-frozen dataclass semantics, and independent mapping defaults are preserved.
+- Use a normal, introspectable `ProteinFragment` constructor.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.52.3...v5.52.4)
 
 ## 5.52.3
 
-**Function-owned model registry cache (#264).** Model-name resolution now uses
-a bounded `lru_cache` on its immutable registry builder. This removes the last
-mutable lazy-cache global and its `global` mutation, while providing an
-explicit `cache_clear()` boundary for tests and registry refreshes. The
-independent BLOSUM cache was removed in 5.52.2 as part of #263.
+- Cache model-name resolution without mutable function-default state.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.52.2...v5.52.3)
 
 ## 5.52.2
 
-**Central amino-acid data API (#263).** `AMINO_ACIDS`,
-`AMINO_ACID_INDEX`, `UNKNOWN_AMINO_ACID_INDEX`, `encode_amino_acids()`, and
-`blosum62_matrix()` now provide one documented home for Topiary's compact
-encoding and canonical NCBI BLOSUM62 scores. The public constants are immutable,
-and each matrix call returns an independent read-only array. `SelfProteome`
-uses that API without a mutable matrix cache or any change to established
-nearest-self results. The historical non-standard-residue distance behavior is
-documented accurately and tracked for correction in #268.
+- Centralize amino-acid data in a public API.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.52.1...v5.52.2)
 
 ## 5.52.1
 
-**Optional dependencies use package metadata (#262).** Isovar and PirlyGenes
-remain lazy, opt-in integrations, now installable as `topiary[isovar]` and
-`topiary[pirlygenes]`. Their minimum versions live once in standard package
-metadata instead of duplicated tuple/string globals and hand-written version
-parsers. Runtime checks validate the exact API Topiary needs and distinguish a
-missing package from an installed package whose import or transitive dependency
-is broken, preserving the original exception as the cause.
+- Read optional-dependency requirements from package metadata.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.52.0...v5.52.1)
 
 ## 5.52.0
 
-**Fixed pVACtools prediction data loss (#259).** `read_pvacseq` now emits native
-rows for presentation, processing, and immunogenicity measurements in
-`all_epitopes` reports, in addition to the established affinity rows. This
-includes both explicit headers and pVACtools' plain `NetMHCpanEL MT Score` /
-`BigMHC_EL MT Score` forms. Aggregate presentation and immunogenicity
-percentiles remain explicitly attributed to `pvacseq`. MT and WT scores and
-percentiles survive, and `kind_support` describes every emitted method/kind
-pair.
+- Preserve pVACtools presentation, processing and immunogenicity measurements as native
+  prediction rows; share external metric parsing with LENS.
 
-**One shared external prediction vocabulary.** The public
-`parse_prediction_metric(model_name, metric_name)` classifier recognizes the
-pVACtools/mhctools model vocabulary, treats `EL` as presentation, `BA` /
-`Aff` / `Affinity` as affinity, and `IM` as immunogenicity, and understands
-MT/WT score and percentile modifiers for affinity, processing, presentation,
-and immunogenicity. Explicit metric text wins over a model suffix. Both the
-pVACseq and LENS readers use this function; new unambiguous LENS prediction
-columns normalize automatically, including WT-specific metrics now that wide
-form represents them. Ambiguous columns remain visible under their source
-names and warn instead of being guessed.
-
-Affinity-only inputs are unchanged. `melt_pvacseq_algorithms` continues to
-melt only the binding columns and no longer risks cloning presentation rows
-into false affinity rows when a current pVACtools report contains both. A
-score-only affinity predictor now leaves its unstated `value` / `affinity`
-fields null instead of inheriting the aggregate pVACseq median.
-
-Percentile columns from an otherwise unknown predictor inherit the kind of
-their sole explicit companion (for example, `BrandNew MT Percentile` beside
-`BrandNew MT IC50 Score` remains an affinity rank). If the kind is still
-ambiguous, the source column remains available under its original name and the
-reader warns instead of silently dropping it.
-
-WT prediction fields now participate in long/wide conversion. They use
-`{model}_{kind}_wt_value`, `_wt_score`, `_wt_rank`, `_wt_method`, and
-`_wt_version` in wide form, so sibling prediction rows stay one source row and
-round-trip without turning WT metadata into grouping keys or assuming the WT
-predictor metadata matches MT. LENS tool names may contain underscore-digit
-segments; the final underscore before the version is the delimiter. Calis
-immunogenicity metadata now records its mhctools semantics: allele-independent,
-class I.
+[Changes](https://github.com/openvax/topiary/compare/v5.51.0...v5.52.0)
 
 ## 5.51.0
 
-**One name for the frame nodes group: `EvalContext.df`.** 5.50.0 left `df` and
-`evaluation_df` returning the identical object, which is one public name too
-many for a context that already exposes three frame-shaped attributes.
-`evaluation_df` is gone; read `ctx.df`.
+- Use `EvalContext.df` for the frame DSL nodes evaluate; remove the redundant
+  `evaluation_df` attribute and document custom-node grouping.
 
-`evaluation_df` was added in 5.49.1 and never documented or exported, so it is
-removed outright rather than kept as an alias. Anything reading it becomes
-`ctx.df` with no other change — same object, same contents.
-
-The DSL docs now show how to write your own node, including the rule this
-pair of releases existed to fix: group `ctx.df`, not the frame you handed to
-`EvalContext`, and reindex onto `ctx.group_index`.
-
-## 5.50.0
-
-**`EvalContext.df` now returns the frame nodes are grouped against.** Custom
-DSL nodes are documented to group `ctx.df` by `ctx.group_keys` and reindex onto
-`ctx.group_index`. That only holds if the frame carries the same identity keys
-the group index was built from, and it did not: `ctx.df` handed back the
-caller's raw frame, where a missing allele spelled `"nan"` is a different
-groupby key than one spelled `None`. A node outside Topiary keyed its results
-to groups that do not exist and its values silently became `NaN`, or — when a
-text spelling came first — the wrong row won. Built-in nodes were unaffected;
-they already read the normalized frame.
-
-`ctx.df` now returns that same normalized frame, so built-in and third-party
-nodes see one set of keys. The caller's DataFrame is still never mutated:
-normalization lands on a copy, and only when a spelling actually needs it.
-
-Reading `ctx.df` is unchanged for everything that treats it as the context's
-prediction rows. What does change is identity: `ctx.df` is now a different
-object from the frame you passed whenever a key needed normalizing, so
-`ctx.df is my_frame` is no longer the way to ask whether a context belongs to
-a frame. New `ctx.is_built_on(my_frame)` answers that — the same check
-`apply_filter`, `apply_sort` and `evaluate_scores` make before accepting a
-`context=`.
+[Changes](https://github.com/openvax/topiary/compare/v5.49.1...v5.51.0)
 
 ## 5.49.1
 
-**Hardened cross-sample evidence aggregation after review.** Equivalent
-missing identity spellings now collapse through the same `EvalContext`
-normalization used by filtering, sorting, and scoring, including pandas string
-and categorical columns. Canonical counts are validated before duplicate rows
-are collapsed, so booleans and malformed values cannot disappear based on row
-order or an incomplete sample. Exact large numeric values and Arrow-backed
-columns are supported up to the canonical nullable-Int64 limit; larger
-individual or pooled counts raise a documented validation error.
+- Harden cross-sample aggregation against equivalent identities and inconsistent
+  observations.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.49.0...v5.49.1)
 
 ## 5.49.0
 
-**Added strict cross-sample aggregation for canonical evidence.**
-`aggregate_evidence_across_samples` returns a separate pooled DataFrame while
-leaving each sample's evidence intact. Repeated prediction rows count once,
-complete canonical counts sum, and RNA/DNA VAFs are recomputed from pooled
-alternate and overlapping counts rather than averaged.
+- Add strict cross-sample evidence aggregation with explicit units and sample handling.
 
-Partial measurements stay absent instead of becoming zero. Samples must name
-the same evidence subject before counts can be combined. Allele-support counts
-must also share a derivation method, so measured counts cannot be flattened
-together with estimates; coverage-only depths need no invented method.
-Expression remains per-sample, and the pooled result reports `n_samples` for
-each represented candidate identity.
-
-The test runner now probes pytest plugins and launches pytest with the same
-Python interpreter, avoiding false xdist detection across environments.
+[Changes](https://github.com/openvax/topiary/compare/v5.48.1...v5.49.0)
 
 ## 5.48.1
 
-**Fixed lazy mhctools model-name discovery.** String model names now resolve
-through mhctools' public predictor registry, so lazily exported predictors such
-as `mhcflurry` work in a fresh process without first being imported by some
-unrelated caller. The regression test no longer skips when MHCflurry has not
-already been loaded, and the frameshift overlap grid now parameterizes only
-cases that contain a peptide window rather than reporting inapplicable cases as
-skips.
+- Fix lazy discovery of mhctools model names.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.48.0...v5.48.1)
 
 ## 5.48.0
 
-**Made evidence units and absence explicit across every path.** RNA
-unit-specific fields now name their assay (`n_rna_alt_reads`,
-`n_rna_alt_fragments`, and the ref / other / overlapping / supporting
-families). Reader and prediction frames emit a canonical evidence column only
-when at least one row states a value. A row that would mix reads and fragments
-under one `rna_evidence_subject` is refused rather than mislabeled, and a DNA
-read depth cannot be called fragments.
+- Make evidence units assay-specific and omit unavailable all-null evidence columns
+  consistently.
 
-Old `ProteinFragment` names remain accepted throughout the 5.x API: direct
-construction, attribute access, JSON, TSV, and `field_provenance`. New output
-uses only the assay-scoped names. Every dataclass field now survives JSON and
-TSV round-trips, and other-allele counts survive the isovar, DataFrame, and
-prediction adapters.
+- Coalesce identical cache rows and reject conflicting measurements in both constructors
+  and concatenation; correct aggregated pVACseq expression semantics.
 
-**Made the cache's constructor and concat paths conform.** Exact duplicate
-predictions are stored once, context-only differences remain, contradictory
-values raise through either door, and malformed numeric strings are rejected
-before coercion can hide them as null.
+[Changes](https://github.com/openvax/topiary/compare/v5.47.0...v5.48.0)
 
-**Corrected pVACseq aggregated expression semantics.** pVACseq defines
-`RNA Expr` as gene-level expression, so it now maps to `gene_expression`
-rather than inventing transcript resolution. A missing source `Allele Expr` is
-left absent instead of being reconstructed with DNA VAF; pVACseq defines its
-reported quantity using RNA VAF.
+## 5.47.0
 
-`RENAMED_COLUMNS`, `renamed_column`, the three cache-column classifications,
-and `conflicting_predictions` are public so consumers can share Topiary's
-decisions rather than reimplementing them.
+- Add symmetric DNA/RNA evidence, canonical VAFs and third-allele counts; preserve
+  source-prefixed originals and export `PREDICTION_KEY_COLUMNS`.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.46.0...v5.47.0)
 
 ## 5.46.0
 
-**Fixed: the consumer guide overpromised.** It said the nine evidence
-columns were "identical across readers". They are the same
-*vocabulary*, not the same *columns* — a reader emits one only where its
-source can answer, and a pVACseq **aggregated** report has no gene-level
-abundance, so no `gene_expression`.
+- Document source-dependent evidence availability; add `available_evidence_columns` and
+  `EVIDENCE_COLUMNS`, and include docs in source distributions.
 
-That mattered for the exact use the guide recommends: naming an absent
-column in an expression raises rather than evaluating to NaN, so a
-config written against a LENS frame would break on an aggregated
-pVACseq one. Corrected, with the failure shown.
-
-Raising stays the behaviour, and the columns stay absent rather than
-all-null. A present-but-empty column asserts the question was asked and
-answered as nothing; absent beats substituted here as everywhere else.
-
-**Added: `available_evidence_columns(df)` and `EVIDENCE_COLUMNS`**, so a
-consumer writing a portable config can check rather than discover the
-gap at runtime.
-
-**Fixed: the guide was not in the distribution.** No `docs/` in the
-sdist and no `.md` in the wheel, so anyone working from an installed
-package could not find the document framed as "the thing you read
-instead of asking". `MANIFEST.in` now ships `docs/`.
-
-Both found by the downstream consumer checking the guide's claims
-against the shipped package instead of reading it — which is what the
-guide asks its readers to do, so it is fitting that it is how the guide
-was found wrong. Every *code example* in it had been executed; the
-sentence summarising them had not.
+[Changes](https://github.com/openvax/topiary/compare/v5.45.1...v5.46.0)
 
 ## 5.45.1
 
-**Added: `docs/consumer-guide.md`** — what topiary offers a downstream
-consumer as of 5.45.0, and what changed across the 5.28.2–5.45.0 series.
+- Add the downstream consumer guide.
 
-Written because a consumer adopting this stretch had to reconstruct it
-from twenty-three changelog entries and a dozen cross-session messages.
-It covers the nine RNA-evidence columns and what each method means, the
-four paths to a `ProteinFragment` and the one shape they share, the DSL's
-ambiguity resolution and per-peptide alleles, the shared helpers that
-exist so consumers stop reimplementing them, and a floor-by-feature
-table. Every code example in it was executed against the shipped
-package.
+[Changes](https://github.com/openvax/topiary/compare/v5.45.0...v5.45.1)
 
 ## 5.45.0
 
-**Replaced the read/fragment API. 5.43.0 and 5.44.0 were built on a
-false premise and this supersedes both.**
+- Replace the earlier count-unit API with canonical `n_rna_*` quantities, explicit
+  read/fragment counts, evidence subjects and derivation methods. Remove `count_in`,
+  `read_count_subject`, `count_column_for_subject` and `subject_for_method`.
 
-isovar exposes `num_alt_reads` **and** `num_alt_fragments` — reads,
-fragments, ref, total, supporting, both units for every count. topiary
-carried only the fragment counts, stored them in fields named
-`n_alt_reads`, and then added an API to explain that reads were
-unavailable. They were never unavailable.
+- Keep LENS's unstated-assay VAF distinct from RNA/DNA fractions and stop labelling CDS-
+  overlap counts as assembled-protein support. Rename estimated expression to
+  `rna_alt_expression`.
 
-```python
-# before — a fragment count in a field named for reads, and this:
-fragment.count_in("n_alt_reads", "reads")   # None
-```
-
-Asking a field named `n_alt_reads` for reads and being told `None` was
-not a subtle contract, it was a wrong one.
-
-**Now both units are carried under names that say what they hold:**
-
-| Reads | Fragments |
-|---|---|
-| `n_alt_reads` | `n_alt_fragments` |
-| `n_ref_reads` | `n_ref_fragments` |
-| `n_overlapping_reads` | `n_overlapping_fragments` |
-| `n_alt_reads_supporting_protein_sequence` | `n_alt_fragments_supporting_protein_sequence` |
-
-**And one accessor per quantity takes the better of the two:**
-
-```python
-fragment.n_rna_alt                  # 30  — fragments, since isovar has them
-fragment.n_rna_ref
-fragment.n_rna_overlapping
-fragment.n_rna_supporting_protein_sequence
-fragment.rna_evidence_subject()     # "fragments" | "reads" | None
-```
-
-Fragments are preferred where a source reports them, because a
-paired-end fragment is one molecule read twice — one piece of evidence
-and two reads. Reads are used where that is all there is. Frames carry
-the same `n_rna_*` columns plus `rna_evidence_subject`, so **one
-threshold spans every source** and a number that travels can still name
-its unit.
-
-**Every generated column is now scoped by assay.**
-`variant_allele_expression` is `rna_alt_expression` (with
-`rna_alt_expression_method`) — it is an RNA quantity and the name did
-not say so. The counts and the two describing columns were already
-`n_rna_*` / `rna_evidence_*`.
-
-**Fixed: LENS's unqualified `vaf` was used as both an RNA and a DNA
-fraction.** LENS carries one `vaf` column while naming its read columns
-`rna_*` explicitly, so the fraction's assay is unstated — and topiary
-was using it *both* to split the RNA depth *and* as a DNA VAF to scale
-expression. One of those was necessarily wrong.
-
-It now splits the depth under a method that says what actually happened,
-`rna_depth_x_source_vaf`, rather than `rna_depth_x_vaf` asserting an
-assay nobody stated. It is no longer used to scale expression, so LENS
-frames carry no `rna_alt_expression` — they carried none anyway, since
-the estimate was empty on every row. pVACseq's VAFs *are* qualified
-(`Tumor RNA VAF`, `Tumor DNA VAF`), so it keeps `rna_depth_x_vaf` and
-`tpm_x_dna_vaf`.
-
-**Simplified the reader-observable columns.** A LENS frame carried 12
-topiary-generated evidence columns and four of them were exact
-duplicates: `n_rna_alt` equalled `n_alt_reads` on every reader, since no
-reader produces fragments. Both readers now expose the same nine:
-
-```
-n_rna_alt   n_rna_ref   n_rna_overlapping
-rna_evidence_subject    rna_evidence_method
-variant_allele_expression   variant_allele_expression_method
-sequence_source   gene_expression
-```
-
-One name per quantity, one column saying the unit, one saying the
-origin. The unit-specific `n_*_reads` / `n_*_fragments` fields stay on
-`ProteinFragment`, where a caller who needs a specific unit names it —
-on a frame they duplicated `n_rna_*` for every single-unit source.
-
-`read_count_method` is `rna_evidence_method`, matching
-`rna_evidence_subject`.
-
-**Dropped `n_alt_reads_supporting_protein_sequence` and
-`supporting_read_count_method` from reader frames.** LENS counts reads
-overlapping the peptide's *CDS*, which is not a count of reads
-supporting the assembled protein sequence — emitting it under that name
-overstated what the reader has. It passes through under LENS's own
-column instead. The assembled count stays on `ProteinFragment`, where
-isovar makes it real.
-
-**Renamed: `rna_reads` → `rna_alignment`** (old name kept as an alias).
-It is a *method*, naming where a number came from, and it explicitly
-fixes no unit — an aligner counts reads and fragments alike. Calling it
-`rna_reads` implied the unit it refused to fix, which only became
-visibly wrong once the value it labels could be fragments.
-
-**Where every number comes from, alongside what it counts:**
-
-| Source | `n_alt_reads` | `n_alt_fragments` | `n_rna_alt` | method |
-|---|---|---|---|---|
-| isovar | 58 | 30 | 30 (fragments) | `rna_alignment` |
-| pVACseq | 429 | — | 429 (reads) | `rna_depth_x_vaf` |
-| LENS | from `vaf` | — | reads | `rna_depth_x_vaf` |
-
-Where a source gives only depth and a variant allele fraction, the alt
-count is depth × VAF — computed, and labelled as computed rather than
-passed off as counted.
-
-Removed: `count_in`, `read_count_subject` (the fragment method and the
-frame column), `count_column_for_subject`, `subject_for_method`, and
-5.44.0's renaming of count columns by subject. All of it existed to
-work around carrying one unit under the other's name.
+[Changes](https://github.com/openvax/topiary/compare/v5.44.0...v5.45.0)
 
 ## 5.44.0
 
-**Fixed: read counts did not survive fragment → prediction frame.** The
-frame carried `read_count_method` and `read_count_subject` — which
-arrive as annotations — describing a count that was not there. So it
-said how a number was obtained and what it counted, while omitting the
-number. The four count fields now propagate the way `gene_expression`
-already did.
+- Carry read-count units through fragment prediction and enforce unit-aware access. This
+  API is superseded by 5.45.0.
 
-**Fixed: a threshold written for reads was answered by a fragment
-count.** Once the counts reached the frame, `n_alt_reads > 5` on an
-isovar-derived frame was satisfied by 8 *fragments*. Both are integers
-and both are plausible, so nothing failed.
-
-Count columns are now named for what they count. A fragment-subject
-frame has `n_alt_fragments`; a read-subject frame keeps `n_alt_reads`:
-
-```
-n_alt_reads > 5        ValueError: Column 'n_alt_reads' not found.
-                       Did you mean: ['n_alt_fragments', ...]
-n_alt_fragments > 5    works
-```
-
-Naming rather than only tagging is what makes the wrong reference fail.
-5.43.0 put the subject on the fragment and on the frame; a threshold is
-written against a *column name*, and the DSL was never going to consult
-a sibling column before answering.
-
-Reader frames are unchanged — both state `reads`, so both keep the
-`n_*_reads` spelling. A source that states no subject keeps it too,
-since that is what a source which does not say counts.
-
-**Cost, stated plainly:** on any other path this would break every
-existing config. It is free here only because the isovar path shipped
-days ago and nothing depends on it yet — which is the argument for doing
-it now rather than later.
+[Changes](https://github.com/openvax/topiary/compare/v5.43.0...v5.44.0)
 
 ## 5.43.0
 
-**Added: a read count now names what it counts.** isovar counts
-*fragments* — `num_alt_fragments`, not `num_alt_reads`. A depth × VAF
-estimate is inherently about *reads*, because depth is a read depth.
-Both landed in `n_alt_reads`, so the field was honest about **how** a
-number was obtained and silent about **what it counts** — the same shape
-as the CDS-overlap column, a real count of an adjacent thing.
+- Record whether read evidence counts reads or fragments. This API is superseded by
+  5.45.0.
 
-```python
-fragment.read_count_subject()                    # "fragments" or "reads"
-fragment.count_in("n_alt_reads", FRAGMENTS)      # 30
-fragment.count_in("n_alt_reads", READS)          # None — says so
-```
-
-Frames carry `read_count_subject` beside `read_count_method`.
-
-**Why it matters, and where it does not.** Within one run the unit is
-internally consistent, so a ranking does not change. The harm is
-entirely in what travels: a documented `n_alt_reads > 5`, a config
-copied between projects, a number in a paper. Five fragments and five
-reads are different bars, and nothing said which was cleared.
-
-Fragments are the right subject for a `sqrt()` confidence weight: two
-mates of one fragment are not independent evidence, so read counts
-overstate paired-end support roughly twofold relative to single-end —
-precisely the distortion a diminishing-returns transform should not
-inherit.
-
-**What this deliberately does not attempt.** Perfect cross-path
-comparability is unattainable: converting a read estimate to fragments
-needs library information no source carries. So there is no conversion
-and no single comparable number. Every path names its subject, a score
-names the subject it wants, and a source asked for the other one
-**returns `None` rather than substituting** — the derivation rule one
-level up.
-
-`rna_reads` deliberately fixes no subject: it says a count came from an
-alignment, not whether the aligner counted reads or fragments, so the
-producer states it.
-
-Design settled with the downstream consumer, whose framing this is.
+[Changes](https://github.com/openvax/topiary/compare/v5.42.0...v5.43.0)
 
 ## 5.42.0
 
-**Fixed: `read_pvacseq` spoke two vocabularies depending on which
-flavour of its own format it was given (#238).** The aggregated report
-supplies pVACseq's own `Allele Expr` and `RNA Expr`, which were passed
-through as `allele_expression` and `rna_transcript_expression` — names
-the all_epitopes path never emits. **And that branch never called
-`attach_read_evidence` at all**, so it had no method columns whatsoever:
+- Use consistent RNA evidence names for aggregated and all-epitopes pVACseq reports;
+  record source-reported estimates.
 
-```
-all_epitopes   variant_allele_expression + 3 method columns
-aggregated     allele_expression, rna_transcript_expression, no methods
-```
-
-So no single filter worked across two pVACseq files. Both branches now
-emit the same columns.
-
-**Added: `SOURCE_REPORTED`.** When pVACseq supplies the estimate itself,
-neither answer was honest — passing it through unlabelled claims a
-derivation nobody can check, and recomputing it discards the number the
-source stands behind. `variant_allele_expression_method` is
-`source_reported` on the aggregated path and `tpm_x_dna_vaf` where
-topiary derived it. It maps to `approximated`, not `measured`: the
-source stands behind the number but did not say how it got there.
-
-This was the sharper half of #238 and I closed the issue without it,
-having verified on the all_epitopes fixture and concluded about the
-reader. The consumer who reported it made the mirror-image error,
-grepping for `express` against headers abbreviated `Expr`. **A function
-with two branches needs both exercised**; the tests are parameterized
-over both flavours now.
+[Changes](https://github.com/openvax/topiary/compare/v5.41.0...v5.42.0)
 
 ## 5.41.0
 
-**Fixed: gene-level expression had two names (#238).** `read_lens`
-called it `gene_tpm`; `read_pvacseq` called it `gene_expression`. A
-filter naming either matched nothing on the other frame rather than
-failing, so a consumer had to know which reader produced the frame —
-the thing a shared vocabulary exists to avoid.
+- Standardize gene-level expression under `gene_expression`.
 
-LENS frames now also carry `gene_expression`, the name topiary already
-uses for gene-level abundance in `ProteinFragment.gene_expression` and
-in `read_pvacseq`. `gene_tpm` stays as the LENS-native spelling, and
-`gene_tpm_raw` still holds the original string, since LENS writes fusion
-rows as composites and the numeric column is NaN for them.
-
-The other two problems in #238 were already fixed by 5.37.0, before the
-issue was read: both readers emit `variant_allele_expression` (there is
-no `allele_expression` on either frame, so no one quantity under two
-names), and both label every derivation — on the expression axis and the
-read axis. They are pinned by tests now rather than left to chance.
+[Changes](https://github.com/openvax/topiary/compare/v5.40.0...v5.41.0)
 
 ## 5.40.0
 
-**Added: `fragments_from_variants` — isovar, actually run (#102).**
-5.38.0 could adapt an `IsovarResult` a caller already had. This runs
-isovar to produce them, so topiary can build the surrounding protein
-context for a mutation from RNA rather than only consume someone else's:
+- Add `fragments_from_variants` for RNA-backed reconstruction through Isovar alongside
+  the existing reference-translation path.
 
-```python
-fragments = fragments_from_variants(variants, alignment_file=bam)  # assembled
-fragments = fragments_from_variants(variants)                      # translated
-```
+[Changes](https://github.com/openvax/topiary/compare/v5.39.1...v5.40.0)
 
-**The two arms are interchangeable.** Both return `ProteinFragment`s
-with the same core, so a pipeline does not change shape when the RNA
-does or does not exist. What differs is what the fragments can tell
-you — an assembled sequence carries the patient's other variants and
-whatever phasing the reads support, plus counted read support; a
-translated one carries the reference everywhere except the variant, and
-no counts. `annotations["sequence_source"]` says which, so an RNA-backed
-candidate and an inferred one never blend.
-
-`protein_sequence_length` is a *sequence* length, not a peptide length:
-a fragment is scanned by a sliding window downstream, so the assembled
-context must contain every peptide that could cover the mutation.
-Default 25. `padding_around_mutation` defaults to half of it so the
-reference arm produces a comparable window.
-
-`allow_reference_fallback=True` translates variants isovar could not
-support instead of dropping them.
-
-`filter_thresholds` now actually filters. **isovar records filter
-outcomes and never drops anything**, so a caller's thresholds — and
-isovar's own defaults — annotated results that then flowed on as
-RNA-backed evidence. `require_passing_filters=True` drops them; pass
-`False` for the old behaviour.
-
-Assembly is turned **on**. isovar defaults `variant_sequence_assembly`
-to off, which requires a single read or fragment to span the whole
-window — so a longer context yields *fewer* variants rather than longer
-sequences, and "carrying the phasing the reads support" would not be
-true of the result. The default window is isovar's 21 rather than a
-raised 25, for the same reason.
-
-`fragments_from_effects` is public: the reference arm on its own, for a
-caller with variants and no alignment file. It filters silent and
-non-coding effects first (several varcode classes expose a
-`mutant_protein_sequence` while leaving the amino-acid offsets `None`,
-and `fragment_from_effect` raises on those — one such effect anywhere in
-a batch discarded every fragment already built), and it uses
-expression-aware transcript selection when transcript expression is
-given, so the same variants pick the same transcript whichever entry
-point built them.
-
-Conflicting or inapplicable arguments are refused rather than silently
-resolved: `protein_sequence_length` together with a
-`protein_sequence_creator` (the creator's length used to win silently),
-isovar-only arguments with no `alignment_file` (they were swallowed), a
-non-positive window, and a `padding_around_mutation` too small to
-contain an epitope — the last validated by the existing
-`check_padding_around_mutation` rather than a fresh derivation.
-
-isovar is needed **only** when `alignment_file` is given.
 ## 5.39.1
 
-**Added: `tests/test_consumer_workflows.py`** — documented workflows
-exercised end to end, and a standing rule in AGENTS.md to keep them
-there.
+- Add composed consumer-workflow regression coverage.
 
-This exists because of a specific failure. Asked whether a downstream
-consumer was blocked, I checked that the four capabilities their design
-needed were exported and said they were unblocked. They were exported.
-They did not *compose*: writing a peptide-level row onto an allele to
-mean "credit this evidence here" was silently discarded, so every
-attribution policy produced identical scores (fixed in 5.39.0 as #232).
-Separately, I said the DSL could reference a LENS annotation named
-`tpm`, having read that the reader passes annotations through without
-running an expression — the column is `gene_tpm`, since `tpm` gets
-special handling for fusion rows and the raw string is kept in
-`gene_tpm_raw`.
-
-Checking that parts exist is not checking that the whole works. The new
-tests walk each workflow from input to answer: a LENS report filtered
-and sorted by a DSL expression; annotations addressable under their
-actual names; the resolve-then-evaluate loop and the raise that guards
-it; **narrowing attribution changing the answer** rather than the
-pieces merely existing; one consumer function reading isovar, LENS and
-pVACseq fragments; and a shared context serving several operations plus
-the guard that makes sharing safe.
-
-No behavior change.
+[Changes](https://github.com/openvax/topiary/compare/v5.39.0...v5.39.1)
 
 ## 5.39.0
 
-**Fixed: a peptide-level row that names an allele was projected onto
-every other allele (#232).** The explicit allele was silently discarded:
+- Keep named-allele peptide-level predictions scoped to their stated allele; preserve
+  distinct allele observations.
 
-```
-row: antigen_processing, allele=HLA-A*02:01, score=0.8
-
-  HLA-A*02:01    0.8
-  HLA-B*07:02    0.8      <- the row said A*02:01
-```
-
-Peptide-level evidence usually carries no allele, and then there is
-exactly one thing a reference to it can mean — this peptide's value, for
-every allele — so topiary projects it. But a producer that writes such a
-row *onto one allele* is saying something narrower, and projecting it
-anyway credits a score to alleles the row explicitly did not name. That
-is a value attributed to something that did not state it, the same
-family as the stringified-null group keys one level up.
-
-Now: a blank-allele row broadcasts as before; a row that names an allele
-lands in that allele's group and nowhere else; and the two compose — the
-named row claims its allele, a blank row fills the rest. "Names an
-allele" uses the same `is_stated` rule as everything else, so a frame
-that went through `astype(str)` does not stop broadcasting.
-
-**`haplotype` is deliberately exempt.** mhctools stamps a genotype-level
-score with the allele it deconvolved as the best presenter, so that
-allele is an artifact of reporting rather than a restriction — treating
-it as one would strand a joint score on a single allele, which is the
-failure projection exists to prevent.
-
-**Two peptide-level rows at different alleles are no longer a
-conflict.** They are two answers to two questions. Two *blank-allele*
-rows that disagree still raise, since that is a peptide contradicting
-itself.
-
-**The warning now describes what happened.** It said "which carries no
-allele" in every case — which becomes false the moment a row names one,
-and that is exactly the user whose scores just narrowed. Three messages
-now, naming the action taken rather than the counterfactual avoided:
-rows all naming alleles, rows mixed, and rows carrying none.
-
-This unblocks allele attribution downstream (openvax/vaxrank#349):
-writing a row onto chosen alleles is the natural way to say "credit this
-evidence here", and it was being discarded — so every attribution policy
-produced identical per-allele scores, and a narrowing knob could compute
-an answer and then silently fail to apply it.
+[Changes](https://github.com/openvax/topiary/compare/v5.38.0...v5.39.0)
 
 ## 5.38.0
 
-**Added: isovar → `ProteinFragment`, and every other path with it
-(#102).** 5.37.0 put `isovar_assembly` in the vocabulary with nothing
-emitting it — a name for a thing that did not exist, which is the same
-shape as a configured knob that does nothing.
+- Add Isovar-result-to-fragment conversion with lazy optional imports, shared semantic
+  fields and recorded evidence derivations.
 
-```python
-fragment_from_isovar_result(result)      # one result
-fragments_from_isovar_results(results)   # drops those with no RNA support
-fragments_from_dataframe(read_lens(path).df)      # the table readers
-fragment_from_effect(effect, padding)             # varcode, since 5.35.0
-```
-
-**isovar is the only source that counts.** It assembles a protein
-sequence from reads and counts the ones supporting it, so its numbers are
-`measured`. pVACseq derives the split from depth × VAF and LENS counts
-reads overlapping the peptide's CDS — both `approximated`. One mapping,
-`provenance_for_method`, decides which is which, so a frame and a
-fragment cannot disagree about whether depth × VAF counts as measured.
-It does not.
-
-**Optional in the strong sense**: isovar is not imported at module
-scope, not in `requirements.txt`, and `import topiary` does not import
-it. A consumer that only reads LENS reports should not pay for a package
-it never calls. There is a test asserting it stays unimported.
-
-**Every path now reaches a fragment with the same core.** `SEMANTIC_CORE`
-names the fields every source speaks to, whether or not it can fill
-them, so this reads all four without knowing which it has:
-
-```python
-def rna_support(fragment):
-    if not fragment.is_usable_as_biology("n_alt_reads"):
-        return None
-    return fragment.n_alt_reads, fragment.is_approximate("n_alt_reads")
-```
-
-isovar returns `(30, False)`, pVACseq a count with `True`, varcode
-`None` — no branching on `source_type`, which is why `source_type` stays
-biological.
-
-**Fixed: the supporting-count derivation was accepted and not
-recorded.** `attach_read_evidence` took `supporting_method` and dropped
-it, so a frame carried LENS's count of 45 CDS-overlapping reads with no
-way to say it was not 45 reads supporting the variant. It is now a
-column, and the fragment reads it.
+[Changes](https://github.com/openvax/topiary/compare/v5.37.0...v5.38.0)
 
 ## 5.37.0
 
-**Added: RNA read-level evidence from the readers, with each number
-naming its derivation (#102).** 5.32.0 added the fields to
-`ProteinFragment`; nothing populated them. `read_lens` and
-`read_pvacseq` do now.
+- Import RNA evidence from LENS and pVACseq with derivation provenance; add estimated
+  allele expression and `sequence_source`.
 
-```
-n_overlapping_reads   n_alt_reads   n_ref_reads   read_count_method
-               1233           429           804     rna_depth_x_vaf
-```
-
-The derivation is named because "429 reads counted" and "429 reads
-implied by depth × VAF" are different claims:
-
-| Method | Meaning |
-|---|---|
-| `rna_reads` | Counted directly from an RNA alignment |
-| `rna_depth_x_vaf` | depth × VAF, rounded — not counted |
-| `cds_overlap_reads` | Counted, but of reads overlapping the peptide's CDS rather than supporting the variant |
-| `tpm_x_dna_vaf` | Transcript abundance × DNA VAF — an expression proxy, not a read count |
-
-Per source: **pVACseq** reports `Tumor RNA Depth` (a real count) and
-`Tumor RNA VAF`, so the depth is counted and the split is arithmetic.
-**LENS** counts reads covering the genomic origin *and* reads covering it
-with the peptide's CDS — both real counts, but the second is of
-something adjacent to what was asked for, which is why it is
-`cds_overlap_reads` rather than `rna_reads`. A LENS row with no `vaf`
-gets no split and no method, rather than a zero.
-
-**Added: `variant_allele_expression`**, the bulk-RNA fallback —
-transcript abundance × DNA VAF, for when there is no alignment to count
-alt reads from. It assumes both alleles are transcribed equally, so a
-variant on a transcriptionally silenced allele looks expressed — the
-error being exactly what allele-specific counting exists to detect,
-which is why it is labelled rather than mixed in with measured values.
-
-**Added: `sequence_source`.** `source_type` says what an antigen *is*
-(`"variant:snv"`) and deliberately says nothing about method, so a frame
-could not answer "was this sequence assembled from RNA or translated
-from the reference?" — the first question you ask auditing a ranking.
-One of `isovar_assembly`, `varcode_translation`, `lens_pep_context`,
-`pvacseq_epitope`, `caller_supplied`.
-
-`describe_read_evidence(df)` summarizes how a run's numbers were
-obtained without walking the rows. `split_reads_by_vaf` and
-`attach_read_evidence` are public, so a caller with its own source uses
-the same implementation rather than writing the arithmetic again.
-
-`None` throughout means the source could not answer, which is not zero —
-and `attach_read_evidence` refuses a supporting count whose derivation
-is unnamed, since a count that cannot be told from a measurement is
-worse than no count.
+[Changes](https://github.com/openvax/topiary/compare/v5.36.0...v5.37.0)
 
 ## 5.36.0
 
-**Fixed: the genotype is now part of the cache key (#229).**
-`CachedPredictor` keyed on
-`(peptide, allele, peptide_length, kind, n_flank, c_flank)`. MHCflurry
-presentation in haplotype mode scores a peptide against a whole genotype
-and reports the *deconvolved best allele*, so two different genotypes
-that deconvolve to the same best allele collided on every key column —
-and the lookup silently returned one of them.
+- Include genotype (`allele_set`) in cache identity so different haplotype predictions
+  cannot collide.
 
-`_CACHE_COLUMNS` already said why this mattered:
-
-> The genotype a haplotype-mode prediction was scored against; blank for
-> per-allele rows. Without it a cached presentation row reads as a
-> prediction for its deconvolved best allele.
-
-`allele_set` joins the key on exactly the argument already made there for
-`n_flank` / `c_flank`: the same peptide in a different context produces a
-different score, so the context is part of the identity. Blank genotypes
-coexist with populated ones the way absent flanks do, and every spelling
-of "no genotype" — `None`, `NaN`, blank, `"nan"` — is one key rather
-than four.
-
-**Deliberately not in the key:** `source_sequence_name`, `peptide_offset`
-and `sample_name`. Those say where a peptide was *found*, not what was
-predicted about it, and a prediction for one
-(peptide, allele, length, kind, flanks, genotype) is the same prediction
-whichever protein or sample it came from. Keying on them would defeat
-the cache — the same peptide would be re-predicted once per source
-protein.
-
-Caches on disk keep loading; the key gains a dimension, so an entry
-written without a genotype keys as blank, which is what it is.
+[Changes](https://github.com/openvax/topiary/compare/v5.35.1...v5.36.0)
 
 ## 5.35.1
 
-**Fixed: `CachedPredictor` turned a missing allele into the allele named
-`"None"`** — the cache axis of the defect 5.35.0 centralized.
+- Keep missing cache alleles missing instead of creating an allele named `None`.
 
-`_normalize` rejects null identity columns for `prediction_method_name`,
-`predictor_version` and `kind`, with a comment saying why, then applied
-`astype(str)` to `allele` and `peptide` without the same guard. The
-reasoning was written down and not applied one field over.
-
-Two consequences. The cache keys on
-`(peptide, allele, peptide_length, kind)`, so `None`, `NaN` and `""`
-were three different keys, and one predictor's allele-free evidence sat
-in three buckets while still looking present in the store. And
-`.alleles` — the mhctools surface answering "what can this predict for"
-— reported the string `"None"` as a queryable allele.
-
-An allele-free row is legitimate (`proteasome_cleavage` and the other
-peptide-level kinds have no allele), so `allele` collapses every
-spelling onto `""`, the way `n_flank` / `c_flank` already did, and
-`.alleles` excludes allele-free rows. A missing `peptide` *is* rejected
-— there is no such thing as a peptide-free prediction.
-
-Found by following a downstream report of the identical shape in their
-own store, where the same spellings split one predictor's evidence
-across four buckets.
+[Changes](https://github.com/openvax/topiary/compare/v5.35.0...v5.35.1)
 
 ## 5.35.0
 
-**Changed: `_fragment_from_effect` is now public as `fragment_from_effect`.**
-It builds a :class:`ProteinFragment` from a varcode variant effect — the
-varcode arm of the multi-source fragment story, and something a caller
-doing its own variant annotation would otherwise reimplement. Now
-exported, with the two non-obvious rules written down: the window is
-clipped at the protein's first stop codon, and `reference_sequence` is
-populated only when the pre- and post-mutation proteins align 1:1,
-because slicing the same offsets out of a frameshifted protein would
-present a different piece of protein as the comparator.
+- Export `fragment_from_effect`, `is_named_version`, `known_versions` and shared
+  missing-value helpers.
 
-**Added: `is_named_version`, `known_versions`, `NOT_STATED_VERSIONS`.**
-Whether a value names a predictor version. `None`, `NaN`, whitespace,
-and the literal strings `"nan"`, `"none"`, `"<na>"`, `"nat"`, `"null"`
-all mean "not stated" — those being what a missing value becomes once
-anything calls `str()` on it, which this repo does on reload, on CSV
-round trip, and on cache export.
+- Validate fragment padding and clamp sequence/comparator intervals at stop codons.
 
-It is public because the obvious version of the rule is wrong in a way
-that is easy to miss: `if str(v).strip()` excludes only the *blank*
-spellings, since `str(None)` is `"None"` and `str(float("nan"))` is
-`"nan"` — both truthy. So the naive rule admits three of the five ways a
-version goes missing, not one. That mistake shipped in topiary and,
-independently, twice in a downstream consumer that had reimplemented it.
-
-`known_versions(series)` is the same rule over a column, built from the
-same `NOT_STATED_VERSIONS` set rather than restating the test.
-`is_named_version` now **raises** on a Series or list instead of
-answering — returning True for a column of missing versions would have
-delivered the exact phantom-version outcome the function exists to
-prevent.
-
-**Centralized: one definition of "did the source say anything here?"**
-The question was being asked eight different ways — for versions,
-alleles, kinds, method names, filter values and TSV cells — and **none
-of the copies rejected `"nan"`**, so a frame that had been through
-`astype(str)` anywhere carried stringified nulls that every check
-accepted as real values. A stringified missing allele became a real
-per-allele group.
-
-There are now two public predicates and one set:
-
-```python
-is_stated(value)        # scalar:  did the source say anything here?
-stated_values(series)   # the same rule over a column
-NOT_STATED              # the spellings that mean "no": "", "nan", "none", "<na>", "nat", "null"
-```
-
-`is_named_version` / `known_versions` remain as the version-facing names
-and delegate — versions were never special. Both scalar forms **raise**
-on a container instead of answering; returning True for a column of
-missing values is the outcome they exist to prevent.
-
-`NULL_TEXT` is `NOT_STATED` minus the empty string, and the group key
-collapses it into a real null. The distinction is load-bearing rather
-than cosmetic: `str(None)` is `"None"` and `str(nan)` is `"nan"`, but
-**never `""`** — so a blank cell is a stated-but-empty value, which
-frames use as a group of its own for allele-free rows. Collapsing it
-would merge groups a caller meant to keep apart.
-
-**Fixed: three unmigrated copies of that rule.** `wide.py`'s
-`_version_str`, `io.py`'s `_model_version_str` and `cached.py`'s
-identity check each had their own version with different coverage —
-`_version_str` had no `"nan"` test at all, so a stringified missing
-version became the model key `netmhcpan_nan`. All three now delegate.
-
-**Fixed: `fragment_from_effect` could emit a fragment that contradicted
-itself.** A stop codon upstream of the reported mutation gave a
-zero-length sequence carrying a target interval pointing outside it, so
-`peptide_overlaps_target` answered True for a fragment with no residues.
-The window is now clamped so every interval lies inside the sequence.
-Also: the reference window is clipped at its own stop, so a comparator
-cannot carry a `*` the fragment does not; a negative
-`padding_around_mutation` is refused rather than producing negative
-intervals; and an effect exposing a mutant protein with no
-`aa_mutation_start_offset` (varcode's `HaplotypeEffect`,
-`ExonicSpliceSite`) raises a message naming the effect and the attribute
-instead of `TypeError: unsupported operand type(s) for -`.
-
-AGENTS.md gains a section on this: **logic that does real work belongs in
-one documented public function**, because a consumer that needs behavior
-it cannot import will reimplement it, and the copy will drift.
+[Changes](https://github.com/openvax/topiary/compare/v5.34.0...v5.35.0)
 
 ## 5.34.0
 
-Two more absent-vs-empty conflations (#223), found by auditing after #214,
-#216 and #219 all turned out to be the same defect: two code paths
-disagreeing about what "nothing" means. Both turned a missing value into
-the literal text `"nan"` and then treated it as data.
+- Reject selecting missing versions as the string `nan`; avoid fabricating pVACseq
+  variant IDs from missing coordinates.
 
-**Fixed: a row with no `predictor_version` could be selected as version
-`"nan"`.** 5.31.0 taught the ambiguity check and
-`resolve_default_versions` that a missing version names no version, but
-the *selection* path still compared stringified values — so the two
-disagreed, and `Affinity["netmhcpan", "nan"]` returned the NaN-version
-row. It was self-inconsistent too: the "no such version" error lists
-available versions from `dropna()`, so `"nan"` was never offered, yet
-passing it worked. Selection now goes through the same
-"was a version named at all" test as everything else, and tolerates
-surrounding whitespace the way the resolver does.
-
-**Fixed: `read_pvacseq` fabricated variant ids containing `"nan"`.** The
-coordinate fallback (used when a file has no `Index` column) concatenated
-stringified `Chromosome`/`Start`/`Reference`/`Variant`, so a blank field
-became text inside the identifier:
-
-```
-chr1-154590262-nan-A
-```
-
-Well-formed-looking, wrong, and *stable* — every row sharing that gap
-grouped together under one fabricated id, silently. Such rows now get a
-null `variant` and a warning naming how many and which columns were
-incomplete. An absent identifier is honest; a fabricated one is not, and
-nothing downstream can tell it from a real one. Files with complete
-coordinates, and files with an `Index` column, are unchanged and silent.
+[Changes](https://github.com/openvax/topiary/compare/v5.33.0...v5.34.0)
 
 ## 5.33.0
 
-**Added: per-peptide allele sets for `EvalContext(alleles=...)` (#219).**
-`alleles=` declared **one** set for the whole frame. A reader that emits
-one row per (peptide, allele) passing its own threshold — LENS does —
-produces peptides that were each reported against a different subset of
-the genotype, so there is no single set to declare. Every LENS fixture
-vaxrank has carries 2 to 8 distinct allele sets per file.
+- Support per-peptide allele sets in `EvalContext` and add `describe_default_versions`.
 
-It now takes the same three forms `from_predictions(allele_set=...)`
-does:
-
-```python
-EvalContext(df, alleles=["HLA-A*02:01", "HLA-B*07:02"])   # every peptide, as before
-EvalContext(df, alleles={"SIINFEKLA": ["HLA-A*02:01"]})    # per peptide
-EvalContext(df, alleles=lambda keys: genotype_for(keys["peptide"]))
-```
-
-Declaring the union instead invents a group for every pairing that was
-never scored. **This is easy to miss**: an expression containing an
-allele-scoped term makes the invented groups read NaN, so the output
-looks unchanged — vaxrank swapped in the union and every fixture came
-out byte-identical. An expression reading only peptide-level evidence
-gives each invented group a real number:
-
-```
-peptide_view(proteasome_cleavage.score), two peptides each scored at one allele
-  union        6 groups scored, 2 of them pairings never predicted
-  per-peptide  4 groups scored, 0 invented
-```
-
-A peptide the mapping or callable declares nothing for keeps only the
-groups its own rows name; it does not inherit another peptide's
-genotype. A mapping key matching no peptide in the frame raises — a key
-that declares nothing is indistinguishable from a peptide left
-undeclared on purpose. An empty set *for one peptide* is meaningful
-("declare nothing here") even though an empty frame-wide sequence stays
-an error.
-
-**Added: `describe_default_versions` (#220).** `resolve_default_versions`
-returns the winner but not what it won against, so a consumer telling a
-user "netMHCpan reports 4.1b and 4.2, scoring with 4.2" had to re-derive
-the candidates — and that re-derivation re-implements "was a version
-named at all", the rule whose subtlety caused the phantom-`"nan"` bug in
-both topiary and vaxrank.
-
-```python
-describe_default_versions(df)   # {("pMHC_affinity", "netmhcpan"): ["4.1b", "4.2"]}
-resolve_default_versions(df)    # {("pMHC_affinity", "netmhcpan"): "4.2"}
-```
-
-Candidates are ordered oldest to newest by the same PEP 440 rule, so the
-winner is the last entry for `prefer="newest"` and the first for
-`prefer="oldest"`, and the keys match `resolve_default_versions` exactly
-so the two zip. `resolve_default_versions` is now implemented *in terms
-of* `describe_default_versions`, so there is one place deciding what
-counts as a version rather than two that can drift.
+[Changes](https://github.com/openvax/topiary/compare/v5.32.0...v5.33.0)
 
 ## 5.32.0
 
-**Added: read-level evidence and per-field knownness on `ProteinFragment`
-(#102).** The first half of the multi-source fragment work — consumer
-requirements from vaxrank, which would drop its own
-`MutantProteinFragment` and read topiary's. isovar integration is not part
-of this; see the issue.
+- Add read evidence and per-field knownness to `ProteinFragment`; preserve unknown
+  versus zero through IO and accept all dataclass fields during loading.
 
-Four RNA read-count fields, none derivable from the aggregate expression
-the fragment already carried:
+[Changes](https://github.com/openvax/topiary/compare/v5.31.1...v5.32.0)
 
-```python
-n_overlapping_reads
-n_alt_reads
-n_ref_reads
-n_alt_reads_supporting_protein_sequence   # this assembled sequence, not just the allele
-```
-
-**`None` means unknown, and is not `0`.** A source with no read data
-leaves them `None`; a source that looked and found nothing sets `0`.
-Collapsing the two would let a consumer read "no RNA support" out of "this
-source cannot answer" — and the distinction survives a TSV round trip,
-since a distinction that does not serialize is decorative.
-
-`field_provenance` states how real a populated field is, mapping a field
-name to `"measured"`, `"approximated"` or `"synthesized"`:
-
-```python
-ProteinFragment(
-    ...,
-    variant="chr1:100:N>N",
-    n_alt_reads=12,
-    field_provenance={"variant": SYNTHESIZED, "n_alt_reads": APPROXIMATED},
-)
-```
-
-This covers what a bare `None` cannot say. A LENS or pVACseq read count is
-real but *estimated* (CDS-overlapping reads; depth × VAF). A placeholder
-ref/alt invented because the source supplied none has a value that means
-nothing, and anything doing variant-effect annotation on it must refuse
-rather than compute. Read it through `provenance_of`, `is_known`,
-`is_approximate` and `is_usable_as_biology` rather than the dict. A
-provenance entry naming a field that does not exist, or a label outside
-the vocabulary, is refused — a typo would sit inert and quietly stop
-protecting the field it was written for.
-
-**Fixed: `ProteinFragment.from_dict` hardcoded its field list**, so it
-rejected every field added after that list was written. It now derives the
-set from the dataclass and cannot drift again.
 ## 5.31.1
 
-**Fixed: `SelfProteome.nearest` crashed when a peptide-length bucket was
-empty (#216).** A proteome whose sources are all shorter than the peptide
-window raised `ValueError: attempt to get argmin of an empty sequence`
-instead of reporting no match:
+- Return no nearest-self match for empty length buckets and reject
+  annotation/prediction-name collisions during wide conversion.
 
-```python
-SelfProteome.from_fasta("short.fasta").nearest(["SIINFEKLA"])
-```
-
-`_build_index` created an entry for every requested peptide length whether
-or not any source was long enough to fill it, and `nearest` guarded on
-*key presence* rather than emptiness — so an empty-but-present bucket
-skipped the graceful path and reached `argmin` over a zero-width axis.
-
-The same fact already had a correct answer by another route: a query whose
-length the proteome has no bucket for returns a clean empty row. Absent and
-empty mean the same thing here — "no self peptide of this length to compare
-against" — and now give the same answer. Unfillable lengths are also no
-longer recorded, so `peptide_lengths` stops claiming coverage the proteome
-does not have.
-
-This is reachable through `from_fasta` and `from_peptides`, the
-caller-supplied paths.
-
-**Fixed: `to_wide` silently emitted `_x` / `_y` columns (#217).** The
-annotation columns carried through from the long frame were merged against
-the generated `{model_key}_{kind}_{field}` columns with pandas' default
-suffixes. A name present on both sides renamed *both* to `_x` / `_y`: the
-canonical name then did not exist at all, `from_wide` found no value for
-it, and the prediction was lost with nothing said.
-
-```python
-to_wide(long_df)          # long_df carries an annotation "netmhcpan_affinity_value"
-# ['netmhcpan_affinity_value_x', ..., 'netmhcpan_affinity_value_y']
-from_wide(wide)["value"]  # [nan] — the 75.0 that went in is gone
-```
-
-Now refused, naming the offending column. This is the same silent
-round-trip loss as #208 and #211, one layer up at the point where the
-column names are finally assembled — and `_x` / `_y` were pandas merge
-artifacts leaking into a schema that never documented them. The realistic
-`read_lens` → `to_long` → `to_wide` path was never affected, since
-`to_long` consumes the prediction columns rather than leaving them behind
-as annotations.
+[Changes](https://github.com/openvax/topiary/compare/v5.31.0...v5.31.1)
 
 ## 5.31.0
 
-**Added: `default_versions` and `resolve_default_versions` (#214).**
-`default_methods` answered "which model, when a kind has several".
-Nothing answered "which version, when a model has several", so an
-unqualified reference on a multi-version frame raised with no configured
-way through:
+- Add `default_versions` and `resolve_default_versions`; treat unstated versions as
+  missing rather than as selectable model versions.
 
-```python
-EvalContext(df, default_versions={("pMHC_affinity", "netmhcpan"): "4.2"})
-resolve_default_versions(df)          # {("pMHC_affinity", "netmhcpan"): "4.2"}
-validate_default_versions(df, mapping)
-```
-
-Keyed on `(kind, model)` because a version is only meaningful within a
-model — `"4.2"` says nothing on its own. Forwarded by `apply_filter`,
-`apply_sort` and `evaluate_scores` like the other context options.
-
-`resolve_default_versions(df, prefer="newest")` orders by PEP 440, which
-is the only ordering where `4.10` beats `4.9`; `prefer="oldest"` serves a
-pipeline pinned to an older validated model. Versions that aren't PEP 440
-(a build tag, a date, a git hash) sort *before* everything that parses,
-so "newest" means a real release rather than whichever string sorted
-last, with the string as a deterministic tiebreak.
-
-Unconfigured behavior is unchanged — an ambiguous version still raises,
-and the error now names `default_versions` alongside the bracket form.
-
-**This was our own gap, made worse by our own fix.** 5.28.2 added the
-version-ambiguity raise so two versions of one model could no longer be
-silently resolved to whichever row came first. That was right, but it
-shipped without the way through — in the same release series whose notes
-described the identical problem one level up as "a working configuration
-turned into a hard error". Keeping both versions of a multi-version LENS
-table (#208) is what made it reachable: a consumer's default scoring
-expression could not run on that input at all.
-
-**An unknown version is not a version.** A missing `predictor_version` —
-NaN, `None`, blank, or no column at all — is the absence of a version
-claim, and both the ambiguity check and the resolver now treat it that
-way. Previously a frame with one real version alongside rows recording
-none raised `Ambiguous: ... (netmhcpan 4.2, netmhcpan nan)`, naming a
-version no caller could pass, while `resolve_default_versions` dropped
-the NaN and reported no choice to make — so feeding the resolver's own
-answer back in still crashed. A genuine disagreement between two real
-versions still raises, and the message no longer invents a third.
-
-`packaging` is now a declared dependency. It was already present
-transitively, but the version ordering depends on it, and a fallback that
-quietly demotes every version to string order is not a fallback worth
-having.
+[Changes](https://github.com/openvax/topiary/compare/v5.30.0...v5.31.0)
 
 ## 5.30.0
 
-**Added: `read_lens(..., binding_metrics=...)` (#211).** The binding-column
-map was private and `read_lens` took no mapping argument, so a consumer
-hitting an unmapped or mis-mapped column had no supported way to correct
-it locally — the only route was a topiary release. That is the real cost
-behind #208 blocking a downstream consumer outright instead of being a
-local workaround.
+- Add `read_lens(binding_metrics=...)` overrides with recorded provenance and actionable
+  unmapped-column warnings.
 
-```python
-read_lens(path, binding_metrics={
-    ("newtool", "ic50_nm"): ("affinity", "value"),
-    ("sometool", "noisy_metric"): None,   # not a prediction
-})
-```
-
-Overrides **merge over** the built-in table rather than replacing it, so
-one column can be patched without restating the other thirteen. They can
-also correct a built-in mapping, not only fill a gap.
-
-Keys are `(tool, metric)` — the same pair the unmapped-column warning
-already names, so what topiary tells you is what you pass back — and
-deliberately carry no version: a mapping keyed on the raw column name
-would stop working the moment a file spelled the version differently,
-which is the brittleness #206 removed. Tool and metric are matched
-case- and whitespace-insensitively.
-
-Values are `(kind, field)`, validated up front. An unknown kind or field
-would emit a wide-form column name that `from_wide` cannot read back, so
-the data would reach the frame and then vanish on `to_long()` — the
-failure mode this area keeps producing, and not one to hand callers a
-new way to cause.
-
-An override cannot build a frame that cannot be read back. Two columns
-of one tool mapping to the same `(kind, field)` would put a duplicate
-column in the frame — one set of values unreachable, `to_long()` raising
-"Expected a 1D array", which is exactly #208's shape. That is refused,
-naming both source columns and the name they collided on. Keys that
-could never match a column, and two keys that normalize to the same
-pair, are refused for the same reason: a validation that lets a silent
-no-op through is not doing its job.
-
-`None` declares a column is not a prediction: it silences the
-unmapped-column warning without remapping anything. The column itself is
-left alone and still reachable as `Column("sometool_1.0.noisy_metric")`
-— overriding a mapping does not delete data.
-
-**Also: the unmapped-column warning now names the `(tool, metric)` key**,
-not only the column name, so it can be pasted straight into
-`binding_metrics` without splitting the column and stripping the version
-by hand. An applied override is recorded in
-`metadata.extra["lens_binding_metrics"]`, alongside `lens_version` and
-`topiary_model_keys` — a frame whose binding columns came from a
-corrected map should not be indistinguishable from one built with the
-defaults.
+[Changes](https://github.com/openvax/topiary/compare/v5.29.0...v5.30.0)
 
 ## 5.29.0
 
-**Added: `context=` on `apply_filter` / `apply_sort` / `evaluate_scores`
-(#179).** Since #176 the three entry points took the same `group_keys` /
-`default_methods` / `kind_support` / `alleles` kwargs, so callers could
-*specify* one grouping — but each call still built its own `EvalContext`
-and recomputed the grouping, a `drop_duplicates` over the frame plus a
-row-to-group code array. Pass a prebuilt context instead and that work
-happens once:
+- Allow reuse of an `EvalContext` on the same unchanged frame and expose
+  `default_methods` on predictors and result filtering/sorting.
 
-```python
-ctx = EvalContext(df, group_keys=gk)
-affinity = evaluate_scores(df, Affinity.value, context=ctx)
-presented = evaluate_scores(df, Presentation.score, context=ctx)
-ordered = apply_sort(df, [Affinity.value], context=ctx)
-```
-
-**What is shareable is narrower than the issue's example suggests, and
-worth stating plainly: `apply_filter` and `apply_sort` both return new
-frames, so a context cannot be threaded down a filter → sort → score
-pipeline.** It is reusable across operations on one *unchanged* frame —
-several `evaluate_scores` calls for different score columns, or a filter
-and a sort keyed the same way. Passing a context built on a different
-frame raises rather than silently mapping rows to another frame's
-groups; the check is identity, not equality.
-
-`apply_filter` needs `filter_context=True` and `apply_sort` deliberately
-needs it `False`, so a shared context cannot simply be handed to both.
-New `EvalContext.derive(**overrides)` returns a context on the same
-frame with options changed, inheriting the frame-derived caches when
-`df` / `group_keys` / `alleles` are untouched and dropping them when
-they are. `apply_filter` uses it internally, so the caller's own context
-is never flipped.
-
-**Added: `default_methods` on `TopiaryPredictor` and
-`TopiaryResult.filter_by` / `sort_by` (#178).** A predictor running two
-models that produce the same kind made every unqualified reference in
-`sort_by` ambiguous, and there was no way to resolve it through the
-predictor:
-
-```python
-TopiaryPredictor(
-    models=[NetMHCpan, MHCflurry], alleles=[...],
-    sort_by=Affinity.value,                      # ValueError: Ambiguous
-    default_methods={"pMHC_affinity": "mhcflurry"},   # now resolvable
-)
-```
-
-Filtering hid this — `filter_context=True` auto-aggregates directional
-comparisons across methods — so it surfaced on the sort rather than on
-the filter that looks the same. `TopiaryResult.filter_by` / `sort_by`
-also gained `group_keys`, for a frame that acquired a provenance column
-after prediction.
-
-There is deliberately no `group_keys` on `TopiaryPredictor`: it builds
-its own frame, so the inferred grouping is right by construction, and a
-knob that can only be set wrong is not worth the surface. `kind_support`
-was already forwarded on both paths.
+[Changes](https://github.com/openvax/topiary/compare/v5.28.2...v5.29.0)
 
 ## 5.28.2
 
-**Fixed: `read_lens` collapsed two versions of one tool into one column
-(#208).** A regression introduced by 5.28.0.
+- Preserve multiple predictor versions in LENS and wide/long conversion; reject
+  ambiguous unqualified version selection.
 
-Keying binding columns on `(tool, metric)` fixed the version-brittleness
-in #206 but left the emitted name — `{tool}_{kind}_{field}` — with no
-room for a version. A table carrying both `netmhcpan_4.1b.aff_nm` and
-`netmhcpan_4.2.aff_nm` produced the column `netmhcpan_affinity_value`
-twice, one version's values were dropped, and `Metadata.models` kept
-only one. topiary said nothing: the sole signal was a pandas
-duplicate-column warning later, which doesn't name the predictor that
-lost its values, and `to_long()` raised `ValueError: Expected a 1D
-array` — so a consumer could not route around it either.
+- Derive MHC class through mhcgnomes rather than allele-name prefixes.
 
-Multi-version LENS tables are a real input shape, not a constructed
-edge case.
-
-When two versions of one tool would claim the same output column, that
-tool's columns are now qualified with the version —
-`netmhcpan_4.1b_affinity_value`, `netmhcpan_4.2_affinity_value` —
-following the convention `to_wide` already uses for the same situation,
-and topiary warns, naming the tool and the versions.
-
-The test is a genuine name collision, not merely "two version strings
-appeared for this tool". A file that spells one run's version
-inconsistently across metrics — `netmhcpan_4.1b.aff_nm` beside
-`netmhcpan_4.1.score_ba` — has no collision, and qualifying it would
-split one predictor's affinity axis into two half-populated ones,
-undoing what #206 fixed.
-
-`Metadata.models` keeps its documented `{method: version}` shape, so
-`models["netmhcpan"]` still answers for every file; where a method has
-several versions it holds one of them. The full mapping is
-`metadata.extra["topiary_model_keys"]`, which gives each emitted model
-key the `[method, version]` it was built from. A file with one version
-per tool is unchanged, down to the absence of a warning.
-
-**Fixed: `from_wide` lost the version it was handed.** Independent of
-LENS, and older. `to_wide` appends the version to the model key when one
-method has several, but `from_wide` set
-`prediction_method_name` to the whole key and left `predictor_version`
-NaN — so a round trip produced a method named `netmhcpan_4.1b` with no
-version, and a version-qualified reference like
-`Affinity["netmhcpan", "4.2"]` matched nothing.
-
-`to_wide` now records what each model key was built from in
-`attrs["topiary_model_keys"]`, and `from_wide` reads it. It does not
-guess: a method genuinely named `netmhcpan_4.1b` and an encoded
-`(netmhcpan, 4.1b)` are the same string, so stripping a trailing
-`_{version}` would rename the former. Only the writer knows which it
-made, and now it says so.
-
-**Added: the DSL refuses a silently arbitrary version.** An unqualified
-`Affinity.value` on a frame holding one method at two versions raised
-nothing and returned whichever row came first. It now raises, listing
-the versions, the way it already did for two methods.
-
-## 5.28.1
-
-**Fixed: `derive_mhc_class` classified alleles by name prefix.**
-
-It read `HLA-A/B/C` as class I and `HLA-D*` as class II, so every other
-real allele came back `pd.NA`:
-
-| allele | before | after |
-|---|---|---|
-| `HLA-E*01:01`, `-F`, `-G` | NA | I |
-| `H2-Kb` (mouse) | NA | I |
-| `H2-IAb` (mouse) | NA | II |
-| `BoLA-N*01301`, `Mamu-A1*001:01`, `SLA-1*01:01` | NA | I |
-
-`pd.NA` is not a harmless answer here: it drops a row from the
-`class_i` **and** `class_ii` filters alike, so those peptides were in
-neither view rather than in the wrong one. The non-classical human class
-I genes are the reachable case for a human pipeline; the non-human ones
-matter for anyone predicting outside *Homo sapiens*.
-
-Alleles are now parsed with mhcgnomes, which places all of the above.
-AGENTS.md has said so all along — *"Use mhcgnomes for MHC allele
-parsing. Never `startswith("HLA-")` or other string hacks — alleles
-aren't always human"* — and this was the one place in the codebase not
-following it.
-
-Distinct alleles are parsed once per call rather than once per row:
-100k rows over two distinct alleles takes ~13 ms.
-
+[Changes](https://github.com/openvax/topiary/compare/v5.28.0...v5.28.2)
 
 ## 5.28.0
 
-**Fixed: `read_lens` dropped a predictor whose version spelling it
-didn't know (#206).**
+- Recognize additional predictor-version spellings in LENS; warn about unrecognized
+  prediction columns while retaining their values.
 
-A LENS binding column is named `<tool>_<version>.<metric>`, and the
-mapping table was keyed on the whole name. `netmhcpan_4.1b.aff_nm`
-mapped; `netmhcpan_4.1.aff_nm` passed through verbatim, so that
-predictor's entire affinity axis was absent from the normalized frame —
-with nothing raised. A consumer reading normalized names could not tell
-"this tool emitted nothing" from "this tool emitted something under a
-version I don't recognize".
-
-`aff_nm` is an IC50 whichever NetMHCpan produced it, so the table is now
-keyed on `(tool, metric)` and the version is *recorded* — in
-`Metadata.models`, where it already was — rather than matched. A new
-predictor release needs no change here. Version detection had the same
-brittleness for its NetMHCstabPan marker and got the same treatment.
-
-**A column topiary doesn't recognize is now reported.** One that looks
-like predictor output but names an unknown tool or metric warns, naming
-the column. Its values stay in the frame under the original name —
-nothing is discarded — but the silence was the part that made this
-expensive to find.
-
-**Correction to the 5.27.0 notes.** They described the `allele_set`
-callable as serving "attribution decided per peptide". It doesn't.
-`allele_set` declares *the genotype a prediction was scored against*, and
-a peptide-level score is then projected to every allele group present —
-so naming one allele does not withhold the score from the others.
-Attributing a peptide-level score to some alleles and not others is a
-different operation, and one topiary does not provide. The callable is
-still useful for its actual purpose: per-prediction genotype
-declaration, where different predictions in one frame were scored
-against different allele sets.
+[Changes](https://github.com/openvax/topiary/compare/v5.27.0...v5.28.0)
 
 ## 5.27.0
 
-**`from_predictions()` can carry a consumer's own columns and per-peptide
-allele sets (#203):**
+- Allow custom columns and per-prediction genotype sets in `from_predictions`. Canonical
+  method selection remains opt-in and can change a consumer's scores.
 
-```python
-df = from_predictions(
-    predictions,
-    extra_columns={"prediction_id": ids, "peptide_offset": offsets},
-    allele_set=lambda prediction: attribution_for(prediction),
-)
-```
-
-5.26.0's version could not express two things a real consumer needs, so
-adopting it would still have meant hand-writing the frame — which is
-what the function exists to stop.
-
-`extra_columns` carries identity a prediction doesn't itself have: a
-provenance key the consumer groups by rather than letting topiary infer
-from `source_sequence_name`, or an offset belonging to the candidate a
-peptide came from rather than to the prediction object. A scalar fills
-the column; a sequence is positional, one value per prediction, and a
-length mismatch is an error rather than a silent misalignment.
-
-`allele_set` now also takes a **callable**, receiving each prediction
-(or each row, for a DataFrame input) and returning its alleles or
-``None``. Per-kind was the wrong granularity for attribution decided per
-peptide, where two peptides in one frame legitimately get different sets
-for the same kind — and the alternative, one call per candidate, doesn't
-scale to a report with ~100k of them.
-
-The 1:1 input ordering is now **documented as part of the contract**,
-since positional data depends on it. It was already true; it wasn't
-promised.
-
-## 5.26.1
-
-**Correction to the 5.24.0 notes.** They claimed the shipped
-`CANONICAL_METHOD_PREFERENCE` "matches the convention already in use
-downstream, so adopting this changes no existing scores." That was
-wrong, and the claim has been removed from the 5.24.0 entry.
-
-The orders differ in where `netmhcstabpan` sits:
-
-```
-topiary   mhcflurry, netmhcpan, netmhcpan_ba, netmhcpan_el, netmhcstabpan
-vaxrank   mhcflurry, netmhcpan, netmhcstabpan, netmhcpan_el, netmhcpan_ba
-```
-
-So a frame where two of those models produce the *same* kind resolves
-differently depending on which table was consulted — reachable for
-`pMHC_affinity`, where `netmhcpan_ba` predicts affinity directly while
-NetMHCstabPan's affinity is a by-product of predicting stability.
-Adopting topiary's table therefore does change that resolution for a
-consumer that had the other order.
-
-The order itself stands, on the rationale the docstring gives: a model
-whose output for a kind is secondary to its main job sorts after ones
-that predict it directly. What was wrong was asserting compatibility
-without checking it — the divergence is exactly the disagreement
-`resolve_default_methods` exists to end, and it was live between two
-tables while the notes said otherwise.
-
+[Changes](https://github.com/openvax/topiary/compare/v5.26.0...v5.27.0)
 
 ## 5.26.0
 
-**`predict_self_nearest` — paired MHC binding for the nearest self
-peptide (#190):**
+- Add `predict_self_nearest` for paired predictions against the nearest self peptide.
+  Comparator prediction uses peptide sequence without reference flanks.
 
-```python
-TopiaryPredictor(
-    models=[...], alleles=[...],
-    self_proteome=SelfProteome.from_fasta(path),   # your reference
-    predict_self_nearest=True,
-)
-```
+- Allow scoped fields in filters, warning when comparator columns are absent. Add
+  `from_predictions` and opt-in canonical method resolution.
 
-`SelfProteome.nearest()` already said *which* healthy peptide a
-candidate resembles. Whether that peptide is presented by the same
-allele is a separate question, and it is the one a cross-reactivity
-judgement turns on: a near-identical self peptide the patient's MHC
-never presents is not the same risk as one it does.
-
-The flag runs a second prediction pass, as `predict_wt` does, scoring
-each `self_nearest_peptide` at its row's own allele and filling
-`self_nearest_value` / `_score` / `_percentile_rank`. The columns reach
-the DSL through the `self_nearest` scope, so an exclusion is expressible
-directly — and since 5.23.0 scoped fields work in filters, which is what
-an exclusion needs:
-
-```python
-apply_filter(df, (Affinity.value <= 500) & (self_nearest.Affinity.value >= 1000))
-```
-
-The reference proteome stays the caller's: `SelfProteome` takes a FASTA,
-a peptide mapping, or Ensembl with your own `cta_source` and
-`tissue_gene_ids`. Topiary computes the comparison, not the definition
-of self.
-
-**Known limitation.** The self peptide is scored without flanking
-context — it comes from the reference proteome, and `nearest()` reports
-its gene, transcript and offset but not the residues either side. Kinds
-that read flanks (antigen processing, and presentation where its model
-uses them) are scored on the peptide alone; affinity and stability are
-unaffected.
-
-## 5.25.0
-
-**`from_predictions()` — build the long form without copying the schema
-(#194):**
-
-```python
-from topiary import from_predictions
-
-df = from_predictions(predictions)                        # Prediction objects
-df = from_predictions(model.predict_dataframe(peptides))  # or mhctools' rows
-
-df = from_predictions(
-    predictions,
-    allele_set={"pMHC_presentation": patient_alleles},    # genotype-level kinds
-)
-```
-
-A caller holding `mhctools.Prediction` objects — a report reader, a
-cache, anything that didn't run a `TopiaryPredictor` end to end — had to
-write topiary's long form by hand: the column names, the `kind` strings,
-the value / affinity / score / percentile_rank mapping, and the
-provenance columns. That is a copy of the schema topiary cannot see and
-cannot migrate, so a column added here never reaches it. `allele_set`
-(5.21.0) is the live example.
-
-The normalization is now one function, shared by `from_predictions` and
-by `TopiaryPredictor`'s own output, so the two paths cannot diverge.
-`allele_set` takes a sequence (applies to every row) or a
-`{kind: alleles}` mapping, which is what a mixed list of per-allele and
-genotype-level predictions needs.
-
-An empty input returns an empty frame **in topiary's vocabulary** rather
-than mhctools' — a caller that got `offset` and `predictor_name` back
-from an empty result would break on the frame's shape, not on its
-emptiness.
-
-## 5.24.0
-
-**Opt-in canonical method resolution (#193):**
-
-```python
-from topiary import resolve_default_methods, validate_default_methods
-
-defaults = resolve_default_methods(df)   # {"pMHC_affinity": "mhcflurry"}
-evaluate_scores(df, node, default_methods=defaults)
-```
-
-An unqualified reference to a kind produced by several models raises,
-and that stays — silently choosing a model is not something topiary
-should do behind a caller's back. What was missing is a supported way to
-say *pick the canonical one*, so every consumer wrote its own preference
-table, and two tools could disagree about what canonical means with
-nothing surfacing the difference.
-
-`resolve_default_methods` returns an entry only for kinds that actually
-have a choice. It resolves by `CANONICAL_METHOD_PREFERENCE`, which is a
-**tie-break convention, not a quality ranking**: general-purpose
-predictors ahead of ones whose output for a kind is secondary to their
-main job (NetMHCstabPan predicts stability; its affinity comes along
-with it), mode variants after the model they vary, and anything unlisted
-alphabetically after those so the answer is always deterministic. Pass
-`preference=` to override it.
-
-`validate_default_methods(df, default_methods)` reports an entry naming
-a kind or a model the frame doesn't have. `EvalContext` only consults a
-default when a kind is *actually* ambiguous, so such an entry is
-otherwise inert — and stays inert until the day two models produce that
-kind, when it starts deciding. Checking up front turns a typo in a
-config file into an error where it was written.
-
-
-## 5.23.0
-
-**Scoped fields work in filters (#192):**
-
-`wt.`, `self_nearest.`, `shuffled.` and `self.` raised `TypeError` inside
-a comparison, directing callers to sorting expressions instead. That
-blocked the standard analysis:
-
-```python
-# the mutant binds and the wildtype doesn't — differential agretopicity
-apply_filter(df, (Affinity.value <= 500) & (wt.Affinity.value >= 1000))
-```
-
-Selecting neoepitopes that way is an exclusion, and a sort cannot
-exclude. The same applies to a cross-reactivity rule on
-`self_nearest.`, which is a filter by nature.
-
-The ban never prevented the operation either — `column(wt_value) >= 1000`
-reads the same values and was always allowed — so it only made the
-scoped vocabulary unavailable for it, while leaving the identical
-failure mode reachable by the other spelling.
-
-**The hazard it was standing in for is now reported.** A comparator
-column a producer never wrote makes the expression NaN for every group,
-and NaN in a filter drops the frame. A filter reading a scope the frame
-doesn't carry now warns, naming the missing column. Outside a filter
-NaN is a sensible answer, so ranking and scoring are unaffected.
-
-
-## 5.22.1
-
-**Regression coverage for the 5.22.0 projection fix.**
-
-The test shipped with #197 used a frame where some rows of the kind
-carried a real allele. That case never reproduced the bug: the old row
-scan saw the counter-example and already answered `single_allele`, so
-the test passed before the fix as well as after it. Reproducing requires
-*every* row of the kind to be blank-allele, which is the shape the
-openvax/vaxrank#348 review found. No behavior change — 5.22.0's fix was
-correct, its regression test simply did not pin it.
-
+[Changes](https://github.com/openvax/topiary/compare/v5.22.0...v5.26.0)
 
 ## 5.22.0
 
-**`KIND_MHC_DEPENDENCE` — what a kind is about, before any rows (#195):**
+- Expose `KIND_MHC_DEPENDENCE` and `mhc_dependence`; reject malformed allele-scoped rows
+  instead of treating them as allele-free.
 
-```python
-from topiary import KIND_MHC_DEPENDENCE
-
-KIND_MHC_DEPENDENCE["pMHC_affinity"]       # "single_allele"
-KIND_MHC_DEPENDENCE["antigen_processing"]  # "none"
-```
-
-A public, model-independent default for every kind topiary knows: does
-it describe a peptide-MHC pair, or the peptide alone? The `pMHC_*` kinds
-name a pair and are per-allele; the processing-pathway kinds (cleavage,
-transport, trimming) describe the peptide. `immunogenicity` sits with
-the per-allele kinds because every mhctools predictor emitting it scores
-a peptide against an allele.
-
-Consumers previously had to maintain their own copy of this table, which
-catches completeness drift but not disagreement. It also could not be
-answered at all on external-input runs, where there is no predictor and
-therefore no `kind_support`.
-
-**One public resolver, `mhc_dependence()`:**
-
-```python
-from topiary import mhc_dependence
-
-mhc_dependence("antigen_processing")                       # "none"
-mhc_dependence(kind, kind_support=predictor.kind_support)  # a model's own statement
-mhc_dependence(kind, rows=df)                              # reads allele_set if present
-```
-
-Usable with nothing but a kind, which is the case on external-input
-runs. Evidence is consulted in order of how specific it is — a model's
-`kind_support`, then an `allele_set` in the rows, then the kind's
-default, then the rows themselves and only for a kind topiary doesn't
-know. The DSL's internal resolution is now a thin caller of this, so
-there is one implementation rather than a public and a private one free
-to diverge.
-
-`MHC_DEPENDENCE_VALUES` is re-exported from mhctools rather than
-restated — topiary had been carrying a hand-copy of the same three
-values, which is the drift this release is about.
-
-**Fixed: a malformed allele-scoped row was read as peptide-level.**
-
-Dependence resolution fell back to scanning rows, and a peptide-level
-record and an allele-scoped record that lost its allele scan the same
-way. So a `pMHC_affinity` row with a blank allele was read as
-allele-free and projected across the peptide's alleles — inventing
-binding evidence for alleles no model scored. Only the kind separates
-those two cases, and now it does:
-
-1. a predictor's `kind_support`, if supplied
-2. an `allele_set` in the rows
-3. the kind's default from `KIND_MHC_DEPENDENCE`
-4. row inspection, only for a kind this topiary doesn't know
-
-A blank allele on an allele-scoped kind now warns and stays per-allele.
-Genuinely peptide-level kinds project exactly as before.
-
-One narrowing follows: a blank-allele `pMHC_presentation` row is no
-longer projected on the strength of the blank alone. With
-`kind_support` reporting `haplotype`, or an `allele_set` in the row, it
-projects as before — but rows cannot distinguish a genotype-level
-prediction from a per-allele one that lost its allele, so without that
-evidence the conservative reading applies.
-
+[Changes](https://github.com/openvax/topiary/compare/v5.21.1...v5.22.0)
 
 ## 5.21.1
 
-**Fixed: `apply_sort`'s ranking depended on the order rows arrived in
-(#191).**
+- Make sorting with missing values deterministic and independent of input row order.
 
-The comparator skipped a key when *either* side was missing. Skipping is
-pairwise, so "equal" stopped being transitive — and `sorted` needs a
-consistent comparator. Three groups, sorting on two keys, the same data
-in three input orders:
-
-```
-input ['A', 'B', 'C'] -> ['A', 'B', 'C']   <- A (k0=1) above C (k0=2)
-input ['C', 'B', 'A'] -> ['C', 'B', 'A']
-input ['B', 'A', 'C'] -> ['B', 'C', 'A']
-```
-
-A missing sort key is the ordinary case — a peptide with no presentation
-row has no presentation score — so this was reachable without anything
-unusual, and it silently produced a different ranking depending on how
-the frame had been concatenated.
-
-**Keys are now ranked rather than compared pairwise**, which gives every
-group a definite position while keeping the property the skip was
-reaching for: a group with no value for a key takes the average rank of
-the groups that do have one, so the key neither promotes nor penalizes
-it and the remaining keys decide. Frames with no missing values sort
-exactly as before.
-
-**Also much faster.** The old comparator ran per pair in Python and was
-the dominant cost of sorting:
-
-| rows | groups | before | comparator's share |
-|---|---|---|---|
-| 100,000 | 85,000 | 2.05 s | ~100% |
-| 400,000 | 340,000 | 11.42 s | 74% |
-
-Ordering is now a single `np.lexsort` over the ranked keys.
+[Changes](https://github.com/openvax/topiary/compare/v5.21.0...v5.21.1)
 
 ## 5.21.0
 
-**`allele_set` — storing what a genotype-level prediction was scored
-against (#168):**
+- Store genotype context in `allele_set`, include it in grouping, and add
+  `Column.includes` for set membership.
 
-MHCflurry's presentation predictor in haplotype mode scores a peptide
-against a sample's whole allele list and reports the allele it
-deconvolved as the likeliest presenter. mhctools puts that one allele in
-the row, so the prediction reads exactly like a per-allele one and the
-frame loses the fact that the score is about the set. This is the
-default path: `presentation_allele_mode="auto"` resolves to haplotype
-for six alleles or fewer.
-
-```
-  peptide      allele              allele_set               kind    score
-SIINFEKLA HLA-A*02:01                              pMHC_affinity 0.240074
-SIINFEKLA HLA-B*07:02                              pMHC_affinity 0.044721
-SIINFEKLA HLA-A*02:01 HLA-A*02:01,HLA-B*07:02  pMHC_presentation 0.027879
-```
-
-`allele` keeps the best allele — nothing that reads it breaks, and the
-attribution isn't discarded. `TopiaryPredictor` writes `allele_set` for
-kinds a model reports as `mhc_dependence='haplotype'`, and the cache,
-CSV/TSV round-trip, `to_wide`/`from_wide`, and `combine_predictions`
-identity all carry it.
-
-**It joins the group keys when populated**, which is what keeps a
-genotype-level row out of one allele's group — otherwise its score is
-read as that allele's. Frames without genotype-level rows keep the
-narrower key, the same way a blank `sample_name` is left out.
-
-**It makes a frame self-describing.** `mhc_dependence` is now read from
-the set, so a genotype-level row keeps its meaning through a file, where
-`kind_support` cannot follow — the gap that motivated the column. An
-allele-scoped filter also keeps such a row alive under the same
-peptide-level rule as allele-free evidence (5.19.0).
-
-**`Column.includes()` asks the set question; `eq()` stays equality:**
-
-```python
-Column("allele").eq("HLA-B*07:02")            # the row's allele is B*07:02
-Column("allele_set").includes("HLA-B*07:02")  # the set scored includes B*07:02
-```
-
-`includes()` compares whole tokens, never substrings — allele names
-prefix one another (`HLA-A*02:01` is a prefix of `HLA-A*02:010`, both
-real alleles), so a substring test reports membership that isn't there.
-Tokens compare as stored, so writers are responsible for canonical
-names. Parses in string form as
-`column(allele_set).includes('HLA-B*07:02')` and round-trips.
-
-Deferred, as recorded on #168: per-allele attribution of genotype-level
-scores. `includes()` is literal set membership — it does not match a
-per-allele row whose own allele is the argument — and reaching the
-peptide's allele groups stays a projection (`peptide_view`) rather than
-a membership change.
+[Changes](https://github.com/openvax/topiary/compare/v5.20.1...v5.21.0)
 
 ## 5.20.1
 
-**Fixed: a labeled haplotype kind read more quietly than an unlabeled one.**
+- Apply the same haplotype projection warnings to labelled and unlabelled kinds.
 
-The auto-projection added in 5.20.0 covered `mhc_dependence='none'` only,
-so supplying correct metadata made the bare read fail *more* silently:
-
-```
-no kind_support          bare read = [0.9, 0.9, 0.9]   warns
-kind_support=haplotype   bare read = [nan, nan, 0.9]   silent
-```
-
-A haplotype prediction scores a whole genotype, and mhctools stamps the
-row with the allele it deconvolved as the best presenter. Reading it
-plainly therefore hands that joint score to one allele and leaves the
-rest of the genotype NaN — the same failure 5.20.0 fixed for
-allele-free kinds, wearing an allele name. Both peptide-level modes
-(`none` and `haplotype`) are now projected, with a warning naming
-`peptide_view(...)`.
-
-This matters on the default path: MHCflurry's
-`presentation_allele_mode="auto"` resolves to haplotype for six alleles
-or fewer, i.e. every ordinary patient genotype, and 5.18.1 made
-`TopiaryPredictor` forward `kind_support` automatically — so a
-`filter_by="presentation.score >= 0.5"` was reading NaN for every allele
-but one.
-
-`single_allele` kinds are unchanged: a plain read there returns a real
-row, and choosing which row stays with the caller.
+[Changes](https://github.com/openvax/topiary/compare/v5.20.0...v5.20.1)
 
 ## 5.20.0
 
-**A bare allele-free kind is projected instead of reading NaN (#186):**
+- Automatically project unqualified allele-free fields, with a warning; continue
+  rejecting inconsistent values for one peptide.
 
-Referencing an allele-free kind without `peptide_view()` in a grouping
-keyed by allele returned NaN for every allele group, silently — the row
-carries no allele, so it is in none of those groups and the plain read
-can never find it:
-
-```python
-evaluate_scores(df, Processing.score)   # 5.19.0: [nan, nan, 0.77]
-                                        # 5.20.0: [0.77, 0.77, 0.77] + UserWarning
-```
-
-That reading has no useful meaning, so the reference now means the one
-thing it can: the peptide's value, projected across its groups, exactly
-as `peptide_view()` does. A `UserWarning` names the explicit form, so
-the implicit behavior is greppable and migration is optional rather than
-urgent.
-
-This matters most for user-facing config: `score_expr` / `filter_expr`
-strings that read a processing kind used to work only because producers
-duplicated the allele-free row across a patient's alleles before
-evaluation. Removing that duplication — the point of #182 and #183 —
-would otherwise have left the same string parsing, validating, and
-scoring zero.
-
-**Only `mhc_dependence='none'` is treated this way.** A per-allele kind
-read plainly returns a real row, and choosing *which* row is a genuine
-decision that stays with the caller and `best_*` / `peptide_view()`.
-Explicit `peptide_view(...)` never warns, and the one-value-per-peptide
-rule is unchanged: an allele-free kind carrying two different values for
-one peptide still raises.
+[Changes](https://github.com/openvax/topiary/compare/v5.19.0...v5.20.0)
 
 ## 5.19.0
 
-**Allele-free predictions reach a genotype (#182), and survive a filter
-(#183):**
+- Project allele-free predictions onto explicit patient alleles and preserve that
+  evidence through allele-scoped filters.
 
-An antigen-processing prediction carries no allele, so it lands in a
-group of its own rather than in any of the peptide's per-allele groups.
-`peptide_view()` (5.18.0) broadcasts its value, but two things still
-stopped it from replacing the row duplication producers do by hand.
-
-**A filter on an allele-scoped kind no longer drops it.** That group
-holds no rows of the kind being filtered on, so the predicate evaluated
-to NaN — which pandas turns into False, which dropped the row and took
-the evidence out of the frame before the score expression could read it:
-
-```python
-apply_filter(df, parse("affinity.value <= 500"), group_keys=keys)
-# 5.18.0: the processing row is gone, and a later
-#         peptide_view(processing.score) reads NaN
-```
-
-An allele-free group holding none of the kinds a filter reads is now
-kept whenever the filter kept at least one of that peptide's allele
-groups. A filter that *does* read that kind still decides it, and a
-peptide excluded entirely takes its evidence with it.
-
-**`alleles=` declares the alleles to evaluate against.** Groups come
-from the rows, so a peptide whose only evidence is allele-free has no
-per-allele group for a consumer keyed by patient allele to read — and
-the genotype is not something the frame contains:
-
-```python
-evaluate_scores(df, peptide_view(Processing.score),
-                group_keys=keys, alleles=["HLA-A*02:01", "HLA-B*07:02"])
-```
-
-`alleles` is the fourth shared context option, accepted by
-`apply_filter`, `apply_sort`, `evaluate_scores` and `EvalContext`. It
-adds one group per peptide per declared allele; those groups hold no
-rows, so allele-scoped fields read NaN there — that allele has no
-prediction of its own. The frame is untouched: only the group index
-grows, so row counts out of every entry point are unchanged.
-
-Together these let a producer keep one canonical allele-free row instead
-of duplicating it across a patient's alleles.
+[Changes](https://github.com/openvax/topiary/compare/v5.18.1...v5.19.0)
 
 ## 5.18.1
 
-**`peptide_view()` resolves the allele mode from the rows it reads (#181
-follow-up):**
+- Resolve peptide-level projection from the selected model's metadata, reject
+  contradictory values and unknown dependence modes, and pass kind support through
+  object APIs.
 
-5.18.0 decided a kind's `mhc_dependence` from `kind_support` plus a scan
-of the whole frame, which let three things go wrong silently:
+- Apply scoped-field filter restrictions to best-allele fields; these restrictions are
+  lifted in 5.26.0.
 
-- A `default_methods` entry naming a model absent from the frame — the
-  normal case for a pipeline-wide default that covers another kind —
-  filtered every model out of the metadata lookup, so the projection
-  fell back to guessing from the rows. A haplotype frame with two rows
-  for one peptide became a silent `max()` instead of an error.
-- One model's allele-stamped rows reclassified another model's
-  allele-free rows: adding an unrelated per-allele processing row made
-  an explicitly method-qualified `peptide_view(processing['netchop'].score)`
-  silently `max()` away a conflict it had correctly rejected before.
-- Models that contributed no rows still triggered "models disagree", and
-  the remedy the message suggested then failed with "no predictions from
-  method matching ...".
-
-The mode is now resolved from the already-selected rows — the ones the
-expression will actually read, after kind, method and version filtering
-— and `kind_support` is consulted only for models those rows came from.
-That also removes the duplicate per-kind scan each evaluation did.
-
-**The one-value-per-peptide check no longer depends on the grouping.**
-With `allele` absent from `group_keys`, `peptide_view` returned a plain
-field read, so the same node on the same data raised for one grouping
-and silently returned `.first()` for another.
-
-**`peptide_view(kind.best_X)` on a field with no defined best direction**
-(e.g. `processing.best_value`) silently read the plain `value` column
-instead. It now says what is wrong, as the equivalent mistake on a
-peptide-level kind already did. The related error message no longer
-claims `mhc_dependence='single_allele'` "means one row per peptide" when
-the real cause is the missing direction.
-
-**Unknown `mhc_dependence` values** are reported as version skew even
-when another model reports a known value; previously the conflict check
-ran first and offered a remedy that cannot resolve an uninterpretable
-value.
-
-**`kind_support` now reaches the DSL from the object API.**
-`TopiaryPredictor(filter_by=..., sort_by=...)` and
-`TopiaryResult.filter_by` / `.sort_by` forwarded no metadata, so every
-guard that depends on `mhc_dependence` — telling `haplotype` from
-`single_allele`, the inconsistent-value error, the version-skew error,
-the `single_allele` warning — was inert on exactly the path the docs
-advertise for `--filter-by` / `--sort-by`. `TopiaryPredictor.kind_support`
-now also skips models that don't report it (older mhctools predictors,
-test doubles) instead of raising `AttributeError`.
-
-The `single_allele` warning names the expression that was written —
-`peptide_view(affinity.value)` rather than a `best_score` the user never
-typed — and points at the caller's frame.
-
-**Breaking (unannounced in 5.18.0):** the scoped-field filter guard now
-covers `BestAlleleField`, so `wt.Affinity.best_value <= 500` raises
-`TypeError` in a filter like the bare `wt.Affinity.value` always did.
-Use scoped fields in sort or score expressions instead.
+[Changes](https://github.com/openvax/topiary/compare/v5.18.0...v5.18.1)
 
 ## 5.18.0
 
-**`peptide_view()` — per-`mhc_dependence` peptide-level projection (#169):**
+- Add `peptide_view` with MHC-dependence-aware projection; fix automatic sort direction
+  for best-allele fields.
 
-The DSL reads one value per (peptide, allele) group, but which reduction
-is *correct* depends on the predictor's allele mode: best-across-alleles
-for `single_allele` kinds, a direct read for `haplotype` and allele-free
-(`none`) ones. Callers had to know which kind needed `best_*` and which
-did not, and getting it wrong read an arbitrary row.
-
-```python
-from topiary import peptide_view, Affinity, Processing
-
-0.5 * peptide_view(Processing.score) + 0.5 * peptide_view(Affinity.score)
-```
-
-The allele-free case could not be expressed at all before. An antigen
-processing row carries no allele, so it forms its own group and every
-per-allele group reads `NaN`:
-
-```python
-evaluate_scores(df, Processing.score)                # [nan, nan, 0.77]
-evaluate_scores(df, peptide_view(Processing.score))  # [0.77, 0.77, 0.77]
-```
-
-Producers worked around this by duplicating each processing row across
-the patient's alleles before handing topiary a frame. With `peptide_view`
-the frame keeps one canonical row and the value is broadcast at
-evaluation time, so `affinity <= 500 & peptide_view(processing.score) >=
-0.5` works on an unduplicated frame.
-
-The mode comes from `EvalContext(kind_support=...)`; without it, a kind
-whose rows carry no allele is treated as allele-free and everything else
-as per-allele. Inconsistent input raises rather than picking silently:
-a peptide-level kind carrying two different values for one peptide, and
-models that disagree about `mhc_dependence`, are both errors.
-
-Available in string form (`peptide_view(processing.score)`), so it works
-in `--filter-by` / `--sort-by` and in consumer config files, and it
-round-trips through `to_expr_string()`.
-
-The `single_allele` caveat is unchanged and still warns when
-`kind_support` is present: best-of-per-allele is not a joint
-multi-allele aggregate, because the predictor never saw the alleles
-together.
-
-**Fixed: `best_*` fields sorted backwards under `sort_direction="auto"`.**
-`apply_sort` inferred a sort direction only from a bare `Field`, so
-`apply_sort(df, [Affinity.best_value])` ranked the *worst* binders
-first — 5000 nM above 50 nM — while `apply_sort(df, [Affinity.value])`
-ranked them correctly. Direction is now read through the wrappers that
-reduce a field to one value per peptide (`BestAlleleField` and
-`peptide_view`), which change which row is read, never which end is
-better. Sorts that relied on the inverted order will flip; pass
-`sort_direction="desc"` explicitly to keep it.
-
-`peptide_view` also refuses input it cannot honor rather than reading
-something else: a `best_*_allele` field (an allele name is not a value
-per peptide), a scoped `wt.` / `shuffled.` / `self.` field inside a
-filter (the wrapper was a hole in that guard), an `mhc_dependence`
-value this topiary doesn't know, and a grouping with no peptide
-dimension. Peptide-level values are compared with a float tolerance, so
-a row round-tripped through a CSV and one computed in-process no longer
-disagree over the last bit.
+[Changes](https://github.com/openvax/topiary/compare/v5.17.1...v5.18.0)
 
 ## 5.17.1
 
-**Fixed: tissue expression lookups against current pirlygenes (#177):**
+- Expose explicit group keys across DSL operations; preserve null identities and support
+  single-column grouping. Context options are keyword-only and empty group-key lists
+  raise.
 
-`topiary.sources` built its per-tissue column names as `nTPM_<tissue>`,
-but pirlygenes now emits the suffix form (`<tissue>_nTPM`), matching the
-convention its own FPKM/TPM helpers accept. `available_tissues()`
-returned `[]` and `tissue_expressed_gene_ids(["heart_muscle"])` raised
-`ValueError: Unknown tissue column(s)`, taking
-`tissue_expressed_sequences` and the `--tissue` CLI paths with them.
+- Fix tissue-expression lookups against current PirlyGenes.
 
-Tissue names are now read under either spelling, so topiary works
-across pirlygenes releases rather than pinning to one of them. Unknown
-tissue names are also reported as tissue names rather than as column
-names.
-
-## 5.17.0
-
-**Explicit group keys everywhere (#175):**
-
-`apply_filter`, `apply_sort`, and `evaluate_scores` now accept the same
-three keyword-only context options — `group_keys`, `default_methods`,
-and `kind_support` — and forward all of them to `EvalContext`. Filtering,
-sorting, and scoring can therefore share one grouping and one method
-resolution instead of each entry point supporting a different subset.
-
-```python
-group_keys = ["prediction_id", "source_sequence_name", "peptide",
-              "peptide_offset", "allele"]
-
-kept = apply_filter(df, Affinity <= 500, group_keys=group_keys)
-scores = evaluate_scores(kept, Affinity.score, group_keys=group_keys)
-```
-
-This matters when a frame carries a stable provenance identity: the
-inferred group keys are sequence-oriented, so two rows sharing peptide,
-source sequence, and offset are one group even when they came from
-different variants, transcripts, or genes — and one row's filter decision
-then applies to the other. Callers that previously reimplemented
-`apply_filter` on top of `EvalContext` just to supply `group_keys` (e.g.
-vaxrank's LENS/pVACseq path) can now call `apply_filter` directly.
-
-Explicit `group_keys` are validated before anything is evaluated: a bare
-string instead of a sequence, an empty sequence, duplicate entries, and
-names that aren't columns all raise immediately, with a near-match
-suggestion, instead of failing deep inside a node. Validation also runs
-on the paths that return early (empty frame, `node=None`, no sort
-nodes), so a typo can't pass silently just because a pipeline has
-degenerated to zero rows.
-
-Frames that group key *inference* can't handle — missing one of the
-identity columns it expects — now raise a `ValueError` naming the
-missing columns and pointing at `group_keys=`, rather than a bare
-`KeyError` from inside pandas.
-
-**Fixed: null group keys silently dropped rows and scores.** `None`,
-`NaN` and `pd.NA` in an identity column are one group under
-`groupby(dropna=False)` — which every node evaluates through — but the
-group index was built from raw values, which keeps them apart, and rows
-were matched to groups by key lookup, which never matches a null key
-(`NaN != NaN`, and since Python 3.10 it hashes by identity). A frame
-mixing `None` and `NaN` in `source_sequence_name` — which
-`TopiaryPredictor` produces, since it writes `source_sequence_name =
-None` — could lose rows from `apply_filter` that its own scores said
-should pass, while `apply_sort` kept them. Null spellings are now
-collapsed once, and rows map to groups by position via the new
-`EvalContext.row_group_codes()`.
-
-**Fixed: a single group key produced empty or all-NaN results.**
-`EvalContext.group_index` built a 1-level `MultiIndex` for a single
-group key, while `DataFrame.groupby` on one key produces a flat `Index`.
-Every node result therefore reindexed to all-NaN: `apply_filter` dropped
-every row, `evaluate_scores` returned all-NaN, and `apply_sort` silently
-no-opped. `group_index` is now a flat `Index` (and `row_group_tuples`
-yields bare values) when there is one group key, matching pandas.
-Multi-key grouping is unchanged. This was reachable before via
-`EvalContext(df, group_keys=["peptide"])`; the new kwarg makes it
-reachable from all three entry points.
-
-**Blank `sample_name` is no longer an inferred group key:**
-
-`mhctools` stamps `sample_name=""` on every row of a single-sample run,
-which made group key inference prepend a constant `sample_name` level to
-every group tuple of ordinary predictor output. A `sample_name` column
-that is entirely null or blank is now ignored by inference (null-only
-columns already were). Frames that mix real names with blanks keep the
-key — there the blank is a distinguishing value — and `group_keys=` can
-still name `sample_name` explicitly.
-
-**Breaking:**
-
-- The context options are now keyword-only. Calls that passed them
-  positionally — `apply_filter(df, node, default_methods)`,
-  `evaluate_scores(df, node, group_keys, fill)` — must use keywords.
-  Positional `df`, `node` / `sort_nodes`, and `sort_direction` are
-  unchanged.
-- An empty `group_keys` sequence now raises instead of falling back to
-  inferred keys. Pass `group_keys=None` to infer.
-- `EvalContext.group_index` is a flat `Index` rather than a 1-level
-  `MultiIndex` when there is a single group key (see the fix above).
-  Code that indexed single-key results with 1-tuples must use bare
-  values.
-- Inferred group keys drop a blank-only `sample_name`, so group tuples
-  for single-sample `mhctools` output are 4-wide rather than 5-wide.
-  Consumers that materialize a group tuple and index a per-group Series
-  with it must drop the leading `sample_name` element (or pass
-  `group_keys=` explicitly to keep it).
-
+[Changes](https://github.com/openvax/topiary/compare/v5.16.2...v5.17.1)
 
 ## 5.16.2
 
-**Combine separate predictor runs (#170):**
+- Add `combine_predictions` for separate predictor runs, with strict coverage
+  checks and explicit sparse unions.
 
-`topiary.combine_predictions([a, b, ...])` combines separate
-predictor outputs into the same long-form shape produced by running
-those predictors together. It accepts `TopiaryResult` or fresh
-`TopiaryPredictor` DataFrame outputs, supports both split-by-predictor
-and split-by-allele/peptide-length runs, rejects duplicate
-`(prediction_method_name, kind, identity)` predictions, and by default
-requires every emitted `(prediction_method_name, kind)` group to cover
-the same identity grid. Use `coverage="partial"` only for deliberate
-sparse unions.
-
-Fresh `TopiaryPredictor` DataFrames now carry lightweight
-`DataFrame.attrs` model-version metadata (`topiary_models`) so this
-helper can preserve model provenance without changing the public return
-type. The emitted rows remain the source of truth for which predictor
-produced which quantities: `prediction_method_name`, `predictor_version`,
-`kind`, and the value/rank columns are not duplicated into separate
-`kind_support` metadata.
-
-`TopiaryPredictor(name=...)` now optionally records per-run provenance
-in a `prediction_run_name` column. This is intended for split predictor
-grids such as one NetMHCpan run per allele/peptide length: the logical
-method remains `prediction_method_name="netmhcpan"`, while
-`prediction_run_name` records the shard. `combine_predictions`
-and `to_wide()` treat the run name as provenance, not as a separate
-prediction identity, so disjoint shards combine cleanly and overlapping
-shards still fail as duplicate predictions.
-
-`combine_predictions` also treats `sample_name` as part of the
-implicit row identity when present, matching `to_wide()` grouping for
-multi-sample predictor outputs.
-
-The combine docs now spell out the recommended allele-grid strategy:
-split NetMHCpan-style per-allele predictors can be combined under
-`coverage="complete"`, while intentionally sparse grids such as
-MHCflurry haplotype-mode presentation should use `coverage="partial"`
-and the ranking DSL's `best_*_allele` accessors for allele attribution.
-
-`TopiaryResult` now treats long/wide representation as an internal,
-cached view concern. Results expose `long_df` and `wide_df` on demand,
-`to_long()` / `to_wide()` return results with that active `df` view,
-and `topiary.stack_results()` normalizes mixed-form TopiaryResults
-internally rather than requiring callers to pre-convert them.
-
-Result merging now has user-facing names for the two distinct operations:
-use `stack_results` / `result.stack_with(...)` when inputs are independent
-result sets (files, samples, cohorts), and use `combine_predictions` /
-`result.combine_predictions(...)` when inputs are complementary predictor
-outputs for the same logical identity grid.
+[Changes](https://github.com/openvax/topiary/compare/v5.16.1...v5.16.2)
 
 ## 5.16.1
 
-**pirlygenes 5.1.0 integration:**
+- Add `read_pvacseq`, MHC-class filters, mutation-overlap annotations, and categorical
+  DSL comparisons.
 
-`tissue_expressed_gene_ids` and `available_tissues` in
-`topiary.sources` now call the typed
-`pirlygenes.pan_cancer_expression()` accessor introduced in
-pirlygenes 5.1.0 instead of indexing
-`load_all_dataframes_dict()["pan-cancer-expression.csv"]`. pirlygenes
-5.0.x had stripped the expression CSVs entirely, which broke the
-tissue-exclusion path with a `KeyError` for anyone on that release
-line; the 5.1.0 restore puts the data back next to the curated gene
-lists, and the new accessor is the canonical handle.
+- Update tissue-expression integration for PirlyGenes 5.1.0.
 
-`_check_pirlygenes` now also enforces `pirlygenes>=5.1.0` so a stale
-install surfaces a clear upgrade message rather than a downstream
-`AttributeError`. pirlygenes remains an optional dependency — only
-the CTA / tissue-exclusion paths require it.
-
-## 5.16.0
-
-**pVACseq report loader (#94):**
-
-`topiary.read_pvacseq(path)` parses both pVACtools output flavors into
-long form: aggregated (`*.all_epitopes.aggregated.tsv`, one row per
-variant) and the unaggregated `*.all_epitopes.tsv` (one row per
-candidate peptide × allele × length). Format and MHC class are
-auto-detected; the Median MT IC50 / percentile populate
-`value` / `percentile_rank` with `prediction_method_name="pvacseq"`,
-and WT IC50 / percentile populate the `wt_*` schema so DSL expressions
-like `wt.Affinity.value` and `Affinity.value - wt.Affinity.value` work
-without further setup.
-
-For missense aggregated rows the WT peptide sequence is reconstructed
-from `Best Peptide` + `Pos` + `AA Change` (the aggregated TSV doesn't
-ship the WT sequence). Indel / frameshift / multi-residue rows leave
-`wt_peptide` NaN; users wanting full WT context for those should load
-the unaggregated `all_epitopes.tsv` flavor, which carries
-`WT Epitope Seq` directly.
-
-Per-algorithm score columns in the all_epitopes flavor (e.g.
-"NetMHCpan MT IC50 Score", "MHCflurry WT Percentile") pass through as
-snake_cased `pvacseq_<algo>_{ic50,pct}_{mt,wt}` annotation columns,
-reachable via `Column("...")`. They are not melted into separate
-`prediction_method_name` rows, so the DSL's `Affinity['netmhcpan']`
-selector won't find them — callers wanting per-algorithm DSL access
-should melt them out themselves or re-predict via `TopiaryPredictor`.
-
-Multiple files (MHC-I + MHC-II, or a mix of flavors) compose through
-`topiary.stack_results([read_pvacseq(p1), read_pvacseq(p2)])`; no dedicated
-multi-file entry point is exposed.
-
-Loader-derived columns aligned with `TopiaryPredictor` output so
-downstream consumers (vaxrank, etc.) don't have to special-case the
-loader source:
-
-- `mhc_class` (`"I"` / `"II"`) — derived from the allele string;
-  lets stacked MHC-I + MHC-II results be filtered or split by class.
-- `contains_mutant_residues` (boolean) — true iff the row's mutation
-  position falls inside the candidate peptide; false for flanking-only
-  peptides that pVACseq scored but where the mutation lies outside.
-- `mutation_start_in_peptide` / `mutation_end_in_peptide` (Int64,
-  0-based half-open) — derived from pVACseq's 1-based Pos / Mutation
-  Position.
-- `source` — per-row provenance label, matching `read_tsv`
-  convention; keeps multi-file stacks distinguishable without rooting
-  through `Metadata.sources`.
-
-`Metadata.extra["kind_support"]` mirrors `TopiaryPredictor.kind_support`
-shape (`model_key -> {kind -> {mhc_dependence, mhc_class}}`) so the
-loaded result can be passed straight to `apply_filter(... ,
-kind_support=r.extra["kind_support"])` / `evaluate_scores(...)` without
-constructing a parallel metadata dict.
-
-`melt_pvacseq_algorithms(result)` expands the all_epitopes flavor's
-per-algorithm `pvacseq_<algo>_<field>_<mtwt>` columns into separate
-`prediction_method_name=<algo>` rows so the DSL's
-`Affinity['mhcflurry'].value` / `Affinity['netmhcpan'].score` selectors
-reach individual scoring algorithms natively.  The Median rows
-(`prediction_method_name="pvacseq"`) are preserved; melt is a no-op on
-aggregated input.
-
-**DSL: categorical equality / membership for string columns:**
-
-The filter DSL gains `Column.eq(value)`, `Column.ne(value)`, and
-`Column.isin(values)` methods, plus a new `IsIn` node, so `mhc_class`,
-`source`, `gene`, and other non-numeric columns are filterable
-natively without pandas-side pre-masking:
-
-```python
-apply_filter(df, Column("mhc_class").eq("I"))
-apply_filter(df, Column("mhc_class").isin(["I", "II"]))
-apply_filter(df, (Affinity.value <= 500) & Column("mhc_class").eq("I"))
-```
-
-The string parser accepts string literals on the right-hand side of
-`==` and `!=` (still rejected with `<` / `<=` / `>` / `>=`):
-
-```python
-parse('mhc_class == "I"')
-parse('affinity.value <= 500 & mhc_class != "II"')
-```
-
-`IsIn` reads its column raw (bypasses `Column`'s float cast), so any
-dtype works.  `DSLNode.__eq__` is intentionally *not* overridden —
-nodes stay hashable for sets/dicts — these methods are the supported
-path for categorical equality.
-
-Why: vaxrank's typical filter shape combines numeric clauses with
-class-I/class-II / provenance discriminators in one expression.
-Pre-5.16.0 the categorical clause had to be applied as a pandas mask
-before `apply_filter`; now both clauses compose in one DSL expression.
-
-**Pre-built MHC-class filters:**
-
-`topiary.class_i` and `topiary.class_ii` are pre-built `IsIn` nodes
-referencing the `mhc_class` column.  Compose like any other DSL node:
-
-```python
-apply_filter(df, class_i & (Affinity.value <= 500))
-apply_filter(df, class_i | class_ii)
-```
-
-Both require the `mhc_class` column (present after `read_pvacseq`,
-absent from fresh `TopiaryPredictor` output where class lives in
-`kind_support` at the model level).  For freshly predicted DataFrames,
-`topiary.derive_mhc_class(allele_series)` returns a Series of `"I"` /
-`"II"` / `pd.NA` derived from allele strings — assign it to
-`df["mhc_class"]` and the shortcuts work.
+[Changes](https://github.com/openvax/topiary/compare/v5.15.0...v5.16.1)
 
 ## 5.15.0
 
-**Backfill `value` from `score` for [0, 1]-score predictor kinds (#165):**
+- Populate raw values from scores for prediction kinds whose values are defined on the
+  same [0, 1] scale.
 
-`TopiaryPredictor.predict_from_named_sequences` (and the rest of the
-predict pipeline) used to leave `value` as `NaN` for prediction kinds
-whose primary output is the [0, 1] score itself — most visibly
-`pMHC_presentation`, but also `antigen_processing` and the other kinds
-mhctools models without a distinct unit. Downstream consumers reading
-`value` uniformly across kinds tripped on the resulting NaNs: strict
-`simplejson.dumps` rejects them, `sorted()` is undefined on them, and
-arithmetic on `value` silently propagated NaN. Vaxrank just hit this in
-3.0.1 and worked around it in 3.0.2.
-
-A new `_backfill_value_from_score` helper populates `value` from `score`
-for any row whose `kind` is *not* in `mhctools.VALUE_BEST_DIRECTIONS`
-(i.e. whose `value` has no distinct unit). Unit-bearing kinds —
-`pMHC_affinity` (IC50 nM) and `pMHC_stability` (half-life) — are
-explicitly skipped, so a NaN `value` on those kinds stays NaN rather
-than being silently misrepresented as a [0, 1] score. The helper is
-applied uniformly across the producer surface:
-
-- `TopiaryPredictor._format_prediction_df` (the main predict path)
-- `CachedPredictor._bindings_to_dataframe` and
-  `_predictions_to_dataframe` (cached-predictor outputs, including
-  mhcflurry's class1_presentation pipeline and NetMHCpan `-BA`)
-
-`affinity` continues to be populated only for `pMHC_affinity` rows, so
-that column's semantics are unchanged.
-
-After this change the long-format schema is uniform: `value` is the
-predictor's primary numeric output for every row (IC50 for affinity,
-probability for presentation, ...) and `score` is the [0, 1] ranking
-score (equal to `value` for presentation, derived from IC50 for
-affinity).
+[Changes](https://github.com/openvax/topiary/compare/v5.14.1...v5.15.0)
 
 ## 5.14.1
 
-Raise the varcode floor to `>=4.18.0`, the first varcode release that
-drops PyVCF3 from the runtime import path. Together with topiary's
-existing lazy varcode imports (5.10.7) this closes #122: a fresh
-install no longer surfaces rpy2 / embedded-R noise when importing
-varcode or running varcode-dependent topiary workflows.
+- Require Varcode 4.18.0, which removes PyVCF3 from the runtime import path and
+  avoids embedded-R import noise.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.14.0...v5.14.1)
 
 ## 5.14.0
 
-**Peptide properties as DSL nodes (#95):**
+- Expose peptide properties as DSL nodes.
 
-The peptide-property registry (`Charge`, `Aromaticity`,
-`Hydrophobicity`, `MolecularWeight`, plus the manufacturability and
-immunogenicity entries) now exposes each property as a DSL node, so
-ranking expressions can mix peptide-intrinsic properties with the
-existing kind accessors:
+[Changes](https://github.com/openvax/topiary/compare/v5.13.0...v5.14.0)
 
-    score = (
-        Affinity.value.norm(mean=500, std=200)
-        + 0.1 * Aromaticity.clip(lo=0, hi=3)
-        - 0.1 * abs(Charge)
-    )
+## 5.13.0
 
-The string parser recognizes property names as atoms in both bare and
-scoped positions: `parse("charge >= 0 & aromaticity <= 3")`,
-`parse("wt.hydrophobicity")`. Property nodes always recompute from
-the `peptide` column, so they work on any predictions frame without
-calling `add_peptide_properties` first.
+- Add best-allele aggregation for haplotype-mode presentation.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.12.0...v5.13.0)
+
+## 5.12.0
+
+- Export `KIND_ALIASES` as a public constant.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.11.0...v5.12.0)
+
+## 5.11.0
+
+- Carry mhctools `kind_support` metadata through Topiary predictors.
+
+[Changes](https://github.com/openvax/topiary/compare/v5.10.8...v5.11.0)
 
 ## 5.10.8
 
-**Restore Varcode CLI parser delegation:**
+- Restore Varcode's CLI argument parser while retaining lazy non-CLI imports.
 
-- Reverted Topiary's local copy of Varcode variant CLI arguments so
-  `topiary.cli.args` again delegates `add_variant_args` and
-  `variant_collection_from_args` to `varcode.cli`.
-- Kept the narrower lazy imports for non-CLI Varcode helpers, so plain
-  `import topiary` still avoids loading Varcode.
+[Changes](https://github.com/openvax/topiary/compare/v5.10.7...v5.10.8)
 
 ## 5.10.7
 
-**Lazy Varcode imports (#122):**
+- Delay Varcode imports until variant-dependent operations run.
 
-- Topiary's CLI now registers Varcode-compatible variant arguments locally
-  and imports Varcode only when the variant-loading pipeline runs.
-- Moved Varcode imports in filtering and protein-change helpers into the
-  functions that actually need Varcode objects.
-- Added import-guard tests so `import topiary` and direct CLI parser setup do
-  not load Varcode or its VCF dependency stack.
+[Changes](https://github.com/openvax/topiary/compare/v5.10.6...v5.10.7)
 
 ## 5.10.6
 
-**CachedPredictor index memory footprint (#134):**
+- Reduce cache index memory use and speed up peptide/allele/length lookups.
 
-- `CachedPredictor` now stores row positions in its internal key index
-  instead of duplicating each cached row as a Python dictionary.
-- Added a prefix index for `(peptide, allele, peptide_length)` lookups
-  so cache hits no longer scan every full row key.
+[Changes](https://github.com/openvax/topiary/compare/v5.10.5...v5.10.6)
 
 ## 5.10.5
 
-**Deploy script interpreter selection (#149):**
+- Use one configurable Python interpreter for deployment and remove stale build outputs
+  before packaging.
 
-- `deploy.sh` now uses one configurable Python interpreter throughout
-  the release flow (`PYTHON=${PYTHON:-python3}`), including version
-  detection, the PyPI version check, build, and twine upload.
-- The build step removes both `dist/` and `build/` before packaging so
-  stale local build outputs cannot shadow the PyPA `build` module.
+[Changes](https://github.com/openvax/topiary/compare/v5.10.4...v5.10.5)
 
 ## 5.10.4
 
-**DSL version syntax cleanup:**
+- Remove experimental colon-separated version syntax; use
+  `mhcflurry[release-2.2.0]:ba.score`.
 
-- Removed the experimental `model:version:kind` string form, e.g.
-  `mhcflurry:release-2.2.0:ba.score`. Use bracketed model versions
-  instead: `mhcflurry[release-2.2.0]:ba.score`.
-- Kept the compact dash form for numeric-leading versions, e.g.
-  `mhcflurry-4.1b:affinity.score`.
-- Documented the recommended string DSL syntax separately from accepted
-  compatibility aliases.
+[Changes](https://github.com/openvax/topiary/compare/v5.10.3...v5.10.4)
 
 ## 5.10.3
 
-**Quote-free model-qualified kind syntax (#150):**
+- Accept quote-free model-qualified DSL forms such as `mhcflurry:affinity` and bracketed
+  model versions.
 
-- The string DSL now accepts `mhcflurry:affinity`,
-  `affinity:mhcflurry`, and `mhcflurry.affinity` as aliases for
-  `affinity[mhcflurry]` / `affinity['mhcflurry']`.
-- Model-first syntax can attach versions directly to the model:
-  `mhcflurry[2.1.5]:ba.score` parses like
-  `affinity[mhcflurry, 2.1.5].score`. Version slots accept common
-  unquoted labels such as `4.1b`, `v2.1`, `release-2.2.0`, and
-  `2.2.1+release-2.2.0`.
-- Colon-separated version forms are also accepted:
-  `mhcflurry:release-2.2.0:ba.score` and
-  `mhcflurry-4.1b:affinity.score`.
-- These aliases compose with fields, transforms, and scopes, e.g.
-  `netmhcpan:ba.score`, `mhcflurry[2.1.5]:processing.score`, and
-  `wt.mhcflurry[2.1.5]:ba.score`.
-- Existing bracket and underscore forms remain supported and canonical
-  string output still emits bracket form for deterministic round trips.
+[Changes](https://github.com/openvax/topiary/compare/v5.10.2...v5.10.3)
 
 ## 5.10.2
 
-**Wildtype MHC scoring (#123):**
+- Add `predict_wt=True` and `--predict-wt`; join wildtype scores by model, version,
+  kind, allele and peptide length. Rows without a compatible WT peptide retain missing
+  scores.
 
-- `TopiaryPredictor(predict_wt=True)` now scores populated
-  `wt_peptide` values with the configured MHC model(s) and attaches
-  `wt_value`, `wt_score`, `wt_affinity`, `wt_percentile_rank`,
-  `wt_prediction_method_name`, and `wt_predictor_version`.
-- WT predictions are joined back by allele, peptide length, prediction
-  kind, method, and version so affinity and presentation rows stay
-  aligned.
-- Rows without a length-compatible WT peptide keep NaN `wt_*`
-  prediction values.
-- The CLI now exposes the same behavior with `--predict-wt`, enabling
-  `wt.*` sort expressions on variant-derived outputs.
-- WT scoring uses the baseline protein context, not isolated peptide
-  scoring, so context-sensitive predictors keep the correct flanks.
+[Changes](https://github.com/openvax/topiary/compare/v5.10.1...v5.10.2)
 
 ## 5.10.1
 
-**CLI validation errors:**
+- Report missing CLI inputs and prediction sources as argument errors.
 
-- Bare `topiary` invocations and other missing-argument validation
-  failures now render as normal argparse errors with usage text instead
-  of printing the full parsed namespace followed by a traceback.
-- Missing prediction requests report both required parts: an MHC source
-  (`--mhc-predictor` or cached predictions) and an input source.
+[Changes](https://github.com/openvax/topiary/compare/v5.10.0...v5.10.1)
 
 ## 5.10.0
 
-**`evaluate_scores(df, node)` — row-aligned DSL helper (#126):**
+- Add row-aligned `evaluate_scores`, `default_methods` for multi-model DSL evaluation,
+  and bare model identifiers in kind brackets.
 
-- New `topiary.evaluate_scores(df, node, group_keys=None, fill=nan)`
-  evaluates a DSL node against a DataFrame and returns a Series
-  aligned 1:1 with `df.index` (one value per row, broadcast from the
-  peptide-allele group).
-- Replaces the four-line pattern every DSL consumer wrote by hand:
-  build `EvalContext`, call `node.eval(ctx)` (indexed by
-  `ctx.group_index`), map via `ctx.row_group_tuples()` to row
-  alignment, attach `df.index`.
-- `fill` controls NaN behavior for rows whose group wasn't scored —
-  default `NaN`, override with `0.0` for additive scoring, `-inf`
-  for ranking, etc.
-- Exported from `topiary.ranking` and as `topiary.evaluate_scores`.
+- Unqualified directional filter comparisons accept a candidate when any model passes.
 
-**Bare identifier inside kind-qualified brackets (#119):**
+[Changes](https://github.com/openvax/topiary/compare/v5.9.1...v5.10.0)
 
-- The string DSL now accepts `affinity[netmhcpan]` and
-  `affinity[netmhcpan, "4.1b"]` in addition to the previously required
-  `affinity['netmhcpan']` / `affinity['netmhcpan', '4.1b']`.  Bare
-  identifiers read more cleanly in YAML configs, where
-  `"affinity[netmhcpan] <= 500"` drops the nested-quote gymnastics of
-  `"affinity['netmhcpan'] <= 500"`.
-- Non-IDENT values (e.g. a version string `"4.1b"` that starts with a
-  digit or contains a dot) still require quotes.
-- Fully backwards compatible — every previously-valid expression
-  still parses.  `to_expr_string()` continues to emit the
-  single-quoted canonical form, so round-trips stay deterministic.
+## 5.9.1
 
-**Filter-context auto-aggregation across methods (#118):**
+- Clarify newcomer documentation and add repository contribution/release instructions.
 
-- Inside `apply_filter` (and `TopiaryPredictor(filter_by=...)`), an
-  unqualified kind reference (`Affinity <= 500`, `presentation.rank <=
-  2.0`, ...) no longer raises `Ambiguous: multiple models produce ...`
-  when the DataFrame has multiple `prediction_method_name` values for
-  that kind. Instead, the comparison is evaluated per method and
-  combined via `nanmin` (for `<`/`<=`) or `nanmax` (for `>`/`>=`) —
-  the "any method passes" interpretation.
-- Scope is narrow on purpose: only directional `Comparison` nodes
-  (`<`, `<=`, `>`, `>=`), only when evaluated under a filter context
-  (`apply_filter` sets `EvalContext.filter_context=True`), only when
-  all unqualified refs in the comparison are the same kind. `==` /
-  `!=`, `apply_sort`, scalar score expressions, and cross-kind
-  comparisons (`affinity.rank <= processing.rank`) keep the strict
-  ambiguity error.
-- `EvalContext(df, filter_context=True)` is now public — callers who
-  hand-roll eval outside `apply_filter` can opt in explicitly.
-- Single-method frames take the strict path (no behavior change).
-- Complements `EvalContext(default_methods=...)` (#140): if a default
-  resolves the unqualified ref, `Field.eval` returns before this
-  branch runs, so `default_methods` takes precedence.
-
-**EvalContext `default_methods` for multi-predictor frames (#140):**
-
-- `EvalContext(df, default_methods={...})` — resolve unqualified
-  `Affinity` / `Presentation` / etc. references when a DataFrame has
-  multiple `prediction_method_name` values for the same kind. Without
-  it, the ambiguity check still raises (behavior unchanged).
-- Keys accept canonical kind names (`"pMHC_affinity"`), DSL short names
-  (`"affinity"`, `"ba"`, `"el"`, ...), or mhctools `Kind` constants.
-- `apply_filter(df, node, default_methods=...)` and
-  `apply_sort(df, nodes, default_methods=...)` forward the kwarg.
-- Error message on ambiguous unqualified access now points users at
-  `default_methods` as the opt-in escape hatch.
-
-Context: multi-predictor pipelines (e.g. LENS emitting MHCflurry
-+ netMHCpan + netMHCstabpan) previously had to either qualify every
-DSL expression with `['modelname']` or pre-subset the DataFrame to one
-method per kind. `default_methods` is the declarative escape hatch;
-filter-context auto-agg is the pragmatic default for filter
-top-levels, while sort and score stay strict to avoid silent
-semantics on compound arithmetic like `0.5*ba.score + 0.5*el.score`.
+[Changes](https://github.com/openvax/topiary/compare/v5.9.0...v5.9.1)
 
 ## 5.9.0
 
-**SelfProteome part B (#138):**
+- Rename the self-proteome `scope` argument to `include`; add protected-tissue
+  selection, BLOSUM62 distances and one-residue indel candidates.
 
-- Renamed `scope=` → `include=` on `from_ensembl` / `from_fasta`.
-- `include="protected_tissues"` — filters to genes expressed in named
-  tissues. Human defaults via pirlygenes/HPA; any species via explicit
-  `tissue_gene_ids=` set.
-- BLOSUM62 distance metric (default). Conservative substitutions
-  (I↔L) produce lower distances than non-conservative (I↔W). Loaded
-  lazily from Biopython. `metric="hamming"` kept as opt-in.
-- 1aa indel candidates (`include_indels=True`, default). Checks
-  deletion (L-1) and insertion (L+1) neighbors via hash-set lookup.
-  Indel at edit_distance=1 beats substitution at edit_distance≥2.
-- 39 self_proteome tests (up from 25).
+[Changes](https://github.com/openvax/topiary/compare/v5.8.0...v5.9.0)
 
 ## 5.8.0
 
-**New feature — `SelfProteome` for cross-reactivity analysis (#135, part A of #124):**
+- Add `SelfProteome` for nearest-self sequence lookup from Ensembl, FASTA or explicit
+  peptides, with optional CTA exclusion.
 
-- `SelfProteome` class holds a species-tagged, scope-filtered reference
-  protein corpus indexed by peptide length.  Answers per-query
-  nearest-neighbor lookups: "given this mutant peptide, what's the most
-  similar peptide in healthy human self?"
-- Constructors: `from_ensembl(species, release, scope=...)`,
-  `from_fasta(path)`, `from_peptides(dict)` (test/programmatic use).
-- `scope="all"` (whole proteome) and `scope="non_cta"` (default for
-  human — strips cancer-testis-antigen genes via pirlygenes).
-  Non-human species must supply `cta_source=` explicitly; unsupported
-  combos raise with actionable messages.
-- SIMD-vectorized Hamming-distance search against int8-encoded
-  reference arrays, chunked for memory bound.  Substitutions only
-  in this release.
-- `TopiaryPredictor(self_proteome=ref)` integration — `self_nearest_*`
-  columns (`self_nearest_peptide`, `_peptide_length`, `_edit_distance`,
-  `_gene_id`, `_transcript_id`, `_reference_offset`,
-  `_reference_version`) attached before filter/sort so DSL expressions
-  can reference them.
-- Composite `reference_version` property captures species + release +
-  scope identity; custom CTA filters hash into the string for
-  reproducibility.
-- New `docs/self_proteome.md` page + nav entry.
-
-**Deferred to parts B/C (#124):**
-
-- `scope="protected_tissues"` (HPA / GTEx tissue filtering).
-- 1aa insertion / deletion candidates.
-- BLOSUM62-weighted distance metric.
-- `self_mimic_*` / `self_strongest_nearby_*` binding-aware axes.
-- `self_nearest_candidates` structured column.
-- Seed-and-extend indexing algorithm (benchmark-driven).
-- Bundled self-proteome × common-HLA prediction artifacts.
-
-**Tests:** 25 new in `tests/test_self_proteome.py`.  Full suite 1166
-passed (up from 1141).
+[Changes](https://github.com/openvax/topiary/compare/v5.7.0...v5.8.0)
 
 ## 5.7.0
 
-**CachedPredictor — CLI, multi-kind, flanks, NetMHC fixtures (#136).**
+- Preserve separate prediction kinds in cached outputs, parse multi-allele NetMHC output
+  correctly, and include flanks in cache keys. Generic TSV caches now require `kind`.
 
-**CLI support for cached predictions:**
-
-- New `--mhc-cache-file` / `--mhc-cache-directory` CLI arguments let
-  users run topiary entirely from pre-computed prediction files without
-  invoking a live MHC predictor.
-- `--mhc-cache-format` is optional — topiary sniffs the format from
-  file content (NetMHC-family preamble lines, mhcflurry column names,
-  topiary-output schema, Parquet magic bytes).  Only the generic `tsv`
-  format requires an explicit flag.
-- `--mhc-predictor` and `--mhc-alleles` become optional when a cache
-  supplies predictions.
-
-**Multi-kind cache (closes #137):**
-
-- Cache index expanded from `(peptide, allele, peptide_length)` to a
-  6-tuple `(peptide, allele, peptide_length, kind, n_flank, c_flank)`.
-  A single cache holds every kind a predictor emits — mhcflurry's
-  class1_presentation pipeline (affinity + presentation + processing),
-  NetMHCpan `-BA` (affinity + presentation), etc.  No more silent
-  data loss from single-kind heuristics.
-- `from_mhcflurry` explodes wide-format CSVs into one row per
-  `(peptide, allele, kind)`, preserving `n_flank` / `c_flank` /
-  `source_sequence_name` / `peptide_offset` / `sample_name` per kind.
-- `from_netmhcpan_stdout` switches to `parse_netmhcpan_to_preds`
-  (mhctools' multi-kind API), returning all kinds instead of collapsing
-  by mode.  Dropped `mode=` kwarg (no longer meaningful).
-- Generic TSV loader (`from_tsv`) now requires a `kind` column per row.
-  Multi-kind TSVs work natively — add a kind column and list one value
-  per row.
-
-**Multi-allele NetMHC parsing fixed:**
-
-- `parse_netmhcpan_to_preds` handles multi-allele stdout correctly
-  (per-allele header lines that crashed the old
-  `parse_netmhcpan_stdout` are no longer an issue).  Multi-allele
-  fixtures promoted from xfail to happy-path tests.
-
-**Flank sensitivity in cache key:**
-
-- `n_flank` / `c_flank` are now part of the composite key.  mhcflurry's
-  processing and presentation predictions depend on flanking residues;
-  the same peptide at different protein positions can produce different
-  scores.  Absent flanks normalize to empty string `""` (no None/NaN
-  handling quirks).
-
-**Real NetMHC-family fixtures:**
-
-- `tests/data/netmhc_fixtures/` — captured from netmhc-bundle binaries
-  for peptide SLLQHLIGL at HLA-A*02:01 / A*24:02 / B*07:02.
-  NetMHCpan 4.0 + 4.1, NetMHC 4.0, NetMHCstabpan, single-allele +
-  multi-allele variants.  6 real-fixture tests pin actual numeric
-  predictions through the loaders.
-
-**README reorder:**
-
-- "MHC prediction models" moved near the top (after "Predicting MHC
-  binding"); "Cached predictions" moved to the end.
-
-**Tests:**
-
-- 1141 tests pass (up from 1111 in v5.6.0).  9 new CLI integration
-  tests, 6 real-fixture tests, 3 promoted multi-allele happy-path
-  tests, multi-kind + multi-flank regression tests.
+[Changes](https://github.com/openvax/topiary/compare/v5.6.0...v5.7.0)
 
 ## 5.6.0
 
-**Closes #128 — `CachedPredictor` reaches feature-complete.**
+- Add NetMHC-family cache loaders and cache sharding with `concat`/`from_directory`,
+  including explicit overlap policies.
 
-**New loaders for the DTU NetMHC suite (#132):**
+- Validate fallback identities and reject saving an unidentified empty cache.
 
-- `CachedPredictor.from_netmhcpan_stdout(path, mode=…)` — auto-detects
-  NetMHCpan 2.8 / 3 / 4 / 4.1. `mode` selects `"binding_affinity"` or
-  `"elution_score"` for 4+.
-- `CachedPredictor.from_netmhc_stdout(path, version=…)` — classic
-  NetMHC 3 / 4 / 4.1.
-- `CachedPredictor.from_netmhcpan_cons_stdout(path)` — NetMHCcons.
-- `CachedPredictor.from_netmhciipan_stdout(path, version=…)` —
-  NetMHCIIpan legacy / 4 / 4.3.
-- `CachedPredictor.from_netmhcstabpan_stdout(path)` — NetMHCstabpan
-  pMHC-stability predictor.
-
-Each loader wraps an existing `mhctools.parsing.*_stdout` function
-(zero new parsing code) and parses the tool version out of the
-stdout preamble onto `predictor_version`. Parses stdout text, not
-the `-xlsfile` tab-delimited variant — flagged in `docs/cached.md`.
-
-**Sharding — `concat` + `from_directory`:**
-
-- `CachedPredictor.concat([caches], on_overlap=…)` — merge several
-  caches into one. All shards must share `(name, version)` per the
-  core invariant.
-- `CachedPredictor.from_directory(path, pattern="*", on_overlap=…)` —
-  glob a directory and concat every matching file through
-  `from_topiary_output`.
-- Overlap resolution policies (`on_overlap`): `"raise"` (default — fail
-  if any `(peptide, allele, peptide_length)` appears in more than one
-  shard), `"last"` (later shard wins), `"first"` (earlier wins), or a
-  user-supplied `callable(row_a, row_b) -> row` resolver.
-
-**Polish from vaxrank-consumer review on #130 (#131):**
-
-- `_fallback_resolve` filters fallback output to keys not already in
-  the index before merging, so a partial-allele cache (peptide P
-  present for allele A, missing for B) doesn't see its `(P, A)` row
-  silently overwritten by the fallback's all-alleles response.
-- Class docstring now flags silent peptide-length lock-in and
-  non-thread-safety.
-- `save()` raises on an empty never-queried cache with no identity,
-  so users don't write schema-only files that can't be round-tripped.
-
-**Tests:**
-
-- 59 tests in `tests/test_cached_predictor.py` (up from 41): 6 NetMHC
-  loader tests, 12 sharding tests. Full suite 1111 passed (up from
-  1093).
+[Changes](https://github.com/openvax/topiary/compare/v5.5.0...v5.6.0)
 
 ## 5.5.0
 
-**New feature — `CachedPredictor`:**
+- Add `CachedPredictor` with dataframe, TSV, Topiary and MHCflurry loaders, strict
+  model/version identity, and live fallback.
 
-- Pluggable prediction source (part 1 of #128) that loads MHC binding
-  predictions from a pre-computed table and plugs into
-  `TopiaryPredictor(models=…)` alongside live mhctools predictors.
-  Use cases: reproducibility, iterating on filters/ranking without
-  rerunning the predictor, per-allele / per-sample parallel
-  predictions, ingesting output from tools topiary doesn't natively
-  run.
-- Loaders shipped: `CachedPredictor.from_dataframe`,
-  `from_topiary_output` (Parquet / TSV), `from_tsv` (generic with
-  column mapping), `from_mhcflurry` (maps `mhcflurry_*` columns onto
-  canonical names).
-- NetMHCpan / NetMHC / NetMHCstabpan / NetMHCIIpan / NetMHCcons
-  loaders are queued for a follow-up PR.
-- Sharding (`concat` / `from_directory`) is queued for a separate
-  follow-up.
+- Add `mhcflurry_composite_version` to identify both package and model-data versions.
 
-**Version invariant:**
-
-- A single `CachedPredictor` holds exactly one
-  `(prediction_method_name, predictor_version)` pair; `None` / `NaN`
-  / empty-string values are rejected at construction. Mixing versions
-  would produce outputs that pass downstream filters invisibly, so
-  the invariant is enforced everywhere (load, fallback attach, concat).
-- Explicit opt-in equivalence: pass `also_accept_versions={"…", …}`
-  when two labels really are interchangeable (rc → final, timestamp-
-  only model-data reflashes).
-
-**mhcflurry-specific version composition:**
-
-- New `topiary.mhcflurry_composite_version()` helper discovers the
-  locally-installed mhcflurry package version plus its active model
-  release and returns a composite string like `"2.2.1+release-2.2.0"`.
-  `CachedPredictor.from_mhcflurry(path)` uses it automatically when
-  no explicit `predictor_version` is passed — users never enumerate
-  model bundles manually.
-
-**Fallback mode:**
-
-- Pass `fallback=<live_predictor>` to delegate cache misses; results
-  are merged back into the cache so subsequent queries serve locally.
-  No separate flag — caching fallback hits is always right for the
-  batch-prediction workload.
-- Pure read-through: `CachedPredictor(fallback=p)` with no df starts
-  empty; identity is discovered from the fallback's first output.
-
-**Documentation:**
-
-- New `docs/cached.md` covering the full surface.
-- `CachedPredictor` section added to `docs/api.md`.
-- Subsection in `docs/quickstart.md`.
-- README has a top-level "Cached predictions" section.
-- Feature list in `docs/index.md` updated.
-
-**Tests:**
-
-- 38 new tests in `tests/test_cached_predictor.py` (up from 0),
-  covering construction, version invariant (mixed rows, null rejection,
-  name/version round-trip as string), predict_peptides +
-  predict_proteins sliding-window, fallback hit + miss + version
-  mismatch + empty-cache identity discovery, `also_accept_versions`,
-  all four loaders, `mhcflurry_composite_version` via stubbed
-  mhcflurry module (no tensorflow/libomp collisions), and
-  integration with `TopiaryPredictor(models=cache)`.
-- Full suite: 1090 passed (up from 1052), 3 skipped.
-
-**Related upstream issue:**
-
-- Filed `openvax/mhctools#193` — `predict_peptides_dataframe` misses
-  `predictor_version` / `kind` / `value` columns returned by
-  `predict_proteins_dataframe`. `CachedPredictor` currently backfills
-  the gap internally; can simplify once the mhctools asymmetry is
-  resolved.
+[Changes](https://github.com/openvax/topiary/compare/v5.4.0...v5.5.0)
 
 ## 5.4.0
 
-**Breaking rename (no back-compat alias):**
+- Rename `AntigenFragment` to `ProteinFragment`, `predict_from_antigens` to
+  `predict_from_fragments`, and antigen IO helpers to fragment IO helpers. Old Python
+  names are removed; existing TSV files remain readable.
 
-- `AntigenFragment` → `ProteinFragment`. Describes what the object is
-  (a slice of some protein — natural, chimeric, foreign, or designed)
-  rather than what it's used for. Matches Isovar's convention.
-- `topiary/antigen.py` → `topiary/protein_fragment.py`;
-  `topiary/io_antigen.py` → `topiary/io_protein_fragment.py`;
-  `docs/antigens.md` → `docs/fragments.md`.
-- `TopiaryPredictor.predict_from_antigens(fragments)` →
-  `predict_from_fragments(fragments)`.
-- `read_antigens` / `write_antigens` / `iter_antigens` →
-  `read_fragments` / `write_fragments` / `iter_fragments`.
+- Route variant prediction through fragments while preserving absolute offsets and
+  variant metadata. Add `transcript_name`.
 
-**Downstream migration checklist:**
-
-- `from topiary import AntigenFragment` → `from topiary import ProteinFragment`.
-- `from topiary.antigen import …` / `from topiary.io_antigen import …` →
-  `from topiary.protein_fragment import …` /
-  `from topiary.io_protein_fragment import …`.
-- `predictor.predict_from_antigens(fragments)` →
-  `predictor.predict_from_fragments(fragments)`.
-- `topiary.read_antigens(path)` / `write_antigens(fragments, path)` /
-  `iter_antigens(path)` → `read_fragments` / `write_fragments` /
-  `iter_fragments`.
-- TSV files written by 5.2.x `write_antigens` remain readable by
-  5.4.0 `read_fragments`: the new `transcript_name` column is
-  optional and defaults to `None` when missing.  TSVs written by
-  5.4.0 are **not** readable by ≤5.2.x (the old reader rejects
-  unknown columns).
-- Unaffected surface: `TopiaryPredictor`, `EvalContext`, `apply_filter`,
-  `predict_from_variants` / `predict_from_mutation_effects` / the
-  legacy column contract.
-
-**Refactor (predict_from_variants now builds on ProteinFragment):**
-
-- `predict_from_mutation_effects` builds a list of `ProteinFragment`s
-  from varcode effects (via the new `_fragment_from_effect` adapter)
-  and delegates to a shared `_build_fragment_rows` step — one prediction
-  pipeline instead of two. The ~60-line row-by-row metadata loop is gone.
-- New fragment-derived columns (`fragment_id`, `source_type`,
-  `overlaps_target`, `wt_peptide` / `wt_peptide_length`) now flow
-  through the variant path alongside the legacy columns.
-- Legacy column contract preserved: absolute `peptide_offset`,
-  `mutation_start_in_peptide` / `mutation_end_in_peptide`,
-  `transcript_name`, `contains_mutant_residues`, `only_novel_epitopes`,
-  and legacy `gene_expression_dict` / `transcript_expression_dict`
-  plumbing all behave identically to 5.2.0.
-- `source_type` classification aligned with `docs/fragments.md`
-  vocabulary: `PrematureStop` → `variant:stop_gain`, multi-residue
-  `Substitution` → `variant:indel`, unlisted effect classes fall back
-  to `variant:<classname_lowered>`.
-- Filter / sort now run after `peptide_offset` rebasing on the variant
-  path, so filter expressions referencing `peptide_offset` see absolute
-  protein coordinates (matches 5.1.x behavior).
-
-**New field:**
-
-- `ProteinFragment.transcript_name` — human-readable transcript label
-  alongside `transcript_id`. Threaded through `from_dict`, `from_variant`,
-  `from_junction`, and the TSV IO schema.
-
-**Internal:**
-
-- New `TopiaryPredictor._build_fragment_rows(fragments)` — fragment
-  scanning + metadata overlay without filter / sort.  Public entry
-  points layer filter / sort / `only_novel_epitopes` on top.
-  Underscore-prefixed annotation keys are reserved for internal
-  plumbing and never surface as DataFrame columns.
-- 18 new regression tests covering legacy column contract, expression-
-  dict plumbing, and the effect→fragment source_type classifier —
-  including a parametrized grid pinning every entry of the documented
-  `source_type` vocabulary (`variant:snv`, `variant:indel`,
-  `variant:frameshift`, `variant:stop_gain`, `variant:stop_loss`,
-  `variant:start_loss`, `variant:exon_loss`, `variant:alternate_start`,
-  plus the `variant:<classname_lowered>` fallback).
-- `tests/test_frameshift_fragments.py` — new regression suite (75
-  cases) pinning `_fragment_from_effect` behavior on varcode
-  `FrameShift` / `FrameShiftTruncation` effects: target_intervals
-  span the full downstream novel tail, per-peptide `overlaps_target`
-  agrees with ground truth across peptide lengths 8–11,
-  `inframe=True`/`False` produce identical intervals for frameshift
-  shapes, and `only_novel_epitopes=True` preserves every downstream
-  9-mer.
+[Changes](https://github.com/openvax/topiary/compare/v5.2.0...v5.4.0)
 
 ## 5.2.0
 
-**New features (core abstraction for antigens from any origin):**
+- Add the universal `AntigenFragment` record, fragment IO and prediction, and the
+  reserved `self_nearest` DSL scope.
 
-- `AntigenFragment` — a universal record for a protein/peptide sequence
-  with source-type, target-region, and comparator metadata. Carries
-  variants, structural variants, ERVs, CTAs, viral proteins, allergens,
-  autoantigens, and synthetic constructs through one pipeline. Free-form
-  `source_type` tag (recommended vocabulary documented, not enforced);
-  `target_intervals: list[tuple[int, int]]` for disjoint regions
-  (breakpoints of tandem duplications, non-self regions of ERVs, etc.);
-  `reference_sequence` + `germline_sequence` with germline-precedence
-  `effective_baseline`. Equality/hash keyed on `fragment_id` (stable
-  human-readable prefix + SHA-1 hash). Convenience constructors
-  `from_variant`, `from_junction`. Stdlib-only serialization:
-  `to_dict` / `from_dict` / `to_json` / `from_json`.
-- `topiary.read_antigens(path)` / `write_antigens(fragments, path)` /
-  `iter_antigens(path)` — TSV IO with JSON-serialized list/dict columns.
-- `TopiaryPredictor.predict_from_antigens(fragments)` — new entry point
-  that scans each fragment's sequence, propagates every fragment field
-  (including arbitrary annotations) onto prediction rows, threads
-  `fragment_id` through for downstream grouping (vaxrank vaccine-window
-  selection), and emits an `overlaps_target` column computed from each
-  peptide's position vs. the fragment's target intervals. Backwards-compat
-  `contains_mutant_residues` alias for `source_type` prefixed with
-  `variant`. `wt_peptide` derived by slicing `effective_baseline`;
-  model-side WT predictions deferred to a follow-up PR.
-- `self_nearest` — reserved DSL scope for cross-reactivity filtering
-  ("closest peptide in essential healthy tissues"). Topiary does not
-  compute these columns — producers populate via BLAST / edit distance
-  against a healthy-tissue proteome with their own "self" definition.
-  The scope reads `self_nearest_*` columns when present, returns NaN
-  otherwise. See `docs/antigens.md` for the reserved column namespace.
-- `fragment_id` is now preferred over `variant` as the group key in the
-  DSL's group-by logic (falls back to `variant`, then
-  `source_sequence_name`).
-
-**Internal:**
-
-- New module `topiary/antigen.py` (dataclass + helpers) and
-  `topiary/io_antigen.py` (TSV IO).
-- 63 new tests covering identity, serialization, geometry,
-  `predict_from_antigens` propagation, `self_nearest` scope reads.
+[Changes](https://github.com/openvax/topiary/compare/v5.1.0...v5.2.0)
 
 ## 5.1.0
 
-**New features:**
+- Add `read_lens` and `logistic_normalized`; normalize alleles through mhcgnomes.
 
-- `topiary.read_lens(path)` — load LENS (Landscape of Effective
-  Neoantigens Software) reports into Topiary's wide-form schema.
-  Handles the three observed schema variants (v1.4, v1.5.1, v1.9-dev)
-  with column-based version detection. Binding columns are remapped to
-  `{model}_{kind}_{field}`; per-model versions populate
-  `Metadata.models`. LENS-specific columns (`erv_*`, `priority_score_*`,
-  `b2m_*`, `hla_allele_*`, etc.) pass through as annotations and remain
-  accessible via `Column("…")` in the DSL. See
-  [#110](https://github.com/openvax/topiary/issues/110). Known losses:
-  `peptide_offset` set to 0 (LENS doesn't record it);
-  `contains_mutant_residues` / `mutation_start_in_peptide` left NaN
-  (LENS's `mut_aa_pos` semantics are ambiguous); `n_flank` / `c_flank`
-  derived from `pep_context` only for SNV / SPLICE / FUSION.
-- `DSLNode.logistic_normalized(midpoint, width)` — logistic sigmoid
-  rescaled to reach 1 as `x → -∞`, so the output is a proper
-  `[0, 1]` score.  `.logistic(...)` is unchanged.
-  ([#116](https://github.com/openvax/topiary/issues/116))
-- Allele normalization uses `mhcgnomes` unconditionally (Class I,
-  Class II, mouse all supported).
+[Changes](https://github.com/openvax/topiary/compare/v5.0.1...v5.1.0)
 
 ## 5.0.1
 
-Polish pass on the v5.0.0 DSL refactor — no user-visible behavior
-changes, just internal cleanup.
+- Add `DSLNode.child_nodes()` for custom nodes and preserve row alignment when
+  filtering.
 
-- `DSLNode.child_nodes()` — new abstract method on every node type.
-  Generic tree walkers (column validation, future AST rewriters) no
-  longer need a per-node `isinstance` ladder.  `_collect_column_names`
-  now uses it.
-- The scoped-field filter guard moves from four per-operator overrides
-  on `Field` (`__le__` / `__ge__` / `__lt__` / `__gt__`) into a single
-  check in `Comparison.__init__`.  Same error, less surface area.
-- `apply_filter` now reindexes the evaluated Series to
-  `ctx.group_index` before masking, so an index mismatch surfaces as
-  NaN → False rather than as misaligned row selection.
+[Changes](https://github.com/openvax/topiary/compare/v5.0.0...v5.0.1)
 
 ## 5.0.0
 
-**Breaking changes (DSL refactor,
-[#111](https://github.com/openvax/topiary/issues/111)):**
+- Replace filter/ranker classes with one DSL node tree. Use `parse`, `apply_filter`,
+  `apply_sort`, and predictor `filter_by`/`sort_by` arguments; old parser and strategy
+  names are removed.
 
-- Filter leaves (`EpitopeFilter`, `ColumnFilter`, `ExprFilter`) and the
-  composite (`RankingStrategy`, `SortSpec`) are removed. Every DSL
-  expression is now a single `DSLNode` tree whose `.eval(ctx)` returns
-  a `pandas.Series` indexed by peptide-allele group tuples.
-- `Affinity <= 500` (and friends) now returns a `Comparison` node;
-  `A | B` / `A & B` returns a `BoolOp`. Both classes inherit the full
-  arithmetic operator set, so boolean-as-number composition
-  (`(Affinity <= 500) * Affinity.score`) is allowed.
-- `apply_ranking_strategy` is split into `apply_filter(df, node)` and
-  `apply_sort(df, sort_nodes, sort_direction="auto")`.
-- `parse_ranking`, `parse_filter`, `parse_expr` are collapsed into a
-  single `parse()` that returns a `DSLNode`. The parser uses standard
-  precedence for `&` / `|` (`&` binds tighter); mixed-operator strings
-  are now accepted.
-- `TopiaryPredictor` kwargs: `ranking_strategy`, `ranking`, `filter`,
-  `rank_by`, `ic50_cutoff`, and `percentile_cutoff` are removed. Use
-  `filter_by=` (a `DSLNode` or string) and `sort_by=` (a `DSLNode` or
-  list).  The `TopiaryPredictor.ranking_strategy` property is replaced
-  by the separate `.filter_by` / `.sort_by` attributes.
-- `Field` gains an optional `version` parameter;
-  `Affinity["netmhcpan", "4.1b"]` filters on both
-  `prediction_method_name` and `predictor_version`.
-- Ambiguity semantics tightened — unqualified `Affinity.value` on a
-  DataFrame that contains multiple `prediction_method_name` values
-  raises `ValueError` pointing at `Affinity["modelname"]`.
-  Previously the old filter silently passed if *any* row satisfied the
-  threshold.
-- `apply_filter` now errors when the evaluated Series contains values
-  outside `{True, False, 0, 1, 0.0, 1.0, NaN}`, pointing the user at
-  `<=` / `>=`. NaN still maps to `False`.
+- Add version-qualified fields, expression serialization, and explicit errors for
+  ambiguous models and non-boolean filters.
 
-**New:**
-
-- `EvalContext`, `DSLNode`, `Const`, `Column`, `Field`, `BinOp`,
-  `UnaryOp`, `NormExpr`, `SurvivalExpr`, `LogisticExpr`, `ClipExpr`,
-  `AggExpr`, `Comparison`, `BoolOp` exported from `topiary.ranking`.
-- `apply_filter`, `apply_sort`, `parse` exported as the top-level DSL
-  entry points.
-- Every `DSLNode` has a `to_expr_string()` that round-trips through
-  `parse()`.
+[Changes](https://github.com/openvax/topiary/releases/tag/v5.0.0)
 
 ## 4.12.0
 
