@@ -98,3 +98,40 @@ def test_predictor_filter_and_sort_by_separate():
     )
     assert predictor.filter_by is not None
     assert len(predictor.sort_by) == 2
+
+
+# What release=None actually selects (#382). The docs claimed "the latest
+# installed GRCh38 release (93 for human)"; neither half was true, and the
+# stale claim caused the CI cache failure fixed by #379/#381.
+
+
+def test_default_human_release_is_the_one_pyensembl_exposes():
+    import pyensembl
+
+    from topiary.sources import _get_genome
+
+    # Not "the latest release whose data is installed", and not a number
+    # pinned in topiary: whatever the installed pyensembl points at.
+    assert _get_genome(None, "human") is pyensembl.ensembl_grch38
+
+
+def test_non_human_species_has_no_default_release():
+    from topiary.sources import _get_genome
+
+    with pytest.raises(ValueError, match="Must specify release"):
+        _get_genome(None, "mouse")
+
+
+def test_the_module_docstring_states_the_rule_it_follows():
+    """The docstring every public function's `release` entry points at."""
+    import topiary.sources as sources
+
+    note = sources.__doc__
+    assert "Which Ensembl release" in note
+    assert "ensembl_grch38" in note
+    # The two claims that were wrong, and must not come back.
+    assert "latest installed" not in note
+    assert "93" not in note
+    for name in ("ensembl_proteome", "sequences_from_gene_names", "cta_sequences",
+                 "non_cta_sequences", "tissue_expressed_sequences"):
+        assert "release : int, optional" in getattr(sources, name).__doc__, name

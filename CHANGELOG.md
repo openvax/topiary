@@ -1,5 +1,23 @@
 # Changelog
 
+## 5.84.1
+
+- `topiary.sources` documented its default Ensembl release as "the latest
+  installed GRCh38 release (93 for human)" (#382). Neither half was true:
+  `release=None` uses the release the installed pyensembl exposes as
+  `ensembl_grch38` — 115 with pyensembl 2.14 — and having an older release
+  installed does not make the default usable, which is what caused the CI
+  cache failure fixed by #379/#381. The module now states the rule once, every
+  public function's `release` entry points at it, and `--ensembl-release`'s
+  help says the same. Tests pin the rule so the docs cannot drift from it.
+- The `self_nearest` DSL scope and `docs/fragments.md` said Topiary does not
+  compute those columns and that producers must populate them externally
+  (#413). That has been false since `SelfProteome` (5.8.0) and
+  `predict_self_nearest` (5.26.0); both now say Topiary computes them and that
+  the scope still reads externally supplied columns. What remains unimplemented
+  is the binding-aware cross-reactivity axes, now tracked in #412 rather than
+  the narrowed #124.
+
 ## 5.84.0
 
 - **`--protein-change GENE CHANGE` now runs** (#322). The flag, its parser and

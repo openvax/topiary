@@ -190,7 +190,11 @@ def _add_input_args(arg_parser):
         "--ensembl-release",
         default=None,
         type=int,
-        help="Ensembl release number (default: latest installed).",
+        help=(
+            "Ensembl release number. Without it, human uses the release the "
+            "installed pyensembl exposes as ensembl_grch38, whose data must "
+            "already be installed; pass one to pin an analysis."
+        ),
     )
 
     return input_group

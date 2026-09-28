@@ -35,7 +35,7 @@ Binding-aware axes (``self_mimic_*``, ``self_strongest_nearby_*``,
 ``self_nearest_candidates``) are not implemented yet — they require
 MHC prediction on candidate peptides, which is architecturally
 separate from the sequence-only ``nearest()`` method. Tracked under
-`#124 <https://github.com/openvax/topiary/issues/124>`_.
+`#412 <https://github.com/openvax/topiary/issues/412>`_.
 
 Algorithm
 ---------
