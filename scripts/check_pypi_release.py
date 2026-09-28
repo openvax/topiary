@@ -1,6 +1,15 @@
-"""Read-only release checks against the PyPI upload destination."""
+"""Fail-closed release preflight: python scripts/check_pypi_release.py PROJECT VERSION.
 
+Exits 0 only when PyPI confirms the exact version is not published. Any
+lookup it cannot complete is a failure, never a go-ahead.
+
+Release tooling, not library API: it lived in the installed package as
+``topiary.pypi_release_exists`` so ``deploy.sh`` could reach it, which put a
+PyPI lookup in an epitope-prediction package (#316).
+"""
+import argparse
 import json
+import sys
 from http.client import HTTPException
 from urllib.error import HTTPError
 from urllib.parse import quote
@@ -70,3 +79,25 @@ def pypi_release_exists(project, version, *, timeout=10):
         raise RuntimeError(f"Could not verify {project} {version} on PyPI: {error}") from error
     except (OSError, HTTPException, ValueError) as error:
         raise RuntimeError(f"Could not verify {project} {version} on PyPI: {error}") from error
+
+
+def main(argv=None):
+    """Return zero only when PyPI confirms that the release does not exist."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("project")
+    parser.add_argument("version")
+    args = parser.parse_args(argv)
+    try:
+        exists = pypi_release_exists(args.project, args.version)
+    except (ValueError, RuntimeError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    if exists:
+        print(f"ERROR: {args.project} {args.version} already exists on PyPI", file=sys.stderr)
+        return 1
+    print(f"Confirmed {args.project} {args.version} is not published on PyPI")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

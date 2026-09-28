@@ -29,7 +29,7 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 
 # Stop on an existing release OR an unverifiable lookup, before any gates run.
-"${PYTHON}" -m topiary.cli.release topiary "${VERSION}"
+"${PYTHON}" scripts/check_pypi_release.py topiary "${VERSION}"
 
 # Lint
 ./lint.sh

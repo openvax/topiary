@@ -1417,7 +1417,7 @@ def test_live_mhcflurry_cli_output_replays_with_identical_provenance_and_values(
 ])
 def test_release_api_and_cli_enforce_the_same_publish_policy(monkeypatch, scenario, allowed):
     from urllib.error import HTTPError
-    from topiary import release
+    from scripts import check_pypi_release as release
     from tests.test_release import response
     from tests.test_twin_conformance import RELEASE_PREFLIGHT_DOORS
 

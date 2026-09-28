@@ -7,8 +7,9 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-from topiary import pypi_release_exists
-from topiary import release
+# Release tooling, not library API (#316): exercised where deploy.sh runs it.
+from scripts import check_pypi_release as release
+from scripts.check_pypi_release import main, pypi_release_exists
 
 
 def response(payload, status=200):

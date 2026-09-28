@@ -11,6 +11,8 @@
 
 1. Verifies you're on master with a clean working tree
 2. Checks the version isn't already published on PyPI
+   (`scripts/check_pypi_release.py`; fail-closed, so an unreachable or
+   malformed PyPI response stops the release)
 3. Runs `./lint.sh` (ruff)
 4. Runs `./test.sh` (pytest with coverage)
 5. Builds sdist and wheel via `python -m build`

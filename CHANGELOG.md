@@ -1,5 +1,23 @@
 # Changelog
 
+## 5.85.0
+
+- **Removed `topiary.pypi_release_exists`** (#316). A PyPI lookup is release
+  tooling, not part of an epitope-prediction library's API; it lived in the
+  package only so `deploy.sh` could run `python -m topiary.cli.release`. The
+  preflight is now `scripts/check_pypi_release.py`, with the same fail-closed
+  behaviour, and `topiary/release.py` and `topiary/cli/release.py` no longer
+  ship in the wheel. Nothing outside topiary imported it; mhctools has its own
+  script. Its `docs/api.md` section is gone.
+- Dropped the tests that asserted on the text of `deploy.sh` or the CI
+  workflow rather than on behaviour — the coupling #316 names, where changing
+  CI plumbing meant editing tests. One grepped `deploy.sh` for literal command
+  lines; two split `.github/workflows/tests.yml` on step names and indentation.
+  The behavioural tooling tests stay, retargeted at the script: the preflight
+  still fails closed on network, HTTP and malformed-response errors and refuses
+  a published version, and `deploy.sh` still stops before every gate, build,
+  upload and tag when it does.
+
 ## 5.84.3
 
 Test cleanup only; no library change.

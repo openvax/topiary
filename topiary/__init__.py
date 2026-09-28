@@ -3,7 +3,6 @@ from .serialization import normalize_python_types
 from .report_geometry import map_peptide_intervals, mutation_intervals_from_positions
 from .annotations import join_annotations
 from .candidates import combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
-from .release import pypi_release_exists
 from .prediction_batch import predict_with_cache_miss_report, PartialPredictionWarning
 from .predictor import (
     TopiaryPredictor,
@@ -188,7 +187,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.84.3"
+__version__ = "5.85.0"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -204,7 +203,6 @@ __all__ = [
     "rescore_candidates",
     "osteosarc_fixture_paths",
     "normalize_python_types",
-    "pypi_release_exists",
     "TopiaryPredictor",
     "predict_with_cache_miss_report",
     "PartialPredictionWarning",
