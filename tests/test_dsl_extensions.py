@@ -47,22 +47,24 @@ def _basic_group():
     ])
 
 
-def _group_with_wt():
+def _group_with_wt(predictor_version=None):
     """Group with wt_* columns populated."""
+    version = {} if predictor_version is None else {
+        "predictor_version": predictor_version}
     return _make_df([
         dict(
             source_sequence_name="seq1", peptide="SIINFEKL", peptide_offset=10,
             allele="HLA-A*02:01", kind="pMHC_affinity",
             score=0.8, value=120.0, percentile_rank=0.5,
             wt_score=0.3, wt_value=800.0, wt_percentile_rank=5.0,
-            prediction_method_name="netmhcpan",
+            prediction_method_name="netmhcpan", **version,
         ),
         dict(
             source_sequence_name="seq1", peptide="SIINFEKL", peptide_offset=10,
             allele="HLA-A*02:01", kind="pMHC_presentation",
             score=0.92, value=None, percentile_rank=0.3,
             wt_score=0.4, wt_value=None, wt_percentile_rank=3.0,
-            prediction_method_name="netmhcpan",
+            prediction_method_name="netmhcpan", **version,
         ),
     ])
 
@@ -483,10 +485,18 @@ class TestWTScope:
         val = wt.Affinity["netmhcpan"].value.evaluate(df)
         assert val == 800.0
 
-    def test_wt_bracket(self):
-        df = _group_with_wt()
-        val = wt.Affinity["netmhcpan"].value.evaluate(df)
-        assert val == 800.0
+    def test_wt_bracket_with_version(self):
+        """The two-argument bracket form, which nothing else covers.
+
+        `#363 <https://github.com/openvax/topiary/issues/363>`_ suggested the
+        attribute form ``wt.Affinity.netmhcpan`` here; ``KindAccessor`` has no
+        such attribute, so this covers the qualification the DSL does support.
+        """
+        df = _group_with_wt(predictor_version="4.1b")
+        assert wt.Affinity["netmhcpan", "4.1b"].value.evaluate(df) == 800.0
+        # An unmatched version is a mistake worth reporting, not a silent NaN.
+        with pytest.raises(ValueError, match="predictor_version '4.0'"):
+            wt.Affinity["netmhcpan", "4.0"].value.evaluate(df)
 
     def test_wt_no_columns_returns_nan(self):
         """When wt_* columns don't exist, returns NaN."""
@@ -721,12 +731,6 @@ class TestProperties:
 
 
 class TestEdgeCasesFromDocs:
-    def test_wt_bracket_qualified(self):
-        """wt.Affinity["x"].value works correctly."""
-        df = _group_with_wt()
-        val = wt.Affinity["netmhcpan"].value.evaluate(df)
-        assert val == 800.0
-
     def test_wt_ge_also_compares(self):
         """>= works like <=; neither is refused any more."""
         df = _group_with_wt()

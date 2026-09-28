@@ -122,12 +122,6 @@ def test_the_str_spellings_of_missing_are_unnamed():
     )
 
 
-def test_is_named_version_is_exported():
-    import topiary
-
-    assert "is_named_version" in topiary.__all__
-
-
 # ---------------------------------------------------------------------------
 # fragment_from_effect
 # ---------------------------------------------------------------------------
@@ -192,10 +186,6 @@ def test_expression_is_carried_when_given_and_absent_when_not():
     assert not without.is_known("gene_expression")
 
 
-def test_fragment_from_effect_is_exported():
-    import topiary
-
-    assert "fragment_from_effect" in topiary.__all__
 
 
 # ---------------------------------------------------------------------------

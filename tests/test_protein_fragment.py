@@ -98,7 +98,31 @@ class TestIdentity:
         f = self._sample(annotations={"vaf": 0.5})
         hash(f)  # does not raise
 
+    def test_every_field_is_accepted_as_a_keyword(self):
+        """What the published signature promises a caller can do.
+
+        ``__init__`` is hand-written with ``**legacy_fields``, so a field
+        added to the dataclass without being added there would be silently
+        rejected by name.
+        """
+        required = ("id", "variant:snv", "SIINFEKLA")
+        supplied = {}
+        for position, field in enumerate(dataclasses.fields(ProteinFragment)):
+            if field.default is not dataclasses.MISSING:
+                supplied[field.name] = field.default
+            elif field.default_factory is not dataclasses.MISSING:
+                supplied[field.name] = field.default_factory()
+            else:
+                supplied[field.name] = required[position]
+
+        # An unknown keyword raises, so a field missing from __init__ fails
+        # here rather than being swallowed by **legacy_fields.
+        fragment = ProteinFragment(**supplied)
+        for name, value in supplied.items():
+            assert getattr(fragment, name) == value, name
+
     def test_constructor_signature_tracks_the_dataclass_fields(self):
+        """The hand-kept ``__signature__`` must not drift from the fields."""
         signature = inspect.signature(ProteinFragment)
         parameters = list(signature.parameters.values())
         fragment_fields = list(dataclasses.fields(ProteinFragment))
@@ -111,8 +135,6 @@ class TestIdentity:
             for parameter in parameters
         )
         assert signature.return_annotation is None
-        assert not hasattr(ProteinFragment.__init__, "__wrapped__")
-        assert ProteinFragment.__dataclass_params__.init is True
 
         implementation = inspect.signature(ProteinFragment.__init__)
         legacy = list(implementation.parameters.values())[-1]

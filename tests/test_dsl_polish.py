@@ -80,10 +80,18 @@ class TestNewTransforms:
         val = Affinity.log2().evaluate(_aff_df(8.0))
         assert val == pytest.approx(3.0)
 
-    def test_log2_accessor(self):
-        """KindAccessor delegates log2."""
-        val = Affinity.log2().evaluate(_aff_df(8.0))
-        assert val == pytest.approx(3.0)
+    def test_log2_accessor_delegates_to_the_field(self):
+        """The claim the duplicate of test_log2 was making but never checked.
+
+        ``Affinity.log2()`` is the accessor shorthand; ``Affinity.value.log2()``
+        is the same transform written out. They must build the same node, not
+        merely both return 3.0 for one input.
+        """
+        accessor = Affinity.log2()
+        field = Affinity.value.log2()
+        assert accessor.to_expr_string() == field.to_expr_string()
+        df = _aff_df(8.0)
+        assert accessor.evaluate(df) == field.evaluate(df) == pytest.approx(3.0)
 
     def test_log1p(self):
         val = Affinity.log1p().evaluate(_aff_df(0.0))
