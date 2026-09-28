@@ -88,15 +88,30 @@ def test_no_optional_importorskip_calls_remain(dependency):
 
 
 def test_ci_requires_both_absent_and_installed_environments(dependency):
-    workflow = Path(".github/workflows/tests.yml").read_text()
+    """CI tests each optional integration both without it and with it.
 
+    Read from the workflow's structure, not its text (#316): rewording a
+    step or routing an install through scripts/pip_install.sh leaves this
+    passing, while dropping either environment fails it.
+    """
+    import yaml
+
+    jobs = yaml.safe_load(Path(".github/workflows/tests.yml").read_text())["jobs"]
     display_name = {"isovar": "Isovar", "pirlygenes": "PirlyGenes"}[dependency]
     selection = "'isovar or osteosarc'" if dependency == "isovar" else "pirlygenes"
-    assert f"Verify {display_name} is absent from the base environment" in workflow
-    assert f"{dependency}-integration:" in workflow
-    assert f"python -m pip install -e '.[{dependency}]'" in workflow
-    assert f'TOPIARY_TEST_REQUIRE_{dependency.upper()}: "1"' in workflow
-    assert f"./test.sh -m {selection} --strict-markers" in workflow
+
+    def commands(job):
+        return "\n".join(step.get("run", "") for step in job.get("steps", []))
+
+    # The base build proves the dependency is absent there...
+    assert f"Verify {display_name} is absent from the base environment" in [
+        step.get("name") for step in jobs["build"]["steps"]]
+    # ...and a dedicated job installs the extra, requires it, and runs its
+    # marked tests.
+    integration = jobs[f"{dependency}-integration"]
+    assert f"-e '.[{dependency}]'" in commands(integration)
+    assert integration["env"][f"TOPIARY_TEST_REQUIRE_{dependency.upper()}"] == "1"
+    assert f"./test.sh -m {selection} --strict-markers" in commands(integration)
 
 
 def test_external_predictors_are_not_created_during_test_collection():

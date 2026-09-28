@@ -1,5 +1,26 @@
 # Changelog
 
+## 5.85.1
+
+Release and CI tooling only; no library change.
+
+- `test.sh` gives each run its own pytest temporary root (#295). The default,
+  `$TMPDIR/pytest-of-$USER`, is shared by every pytest on the machine, and
+  during the 5.53.0 release a concurrent suite in a sibling repository emptied
+  it mid-run, failing four tests in `tmp_path` setup. The root is removed after
+  a passing run and kept after a failing one; one set in `PYTEST_DEBUG_TEMPROOT`
+  is used and left alone. `deploy.sh` inherits this through `test.sh`, so
+  RELEASING.md's manual step is gone.
+- CI dependency installs go through `scripts/pip_install.sh`, which retries up
+  to three times, fetching the index again on each retry (#335). A sibling
+  release can be on PyPI minutes before a runner's index shows it, which failed
+  PR jobs with "No matching distribution found" for mhctools 3.44.26 and
+  vaxrank 3.20.1. Requirements are passed through unchanged, so a genuine
+  conflict still fails, with pip's own last error.
+- The check that CI tests each optional integration both absent and
+  installed now reads the workflow's structure instead of matching its text,
+  which the install change above would otherwise have broken (#316's point).
+
 ## 5.85.0
 
 - **Removed `topiary.pypi_release_exists`** (#316). A PyPI lookup is release

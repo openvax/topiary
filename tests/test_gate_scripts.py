@@ -150,3 +150,71 @@ def test_gate_rejects_invalid_explicit_python_without_path_fallback(
     assert f"Python interpreter not found or not executable: {invalid}" in result.stderr
     assert invocations == []
     assert not trap_log.exists()
+
+
+# Each test.sh run gets its own pytest temp root (#295): the default under
+# $TMPDIR/pytest-of-$USER is shared by every pytest on the machine, and a
+# concurrent suite in a sibling repo emptied it mid-release.
+
+
+def _temproot_python(tmp_path, status):
+    """A fake interpreter recording the temp root pytest would have used."""
+    path = tmp_path / "temproot python"
+    path.write_text(f"""#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$PYTHON_INVOCATION_LOG"
+if [[ "${{1:-}}" == "-c" ]]; then exit 0; fi
+if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "pytest" ]]; then
+    printf '%s\\n' "${{PYTEST_DEBUG_TEMPROOT:-unset}}" >> "$TEMPROOT_LOG"
+    [[ -d "${{PYTEST_DEBUG_TEMPROOT:-/nonexistent}}" ]] || exit 98
+    exit {status}
+fi
+exit 0
+""")
+    path.chmod(0o755)
+    return path
+
+
+def _temproot_run(tmp_path, name, status=0, root=None):
+    work = tmp_path / name
+    work.mkdir()
+    log = work / "temproot.log"
+    env = {
+        "PYTHON": str(_temproot_python(work, status)),
+        "TEMPROOT_LOG": str(log),
+        "TMPDIR": str(tmp_path),
+        "PYTEST_DEBUG_TEMPROOT": root,
+    }
+    result, _, _ = _run_gate(work, "test.sh", env_updates=env)
+    return result, log.read_text().splitlines()
+
+
+def test_each_test_run_gets_its_own_existing_temp_root(tmp_path):
+    first, (first_root,) = _temproot_run(tmp_path, "first")
+    second, (second_root,) = _temproot_run(tmp_path, "second")
+    assert first.returncode == second.returncode == 0
+    # Private to the run, under TMPDIR, and existing while pytest runs --
+    # the fake interpreter exits 98 if it is missing.
+    assert first_root != second_root
+    for root in (first_root, second_root):
+        assert Path(root).parent == tmp_path
+        assert Path(root).name.startswith("topiary-pytest.")
+
+
+def test_a_passing_run_removes_its_temp_root_and_a_failing_one_keeps_it(tmp_path):
+    passed, (passed_root,) = _temproot_run(tmp_path, "passed", status=0)
+    failed, (failed_root,) = _temproot_run(tmp_path, "failed", status=1)
+    assert passed.returncode == 0 and not Path(passed_root).exists()
+    # The failure's status survives the cleanup logic, and its directory is
+    # left for inspection.
+    assert failed.returncode == 1 and Path(failed_root).is_dir()
+    assert f"kept pytest temp root for inspection: {failed_root}" in failed.stderr
+
+
+def test_a_temp_root_the_caller_chose_is_used_and_left_alone(tmp_path):
+    chosen = tmp_path / "release" / "pytest"
+    chosen.mkdir(parents=True)
+    result, (root,) = _temproot_run(tmp_path, "chosen", root=str(chosen))
+    assert result.returncode == 0
+    assert root == str(chosen)
+    # Not ours to remove, even after a passing run.
+    assert chosen.is_dir()

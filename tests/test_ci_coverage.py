@@ -166,3 +166,49 @@ def test_combine_refuses_incomplete_or_invalid_matrix(tmp_path, coverage_matrix,
     assert result.returncode != 0
     assert not output.exists()
     assert paths[-1].name in result.stderr or "coverage" in result.stderr.lower()
+
+
+# CI dependency installs retry a bounded number of times for just-published
+# sibling releases (#335), and never change what they ask for.
+
+_REQUIREMENTS = ["-e", ".[isovar]", "isovar>=1.37,<2"]
+
+
+def _failing_pip(tmp_path, failures):
+    """A fake interpreter whose pip fails `failures` times, then succeeds."""
+    calls, counter = tmp_path / "pip-calls.log", tmp_path / "pip-count"
+    python = tmp_path / "python"
+    python.write_text(f"""#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "{calls}"
+count=$(( $(cat "{counter}" 2>/dev/null || echo 0) + 1 ))
+echo "$count" > "{counter}"
+(( count > {failures} ))
+""")
+    python.chmod(0o755)
+    return python, calls
+
+
+@pytest.mark.parametrize("failures,status,attempts", [
+    (0, 0, 1),   # nothing to retry
+    (1, 0, 2),   # index caught up on the second look
+    (2, 0, 3),
+    (3, 1, 3),   # bounded: a real failure still fails, after three tries
+])
+def test_pip_install_retries_a_bounded_number_of_times(tmp_path, failures, status, attempts):
+    python, calls = _failing_pip(tmp_path, failures)
+    result = subprocess.run(
+        ["bash", "scripts/pip_install.sh", *_REQUIREMENTS],
+        env=dict(os.environ, PYTHON=str(python), PIP_INSTALL_RETRY_DELAY="0"),
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == status
+    invocations = calls.read_text().splitlines()
+    assert len(invocations) == attempts
+    # The requirements are identical on every attempt; a retry only refetches
+    # the index, it never relaxes a floor.
+    requested = " ".join(_REQUIREMENTS)
+    assert invocations[0] == f"-m pip install {requested}"
+    assert all(call == f"-m pip install --no-cache-dir {requested}"
+               for call in invocations[1:])
+    if status:
+        assert "pip install failed after 3 attempts" in result.stderr
