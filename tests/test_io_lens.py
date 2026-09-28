@@ -337,10 +337,16 @@ class TestDSLIntegration:
         """v1.4 has two models producing pMHC_affinity — unqualified
         access auto-aggregates (any method passes) inside apply_filter."""
         r = read_lens(V1_4).to_long()
-        # No raise: auto-agg fires because the filter has exactly one
-        # unqualified kind.  Result is shape-valid.
-        result = apply_filter(r.df, Affinity <= 500)
-        assert len(result) >= 0
+        # `len(result) >= 0` was true of any frame and said nothing (#363).
+        # Auto-aggregation means "any method passes", so a cutoff has to
+        # actually exclude something to show it: at 100 nM, 84 of 180 rows
+        # survive, and the kept rows include netmhcpan affinities above the
+        # cutoff whose mhcflurry sibling passed for the same peptide-allele.
+        kept = apply_filter(r.df, Affinity <= 100)
+        assert len(kept) == 84
+        affinity = kept[kept.kind == "pMHC_affinity"]
+        assert set(affinity.prediction_method_name) == {"mhcflurry", "netmhcpan"}
+        assert (affinity.value > 100).any()
 
     def test_unqualified_ambiguous_still_raises_in_sort(self):
         """Sort keeps the strict ambiguity check — only filter auto-aggs."""
@@ -351,9 +357,13 @@ class TestDSLIntegration:
     def test_v1_9_unqualified_ok(self):
         """v1.9 has only MHCflurry → unqualified access works."""
         r = read_lens(V1_9).to_long()
-        result = apply_filter(r.df, Affinity <= 500)
-        # Should not raise and may return any count.
-        assert len(result) >= 0
+        kept = apply_filter(r.df, Affinity <= 100)
+        # One model, so nothing to aggregate over: every kept group really
+        # is under the cutoff, unlike the two-model v1.4 case above.
+        assert len(kept) == 27
+        affinity = kept[kept.kind == "pMHC_affinity"]
+        assert set(affinity.prediction_method_name) == {"mhcflurry"}
+        assert (affinity.value <= 100).all()
 
     def test_dsl_column_access_on_annotation(self):
         """Annotation columns remain accessible via Column('...') in the DSL."""

@@ -1,5 +1,39 @@
 # Changelog
 
+## 5.84.3
+
+Test cleanup only; no library change.
+
+- Removed the four copy-paste duplicate tests (#363) and gave each named path
+  the coverage it claimed. Three tests asserted the same
+  `wt.Affinity["netmhcpan"].value`; one now covers the two-argument
+  `["netmhcpan", "4.1b"]` form, including that an unmatched version raises
+  rather than reading NaN. The issue suggested testing `wt.Affinity.netmhcpan`
+  there, but `KindAccessor` has no such attribute. The duplicate `log2` test
+  now asserts the accessor and field forms build the same node, and the
+  duplicate `--sort-by` test now exercises the comma-separated fallback keys
+  its section header names, which nothing covered.
+- `test_epitope_prediction_with_invalid_zero_padding` passed 7, not 0, and its
+  premise was wrong: zero padding is valid and means "use the minimum the
+  epitope lengths need" (8 for 9-mers). It now asserts that.
+- Replaced two `len(result) >= 0` assertions in the LENS tests, true of any
+  frame, with the behaviour they were about: at a 100 nM cutoff, filtering
+  keeps 84 of 180 rows for the two-model fixture and retains affinities above
+  the cutoff whose sibling method passed, while the single-model fixture keeps
+  27 rows all under it.
+- Replaced the `hasattr` survey over `SEMANTIC_CORE` (#369), which cannot fail
+  for a dataclass, with the claim its docstring makes: all four readers state
+  the shared core, and which RNA counts each fills genuinely differs.
+- Dropped the two `__all__` membership tests; both names are imported at the
+  top of the file, so the import already proves the export. The dataclass
+  signature test keeps its drift guard — `__init__` is hand-written with a
+  manual `__signature__` — minus two assertions about `__wrapped__` and
+  `__dataclass_params__`, and gains a check that every field is accepted by
+  keyword.
+- Left the bare `return` at `tests/test_consumer_workflows.py` alone: it
+  follows `assert fragments == []` for the parametrization that expects none,
+  so `pytest.skip` would discard that assertion.
+
 ## 5.84.2
 
 - Deleted `docs/expression-semantics.md` and its mkdocs nav entry (#313). It

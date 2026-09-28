@@ -356,9 +356,28 @@ def test_every_path_produces_the_same_core():
         "pvacseq": fragments_from_dataframe(_frame(read_pvacseq, PVACSEQ))[0],
     }
 
-    for source, fragment in fragments.items():
-        for name in SEMANTIC_CORE:
-            assert hasattr(fragment, name), f"{source} missing {name}"
+    # `hasattr` cannot fail here — ProteinFragment is a dataclass, so every
+    # instance carries all 20 names whatever the reader did. What the shape
+    # claim is actually about is which of them hold stated values.
+    always_stated = {"fragment_id", "gene", "sequence", "source_type", "transcript_id"}
+    stated = {
+        source: {name for name in SEMANTIC_CORE if fragment.is_known(name)}
+        for source, fragment in fragments.items()
+    }
+    for source, names in stated.items():
+        assert always_stated <= names, f"{source} missing {always_stated - names}"
+
+    # ... and that the rest genuinely differs by source, which is the half a
+    # presence check can never see. Isovar counts reads directly; pVACseq
+    # reports depth and VAF; LENS carries neither, but does carry expression.
+    rna_counts = {name for name in SEMANTIC_CORE if name.startswith("n_rna_")}
+    assert rna_counts <= stated["isovar"]
+    assert stated["pvacseq"] & rna_counts == {
+        "n_rna_alt_reads", "n_rna_ref_reads", "n_rna_overlapping_reads",
+    }
+    assert stated["lens"] & rna_counts == {"n_rna_overlapping_reads"}
+    assert not stated["varcode"] & rna_counts
+    assert "gene_expression" in stated["lens"] and "variant" not in stated["lens"]
 
 
 def test_a_consumer_reads_every_source_through_one_path():

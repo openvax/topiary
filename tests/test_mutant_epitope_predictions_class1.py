@@ -53,11 +53,16 @@ def test_epitope_prediction_with_invalid_padding(mhc_model):
         ).predict_from_variants(variants=variants)
 
 
-def test_epitope_prediction_with_invalid_zero_padding(mhc_model):
-    with pytest.raises(ValueError):
-        TopiaryPredictor(
-            mhc_model=mhc_model, padding_around_mutation=7
-        ).predict_from_variants(variants=variants)
+def test_epitope_prediction_with_zero_padding_uses_the_minimum(mhc_model):
+    """Zero padding is not invalid — it asks for the minimum (#363).
+
+    This test was a copy of the one above, passing 7 as well, so nothing
+    covered 0. Falsy padding means "work out what the epitope lengths need":
+    8 for 9-mers, so the mutation keeps a full window either side.
+    """
+    predictor = TopiaryPredictor(mhc_model=mhc_model, padding_around_mutation=0)
+    assert predictor.padding_around_mutation == 8
+    assert not predictor.predict_from_variants(variants=variants).empty
 
 
 def test_epitope_prediction_with_valid_padding(mhc_model):

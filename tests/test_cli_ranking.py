@@ -151,13 +151,24 @@ def test_sort_by_power_expression():
 # ---------------------------------------------------------------------------
 
 
-def test_sort_by_dot_transform_no_operators():
-    """affinity.descending_cdf(500, 200) has parens so it hits the is_expr path,
-    but verify it still produces a valid DSLNode."""
-    args = _make_args("affinity.descending_cdf(500, 200)")
+def test_sort_by_comma_separated_fallback_keys():
+    """The path the section header names, which the old copy never took.
+
+    ``affinity.descending_cdf(500, 200)`` has parentheses, so it is parsed as
+    one expression — the same thing test_sort_by_transform_expression already
+    covers. Commas are what produce several fallback keys.
+    """
+    args = _make_args("el,ba")
     filter_by, sort_by, _ = _build_filter_and_sort(args)
     assert filter_by is None
-    assert len(sort_by) == 1
+    assert [node.to_expr_string() for node in sort_by] == [
+        "presentation.score", "affinity.value",
+    ]
+    # Surrounding whitespace is not part of a key.
+    spaced = _make_args("el, ba")
+    assert [node.to_expr_string() for node in _build_filter_and_sort(spaced)[1]] == [
+        "presentation.score", "affinity.value",
+    ]
     assert isinstance(sort_by[0], DSLNode)
 
 

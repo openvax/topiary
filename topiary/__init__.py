@@ -188,7 +188,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.84.2"
+__version__ = "5.84.3"
 
 __all__ = [
     "normalize_isovar_rna_support",
