@@ -104,11 +104,37 @@ XDIST_FLAGS=()
 if "${PYTHON}" -c "import xdist" 2>/dev/null; then
     XDIST_FLAGS=(-n "$WORKERS")
     log "python=${PYTHON} platform=${OS} cpus=${CPUS} cpu_cap=${CPU_CAP} ${mem_note} per_worker=${PER_WORKER_GB}GB"
-    log "workers=${WORKERS} → exec pytest -n ${WORKERS} --cov=topiary/ --cov-report=term-missing tests $*"
+    log "workers=${WORKERS} → pytest -n ${WORKERS} --cov=topiary/ --cov-report=term-missing tests $*"
 else
     log "python=${PYTHON} platform=${OS} cpus=${CPUS} (pytest-xdist not installed; running serial)"
-    log "→ exec pytest --cov=topiary/ --cov-report=term-missing tests $*"
+    log "→ pytest --cov=topiary/ --cov-report=term-missing tests $*"
 fi
 
-exec "${PYTHON}" -m pytest \
-    "${XDIST_FLAGS[@]}" --cov=topiary/ --cov-report=term-missing tests "$@"
+# Give this run its own pytest temp root (#295). The default,
+# $TMPDIR/pytest-of-$USER, is shared by every pytest on the machine, and a
+# concurrent suite in a sibling repo has emptied it mid-run, failing a
+# release gate in tmp_path setup. A root set by the caller is respected, and
+# nested pytest runs inherit this one through the environment. It is removed
+# after a passing run and kept after a failing one for inspection. Setting
+# --basetemp instead would let a nested run delete the parent's directory.
+own_temproot=0
+if [[ -z "${PYTEST_DEBUG_TEMPROOT:-}" ]]; then
+    PYTEST_DEBUG_TEMPROOT="$(mktemp -d "${TMPDIR:-/tmp}/topiary-pytest.XXXXXX")"
+    export PYTEST_DEBUG_TEMPROOT
+    own_temproot=1
+fi
+log "pytest temp root: ${PYTEST_DEBUG_TEMPROOT}"
+
+status=0
+"${PYTHON}" -m pytest \
+    "${XDIST_FLAGS[@]}" --cov=topiary/ --cov-report=term-missing tests "$@" \
+    || status=$?
+
+if (( own_temproot )); then
+    if (( status == 0 )); then
+        rm -rf "${PYTEST_DEBUG_TEMPROOT}"
+    else
+        log "kept pytest temp root for inspection: ${PYTEST_DEBUG_TEMPROOT}"
+    fi
+fi
+exit "$status"

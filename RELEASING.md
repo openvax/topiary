@@ -31,8 +31,6 @@ export PYTHON="$release_dir/venv/bin/python"
 "$PYTHON" -m pip install -e '.[isovar,pirlygenes]' build twine ruff pytest pytest-cov pytest-xdist
 "$PYTHON" -m pip check
 "$PYTHON" -m pip inspect > "$release_dir/environment.json"
-mkdir "$release_dir/pytest"
-export PYTEST_DEBUG_TEMPROOT="$release_dir/pytest"
 ./lint.sh
 ./test.sh
 ```
@@ -40,9 +38,11 @@ export PYTEST_DEBUG_TEMPROOT="$release_dir/pytest"
 The environment report records installed versions and editable source paths.
 Only Topiary is editable here; sibling packages come from published releases.
 Keep `PYTHON` set to this interpreter when running `./deploy.sh` after merging.
-All lint, test, build and upload steps use it. The separate pytest temporary
-parent also prevents another repository's test cleanup from removing this
-release's fixtures; do not set a shared `--basetemp` in `PYTEST_ADDOPTS`.
+All lint, test, build and upload steps use it. `test.sh` gives every run its
+own pytest temporary root, so another repository's test cleanup cannot remove
+this release's fixtures; it is deleted after a passing run and kept after a
+failing one. Set `PYTEST_DEBUG_TEMPROOT` yourself only to choose where it goes,
+and do not set a shared `--basetemp` in `PYTEST_ADDOPTS`.
 
 The full suite needs the Ensembl data and external tools described in CI, and
 permission to bind localhost sockets for the HTTP download fixtures. A sandbox
