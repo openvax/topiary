@@ -43,6 +43,7 @@ from topiary.evidence import (
 from topiary import (
     APPROXIMATED, MEASURED, CachedPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
     read_fragments, read_pvacseq, write_fragments, unique_fragments,
+    read_exacto, read_exacto_fragments,
     describe_isovar_result, fragment_from_isovar_result, TopiaryResult,
     to_tsv, to_csv, read_tsv, read_csv,
     read_isovar_hypotheses,
@@ -1367,3 +1368,28 @@ def test_reconciliation_entry_points_agree(conflict):
     else:
         for name in outcomes[0]:
             pd.testing.assert_frame_equal(outcomes[0][name], outcomes[1][name])
+
+
+# Reader and optional fragment conversion must interpret native geometry alike.
+EXACTO_INPUT_TWINS = (read_exacto, read_exacto_fragments)
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_exacto_table_and_fragment_doors_agree(malformed):
+    from .test_io_exacto import primary_rows, table
+    rows = primary_rows()
+    if malformed:
+        rows[0]["type"] = "unsupported"
+    outputs = []
+    for door in EXACTO_INPUT_TWINS:
+        try:
+            outputs.append(door(table(rows, "primary_structures"), sample_name="p"))
+        except ValueError:
+            outputs.append(None)
+    if malformed:
+        assert outputs == [None, None]
+    else:
+        result, fragments = outputs
+        assert result.df.sequence.tolist() == [f.sequence for f in fragments]
+        assert result.df.target_intervals.iloc[0] == [list(i) for i in fragments[0].target_intervals]
+        assert result.df.sample_name.tolist() == [f.sample_name for f in fragments]

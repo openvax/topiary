@@ -3216,3 +3216,110 @@ def test_reconciled_hypotheses_survive_files_and_explicit_scoring(tmp_path, monk
                            duplicates="best").peptide.tolist() == ["GILGFVFTL", "SIINFEKL"]
     assert after.df.loc[after.df.source_label.eq("orf-only"), "candidate_id"].isna().all()
     assert after.df.loc[after.df.source_label.eq("orf-only"), "value"].isna().all()
+
+
+@pytest.mark.parametrize("wide", [False, True])
+@pytest.mark.parametrize("extension", ["tsv", "csv"])
+def test_native_exacto_combination_reload_and_explicit_rescoring(tmp_path, monkeypatch, wide, extension):
+    from topiary import (
+        read_exacto, combine_sources, reconcile_evidence, evidence_views,
+        rank_candidates, rescore_candidates, read_csv, read_tsv,
+    )
+    from .test_io_exacto import table, peptide_rows, primary_rows
+    from .test_candidate_tables import source, Model
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Native import/combination must not run predictors")
+
+    monkeypatch.setattr(TopiaryPredictor, "__init__", forbidden)
+    native = read_exacto(table(peptide_rows(), "peptide_variants"), sample_name="p",
+                         primary_structures=table(primary_rows(), "primary_structures"))
+    combined = reconcile_evidence(combine_sources({"exacto": native, "reported": source()}, sample_name="p"))
+    ranked = rank_candidates(combined, "affinity.value", ascending=True, duplicates="best")
+    assert ranked.peptide.tolist() == ["SIINFEKL", "GILGFVFTL"]
+    assert rank_candidates(combined, "affinity.value", filter_by="value < 100", ascending=True).peptide.tolist() == ["SIINFEKL"]
+    assert len(rank_candidates(combined, "affinity.value", strata=["source_label", "candidate_mhc_class"])) == 2
+    # Exacto reports a sequence, not a peptide-HLA prediction. Its occurrence
+    # remains linked to the existing query without pretending it measured affinity.
+    view = evidence_views(combined)["candidate_occurrences"]
+    native_occurrence = combined.df.iloc[0].peptide_occurrence_id
+    matches = view[view.peptide_occurrence_id.eq(native_occurrence)]
+    assert len(matches) == 1 and not matches.iloc[0].reported_candidate
+    assert matches.iloc[0].candidate_id == ranked.iloc[0].candidate_id
+    model = Model()
+    rescored = rescore_candidates(combined, model, prefix="fresh", select="source_label == 'reported'")
+    assert len(model.calls) == 2
+    saved = rescored.to_wide() if wide else rescored
+    path = tmp_path / ("exacto-combined." + extension)
+    getattr(saved, "to_" + extension)(path)
+    restored = (read_csv if extension == "csv" else read_tsv)(path).to_long()
+    assert restored.extra["combined_sources"]["exacto"]["extra"]["exacto"] == native.extra["exacto"]
+    assert restored.df.loc[restored.df.source_label.eq("exacto"), "value"].isna().all()
+    assert restored.df.loc[restored.df.source_label.eq("exacto"), "candidate_id"].isna().all()
+    for name, expected in evidence_views(combined).items():
+        actual = evidence_views(restored)[name]
+        keys = (["id"] if "id" in expected else ["source_observation_id", "candidate_id"]
+                if "source_observation_id" in expected else ["candidate_id", "peptide_occurrence_id"])
+        pd.testing.assert_frame_equal(actual.sort_values(keys).reset_index(drop=True),
+                                      expected.sort_values(keys).reset_index(drop=True), check_dtype=False)
+    assert rank_candidates(restored, "affinity.value", ascending=True).peptide.tolist() == ranked.peptide.tolist()
+    assert rank_candidates(restored, "fresh__testmodel__pMHC_affinity__value", ascending=True).peptide.tolist() == ["GILGFVFTL", "SIINFEKL"]
+
+
+def test_native_exacto_fragment_scanning_is_separate_and_uses_novelty():
+    from topiary import read_exacto, read_exacto_fragments
+    from .test_io_exacto import table, primary_rows
+    from dataclasses import replace
+
+    native = primary_rows()
+    original = read_exacto(table(native, "primary_structures"), sample_name="p")
+    assert original.df.peptide.isna().all()
+    fragments = read_exacto_fragments(table(native, "primary_structures"), sample_name="p")
+    predictor = TopiaryPredictor(models=RandomBindingPredictor(alleles=["HLA-A*02:01"], default_peptide_lengths=[8]))
+    scanned = predictor.predict_from_fragments(fragments)
+    assert set(scanned.peptide) == {"MSIINFEK", "SIINFEKL"}
+    assert scanned.overlaps_target.all()
+    alternate_geometry = predictor.predict_from_fragments([replace(fragments[0], target_intervals=[(0, 1)])])
+    assert set(TopiaryResult(alternate_geometry).filter_by("overlaps_target").df.peptide) == {"MSIINFEK"}
+    assert original.df.peptide.isna().all()
+
+
+def test_native_exacto_corpus_composes_with_lens_and_pvacseq_files(tmp_path, monkeypatch):
+    from topiary import (
+        read_exacto, combine_sources, reconcile_evidence, rank_candidates, read_tsv,
+        melt_pvacseq_algorithms,
+    )
+    from .test_io_exacto import ROOT
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("File combination must not instantiate predictors")
+
+    monkeypatch.setattr(TopiaryPredictor, "__init__", forbidden)
+    inputs = {
+        "exacto": read_exacto(ROOT / "peptide-variants.tsv", sample_name="p",
+                             primary_structures=ROOT / "primary-structures.tsv"),
+        "lens": read_lens(DATA / "lens" / "sample_v1_4.tsv"),
+        "pvacseq": melt_pvacseq_algorithms(read_pvacseq(DATA / "pvacseq" / "mhc_i_all_epitopes.tsv")),
+    }
+    baseline = combine_sources({k: v for k, v in inputs.items() if k != "exacto"}, sample_name="p")
+    combined = reconcile_evidence(combine_sources(inputs, sample_name="p"))
+    expression = "affinity['netmhcpan'].value"
+    options = dict(ascending=True, duplicates="best")
+    before = rank_candidates(baseline, expression, **options)
+    pooled = rank_candidates(combined, expression, **options)
+    assert pooled.candidate_id.tolist() == before.candidate_id.tolist()
+    pd.testing.assert_series_equal(pooled.candidate_score, before.candidate_score)
+    assert pooled.candidate_score.notna().any()
+    filtered = rank_candidates(combined, expression, filter_by="source_label == 'lens'", **options)
+    assert set(filtered.source_label) == {"lens"}
+    stratified = rank_candidates(combined, expression,
+                                strata=["source_label", "candidate_mhc_class"], **options)
+    assert set(stratified.source_label) == {"lens", "pvacseq"}
+    path = tmp_path / "native-corpus.tsv"
+    combined.to_tsv(path)
+    pooled.to_csv(tmp_path / "pooled.csv", index=False)
+    stratified.to_csv(tmp_path / "per-source.csv", index=False)
+    restored = read_tsv(path)
+    assert restored.df.loc[restored.df.source_label.eq("exacto"), "candidate_id"].isna().all()
+    assert restored.extra == combined.extra
+    assert rank_candidates(restored, expression, **options).candidate_id.tolist() == pooled.candidate_id.tolist()

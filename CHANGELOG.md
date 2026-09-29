@@ -7,6 +7,16 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.88.0
+
+- Import native Exacto peptide variants, primary structures and translations,
+  retaining original records, DNA/RNA links, alternative ORFs and unknown
+  specificity. Validate recovered sequence/novelty geometry against a pinned
+  public corpus; preserve transcript-scoped read membership when supplied (#365).
+- Combine native observations with reported LENS/pVACseq candidates without
+  prediction, preserving evidence through CSV/TSV and explicit rescoring.
+  Add optional `read_exacto_fragments` for separate new-window scanning.
+
 ## 5.87.0
 
 - Link normalized events, nucleotide ORF hypotheses, full protein products and

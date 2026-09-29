@@ -1,5 +1,15 @@
 # API Reference
 
+## Native Exacto input
+
+`read_exacto(path, *, sample_name, schema=None, primary_structures=None,
+reference_name=None, tag=None, transcript_read_support=None, library_id=None,
+read_set_id=None)` reads native sequence/evidence tables without prediction.
+`read_exacto_fragments(path, **kwargs)` uses the same validation and returns
+optional fragments for explicit new-window scanning. `EXACTO_SCHEMAS` and
+`EXACTO_SCHEMA_COMMIT` describe the tested producer contract. See [Reading
+Exacto](exacto.md) for supported files, evidence scope and composition examples.
+
 ## Fragment identity and RNA outcomes
 
 A fragment record is identified by `(sample_name, fragment_id)`: the ID
