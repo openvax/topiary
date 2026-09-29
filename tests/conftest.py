@@ -1,8 +1,16 @@
 """Shared pytest configuration."""
 
 import pytest
+import pandas as pd
 
 from tests.optional_dependencies import require_integration
+
+
+@pytest.fixture(params=[False, True], ids=["object-strings", "inferred-strings"])
+def pandas_string_inference(request):
+    """Exercise both pandas 2.x string modes, restoring the caller's option."""
+    with pd.option_context("future.infer_string", request.param):
+        yield
 
 
 @pytest.fixture(scope="module")

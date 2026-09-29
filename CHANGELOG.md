@@ -7,6 +7,13 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.86.2
+
+- Make dtype inference explicit when stacking sparse prediction frames and
+  grouping null keys, removing pandas FutureWarnings without dropping missing
+  measurements or provenance. Clean up warning-producing test fixtures and TSV
+  round-trip comparisons.
+
 ## 5.86.1
 
 - Reconcile published 5.x release notes, remove completed planning documents and

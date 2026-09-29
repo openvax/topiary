@@ -34,6 +34,7 @@ from .ranking import (
     as_dsl_nodes,
 )
 from .io import _model_version_str
+from .wide import _concat_frames
 from mhctools.pred import COLUMNS as _PRED_COLUMNS
 from mhctools.wrapper_base import AlleleFreePredictor
 
@@ -1022,7 +1023,7 @@ class TopiaryPredictor(object):
             )
         if not dfs:
             return pd.DataFrame()
-        return pd.concat(dfs, ignore_index=True)
+        return _concat_frames(dfs)
 
     def _predict_raw_for_model(self, model, name_to_sequence_dict, model_key=None, stage="protein"):
         """Run one model on proteins, preserving source-sequence context."""
@@ -1046,7 +1047,7 @@ class TopiaryPredictor(object):
             dfs.append(model_df)
         if not dfs:
             return pd.DataFrame()
-        return pd.concat(dfs, ignore_index=True)
+        return _concat_frames(dfs)
 
     def _predict_raw_peptides_for_model(
         self, model, name_to_peptide_dict, model_key=None, stage="peptide"

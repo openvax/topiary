@@ -482,7 +482,7 @@ def _null_key_df(column, keys):
     (pd.NA, np.nan),
     (None, pd.NA),
 ])
-def test_null_spellings_collapse_into_one_group(nulls):
+def test_null_spellings_collapse_into_one_group(nulls, pandas_string_inference):
     """groupby(dropna=False) merges them, so group_index must too.
 
     Otherwise the group index holds keys no node result can carry and

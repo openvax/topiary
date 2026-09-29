@@ -97,7 +97,13 @@ def test_annotation_join_and_provenance_survive_tsv(tmp_path):
     path = tmp_path / "annotated.tsv"
     out.to_tsv(path)
     restored = read_tsv(path)
-    pd.testing.assert_frame_equal(restored.df, out.df.reset_index(drop=True), check_dtype=False)
+    # TSV has one missing-value spelling; the in-memory frame can contain
+    # None, NaN or pd.NA. Compare the values and null positions explicitly.
+    expected = out.df.reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        restored.df.astype(object).where(restored.df.notna(), None),
+        expected.astype(object).where(expected.notna(), None),
+    )
     assert restored.extra == out.extra
     assert restored.sources == out.sources + [path.name]
     assert restored.filter_by_str == out.filter_by_str

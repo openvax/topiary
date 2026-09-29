@@ -54,6 +54,46 @@ LONG_TO_WIDE_FIELD = {
 WIDE_TO_LONG_FIELD = {v: k for k, v in LONG_TO_WIDE_FIELD.items()}
 
 
+def _concat_frames(frames):
+    """Concatenate rows after giving inferred null columns a sibling's dtype.
+
+    Pandas infers object or float for columns containing only None/NaN, and is
+    changing how these affect concat's dtype inference. Give those placeholders
+    an explicit dtype when the other inputs supply one that can hold missing
+    values. Preserve explicitly nullable extension dtypes and columns missing
+    in every input; no schema or rows should disappear with absent measurements.
+    """
+    untyped = [
+        {column for column in frame
+         if not isinstance(frame[column].dtype, pd.api.extensions.ExtensionDtype)
+         and frame[column].dtype.kind in "Of" and frame[column].isna().all()}
+        for frame in frames
+    ]
+    replacements = [{} for _ in frames]
+    for column in set().union(*untyped):
+        typed = [frame[column] for frame, missing in zip(frames, untyped)
+                 if column in frame and column not in missing]
+        if not typed or not any(values.notna().any() for values in typed):
+            continue
+        dtype = pd.concat(typed, ignore_index=True).dtype
+        if dtype == object or (
+            dtype.kind in "biu" and not isinstance(dtype, pd.api.extensions.ExtensionDtype)
+        ):
+            # NumPy integers and booleans cannot hold a missing value.
+            continue
+        for frame, missing, replacement in zip(frames, untyped, replacements):
+            if column in missing:
+                replacement[column] = pd.Series(index=frame.index, dtype=dtype)
+    prepared = []
+    for frame, replacement in zip(frames, replacements):
+        if replacement:
+            frame = frame.copy(deep=False)
+            for column, values in replacement.items():
+                frame[column] = values
+        prepared.append(frame)
+    return pd.concat(prepared, ignore_index=True)
+
+
 @functools.lru_cache(maxsize=1)
 def _known_kind_short_names():
     """Return known kind short names sorted longest-first (for suffix matching)."""
@@ -575,7 +615,7 @@ def from_wide(df, metadata=None):
                 unpredicted[column] = unpredicted[source_column]
             long_rows.append(unpredicted)
 
-    result = pd.concat(long_rows, ignore_index=True)
+    result = _concat_frames(long_rows)
 
     # Reconstruct the affinity convenience column.
     is_affinity = result["kind"].apply(_kind_name) == "pMHC_affinity"
