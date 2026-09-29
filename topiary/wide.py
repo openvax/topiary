@@ -91,7 +91,10 @@ def _concat_frames(frames):
             for column, values in replacement.items():
                 frame[column] = values
         prepared.append(frame)
-    return pd.concat(prepared, ignore_index=True)
+    combined = pd.concat(prepared, ignore_index=True)
+    # Replacing columns can fragment wide reports into hundreds of blocks.
+    # Consolidate after normalization so subsequent column additions stay cheap.
+    return combined.copy() if any(replacements) else combined
 
 
 @functools.lru_cache(maxsize=1)
