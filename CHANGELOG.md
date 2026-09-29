@@ -7,6 +7,16 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.87.0
+
+- Link normalized events, nucleotide ORF hypotheses, full protein products and
+  peptide occurrences without collapsing alternative translations or conflicting
+  source measurements. Add relational evidence views and explicit RNA count union
+  that requires known membership and measurement scope (#370).
+- Preserve those identities through long/wide CSV and TSV, original/additive
+  ranking and supporting-hypothesis selection. Distinguish known terminal flanks
+  from missing flanks in source observation IDs (#435).
+
 ## 5.86.2
 
 - Make dtype inference explicit when stacking sparse prediction frames and

@@ -154,7 +154,9 @@ def combine_sources(sources, *, sample_name=None):
         # remain axes within an observation, so peptide_view still composes.
         fields = sorted(set(native.columns) - _MEASUREMENT_FIELDS)
         frame["source_observation_id"] = [
-            _identity([label, sample, fields, *values])
+            _identity([label, sample, fields, *values,
+                       {field: isinstance(value, str) for field, value in zip(fields, values)
+                        if field in {"n_flank", "c_flank"}}])
             for sample, values in zip(samples, frame[fields].itertuples(index=False, name=None))
         ]
         # The ordinary DSL reads one value per observation/model. Refuse

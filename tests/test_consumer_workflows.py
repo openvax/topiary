@@ -3153,3 +3153,66 @@ def test_cli_output_can_be_read_back_by_topiary(cli_output_request, tmp_path, ca
         affinity = reloaded[reloaded.kind == "pMHC_affinity"].set_index("peptide")
         assert affinity.value.dtype == "float64"
         assert affinity.value.to_dict() == {"SIINFEKL": 50.0, "GILGFVFTL": 500.0}
+
+
+@pytest.mark.parametrize("wide", [False, True])
+@pytest.mark.parametrize("extension", ["tsv", "csv"])
+def test_reconciled_hypotheses_survive_files_and_explicit_scoring(tmp_path, monkeypatch, wide, extension):
+    from topiary import (
+        combine_sources, evidence_views, reconcile_evidence, rank_candidates,
+        rescore_candidates, read_tsv, read_csv, union_rna_observations,
+    )
+    from .test_candidate_tables import Model, source
+    from .test_reconciliation import rna
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Table-only reconciliation must not instantiate a predictor")
+
+    monkeypatch.setattr(TopiaryPredictor, "__init__", forbidden)
+    protein = "MAAASIINFEKL"
+    coding = "ATGGCTGCTGCTTCTATTATTAATTTTGAAAAACTG"
+    common = dict(reference_name="GRCh38", event_ids=["event-one", "event-two"],
+                  orf_id="caller-one-orf", coding_sequence=coding, transcript_id="t",
+                  orf_start=0, orf_end=len(coding), orf_completeness="start_to_stop")
+    first = source(**common)
+    first.df["event_ids"] = [common["event_ids"], common["event_ids"]]
+    first.df["protein_sequence"] = [protein, "MAAAGILGFVFTL"]
+    first.df["orf_id"] = ["orf-one", "orf-two"]
+    first.df["coding_sequence"] = [coding, "ATGGCTGCTGCTGGTATTCTGGGTTTTGTTTTTACTCTG"]
+    first.df["orf_end"] = first.df.coding_sequence.str.len()
+    first.df["peptide_start"] = [4, 4]
+    first.df["peptide_end"] = [12, 13]
+    first.df["rna_observations"] = [[rna()], [rna(entity_id="other-transcript")]]
+    other = first.df.iloc[:1].copy()
+    other["orf_id"] = "other-caller-name"
+    other["value"] = 75.
+    other["rna_observations"] = [[rna(evidence_unit_ids=["r2", "r3"], method="other")]]
+    orphan = pd.DataFrame([dict(common, protein_sequence=protein, transcript_expression=99.)])
+    result = reconcile_evidence(combine_sources({"one": first, "two": other, "orf-only": orphan}, sample_name="p"))
+    assert len(evidence_views(result)["orfs"]) == 2
+    assert len(evidence_views(result)["events"]) == 2
+    ranked = rank_candidates(result, "affinity.value", ascending=True, duplicates="best")
+    assert ranked.peptide.tolist() == ["SIINFEKL", "GILGFVFTL"]
+    assert ranked.iloc[0].orf_hypothesis_id == result.df.iloc[0].orf_hypothesis_id
+    assert ranked.iloc[0].peptide_occurrence_id == result.df.iloc[0].peptide_occurrence_id
+    assert len(rank_candidates(result, "affinity.value", ascending=True, duplicates="best",
+                               strata=["source_label", "candidate_mhc_class"])) == 3
+    # The same read is not independent support merely because two callers used it.
+    assert union_rna_observations([result.df.iloc[0].rna_observations[0],
+                                  result.df.iloc[2].rna_observations[0]])["value"] == 3
+    model = Model()
+    scored = rescore_candidates(result, model, prefix="fresh")
+    assert len(model.calls) == 2
+    assert scored.df.candidate_id.nunique() == 2
+    saved = scored.to_wide() if wide else scored
+    path = tmp_path / ("reconciled." + extension)
+    getattr(saved, "to_" + extension)(path)
+    restored = (read_tsv if extension == "tsv" else read_csv)(path).to_long()
+    after = reconcile_evidence(restored)
+    for name, before in evidence_views(result).items():
+        pd.testing.assert_frame_equal(evidence_views(after)[name], before, check_dtype=False)
+    assert rank_candidates(after, "affinity.value", ascending=True, duplicates="best").peptide.tolist() == ranked.peptide.tolist()
+    assert rank_candidates(after, "fresh__testmodel__pMHC_affinity__value", ascending=True,
+                           duplicates="best").peptide.tolist() == ["GILGFVFTL", "SIINFEKL"]
+    assert after.df.loc[after.df.source_label.eq("orf-only"), "candidate_id"].isna().all()
+    assert after.df.loc[after.df.source_label.eq("orf-only"), "value"].isna().all()

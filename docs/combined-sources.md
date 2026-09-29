@@ -207,8 +207,8 @@ tool's RNA measurements; abundance is never automatically averaged or summed.
 Equal protein products do not establish equal nucleotide ORFs. Distinct
 `orf_id`, `coding_sequence`, transcript, frame or completeness annotations
 remain independent source observations even when the translated sequence is
-identical. Full ORF reconciliation is tracked in
-[#370](https://github.com/openvax/topiary/issues/370).
+identical. Use `reconcile_evidence` below to establish explicit ORF relationships
+while retaining those observations.
 
 `event_id` must be explicitly harmonized, including assembly/variant identity
 where appropriate. Native labels from different tools are not assumed equal.
@@ -216,15 +216,15 @@ Without a common event ID, observations stay separate while sequence IDs still
 show exact sequence agreement. Local `pep_context` or `sequence` is not promoted
 to a full ORF. A peptide-only table does not establish its generating full ORF.
 
-To use another source's RNA measurement for an explicitly matching ORF, join it
-as a named feature. `join_annotations` refuses ambiguous annotation keys:
+To use another source's RNA measurement for an explicitly matching ORF, first
+reconcile the input and join the selected measurement as a named feature. `join_annotations` refuses ambiguous annotation keys:
 
 ```python
-from topiary import join_annotations
+from topiary import join_annotations, reconcile_evidence
 
-# combined contains both ORF/RNA rows and peptide rows with explicit
-# protein_sequence and event_id identifying their generating protein.
-keys = ["candidate_sample", "event_id", "protein_sequence_id"]
+combined = reconcile_evidence(combined)
+# Require an explicit ORF match; equal proteins alone are insufficient.
+keys = ["candidate_sample", "orf_hypothesis_id"]
 rna = combined.df.loc[
     combined.df.source_label.eq("exacto_normalized"),
     [*keys, "transcript_expression"],
@@ -232,7 +232,7 @@ rna = combined.df.loc[
 enriched = join_annotations(
     combined, rna, on=keys, prefix="exacto",
     provenance={"source": "exacto_normalized", "unit": "TPM",
-                "policy": "same sample, event and exact full sequence"},
+                "policy": "same sample and reconciled ORF; retain transcript-level unit"},
 )
 ranked = rank_candidates(
     enriched, "exacto_transcript_expression / affinity['netmhcpan'].value",
@@ -243,6 +243,69 @@ ranked = rank_candidates(
 This expression illustrates a policy, not a calibrated biological model. The
 alternative ORF's abundance cannot attach just because its variant or gene
 agrees. Missing or ambiguous identity requires explicit resolution.
+
+## Reconcile ORFs and RNA observations (5.87.0+)
+
+`reconcile_evidence(combined)` returns a copy with stable links between biological
+entities. It neither chooses a caller nor changes the candidate universe.
+`evidence_views(combined)` exposes `events`, `orfs`, `proteins`, `occurrences`,
+`candidates`, `rna_observations` and `links` as DataFrames; supply
+`source_labels=["lens"]` for a source-stratified view.
+
+| Input assertion | Identity rule |
+| --- | --- |
+| `event_id` or list-valued `event_ids` | Same sample, explicit `reference_name` and normalized event name; absent reference remains source-local |
+| `orf_id` | Caller-local ID; contradictory descriptors raise, absent descriptors can be supplied by another row with the same local ID |
+| `coding_sequence` and `transcript_path`, or `transcript_id` plus `orf_start`/`orf_end` | Cross-caller ORF agreement requires the same sample, reference and all supplied descriptors |
+| `reading_frame`, `orf_completeness`, start/stop flags, `linked_variants` | Retained in ORF identity; differing assertions remain alternative hypotheses |
+| `protein_sequence` | Exact full product, separate from nucleotide ORF identity |
+| `protein_hypothesis_sequence` | May be partial; never promoted to a full protein |
+| `peptide_start`/`peptide_end` | Zero-based half-open occurrence in the supplied protein; validated against its sequence |
+| Missing peptide coordinates | Source-local occurrence; no guessed equivalence from a shared peptide |
+
+ORF bounds are also zero-based half-open. `transcript_path` is an explicit ordered
+JSON path in the caller's normalized reference convention. Topiary does not lift
+over assemblies, normalize native genomic variant strings or infer a path from
+gene names. Incomplete records remain useful without establishing equivalence.
+Reference scope follows the distinction between sequence and annotation identity
+in [NCBI's feature documentation](https://www.ncbi.nlm.nih.gov/genbank/genomes_gff/).
+
+`rank_candidates` retains the chosen row's `orf_hypothesis_id` and
+`peptide_occurrence_id`. `candidate_observations` and the relational `links`
+retain alternative support. Rediscovery does not multiply candidate scores.
+Use an explicit duplicate policy or source filter when measurements disagree.
+
+RNA observations can be supplied as a list of records in `rna_observations`:
+
+```python
+measurement = {
+    "sample_name": "patient-01", "entity_type": "transcript",
+    "entity_id": "ENST-example", "quantity": "count", "unit": "reads",
+    "value": 2, "library_id": "rna-library-1", "read_set_id": "alignment-1",
+    "evidence_unit_ids": ["read-a", "read-b"], "method": "caller", "version": "1",
+}
+```
+
+`normalize_rna_observation` validates this shape. `entity_type` may be `gene`,
+`transcript`, `orf` or `variant`. A TPM measurement uses `quantity="abundance"`,
+`unit="TPM"` and no evidence-unit list. Unknown values remain null. Original
+quantifier metadata and extra fields survive; gene/transcript expression never
+becomes ORF expression automatically. Each caller's observations remain distinct.
+
+`union_rna_observations([measurement, other_measurement])` unions identified
+read, fragment, UMI or cell memberships only within one sample, library, read-set
+namespace, measured entity and unit. Shared members count once. Missing membership,
+different namespaces and TPM quantities raise: neither different file names nor
+different callers establish independent evidence. An explicitly empty membership
+is measured zero; an absent membership is unknown. Scalar expression/count
+columns already present in source tables stay untouched and are never implicitly
+converted into identified evidence sets.
+
+All identity columns, descriptors, alternative observations and metadata survive
+Topiary CSV/TSV save/reload in long and wide forms. Reconciliation can be repeated
+after reloading. The composed workflow test covers original and additive scoring,
+retained hypothesis selection, and count union without running a predictor during
+assembly.
 
 ## Add prediction features on demand
 

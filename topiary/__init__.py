@@ -3,6 +3,9 @@ from .serialization import normalize_python_types
 from .report_geometry import map_peptide_intervals, mutation_intervals_from_positions
 from .annotations import join_annotations
 from .candidates import combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
+from .reconciliation import (
+    reconcile_evidence, evidence_views, normalize_rna_observation, union_rna_observations,
+)
 from .prediction_batch import predict_with_cache_miss_report, PartialPredictionWarning
 from .predictor import (
     TopiaryPredictor,
@@ -187,7 +190,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.86.2"
+__version__ = "5.87.0"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -198,6 +201,10 @@ __all__ = [
     "map_peptide_intervals",
     "mutation_intervals_from_positions",
     "combine_sources",
+    "reconcile_evidence",
+    "evidence_views",
+    "normalize_rna_observation",
+    "union_rna_observations",
     "protein_evidence_view",
     "rank_candidates",
     "rescore_candidates",

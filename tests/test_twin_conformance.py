@@ -1333,3 +1333,37 @@ def test_source_tracking_preserves_scoped_prediction_aggregation(scope, expressi
         expected = evaluate_scores(plain.df, parse(expr))
         assert expected.notna().all()
         pd.testing.assert_series_equal(evaluate_scores(combined.df, parse(expr)), expected)
+
+
+# Normalization must agree at the explicit API and relational-view entry point.
+def _reconciled_links(result):
+    from topiary import evidence_views, reconcile_evidence
+    return evidence_views(reconcile_evidence(result))
+
+
+def _direct_links(result):
+    from topiary import evidence_views
+    return evidence_views(result)
+
+
+RECONCILIATION_TWINS = (_reconciled_links, _direct_links)
+
+
+@pytest.mark.parametrize("conflict", [False, True])
+def test_reconciliation_entry_points_agree(conflict):
+    from .test_reconciliation import biological_rows
+    rows = biological_rows()
+    if conflict:
+        rows["orf_id"] = "conflicting"
+    result = combine_sources({"source": rows})
+    outcomes = []
+    for door in RECONCILIATION_TWINS:
+        try:
+            outcomes.append(door(result))
+        except ValueError:
+            outcomes.append(None)
+    if conflict:
+        assert outcomes == [None, None]
+    else:
+        for name in outcomes[0]:
+            pd.testing.assert_frame_equal(outcomes[0][name], outcomes[1][name])
