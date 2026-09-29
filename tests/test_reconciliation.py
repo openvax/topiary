@@ -45,7 +45,7 @@ def test_cross_caller_orf_agreement_preserves_synonymous_and_alternative_hypothe
     assert result.df.iloc[0].orf_hypothesis_id == result.df.iloc[-1].orf_hypothesis_id
     assert result.df.iloc[0].orf_hypothesis_id != result.df.iloc[1].orf_hypothesis_id
     assert result.df.transcript_expression.tolist() == [10., 10., 10., 10., 99.]
-    assert result.df.iloc[3].protein_sequence_id is None
+    assert pd.isna(result.df.iloc[3].protein_sequence_id)
     assert result.df.candidate_id.isna().all()
     assert "orf_hypothesis_id" not in combined.df
     pd.testing.assert_frame_equal(reconcile_evidence(result).df, result.df)
@@ -93,7 +93,7 @@ def test_local_id_cannot_hide_conflicting_orfs_and_absent_assertions_can_be_fill
     rows.loc[1, "coding_sequence"] = None
     result = reconcile_evidence(combine_sources({"one": rows}))
     assert result.df.orf_hypothesis_id.nunique() == 1
-    assert result.df.iloc[1].coding_sequence is None
+    assert pd.isna(result.df.iloc[1].coding_sequence)
     assert result.df.iloc[1].orf_descriptor["coding_sequence"] == "ATGGCT"
 
 

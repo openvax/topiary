@@ -16,7 +16,7 @@ from .io_pvacseq import derive_mhc_class
 from .predictor import from_predictions
 from .ranking import (
     apply_filter, as_dsl_node, evaluate_scores, format_allele_set, is_stated,
-    mhc_dependence, split_allele_set,
+    mhc_dependence, split_allele_set, stated_values,
 )
 from .result import TopiaryResult, stack_results
 from .serialization import normalize_python_types
@@ -130,12 +130,12 @@ def combine_sources(sources, *, sample_name=None):
                 frame[column] = None
         proteins = frame.get("protein_sequence", pd.Series(None, index=frame.index, dtype=object))
         hypotheses = frame.get("protein_hypothesis_sequence", pd.Series(None, index=frame.index, dtype=object))
-        if not (frame.peptide.map(is_stated) | proteins.map(is_stated) | hypotheses.map(is_stated)).all():
+        if not (stated_values(frame.peptide) | stated_values(proteins) | stated_values(hypotheses)).all():
             raise ValueError(f"Source {label!r} needs a peptide or explicit protein_sequence "
                              "or protein_hypothesis_sequence on every row")
         samples = frame.get("sample_name", pd.Series(None, index=frame.index, dtype=object))
-        samples = samples.where(samples.map(is_stated), sample_name)
-        if not samples.map(is_stated).all():
+        samples = samples.where(stated_values(samples), sample_name)
+        if not stated_values(samples).all():
             raise ValueError(f"Source {label!r} needs sample_name for unlabelled rows")
         frame["source_label"] = label
         frame["source_row"] = np.arange(len(frame))

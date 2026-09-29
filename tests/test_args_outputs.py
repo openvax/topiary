@@ -4,7 +4,6 @@ import tempfile
 import warnings
 import pandas as pd
 import pytest
-from pandas.errors import SettingWithCopyWarning
 
 from .common import eq_
 
@@ -42,10 +41,15 @@ def test_write_outputs():
         print(df_from_file)
         eq_(len(df_expected), len(df_from_file))
         assert (df_expected == df_from_file).all().all()
+        assignment_warnings = tuple(
+            getattr(pd.errors, name) for name in ("SettingWithCopyWarning", "ChainedAssignmentError")
+            if hasattr(pd.errors, name)
+        )
         assert not any(
-            issubclass(warning.category, SettingWithCopyWarning)
+            issubclass(warning.category, assignment_warnings)
             for warning in caught_warnings
         )
+        pd.testing.assert_frame_equal(df, pd.DataFrame({"x": [1, 2, 3], "y": [10, 20, 30]}))
 
 
 def test_preview_shows_selected_renamed_columns_and_reports_omitted_rows(capsys):
