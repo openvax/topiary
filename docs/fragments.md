@@ -467,7 +467,7 @@ Prefix is sanitized to `[A-Za-z0-9._:-]`; runs of other characters collapse to `
 
 - **Indel / frameshift `wt_peptide`** — `wt_peptide` is only populated when the baseline is the same length as the mutant sequence (substitution-compatible). Length-changing edits yield `None`. Whether to define a remapped comparator remains an open design question ([#411](https://github.com/openvax/topiary/issues/411)).
 - **Binding-aware cross-reactivity axes** (`self_mimic_*`, `self_strongest_nearby_*`, `self_nearest_candidates`) — the sequence-level `self_nearest_*` columns are computed by `SelfProteome` / `predict_self_nearest`; the axes that also require MHC prediction on each candidate are not implemented ([#412](https://github.com/openvax/topiary/issues/412)).
-- **Dedicated file loaders** (`read_isovar_fragments`,
-  `read_exacto_fragments`) — separate work. Existing in-memory results already
-  compose through `fragment_from_isovar_result` and
-  `fragments_from_dataframe(read_pvacseq(...).df)`.
+- **Dedicated Isovar fragment-file loader** (`read_isovar_fragments`) — separate
+  work. Existing in-memory results compose through `fragment_from_isovar_result`.
+  [Native Exacto](exacto.md) now has `read_exacto_fragments`; pVACseq composes
+  through `fragments_from_dataframe(read_pvacseq(...).df)`.

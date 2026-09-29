@@ -19,6 +19,7 @@ nav:
   - Protein Fragments: fragments.md
   - Cached Predictions: cached.md
   - Reading pVACseq: pvacseq.md
+  - Reading Exacto: exacto.md
   - Combining Sources: combined-sources.md
   - Consumer Guide: consumer-guide.md
   - Cache Miss Reports: cache-miss-reporting.md

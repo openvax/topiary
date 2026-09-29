@@ -28,9 +28,8 @@ ranked.to_csv("ranked-candidates.tsv", sep="\t", index=False)
 ```
 
 Inputs may be `TopiaryResult` objects or normalized DataFrames. Existing readers
-normalize LENS and pVACseq. Native Exacto parsing is separate work in
-[#365](https://github.com/openvax/topiary/issues/365); an already normalized
-ORF/RNA DataFrame is supported now. Aggregated reports contribute only the
+normalize LENS and pVACseq; [native Exacto tables](exacto.md) use `read_exacto`.
+Already normalized ORF/RNA DataFrames are also supported. Aggregated reports contribute only the
 candidates they actually report.
 
 A single input needs no model name, version or per-row source metadata. For
