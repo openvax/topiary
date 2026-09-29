@@ -12,7 +12,7 @@ from collections.abc import Mapping
 import pandas as pd
 
 from .io import Metadata, _model_version_str, _models_from_dataframe
-from .wide import detect_form
+from .wide import detect_form, _concat_frames
 
 
 class _MissingIdentityValue:
@@ -628,7 +628,7 @@ def stack_results(results):
     else:
         raise ValueError(f"Cannot stack TopiaryResults with form {form!r}")
 
-    df = pd.concat(frames, ignore_index=True)
+    df = _concat_frames(frames)
 
     return TopiaryResult(
         df,

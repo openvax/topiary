@@ -384,9 +384,9 @@ CACHE_LENGTH_TWINS = (
 )
 
 
-# Equal-length, unflanked peptides must have the same coverage policy whether
-# supplied to the protein scanner or the whole-peptide API. The shared battery
-# lives in test_prediction_batch.py and includes strict and reporting modes.
+# Equal-length, unflanked peptides must have the same coverage policy and
+# prediction metadata through the protein scanner and whole-peptide API.
+# Batteries live in test_prediction_batch.py and test_predictor_internals.py.
 CACHE_MISS_PREDICTION_TWINS = (
     TopiaryPredictor.predict_from_named_sequences,
     TopiaryPredictor.predict_from_named_peptides,

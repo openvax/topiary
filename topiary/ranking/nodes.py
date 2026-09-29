@@ -1292,7 +1292,7 @@ class EvalContext:
                 key_df = self._declared_key_frame()
                 if single_key:
                     key = self.group_keys[0]
-                    self._group_index = pd.Index(key_df[key], name=key)
+                    self._group_index = pd.Index(key_df[key].infer_objects(), name=key)
                 else:
                     self._group_index = pd.MultiIndex.from_frame(key_df)
         return self._group_index
@@ -1393,7 +1393,7 @@ class EvalContext:
             else:
                 if len(self.group_keys) == 1:
                     key = self.group_keys[0]
-                    row_index = pd.Index(self.key_frame[key], name=key)
+                    row_index = pd.Index(self.key_frame[key].infer_objects(), name=key)
                 else:
                     row_index = pd.MultiIndex.from_frame(self.key_frame)
                 codes = self.group_index.get_indexer(row_index)

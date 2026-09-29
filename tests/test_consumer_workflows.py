@@ -119,8 +119,9 @@ def test_conflicting_measurements_reject_every_consumer_in_both_orders(door, run
                                               ([None, None], None), (["50", 50.], 50.),
                                               ([50. + 1e-10, 50.], 50.)])
 def test_equal_and_missing_measurements_compose_without_order_dependence(door, run, expression, column, values, expected):
-    frame = pd.concat([_repeated_measurements(values),
-                       _repeated_measurements([55.], peptide="GILGFVFTL")], ignore_index=True)
+    frame = _repeated_measurements(
+        [*values, 55.], peptide=["SIINFEKL"] * len(values) + ["GILGFVFTL"],
+    )
     frame[column] = frame.value
     original = frame.copy(deep=True)
     for ordered in (frame, frame.iloc[::-1]):
@@ -208,7 +209,7 @@ PVACSEQ_PRESENTATION = (
 
 
 @pytest.mark.parametrize("wide", [False, True])
-def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, tmp_path, wide):
+def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, tmp_path, wide, pandas_string_inference):
     from topiary import (
         combine_sources, melt_pvacseq_algorithms, protein_evidence_view,
         rank_candidates, read_tsv, rescore_candidates,
@@ -2243,7 +2244,10 @@ def test_whole_peptide_wrappers_survive_prediction_cache_io_and_ranking(
     affinity = TopiaryPredictor(models=RandomBindingPredictor(
         alleles=["HLA-A*02:01", "HLA-B*07:02"], default_peptide_lengths=[12],
     )).predict_from_named_peptides({"0": peptides[0], "1": peptides[1]})
-    mixed = pd.concat([native[native.source_sequence_name != "2"], affinity], ignore_index=True)
+    mixed = stack_results([
+        TopiaryResult(native[native.source_sequence_name != "2"]),
+        TopiaryResult(affinity),
+    ]).df
     for frame in (mixed, TopiaryResult(mixed).to_wide().to_long().df):
         assert len(frame[frame.kind == kind]) == 2
         scores = evaluate_scores(frame, parse(f"peptide_view({kind}.score)"))
@@ -2908,7 +2912,7 @@ def test_nearest_self_predictions_keep_allele_aggregation_after_combination_and_
 
 @pytest.mark.parametrize("versions", [("1", "2"), ("01", "1"), ("1.10", "1.1")])
 @pytest.mark.parametrize("wide", [False, True])
-def test_numeric_predictor_versions_are_opaque_through_files_and_ranking(tmp_path, versions, wide):
+def test_numeric_predictor_versions_are_opaque_through_files_and_ranking(tmp_path, versions, wide, pandas_string_inference):
     from topiary import combine_sources, rank_candidates
     from .test_twin_conformance import DELIMITED_IO_TWINS
 
@@ -2918,15 +2922,24 @@ def test_numeric_predictor_versions_are_opaque_through_files_and_ranking(tmp_pat
                                  prediction_method_name=["original"], predictor_version=[version],
                                  wt_value=[value + 1], wt_predictor_version=[version]))
 
-    combined = combine_sources({"first": table(50., versions[0]),
-                                "second": table(75., versions[1]),
-                                "unknown": table(100., None)}, sample_name="p")
+    with pytest.warns(UserWarning) as diagnostics:
+        combined = combine_sources({"first": table(50., versions[0]),
+                                    "second": table(75., versions[1]),
+                                    "unknown": table(100., None)}, sample_name="p")
+    assert [str(warning.message) for warning in diagnostics] == [
+        f"Model 'original' has conflicting versions: '{versions[0]}' vs '{versions[1]}'",
+        f"Model 'original' has conflicting versions: '{versions[0]}' vs ''",
+    ]
     policy = dict(strata=["source_label"])
     before = rank_candidates(combined, "affinity.value", **policy)
     assert before.candidate_score.tolist() == [100., 75., 50.]
+    serialized = combined
+    if wide:
+        with pytest.warns(UserWarning, match="Multiple predictor versions"):
+            serialized = combined.to_wide()
     for suffix, _, writer, reader in DELIMITED_IO_TWINS:
         path = tmp_path / f"numeric.{suffix}"
-        writer(combined.to_wide() if wide else combined, path)
+        writer(serialized, path)
         restored = reader(path).to_long()
         rows = restored.df.set_index("source_label")
         for column in ("predictor_version", "source_predictor_version", "wt_predictor_version"):

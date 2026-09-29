@@ -356,6 +356,47 @@ class TestStackResults:
         combined = stack_results([r1, r2])
         assert len(combined) == 2
 
+    @pytest.mark.parametrize("missing", [None, float("nan"), pd.NA])
+    @pytest.mark.parametrize("empty", [False, True])
+    def test_sparse_stack_preserves_values_schema_and_inputs(
+        self, missing, empty, pandas_string_inference,
+    ):
+        measured = _sample_long_df()
+        measured["predictor_version"] = "01.10"
+        measured["rna_count"] = pd.Series([1, 2], dtype="Int64")
+        measured["unknown_measurement"] = pd.Series([pd.NA, pd.NA], dtype="Float64")
+        measured["unknown_count"] = pd.Series([pd.NA, pd.NA], dtype="Int64")
+        sparse = measured.iloc[:1].copy()
+        sparse["prediction_method_name"] = "unversioned_model"
+        sparse["unknown_count"] = float("nan")
+        for column in ("value", "affinity", "predictor_version", "rna_count"):
+            sparse[column] = missing
+        sparse["source_only_annotation"] = missing
+        if empty:
+            sparse = sparse.iloc[:0]
+        originals = [frame.copy(deep=True) for frame in (measured, sparse)]
+
+        for frames in ([measured, sparse], [sparse, measured]):
+            stacked = stack_results([TopiaryResult(frame) for frame in frames]).df
+            assert len(stacked) == 2 + len(sparse)
+            assert stacked.value.dropna().tolist() == [120.0, 5000.0]
+            assert stacked.predictor_version.dropna().tolist() == ["01.10", "01.10"]
+            assert stacked.rna_count.dropna().tolist() == [1, 2]
+            for column in ("value", "predictor_version", "rna_count", "unknown_measurement"):
+                assert stacked[column].dtype == measured[column].dtype
+            assert stacked.unknown_measurement.isna().all()
+            assert stacked.unknown_count.isna().all()
+            assert str(stacked.unknown_count.dtype) == "Float64"
+            assert stacked.source_only_annotation.isna().all()
+            assert list(stacked.columns) == list(dict.fromkeys(
+                column for frame in frames for column in frame.columns
+            ))
+            assert stacked.peptide.tolist() == [
+                peptide for frame in frames for peptide in frame.peptide
+            ]
+        for frame, original in zip((measured, sparse), originals):
+            pd.testing.assert_frame_equal(frame, original)
+
     def test_result_stack_with_convenience(self):
         r1 = self._make_r(100.0, "patient01")
         r2 = self._make_r(200.0, "patient02")

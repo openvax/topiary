@@ -13,6 +13,7 @@ from topiary.predictor import (
     _build_model_lookup,
     _resolve_model_name,
 )
+from .test_twin_conformance import CACHE_MISS_PREDICTION_TWINS
 
 
 def test_model_lookup_cache_is_immutable_and_reused():
@@ -238,6 +239,12 @@ class _ToyVersionModel:
             df["predictor_version"] = self.row_version
         return df
 
+    def predict_proteins_dataframe(self, name_to_sequence_dict):
+        df = self.predict_dataframe(name_to_sequence_dict.values())
+        df["source_sequence_name"] = list(name_to_sequence_dict)
+        df["offset"] = 0
+        return df
+
 
 def test_end_to_end_presentation_value_populated():
     # Public-API check: presentation rows produced through
@@ -258,7 +265,7 @@ def test_end_to_end_presentation_value_populated():
 
 
 @pytest.mark.parametrize("missing_state", ["missing", "blank", "na"])
-def test_result_attrs_fill_versions_per_missing_method(tmp_path, missing_state):
+def test_result_attrs_fill_versions_per_missing_method(tmp_path, missing_state, pandas_string_inference):
     from topiary import TopiaryResult, read_tsv
 
     predictor = TopiaryPredictor(models=[
@@ -266,24 +273,23 @@ def test_result_attrs_fill_versions_per_missing_method(tmp_path, missing_state):
         _ToyVersionModel("from_model", "2.0", missing_state),
     ])
 
-    df = predictor.predict_from_named_peptides({"pep": "SIINFEKLA"})
-
-    assert df.attrs["topiary_models"] == {
-        "with_rows": "1.0",
-        "from_model": "2.0",
-    }
-    assert TopiaryResult(df).models == {
-        "with_rows": "1.0",
-        "from_model": "2.0",
-    }
-
-    path = tmp_path / "predictions.tsv"
-    TopiaryResult(df).to_tsv(path)
-
-    assert read_tsv(path).models == {
-        "with_rows": "1.0",
-        "from_model": "2.0",
-    }
+    outputs = []
+    for door in CACHE_MISS_PREDICTION_TWINS:
+        df = door(predictor, {"pep": "SIINFEKLA"})
+        outputs.append(df)
+        expected = {"with_rows": "1.0", "from_model": "2.0"}
+        assert df.attrs["topiary_models"] == expected
+        assert TopiaryResult(df).models == expected
+        assert df.predictor_version.iloc[0] == "1.0"
+        if missing_state == "blank":
+            assert df.predictor_version.iloc[1] == ""
+        else:
+            assert pd.isna(df.predictor_version.iloc[1])
+        path = tmp_path / (door.__name__ + ".tsv")
+        TopiaryResult(df).to_tsv(path)
+        assert read_tsv(path).models == expected
+    columns = ["peptide", "value", "prediction_method_name", "predictor_version"]
+    pd.testing.assert_frame_equal(outputs[0][columns], outputs[1][columns])
 
 
 # ---------------------------------------------------------------------------

@@ -750,8 +750,8 @@ def _build_source_sequence_name(parsed):
     has_variant = "variant" in parsed.columns
     if has_gene and has_variant:
         return (
-            parsed["gene"].astype(object).fillna("?") + ":"
-            + parsed["variant"].astype(object).fillna("?")
+            parsed["gene"].astype(object).where(parsed["gene"].notna(), "?") + ":"
+            + parsed["variant"].astype(object).where(parsed["variant"].notna(), "?")
         )
     if has_variant:
         return parsed["variant"]
