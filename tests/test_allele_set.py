@@ -159,12 +159,14 @@ def test_dependence_is_read_from_the_set():
 def test_an_allele_scoped_filter_keeps_the_genotype_row():
     """Same peptide-level rule as allele-free evidence (#183)."""
     df = _genotype_df()
+    original = df.copy(deep=True)
 
     kept = apply_filter(df, parse("affinity.value <= 500"))
 
     assert sorted(kept["kind"].unique()) == [
         "pMHC_affinity", "pMHC_presentation",
     ]
+    pd.testing.assert_frame_equal(df, original)
 
 
 def test_a_peptide_filtered_out_entirely_takes_its_genotype_row():

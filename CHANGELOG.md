@@ -16,8 +16,8 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 - Preserve those identities through long/wide CSV and TSV, original/additive
   ranking and supporting-hypothesis selection. Distinguish known terminal flanks
   from missing flanks in source observation IDs (#435).
-- Keep empty-source validation and output-warning tests compatible with pandas 3
-  (#437).
+- Keep empty-source validation, genotype-aware filtering and output-warning
+  tests compatible with pandas 3 (#437).
 
 ## 5.86.2
 

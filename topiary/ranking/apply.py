@@ -114,7 +114,7 @@ def _peptide_level_groups(ctx):
     """
     peptide_level = _blank(ctx.group_index.get_level_values("allele"))
     if ALLELE_SET_COLUMN in ctx.group_keys:
-        peptide_level |= ~_blank(
+        peptide_level = peptide_level | ~_blank(
             ctx.group_index.get_level_values(ALLELE_SET_COLUMN)
         )
     return peptide_level
