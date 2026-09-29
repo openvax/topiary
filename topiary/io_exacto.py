@@ -8,7 +8,6 @@ import gzip
 from pathlib import Path
 
 import pandas as pd
-from varcode.effects.codon_tables import STANDARD
 
 from .candidates import _identity
 from .protein_fragment import ProteinFragment, make_fragment_id
@@ -85,6 +84,8 @@ def _ids(value):
 
 
 def _translated(coding):
+    from varcode.effects.codon_tables import STANDARD
+
     return "".join("*" if coding[i:i + 3] in STANDARD.stop_codons
                    else STANDARD.forward_table.get(coding[i:i + 3], "X")
                    for i in range(0, len(coding) - 2, 3))
