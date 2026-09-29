@@ -271,7 +271,12 @@ def evidence_views(result, *, source_labels=None):
     -------
     dict of pandas.DataFrame
         ``events``, ``orfs``, ``proteins``, ``occurrences``, ``candidates``,
-        ``rna_observations`` and ``links``. Node tables have ``id`` and
+        ``rna_observations``, ``links`` and ``candidate_occurrences``. The latter
+        links same-sample peptide occurrences to existing pMHC queries, including
+        allele-free sequence evidence; ``reported_candidate`` distinguishes an
+        actual peptide-HLA report from a sequence match. It never transfers
+        predictions, RNA values, tumor specificity or admission between rows.
+        Node tables have ``id`` and
         ``source_observations``; links retain one distinct combination of source
         observation, event, ORF, protein, occurrence, candidate and RNA IDs.
         A link's list-valued event/RNA columns express many-to-many support.
@@ -329,4 +334,19 @@ def evidence_views(result, *, source_labels=None):
              for name, nodes in tables.items()}
     views["links"] = pd.DataFrame(list(links.values()), columns=[
         "source_label", "source_observation_id", "candidate_id", "protein_sequence_id", *_ID_COLUMNS])
+    occurrences = {}
+    for row in tables["occurrences"].values():
+        occurrences.setdefault((row["sample_name"], row["peptide"]), []).append(row)
+    reported = {(row["candidate_id"], row["peptide_occurrence_id"]) for row in links.values()
+                if row["candidate_id"] is not None}
+    candidate_occurrences = []
+    for candidate in tables["candidates"].values():
+        for occurrence in occurrences.get((candidate["sample_name"], candidate["peptide"]), []):
+            candidate_occurrences.append(dict(
+                candidate_id=candidate["id"], peptide_occurrence_id=occurrence["id"],
+                orf_hypothesis_id=occurrence["orf_hypothesis_id"],
+                source_observations=occurrence["source_observations"],
+                reported_candidate=(candidate["id"], occurrence["id"]) in reported))
+    views["candidate_occurrences"] = pd.DataFrame(candidate_occurrences, columns=[
+        "candidate_id", "peptide_occurrence_id", "orf_hypothesis_id", "source_observations", "reported_candidate"])
     return views

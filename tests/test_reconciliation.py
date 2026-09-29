@@ -174,3 +174,21 @@ def test_empty_reconciliation():
     result = reconcile_evidence(combine_sources({}))
     assert result.empty
     assert all(table.empty for table in evidence_views(result).values())
+
+
+def test_allele_free_occurrences_link_to_queries_without_fabricating_predictions():
+    rows = pd.DataFrame([
+        dict(sample_name="p", peptide="SIINFEKL", allele="HLA-A*02:01", value=50.),
+        dict(sample_name="p", peptide="SIINFEKL", allele="HLA-B*07:02", value=90.),
+        dict(sample_name="p", peptide="SIINFEKL", protein_hypothesis_sequence="AAASIINFEKL", orf_id="local"),
+        dict(sample_name="other", peptide="SIINFEKL", protein_hypothesis_sequence="AAASIINFEKL", orf_id="local"),
+    ])
+    result = reconcile_evidence(combine_sources({"one": rows}))
+    relations = evidence_views(result)["candidate_occurrences"]
+    # HLA is a query axis: the first two rows share one occurrence. Both
+    # queries also link to the allele-free sequence report from this patient.
+    assert len(relations) == 4
+    assert relations.reported_candidate.sum() == 2
+    assert set(relations.peptide_occurrence_id) == set(result.df.iloc[:3].peptide_occurrence_id)
+    assert result.df.iloc[2:].candidate_id.isna().all()
+    assert result.df.iloc[2:].value.isna().all()

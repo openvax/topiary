@@ -249,7 +249,7 @@ agrees. Missing or ambiguous identity requires explicit resolution.
 `reconcile_evidence(combined)` returns a copy with stable links between biological
 entities. It neither chooses a caller nor changes the candidate universe.
 `evidence_views(combined)` exposes `events`, `orfs`, `proteins`, `occurrences`,
-`candidates`, `rna_observations` and `links` as DataFrames; supply
+`candidates`, `rna_observations`, `links` and `candidate_occurrences` as DataFrames; supply
 `source_labels=["lens"]` for a source-stratified view.
 
 | Input assertion | Identity rule |
@@ -274,6 +274,11 @@ in [NCBI's feature documentation](https://www.ncbi.nlm.nih.gov/genbank/genomes_g
 `peptide_occurrence_id`. `candidate_observations` and the relational `links`
 retain alternative support. Rediscovery does not multiply candidate scores.
 Use an explicit duplicate policy or source filter when measurements disagree.
+`candidate_occurrences` links all same-sample peptide occurrences to existing
+pMHC queries, including sequence reports with no HLA assignment. Its
+`reported_candidate` flag distinguishes a reported peptide-HLA pair from a
+sequence match. These links transfer no scores, expression, specificity or
+eligibility between observations, and create no new candidates.
 
 RNA observations can be supplied as a list of records in `rna_observations`:
 
