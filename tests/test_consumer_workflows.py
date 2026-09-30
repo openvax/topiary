@@ -2866,11 +2866,21 @@ def test_combined_tables_keep_measurements_and_rankings_through_wide_files(tmp_p
         sources = {"only": table(50., "original", "")}
     else:
         sources = {"only": table(50., "original", None).drop(columns="predictor_version")}
-    combined = combine_sources(sources, sample_name="p")
+    if case == "versioned":
+        with pytest.warns(UserWarning) as diagnostics:
+            combined = combine_sources(sources, sample_name="p")
+        assert [str(warning.message) for warning in diagnostics] == [
+            "Model 'original' has conflicting versions: '4.1b' vs '4.2'",
+            "Model 'original' has conflicting versions: '4.1b' vs ''",
+        ]
+        with pytest.warns(UserWarning, match="Multiple predictor versions"):
+            wide = combined.to_wide()
+    else:
+        combined = combine_sources(sources, sample_name="p")
+        wide = combined.to_wide()
     policy = dict(ascending=True, strata=["source_label"])
     before = rank_candidates(combined, "affinity.value", **policy)
     for suffix, writer, method, reader in DELIMITED_IO_TWINS:
-        wide = combined.to_wide()
         path = tmp_path / f"combined.{suffix}"
         if writer_style == "result":
             method(wide, path)

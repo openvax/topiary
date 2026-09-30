@@ -49,7 +49,7 @@ ignore = ["F821", "E501", "F841", "E731", "E741", "E722", "E721"]
 "test*/*" = ["F401"]
 
 [tool.pytest.ini_options]
-filterwarnings = ["error::FutureWarning"]
+filterwarnings = ["error"]
 markers = [
     "isovar: exercises the installed Isovar optional integration",
     "pirlygenes: exercises the installed PirlyGenes optional integration",

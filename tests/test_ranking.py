@@ -863,7 +863,8 @@ def test_default_methods_processing_synonyms(key):
     ])
     from topiary.ranking import Processing
     ctx = EvalContext(df, default_methods={key: "mhcflurry"})
-    assert Processing.score.eval(ctx).iloc[0] == 0.75
+    with pytest.warns(UserWarning, match="peptide-level.*rows name alleles"):
+        assert Processing.score.eval(ctx).iloc[0] == 0.75
 
 
 def test_default_methods_accepts_multiple_synonyms_in_one_dict():
@@ -3393,7 +3394,8 @@ def test_a_filter_on_an_unpopulated_reserved_scope_keeps_nothing():
     from topiary import apply_filter
 
     df = _make_df(_UNSCOPED_ROW)
-    assert len(apply_filter(df, parse("shuffled.affinity < 500"))) == 0
+    with pytest.warns(UserWarning, match="which this frame does not have"):
+        assert len(apply_filter(df, parse("shuffled.affinity < 500"))) == 0
     # The same expression keeps the row once the producer supplies the column.
     supplied = _make_df([{**_UNSCOPED_ROW[0], "shuffled_value": 400.0}])
     assert len(apply_filter(supplied, parse("shuffled.affinity < 500"))) == 1

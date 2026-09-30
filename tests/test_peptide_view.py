@@ -513,10 +513,11 @@ def test_default_methods_settles_the_dependence():
     """An explicit default names one model; that model's mode applies."""
     df = _two_model_presentation_df()
 
-    scores = evaluate_scores(
-        df, peptide_view(Presentation.score), kind_support=_SPLIT_SUPPORT,
-        default_methods={"pMHC_presentation": "netmhcpan"},
-    )
+    with pytest.warns(UserWarning, match="not a joint multi-allele aggregate"):
+        scores = evaluate_scores(
+            df, peptide_view(Presentation.score), kind_support=_SPLIT_SUPPORT,
+            default_methods={"pMHC_presentation": "netmhcpan"},
+        )
 
     # netmhcpan is single_allele: best of 0.9 / 0.4 across the peptide.
     assert scores.tolist()[:2] == [0.9, 0.9]
@@ -526,10 +527,11 @@ def test_filter_auto_aggregation_binds_the_method_for_dependence():
     """apply_filter binds one method per iteration; the resolver must see it."""
     df = _two_model_presentation_df()
 
-    kept = apply_filter(
-        df, parse("peptide_view(el.score) >= 0.5"),
-        kind_support=_SPLIT_SUPPORT,
-    )
+    with pytest.warns(UserWarning, match="not a joint multi-allele aggregate"):
+        kept = apply_filter(
+            df, parse("peptide_view(el.score) >= 0.5"),
+            kind_support=_SPLIT_SUPPORT,
+        )
 
     assert len(kept) > 0
 

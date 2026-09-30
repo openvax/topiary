@@ -338,14 +338,36 @@ class _TaggedRandomPredictor(RandomBindingPredictor):
             df["kind"] = "pMHC_affinity"
         return df
 
-    def predict_peptides_dataframe(self, peptides):
-        return self._stamp(super().predict_peptides_dataframe(peptides))
+    def predict_dataframe(self, peptides, sample_name="", n_flanks=None, c_flanks=None):
+        return self._stamp(super().predict_dataframe(
+            peptides, sample_name=sample_name, n_flanks=n_flanks, c_flanks=c_flanks))
 
     def predict_proteins_dataframe(self, name_to_seq):
         return self._stamp(super().predict_proteins_dataframe(name_to_seq))
 
 
 class TestFallback:
+    def test_legacy_only_fallback_still_fills_misses(self):
+        from types import SimpleNamespace
+
+        predictor = _matched_fallback(name="random", version="1.0")
+        fallback = SimpleNamespace(
+            predict_peptides_dataframe=predictor.predict_dataframe,
+            alleles=predictor.alleles,
+        )
+        cache = CachedPredictor.from_dataframe(_df([_row()]), fallback=fallback)
+        assert cache.predict_dataframe(["GILGFVFTL"]).peptide.tolist() == ["GILGFVFTL"]
+
+    def test_current_fallback_api_takes_precedence(self, monkeypatch):
+        fallback = _matched_fallback(name="random", version="1.0")
+
+        def deprecated(*args, **kwargs):
+            pytest.fail("Cache called the deprecated fallback API")
+
+        monkeypatch.setattr(fallback, "predict_peptides_dataframe", deprecated)
+        cache = CachedPredictor.from_dataframe(_df([_row()]), fallback=fallback)
+        assert cache.predict_dataframe(["GILGFVFTL"]).peptide.tolist() == ["GILGFVFTL"]
+
     def test_fallback_fills_miss(self):
         cache = CachedPredictor.from_dataframe(
             _df([_row()]),
