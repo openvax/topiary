@@ -35,7 +35,8 @@ MHC_I_ALL_PRESENTATION = FIXTURE_DIR / "mhc_i_all_epitopes_presentation.tsv"
 
 
 def _data_row_count(path):
-    return sum(1 for _ in open(path)) - 1
+    with open(path) as handle:
+        return sum(1 for _ in handle) - 1
 
 
 # ---------------------------------------------------------------------------

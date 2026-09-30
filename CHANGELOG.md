@@ -7,6 +7,15 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.88.1
+
+- Prefer the current predictor DataFrame API for cache fallbacks, retaining
+  compatibility with predictors that only implement the legacy API (#432).
+- Require GTFParse's released Polars deprecation fix and mhctools' predictor
+  output handle cleanup. Close a test fixture's input file explicitly.
+- Assert expected scientific diagnostics in tests and fail the suite on any
+  unexpected warning.
+
 ## 5.88.0
 
 - Import native Exacto peptide variants, primary structures and translations,

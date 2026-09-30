@@ -877,10 +877,10 @@ class CachedPredictor:
                 f"no fallback set.  Missed peptides: {missed_preview}{extra}."
             )
 
-        if hasattr(self.fallback, "predict_peptides_dataframe"):
-            fb_df = self.fallback.predict_peptides_dataframe(peptides)
-        elif hasattr(self.fallback, "predict_dataframe"):
+        if hasattr(self.fallback, "predict_dataframe"):
             fb_df = self.fallback.predict_dataframe(peptides)
+        elif hasattr(self.fallback, "predict_peptides_dataframe"):
+            fb_df = self.fallback.predict_peptides_dataframe(peptides)
         else:
             raise TypeError(
                 f"fallback does not implement predict_peptides_dataframe "
