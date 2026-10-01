@@ -69,6 +69,7 @@ def test_pass_fail_unknown_zero_and_not_applicable_remain_distinct(unknown, expe
     ("not_supplied >= 0", "missing_column"),
     ("affinity.value >= 0", "missing_evidence"),
     ("(-1).sqrt() >= 0", "out_of_domain"),
+    ("(1 / 0) > 0", "out_of_domain"),
 ])
 def test_unknown_diagnostics(expression, reason):
     frame = source(values=(np.nan, np.nan)).df

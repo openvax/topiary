@@ -167,3 +167,15 @@ def test_saved_expansion_preserves_original_arithmetic_and_legacy_boolean_scores
     actual = evaluate_selection_policy(TopiaryResult(frame), policy).occurrences.score
     expected = evaluate_scores(frame, expression)
     pd.testing.assert_series_equal(actual, expected, check_names=False, check_exact=True)
+
+
+def test_projection_does_not_inherit_one_of_several_observed_candidate_ids():
+    frame = pd.concat([source(allele="HLA-A*02:01").df, source(allele="HLA-B*07:02").df], ignore_index=True)
+    combined = combine_sources({"multiple": TopiaryResult(frame)}, sample_name="p")
+    policy = SelectionPolicy("projected", "1")
+    evaluation = evaluate_selection_policy(combined, policy, alleles=["HLA-C*07:01"])
+    projected = evaluation.occurrences.query("allele == 'HLA-C*07:01'")
+    assert len(projected) == 2
+    assert projected.candidate_id.notna().all()
+    assert not set(projected.candidate_id) & set(combined.df.candidate_id)
+    assert len(select_policy_representatives(evaluation)) == 6

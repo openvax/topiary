@@ -193,6 +193,10 @@ def _partition_decisions(frame, positions, context, policy, partition):
         # Preserve source identity/annotations which are constant in a group.
         local = frame.loc[rows if rows else support]
         for column in ("candidate_id", "candidate_mhc_class", "candidate_sample", "source_observation_id", "source_label"):
+            if not rows and column in {"candidate_id", "candidate_mhc_class"}:
+                # Supporting rows may name several other alleles. The projected
+                # candidate's identity is derived from its own allele below.
+                continue
             if column in local and column not in record:
                 values = local[column].drop_duplicates()
                 if len(values) > 1:

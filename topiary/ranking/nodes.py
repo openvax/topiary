@@ -3576,8 +3576,15 @@ class Comparison(DSLNode):
         b = self.right.eval(ctx)
         # pandas comparison returns False for NaN comparisons — matches
         # the intended "missing values fail the filter" behavior.
-        result = self.op(a, b)
-        return result.astype("boolean").where(a.notna() & b.notna()) if ctx.preserve_unknown else result
+        return self._compare(a, b, ctx)
+
+    def _compare(self, left, right, ctx):
+        result = self.op(left, right)
+        if not ctx.preserve_unknown:
+            return result
+        valid = np.isfinite(left.to_numpy(dtype=float, na_value=np.nan)) & np.isfinite(
+            right.to_numpy(dtype=float, na_value=np.nan))
+        return result.astype("boolean").where(valid)
 
     def _should_auto_aggregate(self, ctx):
         """Gate check for the narrow auto-aggregation scope (issue #118).
@@ -3659,8 +3666,7 @@ class Comparison(DSLNode):
             left_agg = left_df.max(axis=1, skipna=True)
             right_agg = right_df.min(axis=1, skipna=True)
 
-        result = self.op(left_agg, right_agg)
-        return result.astype("boolean").where(left_agg.notna() & right_agg.notna()) if ctx.preserve_unknown else result
+        return self._compare(left_agg, right_agg, ctx)
 
     def __repr__(self):
         sym = _CMP_SYMBOLS.get(self.op, "?")
