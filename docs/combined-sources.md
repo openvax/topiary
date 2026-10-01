@@ -203,7 +203,10 @@ all input measurements come from the selected model.
 
 `select_policy_representatives` chooses an actual eligible occurrence, without
 summing support, and records all alternative occurrence IDs, including excluded
-alternatives. Direct consumers supply their `candidate_keys` and `strata` if
+alternatives. It records the choice and its runtime keys in the evaluation
+evidence metadata; replay repeats that explicit choice and `audit` links
+criteria to the selected occurrence and rationale. Direct consumers supply
+their `candidate_keys` and `strata` if
 combined-source candidate columns are absent. Missing values sort last; stable
 input order breaks exact ties. Topiary owns these generic decisions; Vaxrank
 still owns window geometry, source admission and construct assembly.

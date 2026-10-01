@@ -120,8 +120,13 @@ class PolicyEvaluation:
     def audit(self):
         """One criterion decision per occurrence, with all identity/row links."""
         records = []
+        selection = self.evidence.extra["policy_evaluation"].get("representative_selection", {})
+        choices = {alternative: (row["occurrence_id"], row["representative_reason"])
+                   for row in selection.get("records", []) for alternative in row["alternative_occurrences"]}
         for row in self.occurrences.to_dict("records"):
             criteria = row.pop("criteria", [])
+            chosen, rationale = choices.get(row["occurrence_id"], (None, None))
+            row.update(representative_occurrence_id=chosen, representative_reason=rationale)
             records.extend(dict(row, **criterion) for criterion in criteria)
         return pd.DataFrame(records)
 
@@ -336,6 +341,13 @@ def replay_selection_policy(result):
     if policy.sha256 != record["sha256"]:
         raise ValueError("Saved selection policy digest does not match its definition")
     partitions = record["partitions"]
+    def finish(replay):
+        selection = record.get("representative_selection")
+        if selection is not None:
+            select_policy_representatives(replay, candidate_keys=selection["candidate_keys"],
+                                          strata=selection["strata"])
+        return replay
+
     if len(partitions) == 1 and partitions[0]["source_label"] is None:
         options = _context_options(partitions[0]["context"])
         groups = options.pop("group_keys")
@@ -346,7 +358,7 @@ def replay_selection_policy(result):
         replay = evaluate_selection_policy(result, runtime_policy, group_keys=groups,
                                           provenance=record["provenance"], **options)
         replay.evidence.extra["policy_evaluation"].update(definition=policy.to_dict(), sha256=policy.sha256)
-        return replay
+        return finish(replay)
     groups = [item["context"]["group_keys"] for item in partitions]
     if groups and any(keys != groups[0] for keys in groups):
         raise ValueError("Saved source contexts must share group_keys")
@@ -355,8 +367,8 @@ def replay_selection_policy(result):
         context = _context_options(item["context"])
         context.pop("group_keys")
         contexts[item["source_label"]] = context
-    return evaluate_selection_policy(result, policy, group_keys=groups[0] if groups else None,
-                                     source_contexts=contexts, provenance=record["provenance"])
+    return finish(evaluate_selection_policy(result, policy, group_keys=groups[0] if groups else None,
+                                            source_contexts=contexts, provenance=record["provenance"]))
 
 
 def select_policy_representatives(evaluation, *, candidate_keys=("candidate_id",), strata=None):
@@ -365,7 +377,9 @@ def select_policy_representatives(evaluation, *, candidate_keys=("candidate_id",
     Parameters
     ----------
     evaluation : PolicyEvaluation
-        Complete occurrence decisions. This object is not narrowed or changed.
+        Complete occurrence decisions. Records the selection in this object's
+        evidence metadata, without narrowing observations or changing scores.
+        Save evaluation.evidence to persist the choice and its runtime keys.
     candidate_keys : sequence of str
         Columns identifying candidates in the occurrence table. For a direct
         consumer, pass its explicit candidate identity (e.g. peptide, allele).
@@ -407,5 +421,8 @@ def select_policy_representatives(evaluation, *, candidate_keys=("candidate_id",
         row["representative_reason"] = (f"{policy.duplicates}; ordered keys {columns}; "
                                          "missing last; stable input order breaks ties")
         rows.append(row)
-    return pd.DataFrame(rows, columns=[*frame.columns, "alternative_occurrences", "representative_reason"]).sort_values(
+    selected = pd.DataFrame(rows, columns=[*frame.columns, "alternative_occurrences", "representative_reason"]).sort_values(
         "score", ascending=policy.ascending, na_position="last", kind="stable").reset_index(drop=True)
+    evaluation.evidence.extra["policy_evaluation"]["representative_selection"] = dict(
+        candidate_keys=list(candidate_keys), strata=list(strata), records=_json_value(selected.to_dict("records")))
+    return selected

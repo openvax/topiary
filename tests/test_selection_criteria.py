@@ -162,3 +162,26 @@ def test_numeric_criteria_can_be_compared_and_predicates_used_in_explicit_arithm
         replace(policy, score_by='criterion("good")')
     restored = replay_selection_policy(evaluation.evidence)
     pd.testing.assert_frame_equal(restored.occurrences, evaluation.occurrences)
+
+
+def test_representative_choice_runtime_keys_and_audit_rationale_survive_reload(tmp_path):
+    frame = source(peptides=("SIINFEKL", "SIINFEKL"), peptide_offset=[0, 20]).df
+    frame["prediction_id"] = ["first", "second"]
+    criterion = SelectionCriterion("reads", "n_rna_alt", "score")
+    policy = SelectionPolicy("choice", 'criterion("reads")', criteria=(criterion,), duplicates="best", strata=())
+    evaluation = evaluate_selection_policy(TopiaryResult(frame), policy,
+                                           group_keys=["prediction_id", "peptide", "peptide_offset", "allele"])
+    selected = select_policy_representatives(evaluation, candidate_keys=["peptide", "allele"], strata=[])
+    assert selected.prediction_id.tolist() == ["second"]
+    assert evaluation.audit.representative_occurrence_id.eq(selected.occurrence_id.iloc[0]).all()
+    assert evaluation.audit.representative_reason.str.contains("ordered keys").all()
+    record = evaluation.evidence.extra["policy_evaluation"]["representative_selection"]
+    assert record["candidate_keys"] == ["peptide", "allele"] and record["strata"] == []
+    for suffix, writer, _, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("choice." + suffix)
+        writer(evaluation.evidence, path)
+        reloaded = reader(path)
+        assert reloaded.extra["policy_evaluation"]["representative_selection"] == record
+        replay = replay_selection_policy(reloaded)
+        assert replay.evidence.extra["policy_evaluation"]["representative_selection"] == record
+        pd.testing.assert_frame_equal(replay.audit, evaluation.audit)
