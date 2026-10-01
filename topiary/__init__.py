@@ -3,6 +3,10 @@ from .serialization import normalize_python_types
 from .report_geometry import map_peptide_intervals, mutation_intervals_from_positions
 from .annotations import join_annotations
 from .candidates import combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
+from .selection_policy import (
+    SelectionPolicy, resolve_selection_policy, read_selection_policy,
+    write_selection_policy, rank_with_policy,
+)
 from .reconciliation import (
     reconcile_evidence, evidence_views, normalize_rna_observation, union_rna_observations,
 )
@@ -191,7 +195,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.88.1"
+__version__ = "5.89.0"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -212,6 +216,11 @@ __all__ = [
     "union_rna_observations",
     "protein_evidence_view",
     "rank_candidates",
+    "SelectionPolicy",
+    "resolve_selection_policy",
+    "read_selection_policy",
+    "write_selection_policy",
+    "rank_with_policy",
     "rescore_candidates",
     "osteosarc_fixture_paths",
     "normalize_python_types",

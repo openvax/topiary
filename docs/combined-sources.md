@@ -50,6 +50,118 @@ Unknown predictor names and versions remain unknown. The ordinary expression
 `affinity.value` continues to work; adding provenance does not require a
 version-qualified expression for this simple case.
 
+## Named selection policies
+
+`SelectionPolicy` saves the exact candidate filter, score, model/version
+selections, ranking direction, duplicate policy and strata under a stable name.
+It has no implicit scientific recipe. Topiary does not currently ship an
+official `openvax-v1` preset; that name can identify a reviewed definition you
+freeze, and later definitions can use new names.
+
+```python
+from topiary import (
+    SelectionPolicy, read_selection_policy, write_selection_policy,
+    rank_with_policy, read_tsv,
+)
+
+# Illustrative settings, not a calibrated biological model.
+policy = SelectionPolicy(
+    name="example-v1", score_by="1 / affinity.value",
+    filter_by="n_rna_alt >= 5", duplicates="best",
+)
+write_selection_policy(policy, "example-v1.json")  # refuses to overwrite
+combined.to_tsv("all-evidence.tsv")
+ranked = rank_with_policy(combined, policy)
+ranked.to_tsv("ranked.tsv")
+
+replayed = rank_with_policy(
+    read_tsv("all-evidence.tsv"), read_selection_policy("example-v1.json"),
+)
+```
+
+The immutable policy has `to_dict()` / `from_dict()` for complete, strict,
+schema-versioned mappings and `sha256` for the canonical definition, including
+its name. Every default is saved explicitly. Changing an expression or model
+selection changes the digest even if the name remains `openvax-v1`. Runtime
+versions and input facts live separately in
+`ranked.extra['selection_policy']['execution']`; authoring history can be passed
+as `provenance=` and is stored alongside the definition, outside its digest.
+Record actual base digests and ordered config-file hashes there when available.
+
+`rank_with_policy` delegates to `rank_candidates`: it filters first, then scores
+surviving evidence and chooses one representative per candidate/stratum. Unknown
+filter results exclude groups under the existing DSL's evidence-retention
+rules. Missing scores remain unranked; zero scores remain zero. It performs no
+predictor calls, automatic method/version preference selection, or score filling.
+Explicit model selections follow the same DSL rules as direct calls. To choose
+input-dependent defaults, call `resolve_default_methods` and
+`resolve_default_versions` explicitly and include their results in the effective
+policy before saving. Unstated historical versions remain unknown. Distinct
+source-local selections need separate effective policies/invocations; do not
+apply one source's choice globally.
+
+CSV/TSV exports retain the full definition, digest, derivation and execution
+record in long and wide form. Numeric measurements and annotations round-trip
+exactly as binary floats. Preserve the **full evidence** as well: a filtered
+ranking cannot restore excluded observations or discarded alternatives. Replay
+also needs the recorded Topiary version when exact execution semantics matter.
+
+Proteasome cleavage and whole-peptide half-life can already be named explicitly,
+for example `peptide_view(proteasome_cleavage.score)` and
+`peptide_view(serum_half_life.value)`. Saving a policy does not enable these
+predictors or add processing weights to existing defaults. Typed extracellular
+site-level evidence remains [#288](https://github.com/openvax/topiary/issues/288).
+
+### Composed consumer configuration
+
+Vaxrank owns YAML composition and window/construct configuration. Its repeated
+`--config openvax-v1.yaml --config overrides.yaml` workflow merges mappings
+left to right and replaces lists/scalars. The Topiary integration boundary is
+the **already-composed policy subtree**:
+
+```python
+from topiary import resolve_selection_policy
+
+# `merged` comes from the consumer's config loader, after all overrides.
+policy = resolve_selection_policy(merged["selection_policy"])
+saved_settings = {
+    "selection_policy": policy.to_dict(),
+    "selection_policy_sha256": policy.sha256,
+    "selection_policy_provenance": config_provenance,
+    "vaccine_settings": effective_vaccine_settings,
+}
+# Reload complete definitions strictly; never apply newer authoring defaults.
+policy = SelectionPolicy.from_dict(saved_settings["selection_policy"])
+```
+
+`resolve_selection_policy` accepts a JSON- or YAML-decoded mapping with required
+`name` and `score_by`. It fills omitted optional settings only after composition.
+An omitted filter in an override inherits the base filter; an explicit YAML
+`filter_by: null` removes it. Replacing a filter expression does not AND it with
+the old expression. Model selections are mappings; version selections are lists
+of `{kind, method, version}` records, so an override replaces that entire list.
+Topiary does not merge files or parse unrelated consumer settings.
+
+Vaxrank adoption of this subtree remains
+[Vaxrank #497](https://github.com/openvax/vaxrank/issues/497); the example above
+describes the consumer boundary, not a newly supported Vaxrank configuration
+key. Its current occurrence-level scorer can consume `policy.score_by`,
+`policy.filter_by`, and the selection mappings through the existing public
+`EvalContext` / `apply_filter` APIs, retaining its explicit grouping and
+per-occurrence `alleles` lookup. Vaxrank's post-score minimum gate, missing-score
+fill, window rules, RNA weighting and construct settings must also be frozen in
+its bundle. A cutoff inside a score expression must not become a destructive
+pre-filter when capturing that baseline.
+
+The representative ranking above is one view, not the complete construction
+interface. Shared occurrence-level evaluation with retained alternatives is
+tracked in [#444](https://github.com/openvax/topiary/issues/444). Optional named
+criteria, references and pass/fail/unknown audit records are tracked in
+[#445](https://github.com/openvax/topiary/issues/445); schema 1 currently accepts
+direct DSL expressions and rejects unknown criteria/registry fields. These
+layers will reuse the same DSL rather than require a second evaluator in
+Vaxrank.
+
 ## Identities and source evidence
 
 | Column | Meaning |

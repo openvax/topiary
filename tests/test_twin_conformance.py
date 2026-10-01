@@ -47,7 +47,8 @@ from topiary import (
     describe_isovar_result, fragment_from_isovar_result, TopiaryResult,
     to_tsv, to_csv, read_tsv, read_csv,
     read_isovar_hypotheses,
-    combine_sources, rank_candidates, evaluate_scores,
+    combine_sources, rank_candidates, rank_with_policy, evaluate_scores,
+    SelectionPolicy, resolve_selection_policy,
     Affinity, Column, apply_filter, apply_sort,
 )
 from topiary.io_isovar import _check_isovar
@@ -138,6 +139,14 @@ DELIMITED_IO_TWINS = (
 # Candidate ranking must use the same feature/prediction semantics as the
 # lower-level DSL scorer that downstream consumers already call.
 CANDIDATE_SCORE_TWINS = (rank_candidates, evaluate_scores)
+
+# Named policy replay must preserve the existing candidate ranker's decisions.
+# Both receive the same settings in test_selection_policy.py.
+SELECTION_POLICY_TWINS = (rank_candidates, rank_with_policy)
+
+# Complete definitions resolve identically whether decoded from a saved file
+# or encountered in an already-composed authoring configuration.
+POLICY_MAPPING_TWINS = (SelectionPolicy.from_dict, resolve_selection_policy)
 
 # The CLI serializes the same exhaustive SV evidence policy as the public API.
 # Driven together in test_consumer_workflows, including absent protein rows.

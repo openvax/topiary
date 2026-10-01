@@ -658,6 +658,26 @@ def test_legacy_comment_metadata_keeps_builtins_and_custom_values(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("form", ["long", "wide"])
+def test_binary_floats_round_trip_exactly_through_both_writer_doors(tmp_path, form):
+    from .test_candidate_tables import source
+
+    boundary = 0.12345678901234567
+    values = [boundary, np.nextafter(boundary, np.inf)]
+    result = source(values=values, review_score=values, score=values)
+    if form == "wide":
+        result = result.to_wide()
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        for write in (writer, method):
+            path = tmp_path / ("precise." + suffix)
+            write(result, path)
+            restored = reader(path).to_long().df.set_index("peptide")
+            for column in ("value", "score", "review_score"):
+                actual = restored.loc[["SIINFEKL", "GILGFVFTL"], column].tolist()
+                assert [x.hex() for x in actual] == [x.hex() for x in values]
+                assert [x <= boundary for x in actual] == [True, False]
+
+
 class TestReadWriteTSV:
     def test_long_form_roundtrip(self, tmp_path):
         df = _sample_long_df()

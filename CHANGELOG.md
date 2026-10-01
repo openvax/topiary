@@ -7,6 +7,16 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.89.0
+
+- Save and replay named `SelectionPolicy` definitions with complete DSL expressions,
+  method/version selections, ranking settings, and a content digest. Ranked
+  exports retain the policy, derivation and separate execution provenance.
+  Public mapping IO accepts composed consumer configuration and freezes defaults
+  without running predictors or changing scientific defaults (#442, #443).
+- Preserve binary floating-point measurements and annotations through typed
+  CSV/TSV reload, keeping threshold decisions and scores reproducible (#441).
+
 ## 5.88.1
 
 - Prefer the current predictor DataFrame API for cache fallbacks, retaining

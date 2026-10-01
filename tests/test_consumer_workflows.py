@@ -56,6 +56,75 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
+@pytest.mark.parametrize("form", ["long", "wide"])
+def test_saved_profiles_replay_exact_scores_and_change_selection(tmp_path, form):
+    from topiary import (
+        SelectionPolicy, combine_sources, rank_with_policy,
+        read_selection_policy, write_selection_policy,
+    )
+    from .test_candidate_tables import source
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    boundary = 0.12345678901234567
+    annotations = [boundary, np.nextafter(boundary, np.inf)]
+    binding = source(values=(50., 100.), review_score=annotations)
+    processing = source(
+        values=(0.1, 0.9), score=[0.1, 0.9], review_score=annotations,
+        kind="proteasome_cleavage", prediction_method_name="cleavage_fixture", allele="",
+    )
+    combined = combine_sources({"input": TopiaryResult(pd.concat(
+        [binding.df, processing.df], ignore_index=True))}, sample_name="patient")
+    before = combined.df.copy(deep=True)
+    # Synthetic policies demonstrate behavior, not a calibrated scientific recipe.
+    profiles = [
+        SelectionPolicy("example-v1", "1 / affinity.value"),
+        SelectionPolicy("example-v2", "peptide_view(proteasome_cleavage.score)"),
+        SelectionPolicy("example-v3", "1 / affinity.value", filter_by=f"review_score <= {boundary!r}"),
+    ]
+    paths = []
+    for profile in profiles:
+        path = tmp_path / (profile.name + ".json")
+        write_selection_policy(profile, path)
+        paths.append(path)
+    expected = [rank_with_policy(combined, profile) for profile in profiles]
+    assert [r.df.peptide.tolist() for r in expected] == [
+        ["SIINFEKL", "GILGFVFTL"], ["GILGFVFTL", "SIINFEKL"], ["SIINFEKL"],
+    ]
+    pd.testing.assert_frame_equal(combined.df, before)
+    assert "selection_policy" not in combined.extra
+    columns = ["candidate_id", "candidate_score", "candidate_rank", "ranking_status", "candidate_observations"]
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        evidence_path = tmp_path / ("evidence." + suffix)
+        writer(combined if form == "long" else combined.to_wide(), evidence_path)
+        restored = reader(evidence_path)
+        for path, original in zip(paths, expected):
+            profile = read_selection_policy(path)
+            ranked = rank_with_policy(restored, profile)
+            pd.testing.assert_frame_equal(ranked.df[columns], original.df[columns], check_exact=True)
+            output_path = tmp_path / (profile.name + "." + suffix)
+            method(ranked if form == "long" else ranked.to_wide(), output_path)
+            saved = reader(output_path).to_long()
+            # Wide IO records the models actually present in this narrower
+            # view; the full policy and original-source provenance survive.
+            for key in ("selection_policy", "combined_sources"):
+                assert saved.extra[key] == ranked.extra[key]
+            assert saved.topiary_version == ranked.topiary_version
+            assert saved.filter_by_str == profile.filter_by
+            assert saved.sort_by_str == profile.score_by
+            record = saved.extra["selection_policy"]
+            assert record["definition"] == profile.to_dict()
+            assert record["sha256"] == profile.sha256
+            assert record["execution"]["topiary_version"] == ranked.topiary_version
+            # Loading the definition from the ranked export is sufficient to
+            # replay against the full evidence; filtered exports cannot recover it.
+            embedded = SelectionPolicy.from_dict(saved.extra["selection_policy"]["definition"])
+            reranked = rank_with_policy(restored, embedded)
+            pd.testing.assert_frame_equal(reranked.df[columns], original.df[columns], check_exact=True)
+            actual = saved.df.set_index("candidate_id").candidate_score.sort_index()
+            wanted = original.df.set_index("candidate_id").candidate_score.sort_index()
+            pd.testing.assert_series_equal(actual, wanted, check_exact=True)
+
+
 def test_sv_interest_api_and_cli_retain_and_rank_the_same_nominations(tmp_path):
     import json
     from .test_sv_interest import catalogue, export
