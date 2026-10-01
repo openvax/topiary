@@ -57,7 +57,7 @@ CI installs a pinned published Vaxrank release and runs the real candidate
 scoring and vaccine-construction workflow. To repeat it locally:
 
 ```bash
-"$PYTHON" -m pip install 'vaxrank==3.32.0'
+"$PYTHON" -m pip install 'vaxrank==3.35.0'
 "$PYTHON" -m pip check
 "$PYTHON" -m pytest scripts/check_vaxrank_candidates.py -q
 ```

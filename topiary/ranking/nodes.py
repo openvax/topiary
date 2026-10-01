@@ -1086,18 +1086,22 @@ class EvalContext:
         for ``>``/``>=``) instead of raising on ambiguity.
         :func:`apply_filter` sets this to ``True`` automatically;
         :func:`apply_sort` leaves it ``False`` so sort stays strict.
+    preserve_unknown : bool, optional
+        Preserve missing comparisons and categorical predicates as nullable
+        booleans, with three-valued AND/OR/NOT. Default False keeps historical
+        filter behavior. Named-policy audits opt in explicitly.
     """
 
     __slots__ = (
         "_source_df", "group_keys", "default_methods", "default_versions",
         "filter_context", "kind_support", "alleles",
         "_group_index", "_key_frame", "_group_tuples_cache",
-        "_group_codes_cache", "_df", "_method_override",
+        "_group_codes_cache", "_df", "_method_override", "preserve_unknown",
     )
 
     def __init__(
         self, df, group_keys=None, default_methods=None, filter_context=False,
-        kind_support=None, alleles=None, default_versions=None,
+        kind_support=None, alleles=None, default_versions=None, preserve_unknown=False,
     ):
         self._source_df = df
         if group_keys is None:
@@ -1112,6 +1116,7 @@ class EvalContext:
             if default_versions else {}
         )
         self.filter_context = filter_context
+        self.preserve_unknown = preserve_unknown
         # mhctools >=3.13.7 per-(model, kind) metadata. Optional; when
         # provided (typically from ``TopiaryPredictor.kind_support``),
         # nodes that care about allele dependence (e.g.
@@ -1147,7 +1152,7 @@ class EvalContext:
         """
         unknown = set(overrides) - {
             "df", "group_keys", "default_methods", "default_versions",
-            "filter_context", "kind_support", "alleles",
+            "filter_context", "kind_support", "alleles", "preserve_unknown",
         }
         if unknown:
             raise TypeError(
@@ -1170,11 +1175,12 @@ class EvalContext:
             ),
             kind_support=overrides.get("kind_support", self.kind_support),
             alleles=alleles,
+            preserve_unknown=overrides.get("preserve_unknown", self.preserve_unknown),
         )
         reshaped = (
             df is not self._source_df
             or list(group_keys) != list(self.group_keys)
-            or list(alleles or ()) != list(self.alleles or ())
+            or alleles is not self.alleles
         )
         if not reshaped:
             derived._key_frame = self._key_frame
@@ -1792,7 +1798,12 @@ class Includes(DSLNode):
         vals = member.groupby(
             [df[k] for k in ctx.group_keys], sort=False, dropna=False
         ).any()
-        return vals.reindex(ctx.group_index).fillna(False).astype("boolean")
+        result = vals.reindex(ctx.group_index).fillna(False).astype("boolean")
+        if ctx.preserve_unknown:
+            known = df[self.col_name].notna().groupby(
+                [df[k] for k in ctx.group_keys], sort=False, dropna=False).any()
+            result = result.where(known.reindex(ctx.group_index, fill_value=False))
+        return result
 
     def __repr__(self):
         prefix = "~" if self.negate else ""
@@ -1860,6 +1871,8 @@ class IsIn(DSLNode):
         mask = vals.isin(self.values)
         if self.negate:
             mask = ~mask
+        if ctx.preserve_unknown:
+            mask = mask.astype("boolean").where(vals.notna())
         return mask
 
     def __invert__(self):
@@ -3563,7 +3576,15 @@ class Comparison(DSLNode):
         b = self.right.eval(ctx)
         # pandas comparison returns False for NaN comparisons — matches
         # the intended "missing values fail the filter" behavior.
-        return self.op(a, b)
+        return self._compare(a, b, ctx)
+
+    def _compare(self, left, right, ctx):
+        result = self.op(left, right)
+        if not ctx.preserve_unknown:
+            return result
+        valid = np.isfinite(left.to_numpy(dtype=float, na_value=np.nan)) & np.isfinite(
+            right.to_numpy(dtype=float, na_value=np.nan))
+        return result.astype("boolean").where(valid)
 
     def _should_auto_aggregate(self, ctx):
         """Gate check for the narrow auto-aggregation scope (issue #118).
@@ -3645,7 +3666,7 @@ class Comparison(DSLNode):
             left_agg = left_df.max(axis=1, skipna=True)
             right_agg = right_df.min(axis=1, skipna=True)
 
-        return self.op(left_agg, right_agg)
+        return self._compare(left_agg, right_agg, ctx)
 
     def __repr__(self):
         sym = _CMP_SYMBOLS.get(self.op, "?")
@@ -3694,9 +3715,10 @@ class BoolOp(DSLNode):
         # Policy: NaN is treated as False.  Naive `astype(bool)` coerces
         # NaN / None to True (any object is truthy), so we explicitly
         # map NaN → False per-dtype before applying the boolean op.
+        convert = (lambda value: value.astype("boolean")) if ctx.preserve_unknown else _as_bool_series
         if self.op is operator.invert:
-            return ~_as_bool_series(self.children[0].eval(ctx))
-        values = [_as_bool_series(c.eval(ctx)) for c in self.children]
+            return ~convert(self.children[0].eval(ctx))
+        values = [convert(c.eval(ctx)) for c in self.children]
         if self.op is operator.and_:
             result = values[0]
             for v in values[1:]:

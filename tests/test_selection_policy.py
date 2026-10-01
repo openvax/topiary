@@ -60,7 +60,7 @@ def test_invalid_definition_rejected(settings):
 
 
 @pytest.mark.parametrize("change", [
-    {"schema_version": 2}, {"schema_version": True}, {"unexpected": "setting"},
+    {"schema_version": 3}, {"schema_version": True}, {"unexpected": "setting"},
     {"default_versions": {}},
     {"default_versions": [{"kind": "affinity", "method": "original"}]},
     {"default_versions": [{"kind": "affinity", "method": "original", "version": "1"}] * 2},
@@ -137,7 +137,7 @@ default_versions: []
 
 def test_saved_complete_defaults_survive_changed_constructor_defaults(monkeypatch):
     saved = SelectionPolicy("frozen-v1", "affinity.value").to_dict()
-    monkeypatch.setattr(SelectionPolicy.__init__, "__defaults__", (None, True, "best", (), None, None))
+    monkeypatch.setattr(SelectionPolicy.__init__, "__defaults__", (None, True, "best", (), None, None, None, None, (), (), "exclude"))
     assert SelectionPolicy("new-defaults", "affinity.value").ascending is True
     for resolve in POLICY_MAPPING_TWINS:
         assert resolve(saved).to_dict() == saved

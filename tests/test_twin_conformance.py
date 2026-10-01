@@ -48,7 +48,8 @@ from topiary import (
     to_tsv, to_csv, read_tsv, read_csv,
     read_isovar_hypotheses,
     combine_sources, rank_candidates, rank_with_policy, evaluate_scores,
-    SelectionPolicy, resolve_selection_policy,
+    SelectionPolicy, resolve_selection_policy, evaluate_selection_policy,
+    EvalContext, evaluate_filter,
     Affinity, Column, apply_filter, apply_sort,
 )
 from topiary.io_isovar import _check_isovar
@@ -147,6 +148,11 @@ SELECTION_POLICY_TWINS = (rank_candidates, rank_with_policy)
 # Complete definitions resolve identically whether decoded from a saved file
 # or encountered in an already-composed authoring configuration.
 POLICY_MAPPING_TWINS = (SelectionPolicy.from_dict, resolve_selection_policy)
+
+# Full occurrence decisions must match the public context/filter path, including
+# sparse genotype projection. Driven by test_policy_evaluation.py.
+OCCURRENCE_POLICY_TWINS = (evaluate_selection_policy, EvalContext)
+FILTER_DECISION_TWINS = (evaluate_filter, apply_filter)
 
 # The CLI serializes the same exhaustive SV evidence policy as the public API.
 # Driven together in test_consumer_workflows, including absent protein rows.

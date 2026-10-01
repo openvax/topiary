@@ -2,7 +2,13 @@ from .sv_interest import build_sv_interest_report, write_sv_interest_report, SV_
 from .serialization import normalize_python_types
 from .report_geometry import map_peptide_intervals, mutation_intervals_from_positions
 from .annotations import join_annotations
-from .candidates import combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
+from .candidates import candidate_identifier, combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
+from .selection_criteria import SelectionCriterion, RankingTerm, resolve_selection_expression
+from .criterion_evaluation import CriterionEvaluation, evaluate_selection_criteria
+from .policy_evaluation import (
+    PolicyEvaluation, evaluate_selection_policy, replay_selection_policy,
+    select_policy_representatives, describe_evaluation_context,
+)
 from .selection_policy import (
     SelectionPolicy, resolve_selection_policy, read_selection_policy,
     write_selection_policy, rank_with_policy,
@@ -67,6 +73,7 @@ from .ranking import (
     class_i,
     class_ii,
     evaluate_scores,
+    evaluate_filter,
     geomean,
     maximum,
     mean,
@@ -195,7 +202,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.89.0"
+__version__ = "5.90.0"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -216,6 +223,18 @@ __all__ = [
     "union_rna_observations",
     "protein_evidence_view",
     "rank_candidates",
+    "SelectionCriterion",
+    "RankingTerm",
+    "resolve_selection_expression",
+    "CriterionEvaluation",
+    "evaluate_selection_criteria",
+    "candidate_identifier",
+    "PolicyEvaluation",
+    "evaluate_selection_policy",
+    "replay_selection_policy",
+    "select_policy_representatives",
+    "describe_evaluation_context",
+    "evaluate_filter",
     "SelectionPolicy",
     "resolve_selection_policy",
     "read_selection_policy",

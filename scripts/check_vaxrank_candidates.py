@@ -100,3 +100,121 @@ def test_candidate_features_reach_vaxrank_scoring_and_vaccine_construction(antig
     vaccines.sort(key=lambda v: v.target_epitope_score, reverse=True)
     assert vaccines[0].antigen.amino_acids == ("SIINFEKL" if policy == "original" else "GILGFVFTL")
     assert len(vaccines) == 2  # two pipelines did not become four vaccine targets
+
+
+def test_occurrence_policy_matches_vaxrank_sources_windows_constructs_and_native_reload(tmp_path):
+    """Real Vaxrank consumer operations over retained heterogeneous evidence."""
+    from dataclasses import replace
+    import json
+    from pathlib import Path
+    from varcode import Variant
+    from topiary import (
+        CachedPredictor, ProteinFragment, TopiaryPredictor, TopiaryResult,
+        SelectionCriterion, evaluate_selection_policy, replay_selection_policy,
+        read_lens, read_pvacseq,
+    )
+    from vaxrank.epitope_dataset import EpitopeDataset
+    from vaxrank.epitope_dsl import (
+        default_score_expr, genotype_lookup, score_predictions,
+        prediction_group_columns, resolve_default_methods, resolve_default_versions,
+        epitopes_for_ranking,
+    )
+    from vaxrank.core_logic import vaccine_peptides_from_epitopes
+    from vaxrank.mutant_protein_fragment import MutantProteinFragment
+    from vaxrank.peptide import assemble_peptide_constructs, PeptideConstructConfig
+    from vaxrank.mrna import assemble_mrna_constructs, RNAConstructConfig
+    from vaxrank.native_serialization import to_native_json
+
+    root = Path(__file__).resolve().parents[1] / "tests/data"
+    translation = json.loads((root / "osteosarc_shared/translation-v1.json").read_text())
+    prediction = json.loads((root / "osteosarc_shared/prediction-contract-v1.json").read_text())
+    fragment = ProteinFragment.from_dict(translation["fragment"])
+    # This versioned fixture is reconstructed from VCF/BAM in the full suite.
+    # Its numeric binding predictions are deliberately synthetic and cached.
+    direct = TopiaryPredictor(models=CachedPredictor(pd.DataFrame(prediction["rows"])),
+                             only_novel_epitopes=True).predict_from_fragments([fragment])
+    # Carry the original translated context alongside the measurement table.
+    direct["source_sequence"] = fragment.sequence
+    combined = combine_sources({
+        "direct": TopiaryResult(direct),
+        "normalized": source(),
+        "lens": read_lens(root / "lens/sample_v1_4.tsv"),
+        "pvacseq": read_pvacseq(root / "pvacseq/mhc_i_all_epitopes.tsv"),
+    }, sample_name="fixture-patient")
+    dataset = EpitopeDataset.from_topiary(combined)
+    frame = dataset.scoring_frame()
+    keys = prediction_group_columns(frame)
+    cfg = EpitopeConfig()
+    policy = SelectionPolicy("frozen-vaxrank", default_score_expr(cfg), score_fill=0.,
+                             min_score=cfg.min_epitope_score, duplicates="best")
+    contexts, expected = {}, []
+    for label, part in frame.groupby("source_label", sort=False):
+        contexts[label] = dict(
+            default_methods=resolve_default_methods(cfg, part),
+            default_versions=resolve_default_versions(cfg, part),
+            alleles=genotype_lookup(dataset.epitopes, keys))
+        expected.append(score_predictions(dataset.epitopes, cfg, topiary_df=part))
+    evaluation = evaluate_selection_policy(TopiaryResult(frame, metadata=combined.metadata), policy,
+                                           group_keys=keys, source_contexts=contexts)
+    original_scores = pd.concat(expected).sort_index()
+    actual_scores = evaluation.occurrences.set_index(keys).score.sort_index()
+    pd.testing.assert_series_equal(actual_scores, original_scores, check_names=False, check_exact=True)
+
+    def transfer_scores(result):
+        # Match score_predictions: pre-filtered groups have no score entry.
+        retained = result.occurrences.loc[result.occurrences.filter_retained]
+        records = retained.set_index(keys).score.to_dict()
+        return [replace(epitope, per_allele_scores={
+            allele: score for (*identity, allele), score in records.items()
+            if tuple(identity) == epitope.prediction_group_key}) for epitope in dataset.epitopes]
+
+    source_ids = set(frame.loc[frame.source_label.eq("direct"), "prediction_id"])
+    variant = Variant("12", 5494381, "A", "G")
+    native_fragment = MutantProteinFragment(
+        variant=variant, gene_name=fragment.gene, amino_acids=fragment.sequence,
+        mutant_amino_acid_start_offset=10, mutant_amino_acid_end_offset=11,
+        supporting_reference_transcripts=[], n_overlapping_reads=14, n_alt_reads=9,
+        n_ref_reads=5, n_alt_reads_supporting_protein_sequence=9)
+
+    def construct(epitopes):
+        selected = [epitope for epitope in epitopes_for_ranking(epitopes, cfg)
+                    if epitope.prediction_id in source_ids]
+        windows = vaccine_peptides_from_epitopes(variant, native_fragment, selected, vaccine_peptide_length=11)
+        assert windows
+        ranked = [(variant, windows)]
+        peptide = assemble_peptide_constructs(ranked, PeptideConstructConfig(
+            min_antigen_length_aa=9, max_antigen_length_aa=11))
+        mrna = assemble_mrna_constructs(ranked, RNAConstructConfig(
+            signal_peptide="", include_mitd=False, poly_a_length=0, optimize_linkers=False,
+            min_antigen_length_aa=9, max_antigen_length_aa=11))
+        assert peptide and mrna
+        return [window.amino_acids for window in windows], peptide, to_native_json(mrna)
+
+    old_epitopes = []
+    for label, part in frame.groupby("source_label", sort=False):
+        ids = set(part.prediction_id)
+        old_epitopes.extend(attach_per_allele_scores(
+            [e for e in dataset.epitopes if e.prediction_id in ids], cfg, topiary_df=part))
+    original = construct(old_epitopes)
+    assert construct(transfer_scores(evaluation)) == original
+
+    criterion = SelectionCriterion("late_occurrence", "peptide_offset >= 10", "eligibility")
+    changed_policy = replace(policy, name="late-context", criteria=(criterion,),
+                             filter_by='criterion("late_occurrence")')
+    changed = evaluate_selection_policy(TopiaryResult(frame, metadata=combined.metadata), changed_policy,
+                                       group_keys=keys, source_contexts=contexts)
+    changed_epitopes = transfer_scores(changed)
+    assert construct(changed_epitopes)[0] != original[0]
+    excluded = changed.audit.loc[changed.audit.status.eq("fail")]
+    assert not excluded.empty
+    assert excluded.criterion.eq("late_occurrence").all()
+    assert excluded.reason.eq("predicate_false").all()
+    saved = EpitopeDataset(result=changed.evidence, epitopes=tuple(changed_epitopes), config=cfg,
+                           selection={"audit": changed.audit.to_json(orient="records")})
+    path = tmp_path / "native-vaxrank.tsv"
+    saved.save(path)
+    restored = EpitopeDataset.load(path)
+    replay = replay_selection_policy(restored.result)
+    assert restored.selection == saved.selection
+    pd.testing.assert_frame_equal(replay.occurrences, changed.occurrences, check_exact=True)
+    assert construct(restored.epitopes) == construct(changed_epitopes)

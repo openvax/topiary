@@ -131,6 +131,7 @@ def _collect_kinds(node):
         kind = getattr(n, "kind", None)
         if kind is not None:
             kinds.add(_kind_value(kind))
+        kinds.update(getattr(n, "prediction_kinds", ()))
         stack.extend(n.child_nodes())
     return kinds
 
@@ -358,22 +359,61 @@ def apply_filter(df, node, *, group_keys=None, default_methods=None,
         _check_group_keys(df, group_keys)
         return df if node is None else df.reset_index(drop=True)
 
-    _validate_columns(df, node)
     ctx = _resolve_context(
         df, context, filter_context=True, group_keys=group_keys,
         default_methods=default_methods, kind_support=kind_support,
         alleles=alleles, default_versions=default_versions,
     )
-    # Reindex defensively so a misbehaving node (index mismatch) surfaces
-    # as NaN → False rather than silently picking up rows from a
-    # different MultiIndex alignment.
+    decisions = evaluate_filter(df, node, context=ctx)
+    keep = decisions.retained.to_numpy()[ctx.row_group_codes()]
+    return df[keep].reset_index(drop=True)
+
+
+def evaluate_filter(df, node, *, context=None, group_keys=None,
+                    default_methods=None, default_versions=None,
+                    kind_support=None, alleles=None, unknown="exclude"):
+    """Evaluate a filter without discarding observations.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Long-form evidence, including an empty frame with its identity columns.
+    node : str or DSLNode or None
+        Boolean expression; None retains every group.
+    context : EvalContext, optional
+        Context built on this frame. Mutually exclusive with the other context
+        options, which have the same meaning as in :func:`apply_filter`.
+    group_keys, default_methods, default_versions, kind_support, alleles : optional
+        Explicit identity, model choices, and per-occurrence allele context.
+    unknown : {'exclude', 'include', 'error'}
+        Decision for missing predicate values. To preserve unknown comparisons,
+        pass a context with preserve_unknown=True. Default retains legacy rules.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Group-indexed ``value`` and boolean ``retained`` columns. Retention
+        uses exactly :func:`apply_filter` semantics, including preservation of
+        allele-free supporting evidence for surviving peptides. Thus a retained
+        supporting row need not itself have a true filter value.
+    """
+    if unknown not in {"exclude", "include", "error"}:
+        raise ValueError("unknown must be exclude, include, or error")
+    ctx = _resolve_context(
+        df, context, filter_context=True, group_keys=group_keys,
+        default_methods=default_methods, default_versions=default_versions,
+        kind_support=kind_support, alleles=alleles,
+    )
+    if node is None or df.empty:
+        return pd.DataFrame({"value": True, "retained": True}, index=ctx.group_index)
+    node = as_dsl_node(node)
+    _validate_columns(df, node)
     values = node.eval(ctx).reindex(ctx.group_index)
     _check_boolean_like(values)
-    mask = values.fillna(False).astype(bool).to_numpy()
-    mask = _keep_allele_free_evidence(ctx, node, mask)
-
-    keep = mask[ctx.row_group_codes()]
-    return df[keep].reset_index(drop=True)
+    if unknown == "error" and values.isna().any():
+        raise ValueError("Unknown eligibility evidence under unknown='error'")
+    mask = _keep_allele_free_evidence(ctx, node, values.fillna(unknown == "include").astype(bool).to_numpy())
+    return pd.DataFrame({"value": values, "retained": mask}, index=ctx.group_index)
 
 
 def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
