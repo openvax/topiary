@@ -143,3 +143,22 @@ def test_named_references_do_not_shadow_input_columns_and_direct_dsl_stays_uncha
     assert pd.isna(predicate.eval(ctx.derive(preserve_unknown=True)).iloc[0])
     audit = evaluate_selection_criteria(policy, ctx, references=["binding"])
     assert audit.decisions.status.tolist() == ["unknown", "pass"]
+
+
+def test_numeric_criteria_can_be_compared_and_predicates_used_in_explicit_arithmetic():
+    quality = SelectionCriterion("quality", "1 / affinity.value", "score")
+    eligible = SelectionCriterion("good", 'criterion("quality") > 0.01', "eligibility")
+    weighted = SelectionCriterion("gated", 'criterion("good") * criterion("quality")', "score")
+    policy = SelectionPolicy("typed-composition", 'criterion("gated")',
+                             criteria=(quality, eligible, weighted), min_score=0.001)
+    evaluation = evaluate_selection_policy(source(), policy)
+    assert evaluation.occurrences.score.tolist() == [0.02, 0.0]
+    assert evaluation.selected.peptide.tolist() == ["SIINFEKL"]
+    filtered = evaluate_selection_policy(source(), replace(policy, filter_by='criterion("quality") > 0.01'))
+    assert filtered.selected.peptide.tolist() == ["SIINFEKL"]
+    with pytest.raises(ValueError, match="explicit comparison"):
+        replace(policy, filter_by='criterion("quality")')
+    with pytest.raises(ValueError, match="numeric"):
+        replace(policy, score_by='criterion("good")')
+    restored = replay_selection_policy(evaluation.evidence)
+    pd.testing.assert_frame_equal(restored.occurrences, evaluation.occurrences)

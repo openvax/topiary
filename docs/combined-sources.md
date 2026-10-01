@@ -233,8 +233,9 @@ audit = evaluated.audit
 Eligibility criteria compose with explicit `&`, `|`, and `~`; score terms
 combine through explicit arithmetic; `ranking_by` lists ordered expressions
 and directions after the primary score. YAML overrides do none of this
-implicitly. Predicate references may reference predicates, score terms may
-reference score terms, and ranking terms may reference score or ranking terms.
+implicitly. Numeric references can be compared to form predicates, and predicates can
+participate in explicit score arithmetic. A bare numeric reference is not an
+eligibility predicate; a bare predicate is not a named numeric score term.
 An input column called `binding` remains a column; only `criterion("binding")`
 means the named criterion. Unknown/cyclic references, duplicate names, wrong
 roles and non-boolean eligibility outputs raise. Optional `applies_to` is an

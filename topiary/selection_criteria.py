@@ -21,8 +21,8 @@ class SelectionCriterion:
         Existing Topiary DSL expression, optionally referencing other criteria.
     role : {'eligibility', 'score', 'ranking'}
         Predicate, numeric score term, or numeric ordered tie-break expression.
-        Eligibility references may compose only predicates; score references
-        only score terms; ranking may reuse score or ranking terms.
+        References retain their roles: compare numeric terms to produce a
+        predicate, or use explicit arithmetic to turn a predicate into a score.
     applies_to : str, optional
         Eligibility expression defining applicability. False means not
         applicable; missing means applicability unknown. None applies to all
@@ -124,13 +124,11 @@ def resolve_selection_expression(expression, criteria=(), *, role="score"):
 
     def expand(text, expected):
         expanded_references = {}
+        reference_roles = {}
         def lookup(name):
             if name not in definitions:
                 raise ValueError(f"Unresolved criterion {name!r}")
             criterion = definitions[name]
-            allowed = {"ranking", "score"} if expected == "ranking" else {expected}
-            if criterion.role not in allowed:
-                raise ValueError(f"Criterion {name!r} has role {criterion.role}, expected {expected}")
             if name in active:
                 raise ValueError(f"Cyclic criterion references: {' -> '.join([*active, name])}")
             if name not in visited:
@@ -138,13 +136,17 @@ def resolve_selection_expression(expression, criteria=(), *, role="score"):
             active.append(name)
             node, expanded = expand(criterion.expression, criterion.role)
             expanded_references[name] = expanded
+            reference_roles[id(node)] = criterion.role
             if criterion.applies_to is not None:
                 expand(criterion.applies_to, "eligibility")
             active.pop()
             return node
         node = parse(text, criteria=_References(lookup))
         boolean = isinstance(node, (Comparison, BoolOp, IsIn, Includes))
-        if expected != "eligibility" and boolean and active:
+        referenced_role = reference_roles.get(id(node))
+        if expected == "eligibility" and referenced_role in {"score", "ranking"}:
+            raise ValueError("A numeric criterion needs an explicit comparison for eligibility")
+        if expected != "eligibility" and ((boolean and active) or referenced_role == "eligibility"):
             raise ValueError(f"Expected numeric {expected} expression, got a predicate")
         # Preserve source parentheses and numeric literals. repr(node) is a
         # human display, not a lossless serialization of arithmetic grouping.
