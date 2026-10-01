@@ -64,6 +64,30 @@ def _allele(value):
     return mhcgnomes.parse(str(value)).to_string() if is_stated(value) else ""
 
 
+def candidate_identifier(sample, peptide, allele):
+    """Return the stable sample/peptide/canonical-MHC candidate identity.
+
+    Parameters
+    ----------
+    sample, peptide, allele : str or None
+        Explicit sample, peptide and allele. Missing peptide or allele returns
+        None: supporting evidence alone is not a pMHC candidate. Missing sample
+        for a stated peptide/allele raises ValueError.
+
+    Returns
+    -------
+    str or None
+        The identity used by combine_sources and projected policy groups.
+        Alleles are canonicalized through mhcgnomes.
+    """
+    allele = _allele(allele)
+    if not allele or not is_stated(peptide):
+        return None
+    if not is_stated(sample):
+        raise ValueError("Candidate identity requires a stated sample")
+    return _identity([sample, peptide, allele])
+
+
 def combine_sources(sources, *, sample_name=None):
     """Combine prediction tables without running models or merging evidence.
 
@@ -146,7 +170,7 @@ def combine_sources(sources, *, sample_name=None):
         for column, source_column in SOURCE_PREDICTION_COLUMNS.items():
             frame[source_column] = frame[column] if column in frame else None
         frame["candidate_id"] = [
-            _identity([sample, peptide, allele]) if allele and is_stated(peptide) else None
+            candidate_identifier(sample, peptide, allele)
             for sample, peptide, allele in zip(samples, frame.peptide, frame.candidate_allele)
         ]
         # Differing annotations/abundance are separate source observations,

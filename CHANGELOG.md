@@ -7,6 +7,18 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.90.0
+
+- Evaluate saved policies at explicit occurrence/allele identity before selecting
+  representatives. Retain all evidence, concrete genotype declarations,
+  source-local model choices, score fill/gates and exact replay context (#444).
+- Add reusable named DSL criteria, explicit composition and ordered tie-breaks,
+  with pass/fail/unknown/not-applicable/not-evaluated audit records. Schema 2
+  preserves expanded definitions; schema-1 definitions keep their digests (#445).
+- Fix context derivation with genotype callbacks and changed mappings (#447).
+- Verify released Vaxrank 3.35.0 scoring, window selection, peptide/mRNA
+  construction and native dataset reload against the shared policy evaluator.
+
 ## 5.89.0
 
 - Save and replay named `SelectionPolicy` definitions with complete DSL expressions,

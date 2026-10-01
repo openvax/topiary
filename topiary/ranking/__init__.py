@@ -88,7 +88,7 @@ from .nodes import (
     shuffled,
     wt,
 )
-from .apply import apply_filter, apply_sort, evaluate_scores
+from .apply import apply_filter, apply_sort, evaluate_scores, evaluate_filter
 from .parser import as_dsl_node, as_dsl_nodes, parse
 
 __all__ = [
@@ -138,6 +138,7 @@ __all__ = [
     "apply_filter",
     "apply_sort",
     "evaluate_scores",
+    "evaluate_filter",
     "parse",
     "as_dsl_node",
     "as_dsl_nodes",

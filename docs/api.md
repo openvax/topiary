@@ -663,3 +663,25 @@ available_properties()
 ```
 
 Groups: `"core"`, `"manufacturability"`, `"immunogenicity"`. See [Peptide Properties](properties.md) for details.
+
+### Occurrence policy and criterion evaluation
+
+- `evaluate_selection_policy(result, policy, group_keys=..., alleles=...,
+  source_contexts=...)` returns `PolicyEvaluation` with complete `evidence`,
+  `occurrences`, `selected` and criterion `audit` views.
+- `replay_selection_policy(evidence)` repeats evaluation from the embedded
+  definition and materialized runtime context without prediction.
+- `select_policy_representatives(evaluation, candidate_keys=..., strata=...)`
+  selects actual occurrences and links alternatives without adding support.
+- `describe_evaluation_context(context)` materializes grouping, model choices
+  and per-occurrence genotype declarations for replay.
+- `candidate_identifier(sample, peptide, allele)` shares combined/projected
+  pMHC identity, using mhcgnomes for allele canonicalization.
+- `SelectionCriterion`, `RankingTerm`, and `resolve_selection_expression`
+  define and expand named DSL criteria with role/cycle validation.
+- `evaluate_selection_criteria(policy, context, references=...)` exposes named
+  measurements and reasons; `evaluate_filter(frame, expression, context=...)`
+  exposes group decisions without discarding rows.
+
+See [the complete source-policy workflow](combined-sources.md#named-criteria-and-audit-decisions)
+for schema compatibility, source-local defaults, unknown handling and persistence.

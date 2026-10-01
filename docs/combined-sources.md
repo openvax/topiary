@@ -153,14 +153,121 @@ fill, window rules, RNA weighting and construct settings must also be frozen in
 its bundle. A cutoff inside a score expression must not become a destructive
 pre-filter when capturing that baseline.
 
-The representative ranking above is one view, not the complete construction
-interface. Shared occurrence-level evaluation with retained alternatives is
-tracked in [#444](https://github.com/openvax/topiary/issues/444). Optional named
-criteria, references and pass/fail/unknown audit records are tracked in
-[#445](https://github.com/openvax/topiary/issues/445); schema 1 currently accepts
-direct DSL expressions and rejects unknown criteria/registry fields. These
-layers will reuse the same DSL rather than require a second evaluator in
-Vaxrank.
+The representative ranking above is one view. `evaluate_selection_policy`
+retains every input row and evaluates explicit occurrence identities before
+representative selection or vaccine-window construction:
+
+```python
+from topiary import (
+    SelectionPolicy, evaluate_selection_policy, replay_selection_policy,
+    select_policy_representatives, read_tsv,
+)
+
+policy = SelectionPolicy(
+    "example-baseline", "(affinity.value < 5000) * affinity.value.logistic_normalized(350, 150)",
+    score_fill=0.0, min_score=1e-5, duplicates="best",
+)
+evaluated = evaluate_selection_policy(combined, policy)
+occurrences = evaluated.occurrences  # includes excluded and unscorable alternatives
+eligible = evaluated.selected      # no candidate collapse
+representatives = select_policy_representatives(evaluated)
+evaluated.evidence.to_tsv("complete-evaluation.tsv")
+replayed = replay_selection_policy(read_tsv("complete-evaluation.tsv"))
+```
+
+This example freezes a scoring convention; it does not establish an official
+`openvax-v1` recipe or a calibrated probability of immunogenicity. The cutoff
+remains inside the score, with a separate inclusive minimum-score gate.
+`raw_score` preserves missingness even when `score_fill=0` supplies an effective
+zero. Pre-filtered groups are not scored and cannot be restored by filling.
+With no minimum gate, missing scores remain eligible but unranked, matching the
+existing candidate-ranker convention.
+
+For direct Vaxrank frames, pass
+`group_keys=["prediction_id", "peptide", "peptide_offset", "allele"]` and the
+consumer's per-occurrence `alleles` mapping/callback. The callback is evaluated
+once per peptide identity and saved as concrete declarations, never Python code.
+Projected allele groups carry `supporting_rows` links, not duplicated RNA counts.
+`evidence_rows` links the group's original observations. These positions refer
+to `evaluated.evidence.long_df`; retain that complete long-form result when
+saving an evaluation. Input columns and metadata remain available there.
+
+Use `source_contexts={label: {...}}` when sources have independent model defaults.
+Every source label must be named; each mapping may replace `default_methods`,
+`default_versions`, `kind_support`, and `alleles`. Filtering and scoring share
+those choices. Definitions remain separate from runtime contexts, which are
+stored alongside decisions in `extra["policy_evaluation"]`. Replay uses the
+complete evidence and stored contexts and never invokes prediction. Model
+defaults resolve ambiguity in the existing DSL; they are not a requirement that
+all input measurements come from the selected model.
+
+`select_policy_representatives` chooses an actual eligible occurrence, without
+summing support, and records all alternative occurrence IDs, including excluded
+alternatives. Direct consumers supply their `candidate_keys` and `strata` if
+combined-source candidate columns are absent. Missing values sort last; stable
+input order breaks exact ties. Topiary owns these generic decisions; Vaxrank
+still owns window geometry, source admission and construct assembly.
+
+### Named criteria and audit decisions
+
+Criteria reuse existing DSL expressions through an explicit namespace. This
+example is synthetic policy content, not a recommended processing weight:
+
+```python
+from topiary import SelectionCriterion, RankingTerm
+
+binding = SelectionCriterion("binding", "affinity.value < 500", "eligibility")
+processing = SelectionCriterion(
+    "processing", "peptide_view(proteasome_cleavage.score)", "score",
+)
+policy = SelectionPolicy(
+    "example-processing", 'criterion("processing")',
+    filter_by='criterion("binding")', criteria=(binding, processing),
+    ranking_by=(RankingTerm("n_rna_alt", ascending=False),),
+    unknown="exclude", duplicates="best",
+)
+evaluated = evaluate_selection_policy(combined, policy)
+audit = evaluated.audit
+```
+
+Eligibility criteria compose with explicit `&`, `|`, and `~`; score terms
+combine through explicit arithmetic; `ranking_by` lists ordered expressions
+and directions after the primary score. YAML overrides do none of this
+implicitly. Predicate references may reference predicates, score terms may
+reference score terms, and ranking terms may reference score or ranking terms.
+An input column called `binding` remains a column; only `criterion("binding")`
+means the named criterion. Unknown/cyclic references, duplicate names, wrong
+roles and non-boolean eligibility outputs raise. Optional `applies_to` is an
+eligibility expression; false applicability is recorded as `not_applicable`,
+and its reference remains unknown rather than becoming an observed failure.
+
+Audit rows retain occurrence identity, raw row links, criterion name and role,
+value, status and reason:
+
+| Status | Meaning |
+| --- | --- |
+| `pass` / `fail` | An applicable predicate evaluated true / false |
+| `unknown` | Missing column/input, missing/ambiguous/conflicting model evidence, unknown applicability, or an out-of-domain calculation |
+| `value` | An observed numeric term, including zero |
+| `not_applicable` | The applicability predicate was observed false |
+| `not_evaluated` | Unreferenced, or scoring skipped after a pre-filter |
+
+Named predicates use three-valued boolean logic. `unknown="exclude"`,
+`"include"`, or `"error"` controls the decision on an unknown final eligibility
+result, while audit values remain unknown. Direct-expression policies without
+criteria keep historical DSL comparison behavior. A vector expression with an
+ambiguous/conflicting model is unknown for that evaluation context; separate
+source contexts prevent one source's model selection from being imposed on
+another. Unexpected programming/DSL errors still raise.
+
+Schema 2 persists criteria, their complete expansions, references, ordered
+terms, fill/gate settings and unknown handling in the policy digest. Original
+schema-1 definitions retain their original serialization and digest. Definitions
+are self-contained; a mutable registry cannot change a saved recipe. Export
+`evaluated.evidence`, not a filtered ranking, to reproduce rejected alternatives.
+The Vaxrank consumer test carries these records through native dataset save/load
+and verifies frozen scores, selected windows, peptide constructs and mRNA
+constructs, plus a changed criterion that changes the selected window.
 
 ## Identities and source evidence
 

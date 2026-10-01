@@ -2,17 +2,20 @@
 
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
+import math
 from pathlib import Path
 from types import MappingProxyType
 
-from .ranking import as_dsl_node
+from .selection_criteria import SelectionCriterion, RankingTerm, resolve_selection_expression
 
 
-_POLICY_FIELDS = {"schema_version", "name", "score_by", "filter_by", "ascending",
+_V1_FIELDS = {"schema_version", "name", "score_by", "filter_by", "ascending",
                   "duplicates", "strata", "default_methods", "default_versions"}
+_POLICY_FIELDS = _V1_FIELDS | {"score_fill", "min_score", "criteria", "ranking_by", "unknown",
+                               "expanded"}
 
 
 def _text(value, label):
@@ -52,6 +55,21 @@ class SelectionPolicy:
     default_versions : mapping of (str, str) to str, optional
         Explicit (kind, method)-to-version selections. Unknown source versions
         remain unknown. JSON represents these tuple keys as records.
+    score_fill : float, optional
+        Replacement for missing occurrence scores, after evaluation. None
+        preserves missingness. Raw scores always remain in the audit view.
+    min_score : float, optional
+        Inclusive minimum on the effective occurrence score. This gate runs
+        after scoring, independently of the pre-filter; None adds no gate.
+    criteria : sequence of SelectionCriterion
+        Embedded named criteria. Explicit criterion("name") references reuse
+        them; unused definitions are audited as not evaluated.
+    ranking_by : sequence of RankingTerm
+        Ordered tie-break expressions following the primary score.
+    unknown : {'exclude', 'include', 'error'}
+        Decision on unknown named eligibility evidence. Its audit value remains
+        unknown under every decision. Direct expression policies retain legacy
+        filter semantics when criteria is empty.
 
     Notes
     -----
@@ -70,17 +88,37 @@ class SelectionPolicy:
     strata: tuple[str, ...] = ("candidate_mhc_class",)
     default_methods: Mapping | None = None
     default_versions: Mapping | None = None
+    score_fill: float | None = None
+    min_score: float | None = None
+    criteria: tuple = ()
+    ranking_by: tuple = ()
+    unknown: str = "exclude"
+    _schema_version: int = field(default=2, init=False, repr=False, compare=False)
 
     def __post_init__(self):
         _text(self.name, "name")
+        for label, expected in (("criteria", SelectionCriterion), ("ranking_by", RankingTerm)):
+            supplied = getattr(self, label)
+            if not isinstance(supplied, (list, tuple)) or any(not isinstance(item, expected) for item in supplied):
+                raise ValueError(f"{label} must be a sequence of {expected.__name__}")
+            object.__setattr__(self, label, tuple(supplied))
+        if self.unknown not in {"exclude", "include", "error"}:
+            raise ValueError("unknown must be exclude, include, or error")
         for label in ("score_by", "filter_by"):
             value = getattr(self, label)
             if value is None and label == "filter_by":
                 continue
             try:
-                as_dsl_node(_text(value, label))
+                resolve_selection_expression(_text(value, label), self.criteria,
+                                             role="eligibility" if label == "filter_by" else "score")
             except (ValueError, SyntaxError) as error:
                 raise ValueError(f"{label}: {error}") from error
+        # Validate every definition, including unused ones, so a saved recipe
+        # cannot carry a hidden unresolved dependency or cycle.
+        for criterion in self.criteria:
+            resolve_selection_expression(f"criterion({criterion.name!r})", self.criteria, role=criterion.role)
+        for term in self.ranking_by:
+            resolve_selection_expression(term.expression, self.criteria, role="ranking")
         if type(self.ascending) is not bool:
             raise ValueError("ascending must be a boolean")
         if not isinstance(self.duplicates, str) or self.duplicates not in {"error", "best", "worst"}:
@@ -91,6 +129,12 @@ class SelectionPolicy:
         if len(set(strata)) != len(strata):
             raise ValueError("strata must name distinct columns")
         object.__setattr__(self, "strata", strata)
+        for label in ("score_fill", "min_score"):
+            value = getattr(self, label)
+            if value is not None:
+                if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value):
+                    raise ValueError(f"{label} must be a finite number or None")
+                object.__setattr__(self, label, float(value))
         for label in ("default_methods", "default_versions"):
             supplied = getattr(self, label)
             if supplied is None:
@@ -110,7 +154,7 @@ class SelectionPolicy:
             object.__setattr__(self, label, MappingProxyType(copied))
 
     def to_dict(self):
-        """Return an independent, JSON-compatible schema-version-1 definition.
+        """Return an independent, JSON-compatible versioned definition.
 
         Explicit None selections remain None; empty mappings remain empty.
         Every setting is written, including defaults, so a future constructor
@@ -122,8 +166,8 @@ class SelectionPolicy:
             Complete definition with string keys, suitable for JSON or YAML.
         """
         versions = self.default_versions
-        return dict(
-            schema_version=1, name=self.name, score_by=self.score_by,
+        definition = dict(
+            schema_version=self._schema_version, name=self.name, score_by=self.score_by,
             filter_by=self.filter_by, ascending=self.ascending,
             duplicates=self.duplicates, strata=list(self.strata),
             default_methods=None if self.default_methods is None else dict(sorted(self.default_methods.items())),
@@ -131,12 +175,31 @@ class SelectionPolicy:
                 dict(kind=kind, method=method, version=version)
                 for (kind, method), version in sorted(versions.items())],
         )
+        if self._schema_version >= 2:
+            definition.update(score_fill=self.score_fill, min_score=self.min_score,
+                              criteria=[item.to_dict() for item in self.criteria],
+                              ranking_by=[item.to_dict() for item in self.ranking_by],
+                              unknown=self.unknown, expanded=self.expanded)
+        return definition
+
+    @property
+    def expanded(self):
+        """Complete DSL expansion and references, independent of any registry."""
+        def resolve(expression, role):
+            return None if expression is None else resolve_selection_expression(expression, self.criteria, role=role)
+        return dict(
+            filter_by=resolve(self.filter_by, "eligibility"), score_by=resolve(self.score_by, "score"),
+            ranking_by=[resolve(term.expression, "ranking") for term in self.ranking_by],
+            criteria={item.name: dict(expression=resolve(item.expression, item.role),
+                                     applies_to=resolve(item.applies_to, "eligibility")) for item in self.criteria},
+        )
 
     @classmethod
     def from_dict(cls, definition):
         """Load a complete saved definition, rejecting unknown/missing fields.
 
-        Only schema version 1 is accepted. Duplicate model/version selections
+        Schema versions 1 and 2 are accepted. Version 1 retains its original
+        definition and digest. Duplicate model/version selections
         raise instead of silently taking the last record.
 
         Parameters
@@ -152,13 +215,25 @@ class SelectionPolicy:
         """
         if not isinstance(definition, Mapping):
             raise ValueError("SelectionPolicy definition must be a mapping")
-        missing, unknown = _POLICY_FIELDS - set(definition), set(definition) - _POLICY_FIELDS
+        version = definition.get("schema_version")
+        if type(version) is not int or version not in (1, 2):
+            raise ValueError("Unsupported selection policy schema_version; expected 1 or 2")
+        fields = _V1_FIELDS if version == 1 else _POLICY_FIELDS
+        missing, unknown = fields - set(definition), set(definition) - fields
         if missing or unknown:
             raise ValueError(f"SelectionPolicy fields: missing={sorted(missing)!r}, unknown={sorted(unknown, key=str)!r}")
-        if type(definition["schema_version"]) is not int or definition["schema_version"] != 1:
-            raise ValueError("Unsupported selection policy schema_version; expected 1")
         values = dict(definition)
         del values["schema_version"]
+        expanded = values.pop("expanded", None)
+        if version >= 2:
+            for label, constructor in (("criteria", SelectionCriterion), ("ranking_by", RankingTerm)):
+                records = values[label]
+                if not isinstance(records, list):
+                    raise ValueError(f"Saved {label} must be a list")
+                try:
+                    values[label] = tuple(constructor(**record) for record in records)
+                except (TypeError, ValueError) as error:
+                    raise ValueError(f"Invalid saved {label}: {error}") from error
         versions = values["default_versions"]
         if versions is not None:
             if not isinstance(versions, list):
@@ -172,7 +247,11 @@ class SelectionPolicy:
                     raise ValueError(f"Duplicate version selection for {key!r}")
                 decoded[key] = record["version"]
             values["default_versions"] = decoded
-        return cls(**values)
+        policy = cls(**values)
+        if version >= 2 and expanded != policy.expanded:
+            raise ValueError("Saved expanded definitions do not match criterion references")
+        object.__setattr__(policy, "_schema_version", version)
+        return policy
 
     @property
     def sha256(self):
@@ -214,8 +293,22 @@ def resolve_selection_policy(configuration):
     missing = {"name", "score_by"} - set(configuration)
     if unknown or missing:
         raise ValueError(f"SelectionPolicy fields: missing={sorted(missing)!r}, unknown={sorted(unknown, key=str)!r}")
-    defaults = SelectionPolicy(configuration["name"], configuration["score_by"]).to_dict()
+    defaults = SelectionPolicy(configuration["name"], "0").to_dict()
+    if configuration.get("schema_version") == 1:
+        defaults = {key: value for key, value in defaults.items() if key in _V1_FIELDS}
     defaults.update(configuration)
+    if defaults.get("schema_version") == 2 and "expanded" not in configuration:
+        # Resolve authoring references after all consumer overrides, not against
+        # the temporary constructor used to materialize scalar defaults above.
+        settings = dict(defaults)
+        settings.pop("schema_version")
+        settings.pop("expanded")
+        settings["criteria"] = tuple(SelectionCriterion(**item) for item in settings["criteria"])
+        settings["ranking_by"] = tuple(RankingTerm(**item) for item in settings["ranking_by"])
+        settings["default_versions"] = None if settings["default_versions"] is None else {
+            (item["kind"], item["method"]): item["version"] for item in settings["default_versions"]}
+        # from_dict below still checks duplicate version records.
+        defaults["expanded"] = SelectionPolicy(**settings).expanded
     return SelectionPolicy.from_dict(defaults)
 
 
@@ -311,6 +404,8 @@ def rank_with_policy(result, policy, *, provenance=None):
         raise TypeError("policy must be a SelectionPolicy")
     if not isinstance(result, TopiaryResult):
         raise TypeError("result must be a TopiaryResult from combine_sources")
+    if policy.score_fill is not None or policy.min_score is not None or policy.criteria or policy.ranking_by:
+        raise ValueError("Occurrence score fill/gates require evaluate_selection_policy, then select_policy_representatives")
     if provenance is not None and not isinstance(provenance, Mapping):
         raise ValueError("provenance must be a JSON-compatible mapping or None")
     derivation = None if provenance is None else json.loads(json.dumps(dict(provenance), allow_nan=False))

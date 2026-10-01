@@ -261,9 +261,10 @@ def _as_bool_node(node):
 class _Parser:
     """Recursive-descent parser for the full DSL (arithmetic + booleans)."""
 
-    def __init__(self, text):
+    def __init__(self, text, criteria=None):
         self.tokenizer = _Tokenizer(text)
         self.text = text
+        self.criteria = criteria
 
     def parse(self) -> DSLNode:
         node = self._or()
@@ -426,6 +427,17 @@ class _Parser:
                 self.tokenizer.advance()
                 args = self._call_args()
                 return _AGGREGATION_FUNCS[name](*args)
+            if name == "criterion" and self.tokenizer.peek_at(1)[0] == "LPAREN":
+                self.tokenizer.advance()
+                self.tokenizer.expect("LPAREN")
+                identifier = self.tokenizer.expect("STRING")[1]
+                self.tokenizer.expect("RPAREN")
+                if self.criteria is None:
+                    raise ValueError(f"Unresolved criterion {identifier!r}; supply named criteria")
+                try:
+                    return _parser_as_node(self.criteria[identifier])
+                except KeyError:
+                    raise ValueError(f"Unresolved criterion {identifier!r}") from None
             if name == "peptide_view":
                 self.tokenizer.advance()
                 self.tokenizer.expect("LPAREN")
@@ -803,13 +815,17 @@ class _Parser:
         return KIND_ALIASES.get(name.strip().lower())
 
 
-def parse(text: str) -> DSLNode:
+def parse(text: str, *, criteria=None) -> DSLNode:
     """Parse a DSL string into a :class:`DSLNode`.
 
     Supports the full grammar: arithmetic, comparisons, boolean
     combinators, transforms, aggregations, scoped fields.
+    ``criteria`` optionally maps stable names to already-resolved DSL nodes
+    for explicit ``criterion("name")`` references. Bare identifiers continue
+    to name input columns. Unknown references raise ValueError. No registry is
+    consulted and no Python expression is evaluated.
     """
-    return _Parser(text).parse()
+    return _Parser(text, criteria=criteria).parse()
 
 
 def as_dsl_node(expression) -> DSLNode:
