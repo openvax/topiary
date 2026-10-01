@@ -431,6 +431,17 @@ always `Column("x") == "y"` (see below).
 
 ### Context options
 
+For portable policy definitions, `SelectionPolicy` stores explicit filter/score
+strings and model/version selections. `resolve_selection_policy(mapping)` fills
+authoring defaults after a consumer has composed its overrides;
+`SelectionPolicy.from_dict(mapping)` strictly reloads a complete definition.
+`to_dict()` and `sha256` expose the effective settings and content identity.
+`read_selection_policy(path)` / `write_selection_policy(policy, path)` provide
+JSON IO; writes refuse existing files. `rank_with_policy(result, policy,
+provenance=None)` wraps `rank_candidates` and returns a `TopiaryResult` carrying
+the effective definition and separate provenance/execution metadata. See the
+[policy workflow and consumer boundary](combined-sources.md#named-selection-policies).
+
 `apply_filter`, `apply_sort` and `evaluate_scores` share five keyword-only
 options, all forwarded to `EvalContext`:
 

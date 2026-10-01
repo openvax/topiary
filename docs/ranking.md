@@ -19,6 +19,11 @@ df = apply_sort(df, [Presentation.score, Affinity.score])
 
 `TopiaryPredictor(filter_by=..., sort_by=[...])` applies them automatically during prediction.
 
+For reusable named configurations and exact save/replay, see
+[selection policies](combined-sources.md#named-selection-policies). A policy
+stores explicit expressions and settings without changing the DSL or enabling
+new predictors.
+
 ## Group identity
 
 Expressions evaluate per *group*, not per row: one peptide-allele group can span several rows (one per predictor and kind). `apply_filter` keeps or drops whole groups, `apply_sort` orders groups, and `evaluate_scores` gives every row its group's score.

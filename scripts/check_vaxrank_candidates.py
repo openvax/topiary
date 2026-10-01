@@ -8,7 +8,10 @@ import pytest
 import pandas as pd
 from mhctools import Prediction
 
-from topiary import combine_sources, evaluate_scores, join_annotations, parse, rank_candidates, rescore_candidates
+from topiary import (
+    SelectionPolicy, combine_sources, evaluate_scores, join_annotations, parse,
+    rank_with_policy, read_selection_policy, write_selection_policy, rescore_candidates,
+)
 from tests.test_candidate_tables import Model, source
 from vaxrank.candidate_epitope import candidate_epitopes_from_rows
 from vaxrank.epitope_config import EpitopeConfig
@@ -21,7 +24,7 @@ from vaxrank.vaccine_peptide import VaccinePeptide
 
 @pytest.mark.parametrize("antigen_kind", ["mutation", "fusion", "splice", "CTA", "ERV", "viral"])
 @pytest.mark.parametrize("policy", ["original", "rescored", "rna_overlay"])
-def test_candidate_features_reach_vaxrank_scoring_and_vaccine_construction(antigen_kind, policy):
+def test_candidate_features_reach_vaxrank_scoring_and_vaccine_construction(antigen_kind, policy, tmp_path):
     proteins = ["MAAASIINFEKL", "MAAAGILGFVFTL"]
     identity = dict(protein_sequence=proteins, event_id=["event-1", "event-2"])
     combined = combine_sources({
@@ -39,8 +42,16 @@ def test_candidate_features_reach_vaxrank_scoring_and_vaccine_construction(antig
         combined = join_annotations(combined, annotations, on=keys, prefix="rna",
                                     provenance={"source": "rna_only", "unit": "TPM"})
         expression = "rna_transcript_expression / affinity.value"
-    ranked = rank_candidates(combined, expression, duplicates="best")
-    selected_ids = set(ranked.source_observation_id)
+    saved_policy = SelectionPolicy(
+        name="example-" + policy, score_by=expression,
+        filter_by="n_rna_alt >= 5", duplicates="best",
+    )
+    policy_path = tmp_path / "selection.json"
+    write_selection_policy(saved_policy, policy_path)
+    restored_policy = read_selection_policy(policy_path)
+    assert restored_policy.sha256 == saved_policy.sha256
+    ranked = rank_with_policy(combined, restored_policy)
+    selected_ids = set(ranked.df.source_observation_id)
     frame = combined.long_df[combined.long_df.source_observation_id.isin(selected_ids)].copy()
     # Vaxrank's current public scoring interface names its provenance key
     # prediction_id. Retain originals in the combined result; this is a
@@ -59,7 +70,8 @@ def test_candidate_features_reach_vaxrank_scoring_and_vaccine_construction(antig
             overlaps_targetable=True, patient_alleles=[row.allele],
         ))
     epitopes = candidate_epitopes_from_rows(rows)
-    cfg = EpitopeConfig(score_expr=expression, filter_expr="n_rna_alt >= 5", min_epitope_score=0.)
+    cfg = EpitopeConfig(score_expr=restored_policy.score_by,
+                        filter_expr=restored_policy.filter_by, min_epitope_score=0.)
     scored = attach_per_allele_scores(epitopes, cfg, topiary_df=frame)
     expected = dict(zip(frame.source_observation_id, evaluate_scores(frame, parse(expression))))
     vaccines = []
