@@ -12,6 +12,8 @@ from topiary import (
 from .test_candidate_tables import source
 from .test_twin_conformance import DELIMITED_IO_TWINS
 
+pytestmark = pytest.mark.usefixtures("pandas_string_inference")
+
 KEYS = ["prediction_id", "peptide", "allele"]
 
 
@@ -311,7 +313,7 @@ def test_unnamed_versions_use_the_existing_public_identity_rule(version):
     assert policy_coverage(evaluated, prediction_requests=requested).df.query("level == 'prediction'").status.eq("missing").all()
 
 
-def test_absent_version_column_is_unnamed_and_duplicate_spellings_are_rejected():
+def test_absent_version_column_is_unnamed_and_duplicate_spellings_are_rejected(pandas_string_inference):
     original = evaluation(values=(0., 3.))
     evaluated = evaluate_selection_policy(TopiaryResult(original.evidence.df.drop(columns="predictor_version")),
                                            original.policy, group_keys=KEYS)
@@ -319,7 +321,8 @@ def test_absent_version_column_is_unnamed_and_duplicate_spellings_are_rejected()
     requested["predictor_version"] = None
     assert policy_coverage(evaluated, prediction_requests=requested).df.query("level == 'prediction'").status.eq("assessed").all()
     with pytest.raises(ValueError, match="Duplicate prediction"):
-        policy_coverage(evaluated, prediction_requests=pd.concat([requested, requested.assign(predictor_version="")]))
+        policy_coverage(evaluated, prediction_requests=pd.DataFrame([
+            *requested.to_dict("records"), *requested.assign(predictor_version="").to_dict("records")]))
 
 
 @pytest.mark.parametrize("version", ["NA", "unknown"])
