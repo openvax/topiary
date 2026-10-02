@@ -91,10 +91,17 @@ return fresh read-only int8 arrays, so callers never share mutable matrix state.
 |--------|-------|----------|
 | `predict_from_named_sequences(dict)` | `{name: sequence}` | Sliding-window scan |
 | `predict_from_named_peptides(dict)` | `{name: peptide}` | Score as-is |
+| `predict_from_peptide_occurrences(table)` | Unique `prediction_id`, peptide, optional flanks/coordinates/annotations | Score exact occurrences with their context; no scanning. |
 | `predict_from_sequences(list)` | `[sequence, ...]` | Sliding-window scan |
 | `predict_from_fragments(fragments)` | `[ProteinFragment]` | Universal path — any origin; fragment-level metadata and `target_intervals` threaded through. |
 | `predict_from_variants(variants)` | VariantCollection | Variant pipeline (builds `ProteinFragment`s internally and delegates). |
 | `predict_from_mutation_effects(effects)` | EffectCollection | Same as `predict_from_variants` but starting from pre-computed effects. |
+
+`predict_peptide_occurrences(table, model, use_flanks=True, predict_wt=False)`
+exposes the same occurrence prediction for one configured mhctools model.
+It is exported from `topiary` and is also used by `rescore_candidates`.
+See [exact occurrence prediction](combined-sources.md#predict-exact-peptide-occurrences)
+for input identity, unknown flanks, comparator and coverage rules.
 
 ## TopiaryResult
 

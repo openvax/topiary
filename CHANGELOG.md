@@ -7,6 +7,17 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.91.0
+
+- Score explicitly identified peptide occurrences with their original flanks,
+  coordinates and source evidence, without scanning additional windows. Share
+  identical inference inputs while preserving every observation; retain model,
+  allele-free/per-allele/haplotype scope and explicit comparator context (#367).
+- Reuse occurrence prediction in additive table rescoring, batching compatible
+  peptides while retaining original measurements and selection behavior.
+- Preserve the canonical prediction schema for empty named-peptide output,
+  including explicitly reported all-missing cache batches (#450).
+
 ## 5.90.0
 
 - Evaluate saved policies at explicit occurrence/allele identity before selecting

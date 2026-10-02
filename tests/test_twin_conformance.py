@@ -50,6 +50,7 @@ from topiary import (
     combine_sources, rank_candidates, rank_with_policy, evaluate_scores,
     SelectionPolicy, resolve_selection_policy, evaluate_selection_policy,
     EvalContext, evaluate_filter,
+    predict_peptide_occurrences,
     Affinity, Column, apply_filter, apply_sort,
 )
 from topiary.io_isovar import _check_isovar
@@ -153,6 +154,19 @@ POLICY_MAPPING_TWINS = (SelectionPolicy.from_dict, resolve_selection_policy)
 # sparse genotype projection. Driven by test_policy_evaluation.py.
 OCCURRENCE_POLICY_TWINS = (evaluate_selection_policy, EvalContext)
 FILTER_DECISION_TWINS = (evaluate_filter, apply_filter)
+
+# Explicit occurrence and named-peptide calls agree when context is the same.
+# Driven by test_peptide_occurrences.py; source coordinates differ legitimately.
+PEPTIDE_OCCURRENCE_TWINS = (
+    predict_peptide_occurrences,
+    lambda occurrences, model, **kwargs: TopiaryPredictor(models=model).predict_from_peptide_occurrences(occurrences, **kwargs),
+)
+NAMED_OCCURRENCE_TWINS = (
+    lambda names, model: TopiaryPredictor(models=model).predict_from_named_peptides(names),
+    lambda names, model: predict_peptide_occurrences(
+        pd.DataFrame([dict(prediction_id=name, peptide=peptide, peptide_offset=0)
+                      for name, peptide in names.items()]), model, use_flanks=False),
+)
 
 # The CLI serializes the same exhaustive SV evidence policy as the public API.
 # Driven together in test_consumer_workflows, including absent protein rows.

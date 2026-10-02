@@ -123,7 +123,7 @@ def test_rescoring_only_selected_subset_preserves_original_ranking_and_adds_dsl_
     model = Model()
     enriched = rescore_candidates(output, model, prefix="fresh", select="source_label == 'one'")
     feature = "fresh__testmodel__pMHC_affinity__value"
-    assert [call[0] for call in model.calls] == [["SIINFEKL"], ["GILGFVFTL"]]
+    assert [call[0] for call in model.calls] == [["SIINFEKL", "GILGFVFTL"]]
     assert enriched.df.loc[enriched.df.source_label.eq("two"), feature].isna().all()
     pd.testing.assert_frame_equal(enriched.df[before.columns], before)
     pd.testing.assert_frame_equal(output.df, before)
@@ -149,7 +149,7 @@ def test_contexts_are_not_reused_and_flanks_reach_the_predictor():
     output = combined(n_flank="OTHER")
     model = Model()
     scored = rescore_candidates(output, model, prefix="new")
-    assert len(model.calls) == 4
+    assert len(model.calls) == 2
     assert {c[1]["n_flanks"][0] for c in model.calls} == {"AAA", "OTHER"}
     assert scored.df.new__testmodel__pMHC_affinity__value.tolist() == [803, 13, 805, 15]
 
@@ -158,7 +158,7 @@ def test_deduplicated_calls_keep_distinct_observations_and_evidence():
     output = combined()
     model = Model()
     scored = rescore_candidates(output, model, prefix="new")
-    assert len(model.calls) == 2
+    assert len(model.calls) == 1
     assert len(scored.df) == len(output.df)
     assert scored.df.source_observation_id.nunique() == 4
 
@@ -327,7 +327,7 @@ def test_selective_rescoring_does_not_leak_across_genotypes():
     feature = "new__testmodel__pMHC_affinity__value"
     assert scored.df[feature].iloc[:2].notna().all()
     assert scored.df[feature].iloc[2:].isna().all()
-    assert len(model.calls) == 2
+    assert len(model.calls) == 1
 
 
 def test_conflicting_predictions_need_source_or_run_identity_before_dsl_evaluation():

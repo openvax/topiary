@@ -1005,6 +1005,43 @@ class TopiaryPredictor(object):
             self._strip_internal_columns(self._apply_filter(df))
         )
 
+    def predict_from_peptide_occurrences(self, occurrences, *, use_flanks=True):
+        """Predict exact occurrences with their source context, without scanning.
+
+        Parameters
+        ----------
+        occurrences : pandas.DataFrame or iterable of mappings
+            Explicit unique ``prediction_id`` and peptide, with optional source
+            coordinates, flanks and non-prediction annotations. See
+            :func:`predict_peptide_occurrences` for validation and scope rules.
+        use_flanks : bool
+            Use supplied flanks. False explicitly requests peptide-only scores,
+            while preserving original occurrence context in the output.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Configured-model predictions with all occurrence identities. Empty
+            input calls no predictor. Explicit filter/sort settings operate at
+            occurrence scope. As for named peptides, ``only_novel_epitopes``
+            does not reinterpret the caller's already-selected peptide universe.
+            ``predict_wt`` scores only supplied comparators with their supplied
+            context; ``cache_miss_handler`` explicitly enables partial results.
+        """
+        from .peptide_occurrences import predict_peptide_occurrences
+        occurrences = pd.DataFrame(occurrences)
+        frames = []
+        for model, model_key in zip(self.models, self._model_keys):
+            handler = None if self.cache_miss_handler is None else (
+                lambda report, key=model_key: self.cache_miss_handler(dict(report, model_key=key)))
+            frames.append(self._attach_model_key(predict_peptide_occurrences(
+                occurrences, model, use_flanks=use_flanks, predict_wt=self.predict_wt,
+                on_miss=handler), model_key))
+        df = _concat_frames(frames) if frames else pd.DataFrame()
+        keys = ["prediction_id", "peptide", "peptide_offset", "allele"]
+        return self._attach_result_attrs(self._strip_internal_columns(
+            self._apply_filter(df, group_keys=keys)).reset_index(drop=True))
+
     def _predict_raw(self, name_to_sequence_dict):
         """Run models and format output, without applying filter/ranking."""
         for model in self.models:
@@ -1059,7 +1096,13 @@ class TopiaryPredictor(object):
             context=self._cache_miss_context(model, model_key, stage))
         # All inputs may have been reported as missing. Preserve an empty
         # table schema just as the protein path does, including for CSV output.
-        return self._format_prediction_df(result) if result.empty else result
+        if result.empty:
+            empty = from_predictions([])
+            for column in result:
+                if column not in empty:
+                    empty[column] = result[column]
+            return empty
+        return result
 
     def _cache_miss_context(self, model, model_key, stage):
         """Provenance for one configured model's prediction pass."""
@@ -1206,7 +1249,7 @@ class TopiaryPredictor(object):
         """Normalize mhctools prediction output to Topiary's schema."""
         return _normalize_prediction_frame(df)
 
-    def _apply_filter(self, df):
+    def _apply_filter(self, df, *, group_keys=None):
         """Apply filter and sort if configured."""
         if df.empty:
             return df
@@ -1226,12 +1269,12 @@ class TopiaryPredictor(object):
         if self.filter_by is not None:
             df = apply_filter(
                 df, self.filter_by, kind_support=kind_support,
-                default_methods=default_methods,
+                default_methods=default_methods, group_keys=group_keys,
             )
         if self.sort_by:
             df = apply_sort(
                 df, self.sort_by, sort_direction=self.sort_direction,
-                kind_support=kind_support, default_methods=default_methods,
+                kind_support=kind_support, default_methods=default_methods, group_keys=group_keys,
             )
         return df
 

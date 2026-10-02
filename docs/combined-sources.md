@@ -534,6 +534,68 @@ after reloading. The composed workflow test covers original and additive scoring
 retained hypothesis selection, and count union without running a predictor during
 assembly.
 
+## Predict exact peptide occurrences
+
+Topiary 5.91.0 adds `predict_peptide_occurrences` and
+`TopiaryPredictor.predict_from_peptide_occurrences` for a selected peptide
+universe. Supply one record per unique `prediction_id`, using the same occurrence
+identity Vaxrank and the policy evaluator consume. Different occurrences of one
+peptide remain separate even when they share a gene, coordinate or HLA candidate.
+
+```python
+import pandas as pd
+from topiary import (
+    TopiaryPredictor, TopiaryResult, SelectionPolicy, evaluate_selection_policy,
+)
+
+# model is an explicitly configured mhctools predictor with patient alleles.
+occurrences = pd.DataFrame([
+    dict(prediction_id="gene-a:12", peptide="SIINFEKL", peptide_offset=12,
+         n_flank="AAA", c_flank="GGG", gene="gene-a"),
+    dict(prediction_id="gene-b:20", peptide="SIINFEKL", peptide_offset=20,
+         n_flank="TTT", c_flank="CCC", gene="gene-b"),
+])
+predictor = TopiaryPredictor(models=model)
+predictions = predictor.predict_from_peptide_occurrences(occurrences)
+evaluation = evaluate_selection_policy(
+    TopiaryResult(predictions), SelectionPolicy("binding", "1 / affinity.value"),
+    group_keys=["prediction_id", "peptide", "peptide_offset", "allele"],
+    kind_support=predictor.kind_support,
+)
+evaluation.evidence.to_tsv("occurrence-evidence.tsv")
+```
+
+The model scores only the supplied peptides against its configured alleles.
+Within a shared sample/flank/genotype context, distinct peptides are batched and
+identical inference inputs are scored once, then linked to each original
+occurrence. Source annotations and read support are copied, never summed.
+`prediction_mhc_dependence` records each kind's scope; haplotype predictions carry
+the configured `allele_set`. An explicitly supplied haplotype set must match the
+configured model. Missing kind/allele coverage and ambiguous outputs raise.
+
+Flank-dependent models require both `n_flank` and `c_flank`. An empty string is a
+known terminus; a missing value is unknown. `use_flanks=False` explicitly requests
+peptide-only inference while preserving the original context. The output's
+`prediction_flanks_supplied` records whether flanks were supplied in the model call; it does not imply that every returned prediction kind depends on them.
+Missing source offsets remain missing. Model peptide-length/domain checks still
+apply; no padding, comparator sequence, or additional peptide window is inferred.
+
+With `TopiaryPredictor(predict_wt=True)` (or `predict_wt=True` on the standalone
+function), supplied `wt_peptide` values are scored using their own
+`wt_n_flank` / `wt_c_flank`. Flank-dependent comparator prediction requires those
+flanks or explicit `use_flanks=False`; primary-peptide context is not borrowed.
+Absent comparators keep missing scores. Explicit filter/sort settings operate on
+occurrences; `only_novel_epitopes` does not reinterpret this already selected
+peptide universe. Cache failures are strict by default; an explicit
+`cache_miss_handler` / `on_miss` retains the existing reported-partial-batch
+contract, with occurrence IDs in the failure records.
+
+Prediction inputs contain context and annotations, not historical measurement
+columns. Keep imported measurements in their original table and use the additive
+operation below. Context-aware live prediction requires mhctools' flank-aware
+API; sparse historical tables with unknown model versions remain the separate
+prediction-source work in [#368](https://github.com/openvax/topiary/issues/368).
+
 ## Add prediction features on demand
 
 ```python
@@ -564,6 +626,9 @@ models, versions, measurement semantics, UTC creation time, selection and discov
 Discovery source and prediction producer are separate facts.
 
 Configured mhctools models supply `predict_dataframe` and `kind_support()`.
+This path reuses `predict_peptide_occurrences` to batch compatible requests and
+preserve source identity; it appends primary-peptide features and leaves all
+historical comparator measurements intact.
 Supplied flanks are forwarded by default; flank-dependent models require both
 flanks or explicit `use_flanks=False`. Haplotype models require a matching
 stated `allele_set`. Existing candidate identities are preserved; ORF-only rows
