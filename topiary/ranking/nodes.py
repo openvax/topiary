@@ -46,6 +46,7 @@ from typing import Optional
 import numpy as np
 from packaging.version import InvalidVersion, Version
 import pandas as pd
+import mhcgnomes
 from mhctools import MHC_DEPENDENCE_VALUES, Kind
 
 
@@ -242,6 +243,46 @@ def format_allele_set(alleles):
     """
     names = sorted({str(a).strip() for a in alleles if str(a).strip()})
     return _ALLELE_SET_SEPARATOR.join(names)
+
+
+def prediction_mhc_scope(allele, *, dependence, allele_set=None):
+    """Return a canonical MHC identity for matching prediction measurements.
+
+    Parameters
+    ----------
+    allele : str or None
+        The measured allele for per-allele predictions. A haplotype's reported
+        presenter is deliberately not its measurement identity.
+    dependence : str
+        ``single_allele``, ``haplotype`` or ``none``, as resolved by
+        :func:`mhc_dependence` or declared by the configured model.
+    allele_set : str or sequence of str, optional
+        Full genotype for haplotype measurements, as comma-separated names or
+        a sequence. Alleles are parsed with mhcgnomes and sorted/deduplicated.
+
+    Returns
+    -------
+    tuple or None
+        Dependence plus canonical allele(s), or ``('none',)`` for allele-free
+        measurements. Missing required allele/genotype returns None: it is
+        unmatchable, not an allele-free scope. Exclude missing comparator keys
+        before joining; pandas otherwise matches null keys to one another.
+        The tuple identifies only MHC scope; callers must also match occurrence,
+        kind and model identity. Different haplotype presenters can share a
+        scope; different genotypes cannot.
+    """
+    if dependence == "none":
+        return ("none",)
+    if dependence == "single_allele":
+        return (dependence, mhcgnomes.parse(str(allele)).to_string()) if is_stated(allele) else None
+    if dependence != "haplotype":
+        raise ValueError(f"Unknown MHC dependence: {dependence!r}")
+    if isinstance(allele_set, (list, tuple, set, frozenset)):
+        names = allele_set
+    else:
+        names = split_allele_set(allele_set) if is_stated(allele_set) else []
+    names = sorted({mhcgnomes.parse(str(name)).to_string() for name in names})
+    return (dependence, *names) if names else None
 
 
 def _peptide_keys(group_keys):

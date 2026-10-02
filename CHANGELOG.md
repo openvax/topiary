@@ -17,6 +17,9 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   peptides while retaining original measurements and selection behavior.
 - Preserve the canonical prediction schema for empty named-peptide output,
   including explicitly reported all-missing cache batches (#450).
+- Match fragment and explicit-occurrence WT scores by declared MHC scope, so
+  a different haplotype presenter does not erase the comparator score. Export
+  `prediction_mhc_scope` for consumers sharing that identity rule (#453).
 
 ## 5.90.0
 

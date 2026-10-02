@@ -103,6 +103,12 @@ It is exported from `topiary` and is also used by `rescore_candidates`.
 See [exact occurrence prediction](combined-sources.md#predict-exact-peptide-occurrences)
 for input identity, unknown flanks, comparator and coverage rules.
 
+`prediction_mhc_scope(allele, dependence=..., allele_set=...)` returns a canonical
+MHC identity tuple: one allele, the full genotype, or an allele-free scope.
+Missing required identity returns `None`, which must remain unmatchable.
+Comparator joins use this public rule in both fragment and occurrence prediction;
+a haplotype's selected presenter is not its genotype identity.
+
 ## TopiaryResult
 
 `TopiaryResult` is the semantic result object for Topiary prediction tables.

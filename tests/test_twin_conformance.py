@@ -168,6 +168,15 @@ NAMED_OCCURRENCE_TWINS = (
                       for name, peptide in names.items()]), model, use_flanks=False),
 )
 
+# Both comparator paths must match measurements by their declared MHC scope,
+# including haplotypes whose MT/WT deconvolved presenter differs (#453).
+WILDTYPE_SCOPE_TWINS = (
+    lambda fragment, model: TopiaryPredictor(models=model, predict_wt=True, only_novel_epitopes=False).predict_from_fragments([fragment]),
+    lambda fragment, model: TopiaryPredictor(models=model, predict_wt=True).predict_from_peptide_occurrences([
+        dict(prediction_id=fragment.fragment_id, peptide=fragment.sequence, peptide_offset=0,
+             n_flank="", c_flank="", wt_peptide=fragment.effective_baseline, wt_n_flank="", wt_c_flank="")]),
+)
+
 # The CLI serializes the same exhaustive SV evidence policy as the public API.
 # Driven together in test_consumer_workflows, including absent protein rows.
 SV_INTEREST_REPORT_TWINS = (build_sv_interest_report, sv_interest_main)

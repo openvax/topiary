@@ -6,7 +6,7 @@ import mhcgnomes
 
 from .predictor import from_predictions
 from .prediction_batch import predict_with_cache_miss_report
-from .ranking import format_allele_set, split_allele_set
+from .ranking import format_allele_set, split_allele_set, prediction_mhc_scope
 from .wide import PREDICTION_COLUMNS, _concat_frames
 
 
@@ -223,8 +223,8 @@ def _attach_comparators(output, occurrences, model, use_flanks):
     # A haplotype's deconvolved presenter may change for the comparator. Its
     # score still describes the same configured genotype, not that one allele.
     def key(row):
-        return (row.prediction_id, row.kind,
-                row.allele if row.prediction_mhc_dependence == "single_allele" else "")
+        return (row.prediction_id, row.kind, prediction_mhc_scope(
+            row.allele, dependence=row.prediction_mhc_dependence, allele_set=row.allele_set))
     by_scope = {key(row): row for row in scores.itertuples(index=False)}
     matches = [by_scope.get(key(row)) for row in output.itertuples(index=False)]
     for field in fields:

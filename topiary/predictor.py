@@ -32,6 +32,8 @@ from .ranking import (
     apply_sort,
     as_dsl_node,
     as_dsl_nodes,
+    mhc_dependence,
+    prediction_mhc_scope,
 )
 from .io import _model_version_str
 from .wide import _concat_frames
@@ -1376,7 +1378,8 @@ class TopiaryPredictor(object):
         ``wt_peptide`` itself is derived while building fragment rows.
         This helper performs the optional second prediction pass and
         joins each WT prediction back to the matching mutant row by
-        allele, peptide length, prediction kind, and predictor identity.
+        declared MHC scope, peptide length, prediction kind and predictor
+        identity. A haplotype's deconvolved presenter is not its scope.
         """
         if not self.predict_wt or df.empty or "wt_peptide" not in df.columns:
             return df
@@ -1411,7 +1414,6 @@ class TopiaryPredictor(object):
 
         valid = (
             df["wt_peptide"].notna()
-            & df["allele"].notna()
             & df["wt_peptide_length"].notna()
             & df["fragment_id"].notna()
             & df[_WT_OFFSET_COLUMN].notna()
@@ -1479,9 +1481,22 @@ class TopiaryPredictor(object):
         )
         wt_join["wt_predictor_version"] = wt_join.get("predictor_version")
 
+        scope_column = "_topiary_wt_mhc_scope"
+        support = self.kind_support
+
+        def scope(row):
+            declared = support.get(row.get(_MODEL_KEY_COLUMN), {}).get(row["kind"], {})
+            dependence = declared.get("mhc_dependence") or mhc_dependence(row["kind"], rows=row.to_frame().T)
+            return prediction_mhc_scope(row.get("allele"), dependence=dependence, allele_set=row.get("allele_set"))
+
+        df = df.copy()
+        df[scope_column] = df.apply(scope, axis=1)
+        wt_join[scope_column] = wt_join.apply(scope, axis=1) if not wt_join.empty else pd.Series(dtype=object)
+        wt_join = wt_join[wt_join[scope_column].notna()]
+
         join_cols = [
             _MODEL_KEY_COLUMN, "fragment_id", _WT_OFFSET_COLUMN,
-            "wt_peptide", "allele", "wt_peptide_length", "kind",
+            "wt_peptide", scope_column, "wt_peptide_length", "kind",
             "prediction_method_name", "predictor_version",
         ]
         join_cols = [
@@ -1520,7 +1535,7 @@ class TopiaryPredictor(object):
             how="left",
             validate="many_to_one",
         )
-        return _ensure_wt_columns(out)
+        return _ensure_wt_columns(out.drop(columns=[scope_column]))
 
     def _filter_wt_rows_to_baseline_context(self, wt_join, baseline_by_fragment_id):
         """Keep cached/context rows compatible with the WT baseline flank."""

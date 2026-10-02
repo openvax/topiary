@@ -7,12 +7,12 @@ import pytest
 from mhctools import RandomBindingPredictor
 
 from topiary import (
-    CachedPredictor, PartialPredictionWarning, SelectionPolicy, TopiaryPredictor,
+    CachedPredictor, PartialPredictionWarning, ProteinFragment, SelectionPolicy, TopiaryPredictor,
     TopiaryResult, combine_sources, evaluate_selection_policy, predict_peptide_occurrences,
-    rescore_candidates, read_tsv,
+    rescore_candidates, read_tsv, prediction_mhc_scope,
 )
 from .test_candidate_tables import Model, MultiKindModel, source
-from .test_twin_conformance import PEPTIDE_OCCURRENCE_TWINS, NAMED_OCCURRENCE_TWINS
+from .test_twin_conformance import PEPTIDE_OCCURRENCE_TWINS, NAMED_OCCURRENCE_TWINS, WILDTYPE_SCOPE_TWINS
 
 
 def occurrences():
@@ -214,3 +214,59 @@ def test_shared_sequences_in_distinct_samples_remain_distinct_inference_contexts
     assert len(model.calls) == 3
     assert sum(len(peptides) for peptides, _ in model.calls) == 4
     pd.testing.assert_frame_equal(output[inputs.columns], inputs)
+
+
+@pytest.mark.parametrize("dependence", ["single_allele", "haplotype", "none"])
+def test_fragment_and_exact_comparators_match_the_same_mhc_scope(dependence):
+    class ScopeModel:
+        alleles = ["HLA-A*02:01", "HLA-B*07:02"]
+        default_peptide_lengths = [8]
+        uses_flanking_sequences = True
+
+        def kind_support(self):
+            return {"pMHC_presentation" if dependence != "none" else "antigen_processing": {
+                "mhc_dependence": dependence}}
+
+        def predict_dataframe(self, peptides, **kwargs):
+            kind = next(iter(self.kind_support()))
+            records = []
+            for peptide in peptides:
+                mutant = peptide.startswith("S")
+                alleles = self.alleles if dependence == "single_allele" else (
+                    [self.alleles[0 if mutant else 1]] if dependence == "haplotype" else [None])
+                for allele in alleles:
+                    records.append(dict(peptide=peptide, allele=allele, kind=kind,
+                                        score=.2 if mutant else .8, value=.2 if mutant else .8,
+                                        percentile_rank=None, n_flank="", c_flank="",
+                                        prediction_method_name="scope_fixture", predictor_version="1"))
+            return pd.DataFrame(records)
+
+        def predict_proteins_dataframe(self, inputs):
+            assert all(len(sequence) == 8 for sequence in inputs.values())
+            return pd.concat([self.predict_dataframe([sequence]).assign(source_sequence_name=name, peptide_offset=0)
+                              for name, sequence in inputs.items()], ignore_index=True)
+
+    fragment = ProteinFragment(fragment_id="one", sequence="SIINFEKL", reference_sequence="GIINFEKL")
+    frames = [predict(fragment, ScopeModel()) for predict in WILDTYPE_SCOPE_TWINS]
+    for output in frames:
+        assert output.wt_value.eq(.8).all()
+        assert output.value.eq(.2).all()
+        if dependence == "haplotype":
+            assert output.allele.tolist() == ["HLA-A*02:01"]
+            assert output.allele_set.tolist() == ["HLA-A*02:01,HLA-B*07:02"]
+    columns = ["peptide", "kind", "value", "wt_value", "wt_score", "wt_prediction_method_name", "wt_predictor_version"]
+    pd.testing.assert_frame_equal(frames[0][columns], frames[1][columns])
+
+
+def test_public_mhc_scope_normalizes_identity_and_does_not_match_unknowns():
+    assert prediction_mhc_scope("A0201", dependence="single_allele") == prediction_mhc_scope("HLA-A*02:01", dependence="single_allele")
+    assert prediction_mhc_scope("H2-Kb", dependence="single_allele") == prediction_mhc_scope("H-2-Kb", dependence="single_allele")
+    first = prediction_mhc_scope("A0201", dependence="haplotype", allele_set="A0201,B0702")
+    same = prediction_mhc_scope("B0702", dependence="haplotype", allele_set=["B0702", "A0201"])
+    assert first == same
+    assert first != prediction_mhc_scope("A0201", dependence="haplotype", allele_set=["A0201"])
+    assert prediction_mhc_scope(None, dependence="single_allele") is None
+    assert prediction_mhc_scope("A0201", dependence="haplotype") is None
+    assert prediction_mhc_scope(None, dependence="none") == ("none",)
+    with pytest.raises(ValueError, match="Unknown MHC dependence"):
+        prediction_mhc_scope("A0201", dependence="unknown")
