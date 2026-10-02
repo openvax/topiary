@@ -394,15 +394,17 @@ class MultiKindModel(Model):
 
     def predict_dataframe(self, peptides, **kwargs):
         base = super().predict_dataframe(peptides, **kwargs)
-        frames = []
+        records = []
         for kind in self.emitted:
             frame = base.copy()
             frame["kind"] = kind
             if kind == "antigen_processing":
                 frame["allele"] = None
                 frame["value_unit"] = None
-            frames.append(frame)
-        return pd.concat(frames, ignore_index=True)
+            records.extend(frame.to_dict("records"))
+        # Infer one dtype across both allele-bearing and allele-free rows,
+        # including pandas' inferred-string mode (#454).
+        return pd.DataFrame(records)
 
 
 @pytest.mark.parametrize("alleles", [["HLA-B*07:02"] * 2, ["HLA-A*02:01", "HLA-B*07:02"]])

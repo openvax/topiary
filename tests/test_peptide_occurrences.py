@@ -95,7 +95,7 @@ def test_unknown_and_empty_flanks_are_distinct_and_positions_not_invented(tmp_pa
         predict_peptide_occurrences(inputs, Model())
 
 
-def test_model_scope_and_coverage_are_explicit():
+def test_model_scope_and_coverage_are_explicit(pandas_string_inference):
     inputs = occurrences()
     kinds = ("pMHC_affinity", "antigen_processing")
     output = predict_peptide_occurrences(inputs, MultiKindModel(declared=kinds, emitted=kinds))
