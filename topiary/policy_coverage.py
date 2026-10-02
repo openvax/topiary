@@ -113,7 +113,10 @@ def _prediction_record(evaluation, row, request):
         if partition["source_label"] is None or partition["source_label"] == (row or request).get("source_label"):
             support = partition["context"]["kind_support"]
             break
-    dependence = mhc_dependence(request["kind"], kind_support=support, rows=selected)
+    # A request that returned no rows still names its model. Give the public
+    # resolver that declaration so unrelated models cannot decide its scope.
+    scope_rows = selected if len(selected) else pd.DataFrame([request])
+    dependence = mhc_dependence(request["kind"], kind_support=support, rows=scope_rows)
     scope = prediction_mhc_scope(request.get("allele"), dependence=dependence,
                                  allele_set=request.get("allele_set"))
     if scope is None:

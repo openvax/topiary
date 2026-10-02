@@ -281,3 +281,17 @@ def test_haplotype_request_scope_is_retained_and_canonical_duplicates_rejected()
     with pytest.raises(ValueError, match="Duplicate prediction"):
         policy_coverage(evaluated, prediction_requests=pd.concat([
             requested, requested.assign(allele_set="HLA-A*02:01,HLA-B*07:02")]))
+
+
+def test_missing_model_request_uses_its_own_scope_declaration():
+    frame = source(prediction_id=["zero", "missing"])
+    support = {"requested": {"pMHC_presentation": {"mhc_dependence": "none"}},
+               "unrelated": {"pMHC_presentation": {"mhc_dependence": "single_allele"}}}
+    evaluated = evaluate_selection_policy(frame, SelectionPolicy("constant", "1"), group_keys=KEYS,
+                                           kind_support=support)
+    requested = requests(evaluated)
+    requested["kind"], requested["prediction_method_name"] = "pMHC_presentation", "requested"
+    coverage = policy_coverage(evaluated, prediction_requests=requested).df.query("level == 'prediction'")
+    assert coverage.status.eq("missing").all()
+    assert coverage.mhc_dependence.eq("none").all()
+    assert coverage.evidence_rows.tolist() == [[], []]
