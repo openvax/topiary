@@ -51,6 +51,7 @@ from topiary import (
     SelectionPolicy, resolve_selection_policy, evaluate_selection_policy,
     EvalContext, evaluate_filter,
     predict_peptide_occurrences,
+    match_self_peptides, self_matches_in_windows,
     Affinity, Column, apply_filter, apply_sort,
 )
 from topiary.io_isovar import _check_isovar
@@ -59,6 +60,18 @@ import topiary.optional_dependencies as optional_dependencies
 from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_REPORTS, ROOT as PVACSEQ_ROOT
 from topiary import build_sv_interest_report
 from topiary.cli.sv_interest import main as sv_interest_main
+
+
+SELF_MATCH_TWINS = (
+    match_self_peptides,
+    lambda reference, peptides, **options: reference.match_candidates(peptides, **options),
+)
+SELF_WINDOW_TWINS = (
+    lambda reference, peptides, **options: match_self_peptides(reference, peptides, **options),
+    lambda reference, peptides, **options: self_matches_in_windows(
+        {str(index): peptide for index, peptide in enumerate(peptides)}, reference,
+        peptide_lengths=[len(peptides[0])], **options),
+)
 
 
 @dataclass(frozen=True)

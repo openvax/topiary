@@ -141,6 +141,7 @@ from .protein_fragment import (
     unique_fragments,
 )
 from .self_proteome import SelfProteome
+from .self_evidence import match_self_peptides, self_matches_in_windows
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
 from .io_protein_fragment import read_fragments, write_fragments, iter_fragments
 from .io_lens import detect_lens_version, read_lens
@@ -204,7 +205,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.91.0"
+__version__ = "5.92.0"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -266,6 +267,8 @@ __all__ = [
     "PredictorSetupError",
     "mhcflurry_composite_version",
     "SelfProteome",
+    "match_self_peptides",
+    "self_matches_in_windows",
     "Affinity",
     "BinOp",
     "BoolOp",

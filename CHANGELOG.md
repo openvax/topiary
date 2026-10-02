@@ -7,6 +7,19 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.92.0
+
+- Add all-candidate self matching within an explicit same-length Hamming radius
+  and exact matching across complete vaccine windows. Retain every origin,
+  including shared CTA/non-CTA sequences, with caller-resolved exclusions (#455).
+- Preserve supplied presentation observations, allele attribution, conflicting
+  predictions and same-allele coverage separately from search completeness.
+  Typed CSV/TSV retains evidence and search identity; missing evidence remains
+  unknown. Neither presentation nor similarity establishes TCR recognition.
+- Test against Vaxrank 3.36.0's published `builtin:openvax-v1` bundle. A synthetic
+  consumer workflow changes the selected window using self evidence while
+  retaining both intended epitopes and alleles; Topiary adds no selection rule.
+
 ## 5.91.0
 
 - Score explicitly identified peptide occurrences with their original flanks,
