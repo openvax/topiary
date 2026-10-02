@@ -91,7 +91,7 @@ return fresh read-only int8 arrays, so callers never share mutable matrix state.
 |--------|-------|----------|
 | `predict_from_named_sequences(dict)` | `{name: sequence}` | Sliding-window scan |
 | `predict_from_named_peptides(dict)` | `{name: peptide}` | Score as-is |
-| `predict_from_peptide_occurrences(table)` | Unique `prediction_id`, peptide, optional flanks/coordinates/annotations | Score exact occurrences with their context; no scanning. |
+| `predict_from_peptide_occurrences(table)` | `prediction_id`, peptide, optional flanks/coordinates/annotations; unique by ID, peptide, offset and sample | Score exact occurrences with their context; no scanning. |
 | `predict_from_sequences(list)` | `[sequence, ...]` | Sliding-window scan |
 | `predict_from_fragments(fragments)` | `[ProteinFragment]` | Universal path — any origin; fragment-level metadata and `target_intervals` threaded through. |
 | `predict_from_variants(variants)` | VariantCollection | Variant pipeline (builds `ProteinFragment`s internally and delegates). |

@@ -59,7 +59,7 @@ def test_real_mhctools_named_and_occurrence_doors_agree(peptides):
 
 
 @pytest.mark.parametrize("change,match", [
-    ({"prediction_id": "same"}, "unique"),
+    ({"prediction_id": "same", "peptide": "SIINFEKL", "peptide_offset": 0}, "unique"),
     ({"prediction_id": None}, "prediction_id"),
     ({"peptide": ""}, "peptide"),
     ({"peptide_offset": -1}, "peptide_offset"),
@@ -214,6 +214,44 @@ def test_shared_sequences_in_distinct_samples_remain_distinct_inference_contexts
     assert len(model.calls) == 3
     assert sum(len(peptides) for peptides, _ in model.calls) == 4
     pd.testing.assert_frame_equal(output[inputs.columns], inputs)
+
+
+@pytest.mark.parametrize("predict", PEPTIDE_OCCURRENCE_TWINS)
+def test_repeated_source_ids_keep_window_sample_order_and_comparator_identity(predict):
+    inputs = occurrences().assign(prediction_id="same-source", sample_name="patient-one")
+    inputs = pd.concat([inputs, inputs.iloc[:1].assign(sample_name="patient-two", n_flank="TT")], ignore_index=True)
+    inputs["wt_peptide"] = "GILGFVFTL"
+    inputs["wt_n_flank"] = ["T" * length for length in range(1, 6)]
+    inputs["wt_c_flank"] = ""
+    # Both public doors retain the compound source/window/sample identity.
+    output = predict(inputs, Model(), predict_wt=True)
+    pd.testing.assert_frame_equal(output[inputs.columns], inputs)
+    assert output.value.tolist() == [803., 803., 801., 13., 802.]
+    assert output.wt_value.tolist() == [11., 12., 13., 14., 15.]
+    filtered = TopiaryPredictor(models=Model(), filter_by="affinity.value < 803").predict_from_peptide_occurrences(inputs)
+    assert filtered.gene.tolist() == ["G3", "G4", "G1"]
+    assert filtered.sample_name.tolist() == ["patient-one", "patient-one", "patient-two"]
+
+
+@pytest.mark.parametrize("predict", PEPTIDE_OCCURRENCE_TWINS)
+def test_repeated_source_id_with_unknown_coordinates_uses_peptide_identity(predict):
+    inputs = occurrences().iloc[[0, 3]].drop(columns="peptide_offset").assign(prediction_id="source")
+    output = predict(inputs, Model())
+    pd.testing.assert_frame_equal(output[inputs.columns], inputs.reset_index(drop=True))
+    assert output.peptide_offset.isna().all()
+    assert output.value.tolist() == [803., 13.]
+
+
+def test_partial_cache_reports_each_window_even_when_source_id_repeats():
+    cache = CachedPredictor(source().df.iloc[:1].assign(n_flank="", c_flank="", peptide_length=8))
+    inputs = occurrences().assign(prediction_id="source")
+    reports = []
+    with pytest.warns(PartialPredictionWarning, match="skipped 1"):
+        output = predict_peptide_occurrences(inputs, cache, use_flanks=False, on_miss=reports.append)
+    assert output.peptide_offset.tolist() == [3, 30, 1]
+    assert reports[0]["source_sequence_name"] == reports[0]["prediction_id"] == "source"
+    assert reports[0]["peptide"] == "GILGFVFTL"
+    assert reports[0]["peptide_offset"] == 3
 
 
 @pytest.mark.parametrize("dependence", ["single_allele", "haplotype", "none"])

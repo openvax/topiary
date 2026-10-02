@@ -16,7 +16,10 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
     Parameters
     ----------
     occurrences : pandas.DataFrame or iterable of mappings
-        One row per unique, nonempty string ``prediction_id`` and ``peptide``.
+        Nonempty string ``prediction_id`` and ``peptide`` identify each row
+        together with ``peptide_offset`` and any supplied ``sample_name`` /
+        ``candidate_sample``. This compound identity must be unique; an ID may
+        name several peptide windows in one source.
         Optional ``peptide_offset`` is a nonnegative source coordinate; absent
         coordinates remain unknown. ``n_flank`` and ``c_flank`` are strings or
         missing: an empty string states a known terminus. Other non-prediction
@@ -42,7 +45,8 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
     on_miss : callable, optional
         Explicitly report and skip cache coverage failures, using
         :func:`predict_with_cache_miss_report`. The report's source name is the
-        occurrence ID. Other errors still raise; partial results emit a warning.
+        occurrence ID, with peptide, offset and supplied sample keys identifying
+        the window. Other errors still raise; partial results emit a warning.
 
     Returns
     -------
@@ -67,8 +71,6 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
     for column in ("prediction_id", "peptide"):
         if column not in frame or not frame[column].map(lambda value: isinstance(value, str) and bool(value.strip())).all():
             raise ValueError(f"Occurrences require nonempty string {column}")
-    if frame.prediction_id.duplicated().any():
-        raise ValueError("prediction_id must be unique; retain distinct source observations under distinct IDs")
     reserved = (PREDICTION_COLUMNS | {"allele", "value_unit", "measurement_context", "predictor_name",
                                     "offset", "prediction_mhc_dependence", "prediction_flanks_supplied",
                                     "candidate_id", "candidate_allele", "candidate_mhc_class"}) & set(frame)
@@ -97,6 +99,10 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
                        and isinstance(value, (int, float, np.integer, np.floating))
                        and np.isfinite(value) and value >= 0 and value == int(value)).all():
         raise ValueError("peptide_offset must be a nonnegative integer or missing")
+    identity_columns = ["prediction_id", "peptide", "peptide_offset"] + [
+        column for column in ("sample_name", "candidate_sample") if column in frame]
+    if frame.duplicated(identity_columns).any():
+        raise ValueError("Occurrence identity must be unique by prediction_id, peptide, peptide_offset and sample")
     if "peptide_length" in frame and not frame.peptide_length.eq(frame.peptide.str.len()).all():
         raise ValueError("peptide_length disagrees with peptide")
     flank_model = bool(getattr(model, "uses_flanking_sequences", False))
@@ -118,11 +124,16 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
         if any(genotype and genotype != format_allele_set(alleles) for genotype in genotypes):
             raise ValueError("Haplotype occurrence allele_set must match the configured model")
     if on_miss is not None:
+        def report_miss(report):
+            row = frame.iloc[int(report["source_sequence_name"])]
+            identity = {column: None if pd.isna(row[column]) else row[column] for column in identity_columns}
+            on_miss(dict(report, **identity, source_sequence_name=row.prediction_id))
+
         reported = predict_with_cache_miss_report(
             lambda inputs: predict_peptide_occurrences(
-                frame.loc[frame.prediction_id.isin(inputs)], model,
+                frame.iloc[[int(index) for index in inputs]], model,
                 use_flanks=use_flanks, predict_wt=predict_wt),
-            dict(zip(frame.prediction_id, frame.peptide)), on_miss=on_miss,
+            {str(index): peptide for index, peptide in frame.peptide.items()}, on_miss=report_miss,
             context=dict(stage="occurrence", prediction_method_name=str(
                 getattr(model, "prediction_method_name", getattr(model, "predictor_name", type(model).__name__))),
                 predictor_version=str(getattr(model, "predictor_version", "")),
@@ -193,18 +204,20 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
         context = inputs.drop(columns=["allele_set"], errors="ignore")
         expanded.append(context.merge(payload, on="peptide", how="left", validate="many_to_many"))
     output = _concat_frames(expanded)
-    order = {name: i for i, name in enumerate(frame.prediction_id)}
-    output = output.iloc[np.argsort(output.prediction_id.map(order), kind="stable")].reset_index(drop=True)
+    positions = pd.MultiIndex.from_frame(frame[identity_columns]).get_indexer(
+        pd.MultiIndex.from_frame(output[identity_columns]))
+    order = np.argsort(positions, kind="stable")
+    output = output.iloc[order].reset_index(drop=True)
     if "source_sequence_name" not in output:
         output["source_sequence_name"] = output.prediction_id
     if "sample_name" not in output:
         output["sample_name"] = ""
     if predict_wt:
-        output = _attach_comparators(output, frame, model, use_flanks)
+        output = _attach_comparators(output, frame, positions[order], model, use_flanks)
     return output
 
 
-def _attach_comparators(output, occurrences, model, use_flanks):
+def _attach_comparators(output, occurrences, positions, model, use_flanks):
     """Plumbing for the explicit comparator pass of predict_peptide_occurrences."""
     present = occurrences.get("wt_peptide", pd.Series(None, index=occurrences.index, dtype=object)).map(
         lambda value: isinstance(value, str) and bool(value))
@@ -214,6 +227,9 @@ def _attach_comparators(output, occurrences, model, use_flanks):
             output["wt_" + field] = np.nan
         return output
     comparators = occurrences.loc[present].copy()
+    # Comparator sequence/offset need not match the primary occurrence. Use
+    # its original row position for this private pass, retaining public IDs.
+    comparators["prediction_id"] = comparators.index.astype(str)
     comparators["peptide"] = comparators.wt_peptide
     comparators = comparators.drop(columns=["peptide_length"], errors="ignore")
     for column in ("n_flank", "c_flank", "peptide_offset"):
@@ -222,11 +238,12 @@ def _attach_comparators(output, occurrences, model, use_flanks):
     scores = predict_peptide_occurrences(comparators, model, use_flanks=use_flanks)
     # A haplotype's deconvolved presenter may change for the comparator. Its
     # score still describes the same configured genotype, not that one allele.
-    def key(row):
-        return (row.prediction_id, row.kind, prediction_mhc_scope(
+    def key(identity, row):
+        return (identity, row.kind, prediction_mhc_scope(
             row.allele, dependence=row.prediction_mhc_dependence, allele_set=row.allele_set))
-    by_scope = {key(row): row for row in scores.itertuples(index=False)}
-    matches = [by_scope.get(key(row)) for row in output.itertuples(index=False)]
+    by_scope = {key(row.prediction_id, row): row for row in scores.itertuples(index=False)}
+    matches = [by_scope.get(key(str(position), row))
+               for position, row in zip(positions, output.itertuples(index=False))]
     for field in fields:
         output["wt_" + field] = [getattr(row, field, np.nan) for row in matches]
     return output

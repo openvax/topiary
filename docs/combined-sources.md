@@ -538,7 +538,9 @@ assembly.
 
 Topiary 5.91.0 adds `predict_peptide_occurrences` and
 `TopiaryPredictor.predict_from_peptide_occurrences` for a selected peptide
-universe. Supply one record per unique `prediction_id`, using the same occurrence
+universe. Supply one record per `(prediction_id, peptide, peptide_offset)` within
+each sample (when `sample_name` or `candidate_sample` is supplied). An ID may name
+several peptide windows in the same source. Use the same occurrence
 identity Vaxrank and the policy evaluator consume. Different occurrences of one
 peptide remain separate even when they share a gene, coordinate or HLA candidate.
 

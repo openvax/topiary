@@ -1013,8 +1013,9 @@ class TopiaryPredictor(object):
         Parameters
         ----------
         occurrences : pandas.DataFrame or iterable of mappings
-            Explicit unique ``prediction_id`` and peptide, with optional source
-            coordinates, flanks and non-prediction annotations. See
+            Explicit ``prediction_id``, peptide and optional source coordinates,
+            flanks and non-prediction annotations. Identity is unique by ID,
+            peptide, offset and supplied sample keys. See
             :func:`predict_peptide_occurrences` for validation and scope rules.
         use_flanks : bool
             Use supplied flanks. False explicitly requests peptide-only scores,
@@ -1040,7 +1041,8 @@ class TopiaryPredictor(object):
                 occurrences, model, use_flanks=use_flanks, predict_wt=self.predict_wt,
                 on_miss=handler), model_key))
         df = _concat_frames(frames) if frames else pd.DataFrame()
-        keys = ["prediction_id", "peptide", "peptide_offset", "allele"]
+        keys = ["prediction_id", "peptide", "peptide_offset", "allele"] + [
+            column for column in ("sample_name", "candidate_sample") if column in occurrences]
         return self._attach_result_attrs(self._strip_internal_columns(
             self._apply_filter(df, group_keys=keys)).reset_index(drop=True))
 

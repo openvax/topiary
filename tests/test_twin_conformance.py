@@ -159,7 +159,8 @@ FILTER_DECISION_TWINS = (evaluate_filter, apply_filter)
 # Driven by test_peptide_occurrences.py; source coordinates differ legitimately.
 PEPTIDE_OCCURRENCE_TWINS = (
     predict_peptide_occurrences,
-    lambda occurrences, model, **kwargs: TopiaryPredictor(models=model).predict_from_peptide_occurrences(occurrences, **kwargs),
+    lambda occurrences, model, predict_wt=False, **kwargs: TopiaryPredictor(
+        models=model, predict_wt=predict_wt).predict_from_peptide_occurrences(occurrences, **kwargs),
 )
 NAMED_OCCURRENCE_TWINS = (
     lambda names, model: TopiaryPredictor(models=model).predict_from_named_peptides(names),
