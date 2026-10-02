@@ -150,8 +150,11 @@ Three construction modes:
 |---|---|---|
 | `"all"` | Whole proteome, no filter | — |
 | `"non_cta"` (default for human Ensembl) | Remove CTA genes | `cta_source="pirlygenes"` default; set / callable accepted |
-| `"protected_tissues"` | Keep only genes expressed in named tissues | `tissues=[…]`, `tissue_source="hpa"`/`"gtex"`, `min_expression=…` |
-| callable | Arbitrary `gene → bool` filter | — |
+| `"protected_tissues"` | Keep only genes expressed in named tissues | `tissues=[…]`, `min_tissue_ntpm=…` for human HPA data; or explicit `tissue_gene_ids={…}` for any species |
+| callable | Arbitrary `gene_id → bool` filter | — |
+
+Tissue expression selects the reference genes; it is not evidence of peptide
+presentation. Supply presentation observations separately when available.
 
 **Human users** get zero-config `include="non_cta"` via pirlygenes:
 
