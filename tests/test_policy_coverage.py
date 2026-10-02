@@ -295,3 +295,38 @@ def test_missing_model_request_uses_its_own_scope_declaration():
     assert coverage.status.eq("missing").all()
     assert coverage.mhc_dependence.eq("none").all()
     assert coverage.evidence_rows.tolist() == [[], []]
+
+
+@pytest.mark.parametrize("version", [None, "", "nan", "null", "<NA>"])
+def test_unnamed_versions_use_the_existing_public_identity_rule(version):
+    from topiary import is_named_version
+    assert not is_named_version(version)
+    evaluated = evaluation(values=(0., 3.), predictor_version=version)
+    requested = requests(evaluated)
+    requested["predictor_version"] = None
+    coverage = policy_coverage(evaluated, prediction_requests=requested).df.query("level == 'prediction'")
+    assert coverage.status.eq("assessed").all()
+    assert coverage.predictor_version.isna().all()
+    requested["predictor_version"] = "1"
+    assert policy_coverage(evaluated, prediction_requests=requested).df.query("level == 'prediction'").status.eq("missing").all()
+
+
+def test_absent_version_column_is_unnamed_and_duplicate_spellings_are_rejected():
+    original = evaluation(values=(0., 3.))
+    evaluated = evaluate_selection_policy(TopiaryResult(original.evidence.df.drop(columns="predictor_version")),
+                                           original.policy, group_keys=KEYS)
+    requested = requests(evaluated)
+    requested["predictor_version"] = None
+    assert policy_coverage(evaluated, prediction_requests=requested).df.query("level == 'prediction'").status.eq("assessed").all()
+    with pytest.raises(ValueError, match="Duplicate prediction"):
+        policy_coverage(evaluated, prediction_requests=pd.concat([requested, requested.assign(predictor_version="")]))
+
+
+@pytest.mark.parametrize("version", ["NA", "unknown"])
+def test_literal_named_versions_are_not_collapsed_to_missing(version):
+    evaluated = evaluation(values=(0., 3.), predictor_version=version)
+    requested = requests(evaluated)
+    requested["predictor_version"] = version
+    assert policy_coverage(evaluated, prediction_requests=requested).df.query("level == 'prediction'").status.eq("assessed").all()
+    requested["predictor_version"] = None
+    assert policy_coverage(evaluated, prediction_requests=requested).df.query("level == 'prediction'").status.eq("missing").all()

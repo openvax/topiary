@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from .policy_evaluation import PolicyEvaluation, _json_value, _key
-from .ranking import is_stated, mhc_dependence, prediction_field_values, prediction_mhc_scope
+from .ranking import is_named_version, is_stated, mhc_dependence, prediction_field_values, prediction_mhc_scope
 from .result import TopiaryResult
 
 
@@ -97,6 +97,10 @@ def _base(identity, row):
                 evidence_rows=[], observed_evidence_rows=[])
 
 
+def _version_key(value):
+    return str(value).strip() if is_named_version(value) else None
+
+
 def _prediction_record(evaluation, row, request):
     # Model availability is independent of which DSL expression read the model.
     frame = evaluation.evidence.long_df
@@ -104,7 +108,10 @@ def _prediction_record(evaluation, row, request):
     selected = frame.iloc[positions]
     for key in _MODEL_KEYS[:-1]:
         wanted = _key(request[key])
-        if key not in selected:
+        if key == "predictor_version":
+            versions = selected[key] if key in selected else pd.Series(None, index=selected.index, dtype=object)
+            selected = selected.loc[versions.map(lambda version: _key(_version_key(version))).eq(wanted)]
+        elif key not in selected:
             selected = selected.iloc[:0]
         else:
             selected = selected.loc[selected[key].map(_key).eq(wanted)]
@@ -229,6 +236,7 @@ def policy_coverage(evaluation, *, keys=None, universe=None, prediction_requests
         for key in ("kind", "prediction_method_name", "field"):
             if not isinstance(request[key], str) or not request[key].strip():
                 raise ValueError(f"Prediction request {key} must be a nonempty string")
+        request = dict(request, predictor_version=_version_key(request["predictor_version"]))
         identity = _key([request[key] for key in keys])
         if identity not in expected:
             raise ValueError("Prediction requests must belong to the explicit occurrence universe")
