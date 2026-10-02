@@ -54,9 +54,11 @@ version-qualified expression for this simple case.
 
 `SelectionPolicy` saves the exact candidate filter, score, model/version
 selections, ranking direction, duplicate policy and strata under a stable name.
-It has no implicit scientific recipe. Topiary does not currently ship an
-official `openvax-v1` preset; that name can identify a reviewed definition you
-freeze, and later definitions can use new names.
+It has no implicit scientific recipe. **Vaxrank owns the published
+`builtin:openvax-v1` bundle**, shipped with experimental overlays in
+[Vaxrank 3.36.0 / PR #565](https://github.com/openvax/vaxrank/pull/565).
+Topiary evaluates its policy subtree and tests against that released bundle;
+it does not maintain a second definition. Give changed policies new names.
 
 ```python
 from topiary import (
@@ -115,7 +117,7 @@ site-level evidence remains [#288](https://github.com/openvax/topiary/issues/288
 ### Composed consumer configuration
 
 Vaxrank owns YAML composition and window/construct configuration. Its repeated
-`--config openvax-v1.yaml --config overrides.yaml` workflow merges mappings
+`--config builtin:openvax-v1 --config overrides.yaml` workflow merges mappings
 left to right and replaces lists/scalars. The Topiary integration boundary is
 the **already-composed policy subtree**:
 
@@ -142,16 +144,13 @@ the old expression. Model selections are mappings; version selections are lists
 of `{kind, method, version}` records, so an override replaces that entire list.
 Topiary does not merge files or parse unrelated consumer settings.
 
-Vaxrank adoption of this subtree remains
-[Vaxrank #497](https://github.com/openvax/vaxrank/issues/497); the example above
-describes the consumer boundary, not a newly supported Vaxrank configuration
-key. Its current occurrence-level scorer can consume `policy.score_by`,
-`policy.filter_by`, and the selection mappings through the existing public
-`EvalContext` / `apply_filter` APIs, retaining its explicit grouping and
-per-occurrence `alleles` lookup. Vaxrank's post-score minimum gate, missing-score
-fill, window rules, RNA weighting and construct settings must also be frozen in
-its bundle. A cutoff inside a score expression must not become a destructive
-pre-filter when capturing that baseline.
+Vaxrank 3.36.0 consumes this subtree in its shipped configuration bundle.
+Its post-score minimum gate, missing-score fill, window rules, RNA weighting
+and construct settings belong to that bundle too. The consumer fixture in
+`scripts/check_vaxrank_candidates.py` loads `builtin:openvax-v1` through
+Vaxrank's public config loader and compares its numeric scores with
+`evaluate_selection_policy`. A cutoff inside a score expression must not become
+a destructive pre-filter when replaying that baseline.
 
 The representative ranking above is one view. `evaluate_selection_policy`
 retains every input row and evaluates explicit occurrence identities before
@@ -175,8 +174,8 @@ evaluated.evidence.to_tsv("complete-evaluation.tsv")
 replayed = replay_selection_policy(read_tsv("complete-evaluation.tsv"))
 ```
 
-This example freezes a scoring convention; it does not establish an official
-`openvax-v1` recipe or a calibrated probability of immunogenicity. The cutoff
+This example illustrates a scoring convention; use Vaxrank's published bundle
+for `openvax-v1`. Neither expression is a calibrated probability of immunogenicity. The cutoff
 remains inside the score, with a separate inclusive minimum-score gate.
 `raw_score` preserves missingness even when `score_fill=0` supplies an effective
 zero. Pre-filtered groups are not scored and cannot be restored by filling.

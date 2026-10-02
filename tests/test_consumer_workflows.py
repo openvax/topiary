@@ -277,6 +277,47 @@ PVACSEQ_PRESENTATION = (
 )
 
 
+def test_self_evidence_unknown_decisions_survive_policy_replay(tmp_path, pandas_string_inference):
+    from dataclasses import replace
+    from topiary import (SelfProteome, SelectionCriterion, SelectionPolicy, TopiaryResult, match_self_peptides,
+                         evaluate_selection_policy, replay_selection_policy, from_predictions)
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    reference = SelfProteome.from_peptides({"one": "SIINFEKL", "two": "SIINFEKM"}, peptide_lengths=[8])
+    evidence = match_self_peptides(reference, ["SIINFEKL", "SIINFEKM", "AAAAAAAA"],
+        alleles=["A0201"] * 3, observations=[dict(evidence_id="observed", peptide="SIINFEKL",
+            source="synthetic", tissue="heart", evidence_kind="observed",
+            allele_assignment="confirmed", allele="A0201")])
+    # Attach the evidence to explicit synthetic candidate measurements. The raw
+    # self-search table carries observations, not invented MHC measurements.
+    predictions = from_predictions(pd.DataFrame(dict(
+        peptide=["SIINFEKL", "SIINFEKM", "AAAAAAAA"], allele="HLA-A*02:01",
+        query_index=[0, 1, 2], kind="pMHC_affinity", value=[10., 20., 30.],
+        prediction_method_name="synthetic", predictor_version="1")))
+    joined = predictions.merge(evidence.df, on=["query_index", "peptide", "allele", "peptide_length"],
+                               validate="one_to_one")
+    candidates = TopiaryResult(joined, extra=evidence.extra)
+    # This selects reported observations for review; it is not a vaccine-safety rule.
+    policy = SelectionPolicy("reported-self", "affinity.value", filter_by='criterion("observed")', strata=(),
+        criteria=(SelectionCriterion("observed", "self_observed_confirmed_same_allele == 1", "eligibility"),))
+    keys = ["query_index", "peptide", "allele"]
+    evaluated = evaluate_selection_policy(candidates, policy, group_keys=keys)
+    assert evaluated.selected.query_index.tolist() == [0]
+    assert evaluated.audit.status.tolist() == ["pass", "unknown", "unknown"]
+    included = evaluate_selection_policy(candidates, replace(policy, unknown="include"), group_keys=keys)
+    assert included.selected.query_index.tolist() == [0, 1, 2]
+    assert included.audit.status.tolist() == ["pass", "unknown", "unknown"]
+    assert included.evidence.df.self_search_status.tolist() == ["matched", "matched", "no_match_in_scope"]
+    for suffix, writer, _, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("self-policy." + suffix)
+        writer(included.evidence, path)
+        replay = replay_selection_policy(reader(path))
+        pd.testing.assert_frame_equal(replay.occurrences, included.occurrences, check_exact=True)
+        pd.testing.assert_frame_equal(replay.audit, included.audit, check_exact=True)
+        assert replay.evidence.df.self_observations.tolist() == evidence.df.self_observations.tolist()
+        assert replay.evidence.extra["self_search"] == evidence.extra["self_search"]
+
+
 @pytest.mark.parametrize("extension", ["csv", "tsv"])
 def test_explicit_occurrences_from_mixed_sources_rescore_and_replay(tmp_path, monkeypatch, extension):
     from dataclasses import replace

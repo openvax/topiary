@@ -70,6 +70,18 @@ symmetric conservative transformation, and O/U/X/* or unrecognized characters
 receive the symmetric worst-case canonical distance (15). Both functions
 return fresh read-only int8 arrays, so callers never share mutable matrix state.
 
+## Self-match evidence
+
+`match_self_peptides(reference, peptides, *, max_mismatches=0, alleles=None,
+excluded_gene_ids=(), observations=None, predictions=None)` returns every
+same-length Hamming match within the radius, with all source origins and
+supplied presentation/prediction records. `reference.match_candidates(...)`
+delegates to it. `self_matches_in_windows(windows, reference, *, peptide_lengths,
+...)` searches exact peptides at every requested window position. Results use
+ordinary typed CSV/TSV, with explicit coverage and evidence identity.
+See [self evidence](self_proteome.md#all-match-evidence) for the input schemas,
+policy composition and interpretation of missing results.
+
 ## TopiaryPredictor
 
 | Parameter | Type | Description |

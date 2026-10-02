@@ -34,10 +34,10 @@ Indels
 edit_distance=1 beats a same-length substitution match at
 edit_distance≥2.
 
-Binding-aware axes (``self_mimic_*``, ``self_strongest_nearby_*``,
-``self_nearest_candidates``) are not implemented yet — they require
-MHC prediction on candidate peptides, which is architecturally
-separate from the sequence-only ``nearest()`` method. Tracked under
+``match_candidates()`` retains all candidates within a same-length Hamming
+radius, their origins and supplied observation/prediction evidence. Binding-ranked
+axes (``self_mimic_*``, ``self_strongest_nearby_*``) still require an explicit
+model-selection and ranking contract, separate from sequence matching. See
 `#412 <https://github.com/openvax/topiary/issues/412>`_.
 
 Algorithm
@@ -179,6 +179,36 @@ class SelfProteome:
 
     # --- lookup ---
 
+    def match_candidates(self, peptides, *, max_mismatches=0, alleles=None,
+                         excluded_gene_ids=(), observations=None, predictions=None):
+        """Return all bounded self matches with origins and supplied evidence.
+
+        Parameters
+        ----------
+        peptides : iterable of str
+            Query sequences, preserving order and repeats.
+        max_mismatches : int
+            Nonnegative same-length Hamming radius. Defaults to exact matches.
+        alleles : iterable of str or None, optional
+            One explicit allele per query; missing remains unknown.
+        excluded_gene_ids : iterable of str
+            Caller-resolved exclusions; origins survive with an out-of-scope flag.
+        observations, predictions : DataFrame or iterable of mappings, optional
+            Supplied evidence with the schema of :func:`topiary.match_self_peptides`.
+
+        Returns
+        -------
+        TopiaryResult
+            All matches, source origins, supplied evidence and coverage reasons,
+            through the shared :func:`topiary.match_self_peptides` implementation.
+            Empty input returns an empty schema. A missing match never establishes
+            absence of risk. Structured evidence survives ordinary CSV/TSV IO.
+        """
+        from .self_evidence import match_self_peptides
+        return match_self_peptides(
+            self, peptides, max_mismatches=max_mismatches, alleles=alleles,
+            excluded_gene_ids=excluded_gene_ids, observations=observations, predictions=predictions)
+
     def nearest(
         self,
         peptides: Iterable[str],
@@ -217,9 +247,9 @@ class SelfProteome:
         hash-set lookup.  The **first** indel hit found (deletions
         checked before insertions, in position order) is returned —
         not necessarily the best among all indel candidates.  This is
-        fast (~200 lookups per 9-mer) but not exhaustive; the upcoming
-        ``self_nearest_candidates`` structured column will expose the
-        full candidate set.
+        fast (~200 lookups per 9-mer) but not exhaustive. ``match_candidates``
+        exposes all candidates within a same-length Hamming radius; it does
+        not enumerate indels.
         """
         if metric not in ("blosum62", "hamming"):
             raise ValueError(

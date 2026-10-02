@@ -22,6 +22,91 @@ from vaxrank.vaccine_antigen import (
 from vaxrank.vaccine_peptide import VaccinePeptide
 
 
+def test_self_evidence_changes_vaxrank_window_without_losing_required_targets(tmp_path):
+    from topiary import (
+        SelfProteome, self_matches_in_windows, read_tsv, from_predictions,
+        TopiaryResult, evaluate_selection_policy,
+    )
+    from vaxrank.config.loader import load_vaxrank_config, extract_epitope_config_kwargs
+    from vaxrank.epitope_dsl import score_predictions, prediction_group_columns
+    from vaxrank.vaccine_antigen import SelfReferenceMatch, SelfReferenceSource
+    from vaxrank.window_selection import WindowSelection, select_windows
+
+    # Consume Vaxrank's actual frozen bundle; Topiary keeps no second recipe.
+    bundle = load_vaxrank_config(config_path="builtin:openvax-v1")
+    cfg = EpitopeConfig(**extract_epitope_config_kwargs(bundle))
+    baseline = SelectionPolicy.from_dict(cfg.selection_policy)
+    assert baseline.name == "openvax-v1"
+    full = "GILGFVFTLGGGSIINFEKLELAGIGILT"
+    windows = {"full": full, "trimmed": full[12:]}
+    alleles = ["HLA-A*02:01", "HLA-B*07:02"]
+    targets = {"SIINFEKL", "ELAGIGILT"}
+    ref = SelfProteome.from_peptides({"CTA": "GILGFVFTL", "healthy": "GILGFVFTL", "near": "SIINFEKM"},
+                                     peptide_lengths=[8, 9])
+    evidence = self_matches_in_windows(windows, ref, peptide_lengths=[8, 9],
+                                      alleles={name: alleles for name in windows}, excluded_gene_ids={"CTA"})
+    evidence.to_tsv(tmp_path / "self-evidence.tsv")
+    evidence = read_tsv(tmp_path / "self-evidence.tsv")
+    hits = evidence.df[evidence.df.self_peptide.eq("GILGFVFTL")]
+    assert set(hits.self_gene_id) == {"CTA", "healthy"}
+    assert hits.groupby("allele").self_in_scope.sum().eq(1).all()
+
+    def vaccine(name, use_evidence):
+        sequence = windows[name]
+        rows, measured = [], []
+        for peptide in ["GILGFVFTL", "SIINFEKL", "ELAGIGILT"]:
+            if peptide not in sequence:
+                continue
+            offset = sequence.index(peptide)
+            origins = evidence.df[(evidence.df.window_id == name) & (evidence.df.peptide == peptide)
+                                  & evidence.df.self_in_scope.eq(True)]
+            sources = tuple(SelfReferenceSource(gene_id=gene, transcript_id=transcript)
+                            for gene, transcript in origins[["self_gene_id", "self_transcript_id"]]
+                            .drop_duplicates().itertuples(index=False, name=None)) if use_evidence else ()
+            match = SelfReferenceMatch(peptide, bool(sources), "mutation", excluded_gene_ids=("CTA",),
+                                       sources=sources, source_provenance_complete=use_evidence,
+                                       genome_release=ref.reference_version)
+            for allele in alleles:
+                prediction = Prediction(peptide=peptide, allele=allele, kind="pMHC_affinity", value=50.,
+                                        score=.9, predictor_name="synthetic", predictor_version="1")
+                rows.append(dict(peptide=peptide, source=sequence, offset=offset, prediction_id=name,
+                                 mutant=prediction, source_class="mutation", overlaps_targetable=peptide in targets,
+                                 occurs_in_reference=bool(sources), occurs_in_non_CTA_reference=bool(sources),
+                                 self_reference_match=match, patient_alleles=alleles))
+                measured.append(dict(peptide=peptide, allele=allele, kind="pMHC_affinity", value=50., score=.9,
+                                     prediction_method_name="synthetic", predictor_version="1", prediction_id=name,
+                                     peptide_offset=offset, n_flank="", c_flank=""))
+        epitopes = candidate_epitopes_from_rows(rows)
+        frame = from_predictions(pd.DataFrame(measured))
+        scored = attach_per_allele_scores(epitopes, cfg, topiary_df=frame)
+        expected = score_predictions(epitopes, cfg, topiary_df=frame)
+        evaluated = evaluate_selection_policy(TopiaryResult(frame), baseline, group_keys=prediction_group_columns(frame))
+        actual = evaluated.selected.set_index(prediction_group_columns(frame)).score.sort_index()
+        pd.testing.assert_series_equal(actual, expected.sort_index(), check_names=False, check_exact=True)
+        antigen = VaccineAntigen(kind="mutation", amino_acids=sequence,
+            targetable_mask=TargetableMask((AminoAcidInterval(sequence.index("SIINFEKL"), len(sequence)),)),
+            tumor_specificity=TumorSpecificityAttestation(status="admitted", evidence_kind="synthetic_fixture",
+                evidence_source="check_vaxrank_candidates", patient_specific=True, rationale_code="test_only"),
+            source_identifier=name, self_reference_excluded_gene_ids=("CTA",))
+        return VaccinePeptide(antigen=antigen, epitopes=scored, combined_score_expr="target_epitope_score",
+                              ranking_rules=("target_epitope_score",))
+
+    policy = WindowSelection(self_weight=1., min_target_fraction=1., serum_weight=0.)
+    unchanged = select_windows([vaccine(name, False) for name in windows], policy, preferred_length=len(full), limit=1)
+    candidates = [vaccine(name, True) for name in windows]
+    changed = select_windows(candidates, policy, preferred_length=len(full), limit=1)
+    assert unchanged[0].amino_acids == full
+    assert changed[0].amino_acids == windows["trimmed"]
+    required = {(peptide, allele) for peptide in targets for allele in alleles}
+    for candidate in (candidates[0], changed[0]):
+        retained = {(epitope.sequence, allele) for epitope in candidate.target_epitopes
+                    for allele, score in epitope.per_allele_scores.items() if score > 0}
+        assert retained == required
+    assert changed[0].target_epitope_score == candidates[0].target_epitope_score
+    assert changed[0].window_selection_audit["non_cta_self_score"] == 0.
+    assert candidates[0].window_selection_audit["non_cta_self_score"] > 0.
+
+
 def test_explicit_windows_keep_repeated_source_ids_through_vaxrank_scoring():
     from topiary import TopiaryPredictor, TopiaryResult, evaluate_selection_policy
     from vaxrank.epitope_dsl import prediction_group_columns
