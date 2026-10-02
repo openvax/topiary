@@ -49,7 +49,7 @@ from topiary import (
     read_isovar_hypotheses,
     combine_sources, rank_candidates, rank_with_policy, evaluate_scores,
     SelectionPolicy, resolve_selection_policy, evaluate_selection_policy,
-    EvalContext, evaluate_filter,
+    EvalContext, evaluate_filter, policy_coverage, compare_policy_evaluations,
     predict_peptide_occurrences,
     match_self_peptides, self_matches_in_windows,
     Affinity, Column, apply_filter, apply_sort,
@@ -167,6 +167,9 @@ POLICY_MAPPING_TWINS = (SelectionPolicy.from_dict, resolve_selection_policy)
 # sparse genotype projection. Driven by test_policy_evaluation.py.
 OCCURRENCE_POLICY_TWINS = (evaluate_selection_policy, EvalContext)
 FILTER_DECISION_TWINS = (evaluate_filter, apply_filter)
+
+# Coverage summaries and common-set comparisons must agree on assessability.
+POLICY_COVERAGE_TWINS = (policy_coverage, compare_policy_evaluations)
 
 # Explicit occurrence and named-peptide calls agree when context is the same.
 # Driven by test_peptide_occurrences.py; source coordinates differ legitimately.

@@ -9,6 +9,7 @@ from .policy_evaluation import (
     PolicyEvaluation, evaluate_selection_policy, replay_selection_policy,
     select_policy_representatives, describe_evaluation_context,
 )
+from .policy_coverage import policy_coverage, summarize_policy_coverage, compare_policy_evaluations
 from .selection_policy import (
     SelectionPolicy, resolve_selection_policy, read_selection_policy,
     write_selection_policy, rank_with_policy,
@@ -205,7 +206,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.92.0"
+__version__ = "5.93.0"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -232,6 +233,9 @@ __all__ = [
     "CriterionEvaluation",
     "evaluate_selection_criteria",
     "candidate_identifier",
+    "policy_coverage",
+    "summarize_policy_coverage",
+    "compare_policy_evaluations",
     "PolicyEvaluation",
     "evaluate_selection_policy",
     "replay_selection_policy",

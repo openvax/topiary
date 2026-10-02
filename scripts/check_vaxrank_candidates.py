@@ -344,3 +344,63 @@ def test_occurrence_policy_matches_vaxrank_sources_windows_constructs_and_native
     assert restored.selection == saved.selection
     pd.testing.assert_frame_equal(replay.occurrences, changed.occurrences, check_exact=True)
     assert construct(restored.epitopes) == construct(changed_epitopes)
+
+
+def test_short_context_coverage_explains_vaxrank_window_change():
+    from dataclasses import replace
+    from topiary import (SelectionCriterion, TopiaryResult, evaluate_selection_policy,
+                         policy_coverage, summarize_policy_coverage, compare_policy_evaluations)
+    from tests.test_policy_coverage import short_context_inputs
+    from vaxrank.config.loader import load_vaxrank_config, extract_epitope_config_kwargs
+    from vaxrank.epitope_dsl import prediction_group_columns
+    from vaxrank.window_selection import WindowSelection, select_windows
+
+    bundle = load_vaxrank_config(config_path="builtin:openvax-v1")
+    cfg = EpitopeConfig(**extract_epitope_config_kwargs(bundle))
+    baseline = SelectionPolicy.from_dict(cfg.selection_policy)
+    overlay = replace(baseline, name="synthetic-context-overlay",
+        score_by=baseline.score_by + ' * criterion("processing")', criteria=baseline.criteria + (
+            SelectionCriterion("processing", "peptide_view(proteasome_cleavage.score)", "score"),))
+    evidence = short_context_inputs()
+    frame = evidence.df
+    keys = prediction_group_columns(frame)
+    measured = frame.loc[frame.kind.eq("pMHC_affinity")].to_dict("records")
+    rows = []
+    for row in measured:
+        prediction = Prediction(peptide=row["peptide"], allele=row["allele"], kind="pMHC_affinity",
+                                value=row["value"], score=row["score"], predictor_name="original", predictor_version="1")
+        rows.append(dict(peptide=row["peptide"], source=row["source_sequence"], offset=row["peptide_offset"],
+                         n_flank=row["n_flank"], c_flank=row["c_flank"], prediction_id=row["prediction_id"],
+                         mutant=prediction, source_class="mutation", overlaps_targetable=True,
+                         occurs_in_reference=False, occurs_in_non_CTA_reference=False, patient_alleles=[row["allele"]]))
+    epitopes = candidate_epitopes_from_rows(rows)
+    evaluations, choices = [], []
+    for policy in (baseline, overlay):
+        configured = EpitopeConfig(**dict(extract_epitope_config_kwargs(bundle), selection_policy=policy.to_dict()))
+        scored = attach_per_allele_scores(epitopes, configured, topiary_df=frame)
+        evaluated = evaluate_selection_policy(TopiaryResult(frame), policy, group_keys=keys)
+        evaluations.append(evaluated)
+        candidates = []
+        for row in measured:
+            sequence = row["source_sequence"]
+            antigen = VaccineAntigen(kind="mutation", amino_acids=sequence,
+                targetable_mask=TargetableMask((AminoAcidInterval(row["peptide_offset"], row["peptide_offset"] + 8),)),
+                tumor_specificity=TumorSpecificityAttestation(status="admitted", evidence_kind="synthetic_fixture",
+                    evidence_source="check_vaxrank_candidates", patient_specific=True, rationale_code="test_only"),
+                source_identifier=row["prediction_id"])
+            candidates.append(VaccinePeptide(antigen=antigen,
+                epitopes=[epitope for epitope in scored if epitope.prediction_id == row["prediction_id"]],
+                combined_score_expr="target_epitope_score", ranking_rules=("target_epitope_score",)))
+        chosen = select_windows(candidates, WindowSelection(self_weight=0., serum_weight=0.), preferred_length=13, limit=1)
+        choices.append(chosen[0].amino_acids)
+    assert choices == ["SIINFEKL", "AAASIINFEKLGGG"]
+    requested = evaluations[1].occurrences.query("allele != ''")[keys].assign(kind="proteasome_cleavage",
+        prediction_method_name="context-model", predictor_version="1", field="score")
+    requested["status"], requested["reason"] = ["missing", None], ["insufficient_c_terminal_context", None]
+    coverage = policy_coverage(evaluations[1], prediction_requests=requested)
+    summary = summarize_policy_coverage(coverage, by=["level", "reason"])
+    assert summary.query("reason == 'insufficient_c_terminal_context'").n_missing.item() == 1
+    comparison = compare_policy_evaluations(*evaluations).df
+    assert comparison.query("prediction_id == 'short'").assessment_set.item() == "left_only"
+    shared = comparison.query("assessment_set == 'both'")
+    assert shared.prediction_id.tolist() == ["long"] and shared.raw_score_delta.eq(0.).all()
