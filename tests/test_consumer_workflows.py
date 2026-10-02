@@ -3523,3 +3523,43 @@ def test_native_exacto_corpus_composes_with_lens_and_pvacseq_files(tmp_path, mon
     assert restored.df.loc[restored.df.source_label.eq("exacto"), "candidate_id"].isna().all()
     assert restored.extra == combined.extra
     assert rank_candidates(restored, expression, **options).candidate_id.tolist() == pooled.candidate_id.tolist()
+
+
+def test_short_context_coverage_explains_changed_selection_and_replays(tmp_path, pandas_string_inference):
+    from dataclasses import replace
+    from topiary import (SelectionCriterion, SelectionPolicy, evaluate_selection_policy, policy_coverage,
+                         summarize_policy_coverage, compare_policy_evaluations, replay_selection_policy)
+    from .test_policy_coverage import short_context_inputs, KEYS
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    evidence = short_context_inputs()
+    baseline = SelectionPolicy("synthetic-baseline", 'criterion("binding")', score_fill=0., min_score=.01,
+        criteria=(SelectionCriterion("binding", "1 / affinity.value", "score"),))
+    overlay = replace(baseline, name="context-overlay", score_by=baseline.score_by + ' * criterion("processing")',
+        criteria=baseline.criteria + (SelectionCriterion("processing", "peptide_view(proteasome_cleavage.score)", "score"),))
+    left = evaluate_selection_policy(evidence, baseline, group_keys=KEYS)
+    right = evaluate_selection_policy(evidence, overlay, group_keys=KEYS)
+    assert left.selected.sort_values("score", ascending=False).prediction_id.iloc[0] == "short"
+    assert right.selected.prediction_id.tolist() == ["long"]
+    requested = right.occurrences.query("allele != ''")[KEYS].assign(
+        kind="proteasome_cleavage", prediction_method_name="context-model", predictor_version="1", field="score")
+    requested["status"] = ["missing", None]
+    requested["reason"] = ["insufficient_c_terminal_context", None]
+    coverage = policy_coverage(right, prediction_requests=requested)
+    summary = summarize_policy_coverage(coverage, by=["level", "reason"])
+    assert summary.query("reason == 'insufficient_c_terminal_context'").n_missing.item() == 1
+    model = summarize_policy_coverage(coverage).query("level == 'prediction'").iloc[0]
+    assert model.n_assessments == 2 and model.assessed_fraction == .5
+    comparison = compare_policy_evaluations(left, right)
+    assert comparison.df.query("prediction_id == 'short'").assessment_set.item() == "left_only"
+    shared = comparison.df.query("assessment_set == 'both'")
+    assert shared.prediction_id.tolist() == ["long"]
+    assert shared.raw_score_delta.eq(0.).all()  # selection changed through missingness
+    for suffix, writer, _, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("context." + suffix)
+        writer(right.evidence, path)
+        replay = replay_selection_policy(reader(path))
+        repeated = policy_coverage(replay, prediction_requests=requested)
+        pd.testing.assert_frame_equal(repeated.df, coverage.df, check_exact=True)
+        pd.testing.assert_frame_equal(summarize_policy_coverage(repeated), summarize_policy_coverage(coverage))
+        pd.testing.assert_frame_equal(compare_policy_evaluations(left, replay).df, comparison.df, check_exact=True)

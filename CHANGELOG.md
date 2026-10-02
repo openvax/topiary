@@ -7,6 +7,18 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.93.0
+
+- Report policy coverage separately from score filling and acceptance, with
+  explicit occurrence and model-request denominators, missing/failure reasons,
+  and distinct raw-row counts that do not multiply allele-free projections (#457).
+- Compare complete policy membership and raw scores on the shared assessable
+  set; retain unknown criteria, effective scores, definitions and provenance.
+  Typed CSV/TSV preserves reports and their replay inputs.
+- Exercise the released Vaxrank `openvax-v1` bundle with a synthetic context
+  overlay: missing short-flank evidence changes the chosen vaccine window while
+  shared assessable scores remain unchanged. No default recipe changes.
+
 ## 5.92.0
 
 - Add all-candidate self matching within an explicit same-length Hamming radius

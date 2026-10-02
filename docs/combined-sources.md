@@ -272,6 +272,81 @@ The Vaxrank consumer test carries these records through native dataset save/load
 and verifies frozen scores, selected windows, peptide constructs and mRNA
 constructs, plus a changed criterion that changes the selected window.
 
+### Coverage and policy comparisons
+
+Coverage does not depend on whether a policy fills a missing score with zero,
+includes unknown eligibility, or rejects a candidate. Use retained evaluations:
+
+```python
+from topiary import policy_coverage, summarize_policy_coverage, compare_policy_evaluations
+
+coverage = policy_coverage(evaluated)
+summary = summarize_policy_coverage(coverage)
+reasons = summarize_policy_coverage(coverage, by=["level", "criterion", "reason"])
+comparison = compare_policy_evaluations(evaluated, another_evaluation)
+shared = comparison.df.query("assessment_set == 'both'")
+coverage.to_tsv("coverage.tsv")
+comparison.to_tsv("policy-comparison.tsv")
+```
+
+`policy_coverage` emits one score and each named criterion per occurrence. Native
+`pass`, `fail` and numeric `value` are all assessed; `unknown` becomes missing.
+Not-applicable and not-evaluated remain distinct. A measured zero is assessed;
+a zero from `score_fill` retains its missing raw score. The original status,
+reason, criterion value, raw/effective score and eligibility remain visible.
+
+By default the denominator contains evaluated groups. Supply `universe`, a
+DataFrame of unique identity keys that includes every evaluated group, to keep
+expected inputs that produced no evaluation. Absent groups are not evaluated.
+Keys default to the retained occurrence grouping; explicit `keys` must uniquely
+identify occurrences. Do not drop flanks, offsets, samples or sources when that
+would merge different occurrences.
+
+Returned prediction rows alone cannot reveal failed or unattempted requests.
+For model coverage, pass an explicit `prediction_requests` DataFrame: one row
+per expected occurrence/model/field assessment, with the identity keys plus
+canonical `kind`, `prediction_method_name`, `predictor_version`, and numeric
+`field` (for example `score`). A null version matches only an unstated version.
+Include `allele_set` for joint-genotype evidence. An optional diagnostic `status`
+(`missing`, `failed`, `not_applicable`, or `not_evaluated`), `reason`, and `detail`
+can preserve explanations such as `insufficient_c_terminal_context` or a backend
+failure when no row exists. Diagnostics cannot override observed measurements.
+Topiary does not infer a context/domain failure from an absent value.
+
+Model records describe **availability**, not which model contributed to a
+criterion. They match exact model/version, occurrence context and canonical MHC
+scope; allele-free measurements can project, while allele-credited and joint
+measurements retain their scope. A criterion can combine multiple models or
+annotations, and this report does not invent lineage for that expression.
+
+The summary separates requested assessment counts from unique occurrences,
+unique peptide/allele/genotype candidates, and the union of referenced raw
+prediction rows. Repeated source discoveries can describe one candidate;
+allele projections can reference the same raw row. Finite raw fields are counted
+separately as `n_observed_prediction_rows`, even if conflicting values make the
+assessment unknown. Requests with no output contribute to assessment counts,
+not raw-row counts. `assessed_fraction` explicitly uses **all assessments** as
+its denominator, including inapplicable and unevaluated requests. Group by
+`reason` or any occurrence key to inspect the cause or location of missingness.
+
+Comparison preserves both memberships, eligibility, raw/effective scores and
+criterion decisions. `assessment_set` separates `both`, `left_only`,
+`right_only`, and `neither`; a finite raw score plus no unknown referenced
+criterion is required for assessability. Unused and inapplicable criteria do
+not disqualify an otherwise assessed score. Prefiltered groups have no assessed
+score. `raw_score_delta` is right minus left **only on the shared assessable
+set**; it does not normalize different policy scales or add scientific weights.
+
+Reports retain definitions, digests, contexts, provenance and explicit reporting
+inputs in `extra["policy_coverage"]` or `extra["policy_comparison"]`. Save the
+underlying `evaluated.evidence` too: replay it with `replay_selection_policy`,
+then regenerate coverage using the saved `keys`, `universe` and
+`prediction_requests` (convert the latter two record lists to DataFrames when
+not null). CSV/TSV readers may add their normal per-row file `source` label;
+coverage counts and replay are unchanged. Reports run no predictors and change
+no selection. Vaxrank owns vaccine-window/construct choices and its frozen
+`openvax-v1` bundle.
+
 ## Identities and source evidence
 
 | Column | Meaning |
