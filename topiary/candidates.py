@@ -13,7 +13,7 @@ import mhcgnomes
 from mhctools.pred import value_unit
 
 from .io_pvacseq import derive_mhc_class
-from .predictor import from_predictions
+from .peptide_occurrences import predict_peptide_occurrences
 from .ranking import (
     apply_filter, as_dsl_node, evaluate_scores, format_allele_set, is_stated,
     mhc_dependence, split_allele_set, stated_values,
@@ -417,27 +417,19 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
     selected = selected[selected.candidate_id.notna()]
     selected = selected.drop_duplicates(["source_observation_id", "candidate_id", "allele_set"]
                                         if "allele_set" in selected else ["source_observation_id", "candidate_id"])
-    features, descriptors, cache = {}, {}, {}
-    for _, row in selected.iterrows():
-        n_flank, c_flank = row.get("n_flank"), row.get("c_flank")
-        flanks_known = isinstance(n_flank, str) and isinstance(c_flank, str)
-        genotype = format_allele_set(split_allele_set(row.get("allele_set")))
-        for model_index, model in enumerate(models):
-            if use_flanks and getattr(model, "uses_flanking_sequences", False) and not flanks_known:
-                raise ValueError("Flank-dependent re-scoring requires both flanks; set use_flanks=False explicitly")
-            kwargs = dict(n_flanks=[n_flank], c_flanks=[c_flank]) if use_flanks and flanks_known else {}
-            cache_key = (model_index, row.candidate_sample, row.peptide,
-                         n_flank if kwargs else None, c_flank if kwargs else None, genotype)
-            if cache_key not in cache:
-                raw = model.predict_dataframe([row.peptide], **kwargs)
-                support = model.kind_support()
-                predicted = from_predictions(raw)
-                if not predicted.empty and not predicted.peptide.eq(row.peptide).all():
-                    raise ValueError("Re-scoring returned a different peptide")
-                cache[cache_key] = (predicted, support)
-            predicted, support = cache[cache_key]
+    selected = selected.reset_index(drop=True)
+    requests = selected.reindex(columns=["peptide", "candidate_sample", "n_flank", "c_flank", "allele_set"]).copy()
+    requests["prediction_id"] = [str(index) for index in range(len(requests))]
+    features, descriptors = {}, {}
+    for model in models:
+        predicted = predict_peptide_occurrences(requests, model, use_flanks=use_flanks)
+        support = model.kind_support()
+        by_occurrence = {name: rows for name, rows in predicted.groupby("prediction_id", sort=False)} if not predicted.empty else {}
+        for index, row in selected.iterrows():
+            genotype = format_allele_set(split_allele_set(row.get("allele_set")))
+            predictions = by_occurrence[str(index)]
             matched_kinds = set()
-            for _, prediction in predicted.iterrows():
+            for _, prediction in predictions.iterrows():
                 kind = str(prediction.kind)
                 spec = next((v for k, v in support.items() if str(getattr(k, "value", k)) == kind), {})
                 dependence = spec.get("mhc_dependence")

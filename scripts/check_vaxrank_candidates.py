@@ -22,6 +22,47 @@ from vaxrank.vaccine_antigen import (
 from vaxrank.vaccine_peptide import VaccinePeptide
 
 
+def test_explicit_windows_keep_repeated_source_ids_through_vaxrank_scoring():
+    from topiary import TopiaryPredictor, TopiaryResult, evaluate_selection_policy
+    from vaxrank.epitope_dsl import prediction_group_columns
+
+    sequence = "AAASIINFEKLTSIINFEKLTTGILGFVFTL"
+    windows = pd.DataFrame(dict(
+        prediction_id=["one-protein"] * 3,
+        peptide=["SIINFEKL", "SIINFEKL", "GILGFVFTL"],
+        peptide_offset=[3, 12, 22], n_flank=["AAA", "T", "TT"], c_flank=["T", "TT", ""],
+        source_sequence=[sequence] * 3,
+    ))
+    observed = []
+    for use_flanks, expected in ((True, [803., 801., 12.]), (False, [800., 800., 10.])):
+        frame = TopiaryPredictor(models=Model()).predict_from_peptide_occurrences(windows, use_flanks=use_flanks)
+        assert frame.value.tolist() == expected
+        assert frame.prediction_id.tolist() == windows.prediction_id.tolist()
+        rows = [dict(
+            peptide=row.peptide, source=row.source_sequence, offset=row.peptide_offset,
+            prediction_id=row.prediction_id, n_flank=row.n_flank, c_flank=row.c_flank,
+            mutant=Prediction(kind=row.kind, peptide=row.peptide, allele=row.allele,
+                              value=row.value, score=row.score,
+                              predictor_name=row.prediction_method_name, predictor_version=row.predictor_version),
+            source_class="mutation", overlaps_targetable=True, patient_alleles=[row.allele],
+        ) for row in frame.itertuples()]
+        epitopes = candidate_epitopes_from_rows(rows)
+        policy = SelectionPolicy("explicit-windows", "1 / affinity.value")
+        cfg = EpitopeConfig(score_expr=policy.score_by, min_epitope_score=0.)
+        scored = attach_per_allele_scores(epitopes, cfg, topiary_df=frame)
+        keys = prediction_group_columns(frame)
+        evaluated = evaluate_selection_policy(TopiaryResult(frame), policy, group_keys=keys)
+        scores = evaluated.occurrences.set_index(keys).score.to_dict()
+        assert len(scored) == 3
+        for epitope, value in zip(scored, expected):
+            assert epitope.prediction_id == "one-protein"
+            score = epitope.per_allele_scores["HLA-A*02:01"]
+            assert score == pytest.approx(1 / value)
+            assert score == scores[(*epitope.prediction_group_key, "HLA-A*02:01")]
+        observed.append([epitope.per_allele_scores for epitope in scored])
+    assert observed[0] != observed[1]
+
+
 @pytest.mark.parametrize("antigen_kind", ["mutation", "fusion", "splice", "CTA", "ERV", "viral"])
 @pytest.mark.parametrize("policy", ["original", "rescored", "rna_overlay"])
 def test_candidate_features_reach_vaxrank_scoring_and_vaccine_construction(antigen_kind, policy, tmp_path):

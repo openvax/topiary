@@ -32,6 +32,8 @@ from .ranking import (
     apply_sort,
     as_dsl_node,
     as_dsl_nodes,
+    mhc_dependence,
+    prediction_mhc_scope,
 )
 from .io import _model_version_str
 from .wide import _concat_frames
@@ -1005,6 +1007,45 @@ class TopiaryPredictor(object):
             self._strip_internal_columns(self._apply_filter(df))
         )
 
+    def predict_from_peptide_occurrences(self, occurrences, *, use_flanks=True):
+        """Predict exact occurrences with their source context, without scanning.
+
+        Parameters
+        ----------
+        occurrences : pandas.DataFrame or iterable of mappings
+            Explicit ``prediction_id``, peptide and optional source coordinates,
+            flanks and non-prediction annotations. Identity is unique by ID,
+            peptide, offset and supplied sample keys. See
+            :func:`predict_peptide_occurrences` for validation and scope rules.
+        use_flanks : bool
+            Use supplied flanks. False explicitly requests peptide-only scores,
+            while preserving original occurrence context in the output.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Configured-model predictions with all occurrence identities. Empty
+            input calls no predictor. Explicit filter/sort settings operate at
+            occurrence scope. As for named peptides, ``only_novel_epitopes``
+            does not reinterpret the caller's already-selected peptide universe.
+            ``predict_wt`` scores only supplied comparators with their supplied
+            context; ``cache_miss_handler`` explicitly enables partial results.
+        """
+        from .peptide_occurrences import predict_peptide_occurrences
+        occurrences = pd.DataFrame(occurrences)
+        frames = []
+        for model, model_key in zip(self.models, self._model_keys):
+            handler = None if self.cache_miss_handler is None else (
+                lambda report, key=model_key: self.cache_miss_handler(dict(report, model_key=key)))
+            frames.append(self._attach_model_key(predict_peptide_occurrences(
+                occurrences, model, use_flanks=use_flanks, predict_wt=self.predict_wt,
+                on_miss=handler), model_key))
+        df = _concat_frames(frames) if frames else pd.DataFrame()
+        keys = ["prediction_id", "peptide", "peptide_offset", "allele"] + [
+            column for column in ("sample_name", "candidate_sample") if column in occurrences]
+        return self._attach_result_attrs(self._strip_internal_columns(
+            self._apply_filter(df, group_keys=keys)).reset_index(drop=True))
+
     def _predict_raw(self, name_to_sequence_dict):
         """Run models and format output, without applying filter/ranking."""
         for model in self.models:
@@ -1059,7 +1100,13 @@ class TopiaryPredictor(object):
             context=self._cache_miss_context(model, model_key, stage))
         # All inputs may have been reported as missing. Preserve an empty
         # table schema just as the protein path does, including for CSV output.
-        return self._format_prediction_df(result) if result.empty else result
+        if result.empty:
+            empty = from_predictions([])
+            for column in result:
+                if column not in empty:
+                    empty[column] = result[column]
+            return empty
+        return result
 
     def _cache_miss_context(self, model, model_key, stage):
         """Provenance for one configured model's prediction pass."""
@@ -1206,7 +1253,7 @@ class TopiaryPredictor(object):
         """Normalize mhctools prediction output to Topiary's schema."""
         return _normalize_prediction_frame(df)
 
-    def _apply_filter(self, df):
+    def _apply_filter(self, df, *, group_keys=None):
         """Apply filter and sort if configured."""
         if df.empty:
             return df
@@ -1226,12 +1273,12 @@ class TopiaryPredictor(object):
         if self.filter_by is not None:
             df = apply_filter(
                 df, self.filter_by, kind_support=kind_support,
-                default_methods=default_methods,
+                default_methods=default_methods, group_keys=group_keys,
             )
         if self.sort_by:
             df = apply_sort(
                 df, self.sort_by, sort_direction=self.sort_direction,
-                kind_support=kind_support, default_methods=default_methods,
+                kind_support=kind_support, default_methods=default_methods, group_keys=group_keys,
             )
         return df
 
@@ -1333,7 +1380,8 @@ class TopiaryPredictor(object):
         ``wt_peptide`` itself is derived while building fragment rows.
         This helper performs the optional second prediction pass and
         joins each WT prediction back to the matching mutant row by
-        allele, peptide length, prediction kind, and predictor identity.
+        declared MHC scope, peptide length, prediction kind and predictor
+        identity. A haplotype's deconvolved presenter is not its scope.
         """
         if not self.predict_wt or df.empty or "wt_peptide" not in df.columns:
             return df
@@ -1368,7 +1416,6 @@ class TopiaryPredictor(object):
 
         valid = (
             df["wt_peptide"].notna()
-            & df["allele"].notna()
             & df["wt_peptide_length"].notna()
             & df["fragment_id"].notna()
             & df[_WT_OFFSET_COLUMN].notna()
@@ -1436,9 +1483,22 @@ class TopiaryPredictor(object):
         )
         wt_join["wt_predictor_version"] = wt_join.get("predictor_version")
 
+        scope_column = "_topiary_wt_mhc_scope"
+        support = self.kind_support
+
+        def scope(row):
+            declared = support.get(row.get(_MODEL_KEY_COLUMN), {}).get(row["kind"], {})
+            dependence = declared.get("mhc_dependence") or mhc_dependence(row["kind"], rows=row.to_frame().T)
+            return prediction_mhc_scope(row.get("allele"), dependence=dependence, allele_set=row.get("allele_set"))
+
+        df = df.copy()
+        df[scope_column] = df.apply(scope, axis=1)
+        wt_join[scope_column] = wt_join.apply(scope, axis=1) if not wt_join.empty else pd.Series(dtype=object)
+        wt_join = wt_join[wt_join[scope_column].notna()]
+
         join_cols = [
             _MODEL_KEY_COLUMN, "fragment_id", _WT_OFFSET_COLUMN,
-            "wt_peptide", "allele", "wt_peptide_length", "kind",
+            "wt_peptide", scope_column, "wt_peptide_length", "kind",
             "prediction_method_name", "predictor_version",
         ]
         join_cols = [
@@ -1477,7 +1537,7 @@ class TopiaryPredictor(object):
             how="left",
             validate="many_to_one",
         )
-        return _ensure_wt_columns(out)
+        return _ensure_wt_columns(out.drop(columns=[scope_column]))
 
     def _filter_wt_rows_to_baseline_context(self, wt_join, baseline_by_fragment_id):
         """Keep cached/context rows compatible with the WT baseline flank."""

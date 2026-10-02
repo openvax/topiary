@@ -277,6 +277,85 @@ PVACSEQ_PRESENTATION = (
 )
 
 
+@pytest.mark.parametrize("extension", ["csv", "tsv"])
+def test_explicit_occurrences_from_mixed_sources_rescore_and_replay(tmp_path, monkeypatch, extension):
+    from dataclasses import replace
+    from topiary import (
+        ProteinFragment, SelectionPolicy, combine_sources, evaluate_selection_policy,
+        predict_peptide_occurrences, read_csv, read_tsv, rescore_candidates, replay_selection_policy,
+        select_policy_representatives,
+    )
+    from .test_candidate_tables import Model
+
+    fragments = [
+        ProteinFragment(fragment_id="first", sequence="MAAASIINFEKLAAA", gene="G1",
+                        reference_sequence="MAAAGIINFEKLAAA"),
+        ProteinFragment(fragment_id="second", sequence="MSIINFEKLGGG", gene="G2"),
+    ]
+    inputs = pd.DataFrame([dict(
+        prediction_id=fragment.fragment_id, fragment_id=fragment.fragment_id,
+        peptide=fragment.sequence[offset:offset + 8], peptide_offset=offset,
+        n_flank=fragment.sequence[max(0, offset - 3):offset], c_flank=fragment.sequence[offset + 8:offset + 11],
+        source_sequence=fragment.sequence, gene=fragment.gene, n_rna_alt=7,
+        wt_peptide=fragment.effective_baseline[offset:offset + 8] if fragment.effective_baseline else None,
+        wt_n_flank=fragment.effective_baseline[max(0, offset - 3):offset] if fragment.effective_baseline else None,
+        wt_c_flank=fragment.effective_baseline[offset + 8:offset + 11] if fragment.effective_baseline else None,
+    ) for fragment, offset in zip(fragments, [4, 1])])
+    original = predict_peptide_occurrences(inputs, Model(), predict_wt=True)
+    assert original.peptide.tolist() == ["SIINFEKL", "SIINFEKL"]
+    assert original.wt_value.iloc[0] == 13. and pd.isna(original.wt_value.iloc[1])
+    # Controlled original scores prefer the first occurrence; contextual fresh
+    # scores prefer the second. Neither operation changes the input peptides.
+    original["value"] = original["affinity"] = [10., 20.]
+    combined = combine_sources({"fragment": original, "lens": read_lens(LENS),
+                                "pvacseq": read_pvacseq(PVACSEQ)}, sample_name="p")
+    before = combined.long_df.copy(deep=True)
+    policy = SelectionPolicy("original", "1 / affinity.value", filter_by="source_label == 'fragment'", duplicates="best")
+    def chosen(evaluation, field):
+        representatives = select_policy_representatives(evaluation)
+        return [evaluation.evidence.df.iloc[rows[0]][field] for rows in representatives.evidence_rows]
+    assert chosen(evaluate_selection_policy(combined, policy), "fragment_id") == ["first"]
+
+    model = Model()
+    enriched = rescore_candidates(combined, model, prefix="fresh", select="source_label == 'fragment'")
+    assert [peptides for peptides, _ in model.calls] == [["SIINFEKL"], ["SIINFEKL"]]
+    pd.testing.assert_frame_equal(enriched.long_df[before.columns], before)
+    assert chosen(evaluate_selection_policy(enriched, policy), "fragment_id") == ["first"]
+    fresh = replace(policy, name="fresh", score_by="1 / fresh__testmodel__pMHC_affinity__value")
+    evaluated = evaluate_selection_policy(enriched, fresh)
+    second = select_policy_representatives(evaluated)
+    assert chosen(evaluated, "fragment_id") == ["second"]
+    assert chosen(evaluated, "n_rna_alt") == [7]
+    assert set(evaluated.evidence.df.source_label) == {"fragment", "lens", "pvacseq"}
+    assert evaluated.evidence.df.wt_peptide.dropna().str.len().gt(0).all()
+
+    # Import-only records can also request exact peptide inference explicitly,
+    # without treating their unknown flanks as known termini.
+    imported = combined.df.loc[combined.df.source_label.ne("fragment")]
+    columns = [column for column in ("source_observation_id", "peptide", "peptide_offset", "n_flank", "c_flank", "wt_peptide")
+               if column in imported]
+    requests = imported[columns].drop_duplicates("source_observation_id").rename(columns={"source_observation_id": "prediction_id"})
+    imported_model = Model()
+    with pytest.raises(ValueError, match="both flanks"):
+        predict_peptide_occurrences(requests, imported_model)
+    assert not imported_model.calls
+    exact = predict_peptide_occurrences(requests, imported_model, use_flanks=False)
+    assert set(exact.peptide) == set(requests.peptide)
+    assert exact.prediction_id.tolist() == requests.prediction_id.tolist()
+    assert sum(len(peptides) for peptides, _ in imported_model.calls) == requests.peptide.nunique()
+    pd.testing.assert_series_equal(exact.wt_peptide, requests.wt_peptide.reset_index(drop=True))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Saved evidence replay must not invoke inference")
+    monkeypatch.setattr(Model, "predict_dataframe", forbidden)
+    path = tmp_path / ("occurrence-policy." + extension)
+    getattr(evaluated.evidence, "to_" + extension)(path)
+    loaded = (read_csv if extension == "csv" else read_tsv)(path)
+    replay = replay_selection_policy(loaded)
+    pd.testing.assert_frame_equal(select_policy_representatives(replay), second, check_exact=True)
+    pd.testing.assert_frame_equal(replay.occurrences, evaluated.occurrences, check_exact=True)
+
+
 @pytest.mark.parametrize("wide", [False, True])
 def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, tmp_path, wide, pandas_string_inference):
     from topiary import (
@@ -334,7 +413,8 @@ def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, t
     model = Model()
     enriched = rescore_candidates(restored, model, prefix="fresh", select="source_label == 'direct'",
                                   use_flanks=False)
-    assert len(model.calls) == len(direct)
+    assert len(model.calls) == 1
+    assert set(model.calls[0][0]) == set(direct.peptide)
     original_again = rank_candidates(enriched, expression, ascending=True, duplicates="best")
     assert original_again.candidate_id.tolist() == pooled.candidate_id.tolist()
     np.testing.assert_allclose(original_again.candidate_score, pooled.candidate_score, equal_nan=True)
@@ -3281,7 +3361,7 @@ def test_reconciled_hypotheses_survive_files_and_explicit_scoring(tmp_path, monk
                                   result.df.iloc[2].rna_observations[0]])["value"] == 3
     model = Model()
     scored = rescore_candidates(result, model, prefix="fresh")
-    assert len(model.calls) == 2
+    assert len(model.calls) == 1
     assert scored.df.candidate_id.nunique() == 2
     saved = scored.to_wide() if wide else scored
     path = tmp_path / ("reconciled." + extension)
@@ -3327,7 +3407,7 @@ def test_native_exacto_combination_reload_and_explicit_rescoring(tmp_path, monke
     assert matches.iloc[0].candidate_id == ranked.iloc[0].candidate_id
     model = Model()
     rescored = rescore_candidates(combined, model, prefix="fresh", select="source_label == 'reported'")
-    assert len(model.calls) == 2
+    assert len(model.calls) == 1
     saved = rescored.to_wide() if wide else rescored
     path = tmp_path / ("exacto-combined." + extension)
     getattr(saved, "to_" + extension)(path)

@@ -17,6 +17,7 @@ from .reconciliation import (
     reconcile_evidence, evidence_views, normalize_rna_observation, union_rna_observations,
 )
 from .prediction_batch import predict_with_cache_miss_report, PartialPredictionWarning
+from .peptide_occurrences import predict_peptide_occurrences
 from .predictor import (
     TopiaryPredictor,
     fragment_from_effect,
@@ -43,6 +44,7 @@ from .ranking import (
     KIND_MHC_DEPENDENCE,
     MHC_DEPENDENCE_VALUES,
     mhc_dependence,
+    prediction_mhc_scope,
     resolve_kind,
     resolve_default_methods,
     describe_default_versions,
@@ -202,7 +204,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.90.0"
+__version__ = "5.91.0"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -241,6 +243,8 @@ __all__ = [
     "write_selection_policy",
     "rank_with_policy",
     "rescore_candidates",
+    "predict_peptide_occurrences",
+    "prediction_mhc_scope",
     "osteosarc_fixture_paths",
     "normalize_python_types",
     "TopiaryPredictor",
