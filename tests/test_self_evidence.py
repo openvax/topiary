@@ -40,9 +40,10 @@ def test_all_origins_and_candidate_sequences_are_retained(search):
 
 
 @pytest.mark.parametrize("search", SELF_WINDOW_TWINS)
-def test_window_and_direct_exact_queries_agree(search):
+def test_window_and_direct_exact_queries_agree(search, pandas_string_inference):
     result = search(reference(), ["SIINFEKL", "AAAAAAAA", "SIINFEKL"], excluded_gene_ids={"CTA"})
-    assert result.df.self_gene_id.tolist() == ["CTA", "healthy", None, "CTA", "healthy"]
+    assert result.df.self_gene_id.isna().tolist() == [False, False, True, False, False]
+    assert result.df.self_gene_id.dropna().tolist() == ["CTA", "healthy", "CTA", "healthy"]
     assert result.df.self_search_status.tolist() == ["matched", "matched", "no_match_in_scope", "matched", "matched"]
     assert result.df.query_index.tolist() == [0, 0, 1, 2, 2]
 
