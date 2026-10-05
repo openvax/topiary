@@ -31,7 +31,11 @@ Columns containing dicts or lists, such as
 declared by ``#topiary_json_encoding``; missing cells are ``<NA>``. Readers
 decode them back into dicts and lists. Homogeneous structured columns use
 ``json-v1``; mixed structured/scalar columns use ``json-v2`` to preserve scalar
-types too, including literal strings that resemble JSON. Values follow JSON's data model:
+types too, including literal strings that resemble JSON. Object columns with
+integer/boolean annotations and nullable integer/boolean columns also use
+``json-v2`` so missing cells cannot
+promote integers to floats. Ordinary numeric measurement columns keep numeric
+inference. Values follow JSON's data model:
 tuples come back as lists and non-string keys as strings.
 """
 
@@ -415,7 +419,7 @@ def _read_delimited(path, sep, tag=None):
         # Explicitly marked strings bypass numeric and NA inference. Missing
         # cells use a sentinel, so literal "NA" and empty strings stay text.
         converters = {column: _decode_text for column in text_columns}
-        converters.update({column: lambda value: _decode_json(value, allow_scalar=mixed_json)
+        converters.update({column: lambda value: value
                            for column in json_columns})
         if meta.topiary_flank_encoding:
             converters.update({column: lambda value: _decode_text(value, label="flank")
@@ -423,6 +427,11 @@ def _read_delimited(path, sep, tag=None):
         version_types = {key: value for key, value in version_types.items() if key not in converters}
         df = pd.read_csv(StringIO(data_text), sep=sep, dtype=version_types,
                          converters=converters, float_precision="round_trip")
+        # Decode after pandas inference. A converter returning int/None can
+        # itself be inferred as floats, losing the declared scalar cell types.
+        for column in json_columns:
+            df[column] = pd.Series([_decode_json(value, allow_scalar=mixed_json)
+                                    for value in df[column]], index=df.index, dtype=object)
 
     # Record source (tag overrides filename).
     source_label = tag if tag is not None else path.name
@@ -501,7 +510,14 @@ def _json_columns(df, exclude=()):
     for column in df.columns:
         if isinstance(column, str) and column not in exclude:
             stated = df[column].dropna()
-            if len(stated) and stated.map(lambda value: isinstance(value, (dict, list))).any():
+            structured = stated.map(lambda value: isinstance(value, (dict, list))).any()
+            typed_scalar = (pd.api.types.is_object_dtype(df[column].dtype)
+                            and stated.map(lambda value: isinstance(
+                                normalize_python_types(value), (int, bool))).any())
+            nullable_discrete = ((pd.api.types.is_integer_dtype(df[column].dtype)
+                                  or pd.api.types.is_bool_dtype(df[column].dtype))
+                                 and df[column].isna().any())
+            if len(stated) and (structured or typed_scalar or nullable_discrete):
                 columns.append(column)
     return columns
 
@@ -577,8 +593,10 @@ def _write_delimited(df, path, sep, metadata, index):
         for column in text_columns:
             df[column] = df[column].astype(object).map(_encode_text)
         for column in json_columns:
-            df[column] = df[column].map(lambda value, column=column: _encode_json(
-                value, column=column, allow_scalar=mixed_json))
+            # Nullable integer map() can coerce to floats before invoking the
+            # mapper. Iterate the original cells to encode their actual types.
+            df[column] = pd.Series([_encode_json(value, column=column, allow_scalar=mixed_json)
+                                    for value in df[column]], index=df.index, dtype=object)
     # The flag describes this particular file, not the source result. Derive
     # it anew on every write, including after columns/rows have been removed.
     file_metadata = replace(

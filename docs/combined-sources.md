@@ -741,6 +741,11 @@ writer declares `json-v2` and preserves each scalar's JSON type too. A list
 `[[7, 8]]` stays a list, and text `"[[7, 8]]"` stays text; empty strings,
 literal `NA`/`<NA>`, zero, false and unknown cells remain distinct. Readers
 accept both versions; homogeneous structured exports continue using `json-v1`.
+Nullable integer/boolean annotations and object columns with typed scalar
+cells also use `json-v2`. Their per-cell types survive missing values and
+scalar-only subsets, so deriving observation identities again does not turn
+an integer coordinate into a different floating-point annotation. Ordinary
+numeric measurement columns retain normal numeric inference.
 Values follow JSON's data model, so tuples come back as lists and non-string
 keys as strings. A cell JSON cannot represent raises `TypeError` before the
 output file is opened.

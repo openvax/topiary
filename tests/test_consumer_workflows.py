@@ -3603,6 +3603,16 @@ def test_exacto_and_legacy_annotation_types_survive_combined_replay(tmp_path, ex
     # Older consumers retain interval annotations as producer text, whereas
     # native Exacto supplies structured intervals in the same evidence column.
     legacy.df['mutation_intervals_in_peptide'] = '[[0, 1]]'
+    legacy.df['peptide_length'] = legacy.df.peptide.str.len().astype('Int64')
+    # Re-deriving identities from a mixed native table must also survive
+    # nullable scalar annotations (integer lengths beside Exacto's nulls).
+    from topiary import TopiaryResult
+    native = TopiaryResult(pd.concat([exacto.long_df, legacy.long_df], ignore_index=True))
+    historical_ids = combine_sources({'mixed': native}, sample_name='patient').df.source_observation_id.tolist()
+    raw_path = tmp_path / ('raw.' + extension)
+    (native.to_csv if extension == 'csv' else native.to_tsv)(raw_path)
+    raw_replay = (read_csv if extension == 'csv' else read_tsv)(raw_path)
+    assert combine_sources({'mixed': raw_replay}, sample_name='patient').df.source_observation_id.tolist() == historical_ids
     combined = reconcile_evidence(combine_sources({'exacto': exacto, 'legacy': legacy}, sample_name='patient'))
     path = tmp_path / ('mixed.' + extension)
     (combined.to_csv if extension == 'csv' else combined.to_tsv)(path)
