@@ -91,10 +91,12 @@ from .nodes import (
 )
 from .apply import apply_filter, apply_sort, evaluate_scores, evaluate_filter
 from .parser import as_dsl_node, as_dsl_nodes, parse
+from .population import PopulationMaximum, DenseRank, FillMissing, OrdinalRank, ordinal_rank
 
 __all__ = [
     # Core node classes
     "DSLNode",
+    "PopulationMaximum", "DenseRank", "FillMissing", "OrdinalRank", "ordinal_rank",
     "EvalContext",
     "Const",
     "Column",

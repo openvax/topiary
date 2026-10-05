@@ -57,6 +57,7 @@ from .nodes import (
     minimum,
 )
 from ..properties import _PROPERTIES
+from .population import ordinal_rank
 
 _AGGREGATION_FUNCS = {
     "mean": mean,
@@ -64,11 +65,13 @@ _AGGREGATION_FUNCS = {
     "minimum": minimum,
     "maximum": maximum,
     "median": median,
+    "ordinal_rank": ordinal_rank,
 }
 
 _TRANSFORM_NAMES = {
     "ascending_cdf", "descending_cdf", "norm", "logistic", "logistic_normalized",
     "clip", "hinge", "log", "log2", "log10", "log1p", "exp", "sqrt",
+    "population_max", "dense_rank", "fillna",
 }
 
 _KIND_ACCESSOR_ALIASES = {
@@ -746,7 +749,7 @@ class _Parser:
                 msg += f" Available: {available}"
             raise ValueError(msg)
         if isinstance(node, KindAccessor):
-            method = getattr(node, name_lower)
+            method = getattr(node.value, name_lower)
             float_args = [a.val if isinstance(a, Const) else a for a in args]
             return method(*float_args)
         if not isinstance(node, DSLNode):

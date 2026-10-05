@@ -53,6 +53,7 @@ from topiary import (
     predict_peptide_occurrences,
     match_self_peptides, self_matches_in_windows,
     Affinity, Column, apply_filter, apply_sort,
+    parse as parse_dsl,
 )
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
@@ -231,6 +232,10 @@ DSL_MEASUREMENT_TWINS = (
     ("result_filter", _result_measurement_filter),
     ("result_sort", _result_measurement_sort),
 )
+
+# Python node construction and parsed display must agree on report populations.
+POPULATION_TWINS = (lambda expression, ctx: expression.eval(ctx),
+                   lambda expression, ctx: parse_dsl(repr(expression)).eval(ctx))
 
 
 @pytest.mark.parametrize("expression", ["affinity.value", "n_rna_alt / affinity.value", "n_rna_alt"])

@@ -3563,3 +3563,30 @@ def test_short_context_coverage_explains_changed_selection_and_replays(tmp_path,
         pd.testing.assert_frame_equal(repeated.df, coverage.df, check_exact=True)
         pd.testing.assert_frame_equal(summarize_policy_coverage(repeated), summarize_policy_coverage(coverage))
         pd.testing.assert_frame_equal(compare_policy_evaluations(left, replay).df, comparison.df, check_exact=True)
+
+
+def test_lens_formula_reader_evaluation_and_native_replay(tmp_path):
+    from topiary import (read_lens, SelectionPolicy, evaluate_selection_policy,
+                         replay_selection_policy, read_tsv)
+    path = tmp_path / 'lens.tsv'
+    path.write_text(
+        'allele\tpeptide\tantigen_source\tmhcflurry_2.1.1.aff\trna_reads_covering_genomic_origin_with_peptide_cds\tccf\n'
+        'HLA-A*02:01\tSIINFEKL\tSNV\t100\t4\t0.5\n'
+        'HLA-A*02:01\tGILGFVFTL\tSNV\t400\t16\t\n')
+    report = read_lens(path)
+    policy = SelectionPolicy('lens-example',
+        '(1 - affinity.value / 1000).hinge() * '
+        'lens_rna_reads_covering_genomic_origin_with_peptide_cds.log2() / '
+        'lens_rna_reads_covering_genomic_origin_with_peptide_cds.log2().population_max() * ccf.fillna(1)',
+        min_score=0)
+    evaluation = evaluate_selection_policy(report, policy)
+    np.testing.assert_allclose(evaluation.occurrences.score, [.225, .6])
+    from topiary import TopiaryResult
+    without_ccf = TopiaryResult(report.df.drop(columns='ccf'))
+    alternative = evaluate_selection_policy(without_ccf, policy)
+    np.testing.assert_allclose(alternative.occurrences.score, [.45, .6])
+    assert alternative.occurrences.score.iloc[0] != evaluation.occurrences.score.iloc[0]
+    path = tmp_path / 'policy.tsv'
+    evaluation.evidence.to_tsv(path)
+    replay = replay_selection_policy(read_tsv(path))
+    pd.testing.assert_frame_equal(evaluation.occurrences, replay.occurrences)
