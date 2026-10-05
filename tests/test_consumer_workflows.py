@@ -3590,3 +3590,38 @@ def test_lens_formula_reader_evaluation_and_native_replay(tmp_path):
     evaluation.evidence.to_tsv(path)
     replay = replay_selection_policy(read_tsv(path))
     pd.testing.assert_frame_equal(evaluation.occurrences, replay.occurrences)
+@pytest.mark.parametrize('extension', ['csv', 'tsv'])
+def test_exacto_and_legacy_annotation_types_survive_combined_replay(tmp_path, extension):
+    from pathlib import Path
+    from topiary import (read_exacto, read_lens, combine_sources, reconcile_evidence,
+                         read_csv, read_tsv)
+
+    root = Path(__file__).parent / 'data'
+    exacto = read_exacto(root / 'exacto' / 'peptide-variants.tsv', sample_name='patient',
+                        primary_structures=root / 'exacto' / 'primary-structures.tsv')
+    legacy = read_lens(root / 'lens' / 'sample_v1_9.tsv')
+    # Older consumers retain interval annotations as producer text, whereas
+    # native Exacto supplies structured intervals in the same evidence column.
+    legacy.df['mutation_intervals_in_peptide'] = '[[0, 1]]'
+    legacy.df['peptide_length'] = legacy.df.peptide.str.len().astype('Int64')
+    # Re-deriving identities from a mixed native table must also survive
+    # nullable scalar annotations (integer lengths beside Exacto's nulls).
+    from topiary import TopiaryResult
+    native = TopiaryResult(pd.concat([exacto.long_df, legacy.long_df], ignore_index=True))
+    historical_ids = combine_sources({'mixed': native}, sample_name='patient').df.source_observation_id.tolist()
+    raw_path = tmp_path / ('raw.' + extension)
+    (native.to_csv if extension == 'csv' else native.to_tsv)(raw_path)
+    raw_replay = (read_csv if extension == 'csv' else read_tsv)(raw_path)
+    assert combine_sources({'mixed': raw_replay}, sample_name='patient').df.source_observation_id.tolist() == historical_ids
+    combined = reconcile_evidence(combine_sources({'exacto': exacto, 'legacy': legacy}, sample_name='patient'))
+    path = tmp_path / ('mixed.' + extension)
+    (combined.to_csv if extension == 'csv' else combined.to_tsv)(path)
+    restored = (read_csv if extension == 'csv' else read_tsv)(path)
+    expected = combined.df.mutation_intervals_in_peptide.tolist()
+    actual = restored.df.mutation_intervals_in_peptide.tolist()
+    assert any(isinstance(value, list) for value in expected)
+    assert any(isinstance(value, str) for value in expected)
+    assert actual == expected
+    assert [type(value) for value in actual] == [type(value) for value in expected]
+    assert restored.df.source_observation_id.tolist() == combined.df.source_observation_id.tolist()
+    assert restored.extra == combined.extra

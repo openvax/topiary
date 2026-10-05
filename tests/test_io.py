@@ -393,6 +393,67 @@ def test_json_io_twins_round_trip_dicts_lists_and_missing(tmp_path, call_style):
     pd.testing.assert_frame_equal(frame, original)
 
 
+@pytest.mark.parametrize('call_style', ['dataframe', 'result-function', 'result-method'])
+def test_json_io_twins_preserve_mixed_structures_and_scalars(tmp_path, call_style):
+    cells = [[[7, 8]], '[[7, 8]]', {'count': 0}, [], {}, False, 0, 1.5,
+             '', 'NA', '<NA>', 'a,b\t"c"\nd', None, np.nan]
+    frame = pd.DataFrame({'source_annotation': pd.Series(cells, dtype=object),
+                          'row': range(len(cells))})
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ('mixed.' + suffix)
+        result = TopiaryResult(frame)
+        if call_style == 'dataframe':
+            writer(frame, path)
+        elif call_style == 'result-function':
+            writer(result, path)
+        else:
+            method(result, path)
+        restored = reader(path)
+        for expected, actual in zip(cells, restored.df.source_annotation):
+            if expected is None or expected is np.nan:
+                assert actual is None
+            else:
+                assert type(actual) is type(expected) and actual == expected
+        assert '"version":"json-v2"' in path.read_text()
+        # A subset containing only structured cells uses the older encoding.
+        writer(restored.df.iloc[[0, 2]], path, metadata=restored.metadata)
+        assert '"version":"json-v1"' in path.read_text()
+        assert reader(path).df.source_annotation.tolist() == [cells[0], cells[2]]
+
+
+@pytest.mark.parametrize('call_style', ['dataframe', 'result-function', 'result-method'])
+def test_json_io_twins_preserve_nullable_scalar_annotations(tmp_path, call_style):
+    cells = [9, None, 0, np.nan, 1.5, '9', False, True]
+    frame = pd.DataFrame({'annotation': pd.Series(cells, dtype=object),
+                          'peptide_length': pd.Series([9, None, 0, None, 9, 9, 9, 9], dtype='Int64'),
+                          'known': pd.Series([True, None, False, None, True, True, True, True], dtype='boolean'),
+                          'numeric_measurement': np.arange(len(cells), dtype=float)})
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ('scalar.' + suffix)
+        result = TopiaryResult(frame)
+        if call_style == 'dataframe':
+            writer(frame, path)
+        elif call_style == 'result-function':
+            writer(result, path)
+        else:
+            method(result, path)
+        restored = reader(path)
+        for expected, actual in zip(cells, restored.df.annotation):
+            if expected is None or expected is np.nan:
+                assert actual is None
+            else:
+                assert type(actual) is type(expected) and actual == expected
+        pd.testing.assert_series_equal(restored.df.numeric_measurement, frame.numeric_measurement)
+        assert restored.df.peptide_length.tolist() == [9, None, 0, None, 9, 9, 9, 9]
+        assert type(restored.df.peptide_length.iloc[0]) is int
+        assert restored.df.known.tolist() == [True, None, False, None, True, True, True, True]
+        # With only integers and missing cells, pandas' converter inference
+        # must not turn the JSON integer into a float after decoding.
+        method(TopiaryResult(restored.df.iloc[:4]), path)
+        values = reader(path).df.annotation.tolist()
+        assert values == [9, None, 0, None] and type(values[0]) is int
+
+
 @pytest.mark.parametrize("encoding,error", [
     ("unknown", "Unsupported JSON encoding"),
     ({"version": "future", "columns": ["context"]}, "Unsupported JSON encoding"),

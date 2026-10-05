@@ -26,10 +26,16 @@ encoding, declared by ``#topiary_text_encoding`` with its version and column
 names. This preserves identifiers such as ``001`` and literal sequence text
 such as ``NA`` without changing numeric measurement columns.
 
-Columns whose stated cells are all dicts or lists, such as
+Columns containing dicts or lists, such as
 ``measurement_context``, are written as one JSON document per cell and
 declared by ``#topiary_json_encoding``; missing cells are ``<NA>``. Readers
-decode them back into dicts and lists. Values follow JSON's data model:
+decode them back into dicts and lists. Homogeneous structured columns use
+``json-v1``; mixed structured/scalar columns use ``json-v2`` to preserve scalar
+types too, including literal strings that resemble JSON. Object columns with
+integer/boolean annotations and nullable integer/boolean columns also use
+``json-v2`` so missing cells cannot
+promote integers to floats. Ordinary numeric measurement columns keep numeric
+inference. Values follow JSON's data model:
 tuples come back as lists and non-string keys as strings.
 """
 
@@ -52,6 +58,7 @@ _SCALAR_METADATA_KEYS = frozenset((
 _STRUCTURED_METADATA_KEYS = frozenset(("topiary_text_encoding", "topiary_json_encoding"))
 _TEXT_ENCODING = "escaped-v1"
 _JSON_ENCODING = "json-v1"
+_MIXED_JSON_ENCODING = "json-v2"
 _FLANK_COLUMNS = ("n_flank", "c_flank")
 _MISSING_TEXT = "<NA>"
 
@@ -344,15 +351,15 @@ def _decode_text(value, *, label="text"):
     return value
 
 
-def _decode_json(value):
-    """Decode one cell of a declared JSON column into a dict or list."""
+def _decode_json(value, *, allow_scalar=False):
+    """Decode a declared JSON cell, preserving the wire version's types."""
     if value == _MISSING_TEXT:
         return None
     try:
         decoded = json.loads(value)
     except json.JSONDecodeError:
-        decoded = None
-    if not isinstance(decoded, (dict, list)):
+        raise ValueError(f"Invalid JSON cell: {value!r}") from None
+    if not allow_scalar and not isinstance(decoded, (dict, list)):
         raise ValueError(f"Invalid JSON cell: {value!r}")
     return decoded
 
@@ -362,7 +369,7 @@ def _declared_columns(encoding, *, version, label):
     if encoding is None:
         return []
     if (not isinstance(encoding, dict) or set(encoding) != {"version", "columns"}
-            or encoding["version"] != version):
+            or encoding["version"] not in (version if isinstance(version, tuple) else (version,))):
         raise ValueError(f"Unsupported {label} encoding: {encoding!r}")
     columns = encoding["columns"]
     if (not isinstance(columns, list) or any(not isinstance(c, str) for c in columns)
@@ -385,7 +392,9 @@ def _read_delimited(path, sep, tag=None):
     text_columns = _declared_columns(
         meta.topiary_text_encoding, version=_TEXT_ENCODING, label="text")
     json_columns = _declared_columns(
-        meta.topiary_json_encoding, version=_JSON_ENCODING, label="JSON")
+        meta.topiary_json_encoding, version=(_JSON_ENCODING, _MIXED_JSON_ENCODING), label="JSON")
+    mixed_json = bool(meta.topiary_json_encoding and
+                      meta.topiary_json_encoding['version'] == _MIXED_JSON_ENCODING)
     if set(text_columns) & set(json_columns):
         raise ValueError("Text and JSON encodings both name the same column")
 
@@ -410,13 +419,19 @@ def _read_delimited(path, sep, tag=None):
         # Explicitly marked strings bypass numeric and NA inference. Missing
         # cells use a sentinel, so literal "NA" and empty strings stay text.
         converters = {column: _decode_text for column in text_columns}
-        converters.update({column: _decode_json for column in json_columns})
+        converters.update({column: lambda value: value
+                           for column in json_columns})
         if meta.topiary_flank_encoding:
             converters.update({column: lambda value: _decode_text(value, label="flank")
                                for column in _FLANK_COLUMNS if column in columns})
         version_types = {key: value for key, value in version_types.items() if key not in converters}
         df = pd.read_csv(StringIO(data_text), sep=sep, dtype=version_types,
                          converters=converters, float_precision="round_trip")
+        # Decode after pandas inference. A converter returning int/None can
+        # itself be inferred as floats, losing the declared scalar cell types.
+        for column in json_columns:
+            df[column] = pd.Series([_decode_json(value, allow_scalar=mixed_json)
+                                    for value in df[column]], index=df.index, dtype=object)
 
     # Record source (tag overrides filename).
     source_label = tag if tag is not None else path.name
@@ -490,20 +505,28 @@ def _encode_text(value, *, label="Text"):
 
 
 def _json_columns(df, exclude=()):
-    """Columns whose stated cells are all dicts or lists."""
+    """Columns containing structured cells, including mixed source types."""
     columns = []
     for column in df.columns:
         if isinstance(column, str) and column not in exclude:
             stated = df[column].dropna()
-            if len(stated) and stated.map(lambda value: isinstance(value, (dict, list))).all():
+            structured = stated.map(lambda value: isinstance(value, (dict, list))).any()
+            typed_scalar = (pd.api.types.is_object_dtype(df[column].dtype)
+                            and stated.map(lambda value: isinstance(
+                                normalize_python_types(value), (int, bool))).any())
+            nullable_discrete = ((pd.api.types.is_integer_dtype(df[column].dtype)
+                                  or pd.api.types.is_bool_dtype(df[column].dtype))
+                                 and df[column].isna().any())
+            if len(stated) and (structured or typed_scalar or nullable_discrete):
                 columns.append(column)
     return columns
 
 
-def _encode_json(value, *, column):
+def _encode_json(value, *, column, allow_scalar=False):
     """One JSON document per stated cell; the missing-text sentinel otherwise."""
     if not isinstance(value, (dict, list)):
-        return _MISSING_TEXT
+        if not allow_scalar or (pd.api.types.is_scalar(value) and pd.isna(value)):
+            return _MISSING_TEXT
     try:
         return json.dumps(normalize_python_types(value), separators=(",", ":"))
     except (TypeError, ValueError) as error:
@@ -559,6 +582,8 @@ def _write_delimited(df, path, sep, metadata, index):
             if len(stated) and stated.map(lambda value: isinstance(value, str)).all():
                 text_columns.append(column)
     json_columns = _json_columns(df, exclude=flank_columns)
+    mixed_json = any(not df[column].dropna().map(lambda value: isinstance(value, (dict, list))).all()
+                     for column in json_columns)
     if flank_columns or text_columns or json_columns:
         df = df.copy()
         for column in flank_columns:
@@ -568,13 +593,17 @@ def _write_delimited(df, path, sep, metadata, index):
         for column in text_columns:
             df[column] = df[column].astype(object).map(_encode_text)
         for column in json_columns:
-            df[column] = df[column].map(lambda value, column=column: _encode_json(value, column=column))
+            # Nullable integer map() can coerce to floats before invoking the
+            # mapper. Iterate the original cells to encode their actual types.
+            df[column] = pd.Series([_encode_json(value, column=column, allow_scalar=mixed_json)
+                                    for value in df[column]], index=df.index, dtype=object)
     # The flag describes this particular file, not the source result. Derive
     # it anew on every write, including after columns/rows have been removed.
     file_metadata = replace(
         metadata, topiary_flank_encoding=_TEXT_ENCODING if flank_columns else None,
         topiary_text_encoding=dict(version=_TEXT_ENCODING, columns=text_columns) if text_columns else None,
-        topiary_json_encoding=dict(version=_JSON_ENCODING, columns=json_columns) if json_columns else None)
+        topiary_json_encoding=dict(version=_MIXED_JSON_ENCODING if mixed_json else _JSON_ENCODING,
+                                  columns=json_columns) if json_columns else None)
     comment_block = _format_comment_block(file_metadata)
 
     with open(path, "w") as f:
