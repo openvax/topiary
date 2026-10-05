@@ -2538,6 +2538,10 @@ KIND_MHC_DEPENDENCE = MappingProxyType({
     "antigen_processing": "none",
     "proteasome_cleavage": "none",
     "endolysosomal_cleavage": "none",
+    # mhctools 3.47 adds whole-substrate cleavage observations, separate
+    # from per-bond processing and MHC loading. Older supported releases
+    # do not expose this kind, so do not advertise it in their registry.
+    **({Kind.substrate_cleavage: "none"} if hasattr(Kind, "substrate_cleavage") else {}),
     "erap_trimming": "none",
     "tap_transport": "none",
     "serum_half_life": "none",

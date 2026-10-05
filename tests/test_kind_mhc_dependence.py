@@ -62,6 +62,23 @@ def test_the_mapping_is_read_only():
         KIND_MHC_DEPENDENCE["pMHC_affinity"] = "none"
 
 
+def test_substrate_cleavage_is_mhc_independent_when_registered():
+    from mhctools import Kind
+
+    if not hasattr(Kind, 'substrate_cleavage'):
+        pytest.skip('This supported mhctools version predates substrate observations')
+    assert KIND_MHC_DEPENDENCE[Kind.substrate_cleavage] == 'none'
+    frame = pd.DataFrame([
+        _row('substrate_cleavage', allele='', score=.75),
+        _row('pMHC_affinity', score=.5),
+        _row('pMHC_affinity', allele='HLA-B*07:02', score=.4),
+    ])
+    with pytest.warns(UserWarning, match='peptide-level value'):
+        scores = evaluate_scores(frame, parse('substrate_cleavage.score'))
+    assert scores.tolist() == [.75, .75, .75]
+    assert _dependence(frame, 'substrate_cleavage') == 'none'
+
+
 @pytest.mark.parametrize("kind", ["serum_half_life", "blood_half_life"])
 def test_circulating_peptide_half_life_is_not_pmhc_stability(kind):
     assert _kind_value(KIND_ALIASES[kind]) == kind
