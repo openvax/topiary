@@ -1683,6 +1683,21 @@ class DSLNode:
     def sqrt(self):
         return UnaryOp(self, math.sqrt)
 
+    def population_max(self):
+        """Maximum finite value across this report's evaluated occurrences."""
+        from .population import PopulationMaximum
+        return PopulationMaximum(self)
+
+    def dense_rank(self, ascending=True, missing_bottom=False):
+        """Dense occurrence ranks; direction and missing handling are explicit."""
+        from .population import DenseRank
+        return DenseRank(self, ascending, missing_bottom)
+
+    def fillna(self, value):
+        """Explicit numeric fill for missing evidence, including absent columns."""
+        from .population import FillMissing
+        return FillMissing(self, value)
+
 
 def _as_node(x):
     """Coerce scalars / KindAccessors to DSLNodes."""

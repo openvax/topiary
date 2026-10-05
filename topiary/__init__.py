@@ -35,6 +35,7 @@ from .ranking import (
     Const,
     Count,
     DSLNode,
+    PopulationMaximum, DenseRank, FillMissing, OrdinalRank, ordinal_rank,
     EvalContext,
     BestAlleleField,
     Field,
@@ -206,7 +207,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.93.0"
+__version__ = "5.93.1"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -238,6 +239,7 @@ __all__ = [
     "compare_policy_evaluations",
     "PolicyEvaluation",
     "evaluate_selection_policy",
+    "PopulationMaximum", "DenseRank", "FillMissing", "OrdinalRank", "ordinal_rank",
     "replay_selection_policy",
     "select_policy_representatives",
     "describe_evaluation_context",

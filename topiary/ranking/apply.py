@@ -20,6 +20,7 @@ from .nodes import (
     _unwrap_peptide_view,
 )
 from .parser import as_dsl_node, as_dsl_nodes
+from .population import FillMissing
 
 
 def _check_group_keys(df, group_keys):
@@ -80,6 +81,12 @@ def _collect_column_names(node):
         n = stack.pop()
         if n is None:
             continue
+        if isinstance(n, FillMissing) and hasattr(n.inner, 'col_name'):
+            # fillna explicitly permits an absent numeric Column. Its eval
+            # still checks contradictions when evidence is present.
+            from .nodes import Column
+            if isinstance(n.inner, Column):
+                continue
         col_name = getattr(n, "col_name", None)
         if isinstance(col_name, str):
             names.add(col_name)
