@@ -393,6 +393,34 @@ def test_json_io_twins_round_trip_dicts_lists_and_missing(tmp_path, call_style):
     pd.testing.assert_frame_equal(frame, original)
 
 
+@pytest.mark.parametrize('call_style', ['dataframe', 'result-function', 'result-method'])
+def test_json_io_twins_preserve_mixed_structures_and_scalars(tmp_path, call_style):
+    cells = [[[7, 8]], '[[7, 8]]', {'count': 0}, [], {}, False, 0, 1.5,
+             '', 'NA', '<NA>', 'a,b\t"c"\nd', None, np.nan]
+    frame = pd.DataFrame({'source_annotation': pd.Series(cells, dtype=object),
+                          'row': range(len(cells))})
+    for suffix, writer, method, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ('mixed.' + suffix)
+        result = TopiaryResult(frame)
+        if call_style == 'dataframe':
+            writer(frame, path)
+        elif call_style == 'result-function':
+            writer(result, path)
+        else:
+            method(result, path)
+        restored = reader(path)
+        for expected, actual in zip(cells, restored.df.source_annotation):
+            if expected is None or expected is np.nan:
+                assert actual is None
+            else:
+                assert type(actual) is type(expected) and actual == expected
+        assert '"version":"json-v2"' in path.read_text()
+        # A subset containing only structured cells uses the older encoding.
+        writer(restored.df.iloc[[0, 2]], path, metadata=restored.metadata)
+        assert '"version":"json-v1"' in path.read_text()
+        assert reader(path).df.source_annotation.tolist() == [cells[0], cells[2]]
+
+
 @pytest.mark.parametrize("encoding,error", [
     ("unknown", "Unsupported JSON encoding"),
     ({"version": "future", "columns": ["context"]}, "Unsupported JSON encoding"),

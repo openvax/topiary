@@ -732,10 +732,15 @@ with a backslash gains one leading backslash, which the reader removes.
 Other columns containing only strings and missing values use the same cell
 encoding. The `#topiary_text_encoding` metadata records `escaped-v1` and the
 affected column names, preserving literal identifiers and sequence text.
-Columns whose stated cells are all dicts or lists, such as
+Columns containing dicts or lists, such as
 `measurement_context`, are written as one JSON document per cell, with missing
 cells as `<NA>`. The `#topiary_json_encoding` metadata records `json-v1` and the
 affected column names; the reader decodes the cells back into dicts and lists.
+When source tables supply scalar cells in the same structured column, the
+writer declares `json-v2` and preserves each scalar's JSON type too. A list
+`[[7, 8]]` stays a list, and text `"[[7, 8]]"` stays text; empty strings,
+literal `NA`/`<NA>`, zero, false and unknown cells remain distinct. Readers
+accept both versions; homogeneous structured exports continue using `json-v1`.
 Values follow JSON's data model, so tuples come back as lists and non-string
 keys as strings. A cell JSON cannot represent raises `TypeError` before the
 output file is opened.
