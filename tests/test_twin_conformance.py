@@ -41,6 +41,8 @@ from topiary.evidence import (
     attach_rna_evidence,
 )
 from topiary.rna import load_cufflinks_dataframe, load_cufflinks_dict, load_cufflinks_fpkm_dict
+from topiary.rna import load_transcript_fpkm_dict_from_gtf
+from topiary.rna.expression_loader import load_expression
 from topiary import (
     APPROXIMATED, MEASURED, CachedPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
     read_fragments, read_pvacseq, write_fragments, unique_fragments,
@@ -122,6 +124,14 @@ CUFFLINKS_FPKM_TWINS = (
     ("dataframe", lambda *a, **kw: load_cufflinks_dataframe(*a, **kw).set_index("id").fpkm.to_dict()),
     ("rows", lambda *a, **kw: {key: row.fpkm for key, row in load_cufflinks_dict(*a, **kw).items()}),
     ("values", load_cufflinks_fpkm_dict),
+)
+
+
+# Both public StringTie readers must retain the same transcript FPKM values.
+GTF_FPKM_TWINS = (
+    ("values", load_transcript_fpkm_dict_from_gtf),
+    ("dataframe", lambda path: load_expression(
+        path, val_cols="FPKM").set_index("reference_id")["FPKM"].to_dict()),
 )
 
 
