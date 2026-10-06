@@ -214,8 +214,10 @@ def support(fragment):
 `pip install 'topiary[isovar]'`; only `fragments_from_variants` with an
 `alignment_file` needs it.
 
-The extra requires `isovar>=1.39.5,<2`, compatible with Osteosarc 0.14 and the
-current RNA support record and export schemas. This range is enforced at run time as well as at install time:
+The extra requires `isovar>=1.39.5,<2`. Topiary accepts Osteosarc 0.14 and 0.15;
+Isovar 1.45.0 requires Osteosarc >=0.15.4,<0.16. Historical shared bundles and
+their producer versions remain pinned independently of these runtime versions.
+The Isovar range is enforced at run time as well as at install time:
 an older release can import cleanly and still return wrong evidence (1.17.x
 miscounts reads at insertion boundaries), so Topiary refuses it with an
 upgrade instruction. Upgrade with `pip install --upgrade 'topiary[isovar]'`.

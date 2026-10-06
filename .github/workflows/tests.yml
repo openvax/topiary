@@ -217,7 +217,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        isovar: ["isovar==1.39.5", "isovar<2"]
+        # Retain the legacy 0.14 consumer and pin the new 0.15 adoption floor,
+        # alongside the latest release compatible with our shared-data window.
+        isovar: ["isovar==1.39.5", "isovar==1.45.0", "isovar<2"]
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python 3.12

@@ -35,7 +35,7 @@ raise. Fixture builders belong beside the tests.
 Topiary 5.68.4 (#380) now delegates fixture resolution and generation to the
 published Osteosarc 0.2.3 `fixture_assets` and `consumer_fixtures` APIs. Osteosarc
 0.1.4 lacks these APIs and is no longer a compatible development baseline.
-Topiary requires one osteosarc minor series at a time (see `requirements.txt`),
-accepting patch fixes within it. Verify shared fixtures offline, built-distribution
+Topiary accepts the audited Osteosarc 0.14 and 0.15 minor series (see
+`requirements.txt`). Verify shared fixtures offline, built-distribution
 metadata, normal dependency resolution and an editable installation. Shared source data and historical scientific expectations stay
 pinned independently of the package version.
