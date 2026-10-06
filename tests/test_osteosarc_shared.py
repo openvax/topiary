@@ -40,6 +40,23 @@ def no_download(*args, **kwargs):
     raise AssertionError("Offline regression attempted acquisition")
 
 
+def test_runtime_upgrade_preserves_historical_bundle_identity_and_producer():
+    from osteosarc import digest, fetch_bundle, verify_bundle
+    from osteosarc.shared import published
+
+    root = Path(fetch_bundle("openvax-v1"))
+    original = (root / "manifest.json").read_bytes()
+    manifest = verify_bundle(root)
+    # This is the published original-read bundle, produced by Osteosarc 0.11.0.
+    # A runtime upgrade must retain its identity and recorded producer.
+    expected = "193623c040fa85e9dae5733fe0939358b9b7119da0e6563183bf5a9727f2d7d4"
+    assert digest(root / "manifest.json") == published("openvax-v1")["manifest_sha256"] == expected
+    assert manifest["toolchain"]["osteosarc"] == "0.11.0"
+    assert manifest["record_encoding"] == "bam-record-v1"
+    assert sid_read(NTF3).is_file()
+    assert (root / "manifest.json").read_bytes() == original
+
+
 def test_all_shared_inputs_keep_identity_and_records():
     import pysam
     from osteosarc import assembly_from_header

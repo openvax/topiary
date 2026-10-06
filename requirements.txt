@@ -8,4 +8,6 @@ pyensembl>=2.3.0,<3.0.0
 # PEP 440 versions and validated package names for release preflight
 packaging>=23.2
 argcomplete>=1.10
-osteosarc>=0.14.0,<0.15
+# Both shared-data minor series retain the public cache/fixture APIs and
+# historical openvax-v1 identities. Isovar 1.45 requires the 0.15 window.
+osteosarc>=0.14.0,<0.16
