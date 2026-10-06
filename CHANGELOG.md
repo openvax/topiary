@@ -7,6 +7,12 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.93.4
+
+- Preserve arithmetic associativity, complete transform receivers, nested
+  comparisons and boolean negation when rendering DSL expressions (#448).
+  Saving and reparsing a rendered expression retains its scores and selections.
+
 ## 5.93.0
 
 - Report policy coverage separately from score filling and acceptance, with

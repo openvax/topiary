@@ -37,6 +37,7 @@ from topiary.ranking import (
     parse,
     wt,
 )
+from .test_twin_conformance import DSL_RENDER_TWINS
 
 
 # ---------------------------------------------------------------------------
@@ -69,19 +70,61 @@ def _simple_df():
 def _assert_roundtrips(node, df=None):
     """Parse-stringify-parse equivalence: evaluate the original and a
     re-parsed version of its string form, assert same values."""
-    text = node.to_expr_string()
-    reparsed = parse(text)
     if df is None:
         df = _simple_df()
-    ctx = EvalContext(df)
-    a = node.eval(ctx)
-    b = reparsed.eval(ctx)
-    # Align dtypes — bool vs float both fine for our comparison
-    a_arr = a.astype(float).to_numpy(na_value=np.nan)
-    b_arr = b.astype(float).to_numpy(na_value=np.nan)
-    assert np.allclose(a_arr, b_arr, equal_nan=True), (
-        f"Round-trip mismatch for {text!r}: {a_arr} vs {b_arr}"
-    )
+    original = node.eval(EvalContext(df)).astype(float)
+    for render in DSL_RENDER_TWINS:
+        text = render(node)
+        reparsed = parse(text).eval(EvalContext(df)).astype(float)
+        pd.testing.assert_series_equal(
+            original, reparsed, check_exact=True, check_names=False,
+            obj=f"Round-trip of {text!r}",
+        )
+
+
+ARITHMETIC_OPS = [operator.add, operator.sub, operator.mul, operator.truediv, operator.pow]
+
+
+@pytest.mark.parametrize("outer", ARITHMETIC_OPS)
+@pytest.mark.parametrize("inner", ARITHMETIC_OPS)
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_arithmetic_roundtrip_preserves_nested_evaluation(outer, inner, side):
+    a, b, c = Const(3), Const(2), Const(4)
+    node = outer(inner(a, b), c) if side == "left" else outer(a, inner(b, c))
+    _assert_roundtrips(node)
+
+
+@pytest.mark.parametrize("expression", [
+    "1e16 + (0 - 1e16 + 1)",
+    "1e308 * (1e308 / 1e308)",
+    "~(0 + 1)",
+    "~(2 ** 0)",
+    "(1 < 2) == (3 < 4)",
+    "((affinity.score > 0.5) == (presentation.score > 0.5)) & (len > 1)",
+    "(-1).sqrt() >= 0",
+    "(affinity.value - wt.affinity.value).hinge().log1p()",
+])
+def test_nested_expression_roundtrip(expression):
+    frame = _simple_df()
+    frame["wt_value"] = [100., 100., 6000., 6000.]
+    _assert_roundtrips(parse(expression), frame)
+
+
+@pytest.mark.parametrize("receiver", [
+    "(4)", "(0.25)", "(-1)", "(affinity.score + 1)",
+    "(affinity.score >= 0.5)", "(~(affinity.score >= 0.5))",
+    "(~column(members).includes('A'))",
+])
+@pytest.mark.parametrize("transform", [
+    "log()", "log2()", "log10()", "log1p()", "exp()", "sqrt()",
+    "ascending_cdf(1, 2)", "descending_cdf(1, 2)", "norm(1, 2)",
+    "logistic(1, 2)", "logistic_normalized(1, 2)", "clip(0, 2)",
+    "hinge()", "population_max()", "dense_rank(0, 1)", "fillna(0)",
+])
+def test_every_transform_roundtrips_its_complete_receiver(receiver, transform):
+    frame = _simple_df()
+    frame["members"] = ["A", "A", "B", "B"]
+    _assert_roundtrips(parse(f"{receiver}.{transform}"), frame)
 
 
 # ---------------------------------------------------------------------------
@@ -629,5 +672,3 @@ class TestApplyFilterBooleanCheck:
         result = apply_filter(df, node)
         # NaN → False, AND → drops everything
         assert len(result) == 0
-
-
