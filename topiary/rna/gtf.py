@@ -41,7 +41,8 @@ def load_transcript_fpkm_dict_from_gtf(
     quantification of abundance. Returns a dictionary mapping Ensembl
     IDs of transcripts to FPKM values.
     """
-    df = gtfparse.read_gtf(gtf_path, column_converters={fpkm_column_name: float})
+    df = gtfparse.read_gtf(
+        gtf_path, column_converters={fpkm_column_name: float}, result_type="pandas")
     transcript_ids = _get_gtf_column(transcript_id_column_name, gtf_path, df)
     fpkm_values = _get_gtf_column(fpkm_column_name, gtf_path, df)
     features = _get_gtf_column(feature_column_name, gtf_path, df)

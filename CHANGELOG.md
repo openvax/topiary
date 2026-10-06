@@ -7,6 +7,14 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.94.2
+
+- Require gtfparse 3.0.2+ and PyEnsembl 2.24.1+, allowing the current pandas 3
+  annotation stack alongside Varcode (#484). Retain pandas 2.2.2+ for Python
+  3.10 and explicitly test both pandas 2 and 3 on Python 3.11.
+- Select pandas output in both GTF expression readers and verify their
+  transcript FPKM values against the same StringTie fixture.
+
 ## 5.94.1
 
 - Apply explicit Cufflinks HIDATA expression replacements under pandas

@@ -139,11 +139,8 @@ def _load_gtf(filepath, id_col=None, val_cols=None):
     """Load expression data from a StringTie GTF file."""
     import gtfparse
 
-    # result_type is required, not cosmetic: gtfparse 2.x defaults to
-    # returning polars, and everything below treats df as pandas. Without
-    # it, reading any GTF raises "expected 17 values when selecting
-    # columns by boolean mask" from polars on the next line. The keyword
-    # exists only from gtfparse 2.7, which requirements.txt now floors.
+    # Keep the backend explicit: filtering and numeric conversion below
+    # use pandas, which is also gtfparse 3's default result type.
     df = gtfparse.read_gtf(filepath, result_type="pandas")
     # Filter to transcript features only
     if "feature" in df.columns:
