@@ -387,7 +387,7 @@ class _Parser:
                 if name.lower() == "includes":
                     node = self._apply_includes(node)
                 elif self.tokenizer.peek()[0] == "LPAREN":
-                    args = self._call_args()
+                    args = self._transform_args(name)
                     node = self._apply_transform(node, name, args)
                 else:
                     node = self._apply_field_access(node, name)
@@ -737,6 +737,36 @@ class _Parser:
         self.tokenizer.expect("RPAREN")
         return node.includes(value)
 
+    def _transform_args(self, name):
+        """Decode scalar parameters, never pass expression nodes to transforms."""
+        self.tokenizer.expect("LPAREN")
+        args = []
+        while self.tokenizer.peek()[0] != "RPAREN":
+            token = self.tokenizer.peek()
+            sign = 1
+            if token in (("OP", "-"), ("OP", "+")):
+                sign = -1 if self.tokenizer.advance()[1] == "-" else 1
+                token = self.tokenizer.peek()
+                if token[0] != "NUMBER":
+                    raise ValueError(f".{name}() arguments must be numeric literals")
+            if token[0] == "NUMBER":
+                args.append(sign * float(self.tokenizer.advance()[1]))
+            elif token == ("IDENT", "None") and name.lower() == "clip":
+                self.tokenizer.advance()
+                args.append(None)
+            elif token[0] == "IDENT" and token[1] in ("True", "False"):
+                args.append(self.tokenizer.advance()[1] == "True")
+            else:
+                raise ValueError(
+                    f".{name}() arguments must be numeric literals "
+                    "(or None for an unbounded clip limit)"
+                )
+            if self.tokenizer.peek()[0] != "COMMA":
+                break
+            self.tokenizer.advance()
+        self.tokenizer.expect("RPAREN")
+        return args
+
     def _apply_transform(self, node, name, args):
         name_lower = name.lower()
         if name_lower not in _TRANSFORM_NAMES:
@@ -749,9 +779,7 @@ class _Parser:
                 msg += f" Available: {available}"
             raise ValueError(msg)
         if isinstance(node, KindAccessor):
-            method = getattr(node.value, name_lower)
-            float_args = [a.val if isinstance(a, Const) else a for a in args]
-            return method(*float_args)
+            node = node.value
         if not isinstance(node, DSLNode):
             raise ValueError(
                 f"Cannot apply .{name}() to {type(node).__name__}"
@@ -759,8 +787,7 @@ class _Parser:
         method = getattr(node, name_lower, None)
         if method is None:
             raise ValueError(f"DSLNode has no method {name!r}")
-        float_args = [a.val if isinstance(a, Const) else a for a in args]
-        return method(*float_args)
+        return method(*args)
 
     def _apply_field_access(self, node, name):
         name_lower = name.lower()

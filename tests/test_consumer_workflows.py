@@ -56,6 +56,31 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
+def test_negative_transform_limits_survive_saved_policy_replay(tmp_path):
+    from topiary import (
+        Column, SelectionPolicy, combine_sources, rank_with_policy,
+        read_selection_policy, write_selection_policy,
+    )
+    from .test_candidate_tables import source
+    evidence = combine_sources({"input": source(review_score=[-2., 2.])}, sample_name="patient")
+    expression = Column("review_score").clip(-1, 1)
+    original = evaluate_scores(evidence.df, expression)
+    assert original.tolist() == [-1., 1.]
+    path = tmp_path / "bounded-score.json"
+    write_selection_policy(SelectionPolicy(
+        "bounded-score", repr(expression), filter_by=repr(expression >= -1),
+    ), path)
+    restored = read_selection_policy(path)
+    pd.testing.assert_series_equal(
+        evaluate_scores(evidence.df, parse(restored.score_by)), original, check_exact=True,
+    )
+    ranked = rank_with_policy(evidence, restored)
+    assert ranked.df.peptide.tolist() == ["GILGFVFTL", "SIINFEKL"]
+    assert ranked.df.candidate_score.tolist() == [1., -1.]
+    # The unbounded expression excludes the first occurrence instead.
+    assert evidence.filter_by("review_score >= -1").df.peptide.tolist() == ["GILGFVFTL"]
+
+
 def test_rendered_expression_preserves_saved_policy_scores_and_selection(tmp_path):
     from topiary import (
         Column, SelectionPolicy, combine_sources, rank_with_policy,

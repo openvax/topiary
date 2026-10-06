@@ -360,6 +360,12 @@ abs(Affinity.value)                     # absolute value
 Affinity.value ** 2                     # power
 ```
 
+In string expressions, transform parameters are scalar literals. For example,
+`column(review_score).clip(-1, 1)` clamps scores to that interval, and
+`column(review_score).clip(None, -1)` leaves the lower limit unbounded.
+Column references and arithmetic expressions are not transform parameters;
+compose them in the receiver, such as `(review_score - penalty).clip(-1, 1)`.
+
 ## Multi-model disambiguation
 
 When using multiple prediction models that produce the same kind (e.g. both NetMHCpan and MHCflurry produce `pMHC_affinity`), qualify with bracket syntax:
