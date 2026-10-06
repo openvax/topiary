@@ -15,7 +15,11 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 - Preserve exact floating-point scores when loading text caches (#477) and
   verify model identity on every fallback batch (#478).
 
-## 5.93.5
+## 5.93.6
+
+- Preserve case-insensitive `none` clip limits and boolean transform parameters,
+  including Vaxrank's default percentile-scoring formula (#480).
+- Includes the signed-parameter correction from unpublished 5.93.5:
 
 - Decode signed scalar transform arguments and explicit unbounded clip limits
   in the DSL. Reject data-dependent parameters instead of passing expression
