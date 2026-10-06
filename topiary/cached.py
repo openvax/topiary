@@ -9,8 +9,8 @@ predictors.  Supports three producer paths:
    through Parquet / TSV).
 3. Caller-supplied DataFrames (programmatic / in-memory construction).
 
-All three load into the same internal index keyed by
-``(peptide, allele, peptide_length)``.
+All three load into the same index keyed by :data:`PREDICTION_KEY_COLUMNS`,
+including kind, inference flanks and MHC scope.
 
 Core invariant
 --------------
@@ -25,7 +25,7 @@ Fallback semantics
   result is merged back into the cache so subsequent queries for the
   same ``(peptide, allele, peptide_length)`` are served locally.
   The fallback's ``(prediction_method_name, predictor_version)`` must
-  match the cache's — verified lazily on the first fallback call.
+  match the cache's — verified on every fallback batch.
 """
 from __future__ import annotations
 
@@ -37,9 +37,13 @@ from pathlib import Path
 from typing import Callable, Iterable, List, Mapping, Optional, Union
 
 import pandas as pd
+import mhcgnomes
 
 from .predictor import _backfill_value_from_score
-from .ranking import KIND_MHC_DEPENDENCE, is_stated, stated_values
+from .ranking import (
+    KIND_MHC_DEPENDENCE, is_stated, stated_values, mhc_dependence,
+    prediction_mhc_scope, split_allele_set,
+)
 
 
 # Columns a cache row must carry so the core invariant and lookup work.
@@ -65,6 +69,7 @@ _CACHE_COLUMNS = (
     # for per-allele rows. Without it a cached presentation row reads as
     # a prediction for its deconvolved best allele.
     "allele_set",
+    "prediction_flanks_supplied", "prediction_mhc_dependence",
 )
 
 #: Columns a sliding-window protein scan emits, in mhctools' vocabulary.
@@ -94,6 +99,10 @@ PROTEIN_SCAN_COLUMNS = tuple(
 #   different scores.  Absent flanks (None) coexist cleanly with
 #   populated flanks — predictors that don't use flanks just produce
 #   a single (None, None) entry per (peptide, allele, kind).
+# - prediction_flanks_supplied distinguishes explicit known termini from
+#   unknown legacy context and explicit peptide-only inference.
+# - prediction_mhc_dependence preserves an explicitly declared measurement
+#   scope even when annotations also carry an allele or genotype.
 # - allele_set: the genotype a haplotype-mode prediction was scored
 #   against.  Exactly the flank argument one field over: the same
 #   peptide scored against two different genotypes produces different
@@ -145,7 +154,64 @@ PREDICTION_CONTEXT_COLUMNS = (
 PREDICTION_KEY_COLUMNS = (
     "peptide", "allele", "peptide_length", "kind",
     "n_flank", "c_flank", "allele_set",
+    "prediction_flanks_supplied", "prediction_mhc_dependence",
 )
+
+
+def prediction_flanks_match(prediction, *, n_flank=None, c_flank=None):
+    """Whether a cached measurement has the requested inference context.
+
+    Parameters
+    ----------
+    prediction : mapping
+        A prediction row with optional flanks and ``prediction_flanks_supplied``.
+        Two nonempty legacy flanks establish supplied context. A blank legacy
+        flank cannot establish a known molecular terminus without the flag.
+    n_flank, c_flank : str or None
+        Both strings request exactly that context; empty strings state known
+        termini. Both None explicitly request peptide-only predictions.
+
+    Returns
+    -------
+    bool
+        Known-context queries require matching supplied flanks. Peptide-only
+        queries accept explicitly uncontextual predictions and legacy rows
+        without context. Missing context never satisfies a known-context query.
+        Flanks use the cache's case/whitespace normalization. A partially
+        specified query or invalid context flag raises ValueError.
+    """
+    if (n_flank is None) != (c_flank is None):
+        raise ValueError("Supply both flanks or neither")
+    if n_flank is not None and not all(isinstance(v, str) for v in (n_flank, c_flank)):
+        raise ValueError("Flanks must be strings or None")
+    supplied = _flank_flag(prediction.get("prediction_flanks_supplied"))
+    cached_n, cached_c = (_flank_key(prediction.get(c)) for c in ("n_flank", "c_flank"))
+    if supplied is None and cached_n and cached_c:
+        supplied = True
+    if n_flank is None:
+        return supplied is False or supplied is None and not (cached_n or cached_c)
+    return supplied is True and (cached_n, cached_c) == (_flank_key(n_flank), _flank_key(c_flank))
+
+
+def _flank_flag(value):
+    """Decode the optional boolean field after CSV/Parquet scalar coercion."""
+    if not is_stated(value):
+        return None
+    text = str(value).lower()
+    if text in ("true", "1", "1.0"):
+        return True
+    if text in ("false", "0", "0.0"):
+        return False
+    raise ValueError("prediction_flanks_supplied must be boolean or missing")
+
+
+def _dependence_tag(value):
+    """Preserve the literal 'none' mode while decoding missing scalar cells."""
+    if isinstance(value, str) and value in {"none", "single_allele", "haplotype"}:
+        return value
+    if not is_stated(value):
+        return None
+    raise ValueError(f"Unknown prediction_mhc_dependence: {value!r}")
 
 
 
@@ -336,13 +402,13 @@ class CachedPredictor:
     ):
         self.fallback = fallback
         self._requested_peptide_lengths = None
+        self._requested_alleles = None
         self.also_accept_versions = (
             frozenset(also_accept_versions) if also_accept_versions else frozenset()
         )
-        self._fallback_verified = False
 
-        # Empty-cache + fallback: (name, version) discovered lazily on
-        # the first fallback call.
+        # Empty-cache + fallback: (name, version) discovered on its first
+        # successful query and verified on every subsequent fallback batch.
         if df is None or len(df) == 0:
             if fallback is None:
                 raise ValueError(
@@ -433,6 +499,12 @@ class CachedPredictor:
                 out[flank_col] = ""
             else:
                 out[flank_col] = out[flank_col].map(_flank_key)
+        flags = out.get("prediction_flanks_supplied", pd.Series(None, index=out.index, dtype=object))
+        flags = flags.map(_flank_flag)
+        inferred = out.n_flank.ne("") & out.c_flank.ne("")
+        out["prediction_flanks_supplied"] = pd.array(flags.where(flags.notna(), inferred.where(inferred)), dtype="boolean")
+        modes = out.get("prediction_mhc_dependence", pd.Series(None, index=out.index, dtype=object))
+        out["prediction_mhc_dependence"] = modes.map(_dependence_tag).astype("string")
         # allele_set is part of the key for the same reason and gets the
         # same treatment: materialize it so the key shape is well
         # defined whether or not the source had a genotype column, and
@@ -514,6 +586,8 @@ class CachedPredictor:
         n_flank,
         c_flank,
         allele_set=None,
+        prediction_flanks_supplied=None,
+        prediction_mhc_dependence=None,
     ):
         """Composite cache key from already-extracted row values.
 
@@ -531,6 +605,8 @@ class CachedPredictor:
             _flank_key(n_flank),
             _flank_key(c_flank),
             _allele_set_key(allele_set),
+            _flank_flag(prediction_flanks_supplied),
+            _dependence_tag(prediction_mhc_dependence) or "",
         )
 
     @classmethod
@@ -552,6 +628,14 @@ class CachedPredictor:
             if "allele_set" in df.columns
             else repeat(None, n)
         )
+        flank_flags = (
+            df["prediction_flanks_supplied"].to_numpy(copy=False)
+            if "prediction_flanks_supplied" in df else repeat(None, n)
+        )
+        modes = (
+            df["prediction_mhc_dependence"].to_numpy(copy=False)
+            if "prediction_mhc_dependence" in df else repeat(None, n)
+        )
         for values in zip(
             df["peptide"].to_numpy(copy=False),
             df["allele"].to_numpy(copy=False),
@@ -560,6 +644,8 @@ class CachedPredictor:
             n_flanks,
             c_flanks,
             allele_sets,
+            flank_flags,
+            modes,
         ):
             yield cls._row_key_from_values(*values)
 
@@ -589,17 +675,45 @@ class CachedPredictor:
 
     @property
     def alleles(self):
-        """Alleles this cache can answer for.
+        """Alleles selected for contextual exact-peptide queries.
+
+        Returns
+        -------
+        list of str
+            The assigned canonical allele set, or by default the union of
+            cached alleles/genotypes and fallback alleles. Assign a sequence
+            to select one genotype from a multi-genotype cache; assigning None
+            restores the union. Legacy flat lookups still return all stored
+            alleles and contexts. Selection is not a coverage guarantee.
 
         Allele-free rows are excluded: a row with no allele is not a
         row about an allele, and reporting its blank key here would
         offer callers an allele they cannot predict for.
         """
+        if self._requested_alleles is not None:
+            return list(self._requested_alleles)
         column = self._df["allele"]
         a = set(column[stated_values(column)].unique().tolist())
+        if "allele_set" in self._df:
+            for genotype in self._df.allele_set:
+                if is_stated(genotype):
+                    a.update(split_allele_set(genotype))
         if self.fallback is not None:
             a.update(getattr(self.fallback, "alleles", []))
         return sorted(a)
+
+    @alleles.setter
+    def alleles(self, values):
+        """Select query alleles/genotype; None restores the available union."""
+        if values is None:
+            self._requested_alleles = None
+            return
+        if isinstance(values, str):
+            raise ValueError("alleles must be a sequence, not one string")
+        parsed = tuple(sorted({mhcgnomes.parse(str(value)).to_string() for value in values}))
+        if not parsed:
+            raise ValueError("alleles must be nonempty; use None to restore defaults")
+        self._requested_alleles = parsed
 
     @property
     def available_peptide_lengths(self):
@@ -668,23 +782,33 @@ class CachedPredictor:
         """MHC context for kinds present in the cache.
 
         Mirrors ``mhctools.BasePredictor.kind_support()``. If a fallback is
-        configured and exposes ``kind_support``, its entries are preferred
-        for the kinds it shares with the cache (so haplotype-mode
-        presentation, etc., is reported faithfully). Otherwise, known
-        allele-independent kinds retain that meaning. Remaining kinds
-        use the legacy ``single_allele`` / class I default; exact model
-        configuration cannot be reconstructed from kind names alone.
+        configured, its declared kinds are included even before any rows are
+        cached. Explicit cached MHC-dependence metadata takes precedence;
+        otherwise the fallback declaration, stored genotype and known kind
+        semantics resolve dependence. Legacy unresolved kinds retain the
+        ``single_allele`` / class I default. Conflicting explicit modes raise;
+        a cache query cannot guess which model configuration the caller meant.
         """
         cached_kinds = self._cache_kinds()
         fallback_support = {}
         if self.fallback is not None and hasattr(self.fallback, "kind_support"):
-            fallback_support = dict(self.fallback.kind_support())
+            fallback_support = {str(getattr(kind, "value", kind)): spec
+                                for kind, spec in self.fallback.kind_support().items()}
         support = {}
-        for kind in cached_kinds:
-            if kind in fallback_support:
+        for kind in sorted(set(cached_kinds) | set(fallback_support)):
+            rows = self._df.loc[self._df.kind.eq(kind)]
+            if "prediction_mhc_dependence" in rows and rows.prediction_mhc_dependence.notna().any():
+                dependence = mhc_dependence(kind, rows=rows.rename(columns={
+                    "prediction_mhc_dependence": "source_prediction_mhc_dependence"}))
+                support[kind] = dict(fallback_support.get(kind, {
+                    "mhc_class": "none" if dependence == "none" else "I"}))
+                support[kind]["mhc_dependence"] = dependence
+            elif kind in fallback_support:
                 support[kind] = dict(fallback_support[kind])
             elif KIND_MHC_DEPENDENCE.get(kind) == "none":
                 support[kind] = {"mhc_dependence": "none", "mhc_class": "none"}
+            elif "allele_set" in rows and stated_values(rows.allele_set).any():
+                support[kind] = {"mhc_dependence": mhc_dependence(kind, rows=rows), "mhc_class": "I"}
             else:
                 support[kind] = {"mhc_dependence": "single_allele", "mhc_class": "I"}
         return support
@@ -772,6 +896,153 @@ class CachedPredictor:
 
     # mhctools compat: some code paths probe for ``predict_dataframe``.
     predict_dataframe = predict_peptides_dataframe
+
+    def predict_contextual_peptides_dataframe(self, peptides, *, n_flanks=None, c_flanks=None):
+        """Query exact peptides at one explicitly selected prediction context.
+
+        Parameters
+        ----------
+        peptides : iterable of str
+            Exact sequences to score, including repeated sequences. Empty
+            input returns an empty frame without calling the fallback.
+        n_flanks, c_flanks : sequence of str, optional
+            Parallel upstream/downstream context. Both must be present or
+            absent; empty strings mean known termini. Omitting both explicitly
+            selects peptide-only predictions, never a different stored flank.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row for each requested peptide, declared kind and MHC scope.
+            ``alleles`` selects the per-allele set or full haplotype; assign it
+            after loading to select a genotype from a multi-genotype cache.
+            Missing kind/allele/context coverage raises
+            CachedPredictorCoverageError, or is computed by the configured
+            fallback with its version checked before insertion. Existing
+            measurements are retained. Queries never scan extra peptides.
+
+        Notes
+        -----
+        This entry point is used by ``predict_peptide_occurrences``. The
+        legacy ``predict_peptides_dataframe`` / ``predict_dataframe`` lookup
+        deliberately returns all stored flank contexts instead.
+        Unknown legacy flanks cannot satisfy a known-context request.
+        """
+        if isinstance(peptides, str):
+            raise ValueError("peptides must be a sequence, not one string")
+        peptides = list(peptides)
+        if any(not isinstance(p, str) or not p.strip() for p in peptides):
+            raise ValueError("peptides must contain nonempty strings")
+        if (n_flanks is None) != (c_flanks is None):
+            raise ValueError("Supply both n_flanks and c_flanks or neither")
+        supplied = n_flanks is not None
+        if supplied:
+            if isinstance(n_flanks, str) or isinstance(c_flanks, str):
+                raise ValueError("Flanks must be parallel sequences of strings")
+            n_flanks, c_flanks = list(n_flanks), list(c_flanks)
+            if len(n_flanks) != len(peptides) or len(c_flanks) != len(peptides):
+                raise ValueError("Flanks must align positionally with peptides")
+            if not all(isinstance(v, str) for v in n_flanks + c_flanks):
+                raise ValueError("Known flanks must be strings; empty strings mean termini")
+        else:
+            n_flanks = c_flanks = [None] * len(peptides)
+        if not peptides:
+            return pd.DataFrame(columns=list(_CACHE_COLUMNS))
+        support = self.kind_support()
+        if not support or any(spec.get("mhc_dependence") not in {"none", "single_allele", "haplotype"}
+                              for spec in support.values()):
+            raise ValueError("Contextual cache queries require declared prediction kinds and MHC dependence")
+        alleles = self.alleles
+        if any(spec["mhc_dependence"] != "none" for spec in support.values()) and not alleles:
+            raise ValueError("Allele-dependent cache queries require configured alleles")
+        requests = list(zip(peptides, n_flanks, c_flanks))
+
+        def row_scope(row):
+            return prediction_mhc_scope(
+                row["allele"], dependence=mhc_dependence(row["kind"], rows=pd.DataFrame([row]).rename(
+                    columns={"prediction_mhc_dependence": "source_prediction_mhc_dependence"})),
+                allele_set=row.get("allele_set"))
+
+        def contextual_rows(peptide, n_flank, c_flank):
+            rows = pd.DataFrame([row for allele in self._cache_alleles()
+                                 for row in self._lookup_by_prefix(peptide, allele, len(peptide))],
+                                columns=self._df.columns)
+            return rows.loc[[prediction_flanks_match(
+                row, n_flank=n_flank, c_flank=c_flank) for row in rows.to_dict("records")]]
+
+        def lookup():
+            output, missing = [], []
+            for peptide, n_flank, c_flank in requests:
+                contextual = contextual_rows(peptide, n_flank, c_flank)
+                for kind, spec in support.items():
+                    dependence = spec["mhc_dependence"]
+                    expected = alleles if dependence == "single_allele" else [None]
+                    candidates = contextual.loc[contextual.kind.eq(kind)]
+                    for allele in expected:
+                        scope = prediction_mhc_scope(allele, dependence=dependence, allele_set=alleles)
+                        matching = candidates.loc[[row_scope(row) == scope for row in candidates.to_dict("records")]]
+                        if matching.empty:
+                            missing.append((peptide, n_flank, c_flank))
+                            continue
+                        values = [c for c in PREDICTION_VALUE_COLUMNS if c in matching]
+                        if len(matching[values].drop_duplicates()) > 1:
+                            raise ValueError(f"Ambiguous cached predictions for {peptide}/{kind}/{scope}")
+                        selected = matching.iloc[0].to_dict()
+                        # Source annotations may retain flanks even when the
+                        # recorded inference explicitly omitted them. Report
+                        # the queried inference context without rewriting the store.
+                        selected.update(n_flank=n_flank, c_flank=c_flank)
+                        output.append(selected)
+            return output, list(dict.fromkeys(missing))
+
+        output, missing = lookup()
+        if missing and self.fallback is not None:
+            if not callable(getattr(self.fallback, "kind_support", None)):
+                raise TypeError("Contextual fallback must declare kind_support")
+            fallback_support = {str(getattr(kind, "value", kind)): spec
+                                for kind, spec in self.fallback.kind_support().items()}
+            fallback_alleles = getattr(self.fallback, "alleles", ())
+            for kind, spec in fallback_support.items():
+                if kind in support and spec["mhc_dependence"] != support[kind]["mhc_dependence"]:
+                    raise ValueError("Fallback MHC dependence differs from the cached model")
+                if spec["mhc_dependence"] == "haplotype" and prediction_mhc_scope(
+                    None, dependence="haplotype", allele_set=fallback_alleles) != prediction_mhc_scope(
+                        None, dependence="haplotype", allele_set=alleles):
+                    raise ValueError("Fallback genotype differs from the requested genotype")
+            batches = {}
+            for peptide, n_flank, c_flank in missing:
+                batches.setdefault((n_flank, c_flank), []).append(peptide)
+            for (n_flank, c_flank), batch in batches.items():
+                # Use the public occurrence workflow for output validation and
+                # scope stamping, so fresh and fallback inference cannot drift.
+                from .peptide_occurrences import predict_peptide_occurrences
+                fresh = predict_peptide_occurrences([
+                    dict(prediction_id=str(index), peptide=peptide,
+                         n_flank=n_flank, c_flank=c_flank)
+                    for index, peptide in enumerate(batch)
+                ], self.fallback, use_flanks=supplied)
+                self._verify_fallback_version(fresh)
+                normalized = self._normalize(fresh)
+                conflicts = conflicting_predictions(normalized)
+                if not conflicts.empty:
+                    raise ValueError(_conflict_message("Contextual fallback", conflicts))
+                # A legacy row can answer the same query without carrying
+                # the explicit metadata emitted by fresh inference. Retain
+                # that measurement too, rather than introducing a second answer.
+                existing = {(row["peptide"], row["kind"], row_scope(row))
+                            for peptide in batch
+                            for row in contextual_rows(peptide, n_flank, c_flank).to_dict("records")}
+                novel = normalized.loc[[(row["peptide"], row["kind"], row_scope(row)) not in existing
+                                        for row in normalized.to_dict("records")]]
+                if not novel.empty:
+                    self._df = novel.copy() if self._df.empty else pd.concat([self._df, novel], ignore_index=True)
+                    self._index, self._prefix_index = self._build_index(self._df)
+            output, missing = lookup()
+        if missing:
+            raise CachedPredictorCoverageError(
+                f"CachedPredictor: no complete kind/allele/context coverage for {missing[:5]!r}"
+            )
+        return pd.DataFrame(output).reindex(columns=list(_CACHE_COLUMNS))
 
     def predict_proteins_dataframe(
         self, name_to_sequence: Mapping[str, str],
@@ -936,14 +1207,11 @@ class CachedPredictor:
         return df
 
     def _verify_fallback_version(self, fb_df: pd.DataFrame):
-        if self._fallback_verified:
-            return
         fb_pair = self._unique_version_pair(fb_df)
 
         # Empty-cache mode: adopt the fallback's identity on first call.
         if self.prediction_method_name is None:
             self.prediction_method_name, self.predictor_version = fb_pair
-            self._fallback_verified = True
             return
 
         cache_pair = (self.prediction_method_name, self.predictor_version)
@@ -965,7 +1233,6 @@ class CachedPredictor:
                 f"construction to opt in to treating these as "
                 f"interchangeable."
             )
-        self._fallback_verified = True
 
     # --- persistence ------------------------------------------------
 
@@ -1103,6 +1370,7 @@ class CachedPredictor:
                     path_str,
                     sep="\t" if path_str.endswith((".tsv", ".tsv.gz")) else ",",
                     converters={"prediction_method_name": str, "predictor_version": str},
+                    float_precision="round_trip",
                 )
             return cls.from_dataframe(
                 df, fallback=fallback,
@@ -1147,7 +1415,7 @@ class CachedPredictor:
         """
         # Versions are identities, not numbers: 2.10 must not become 2.1.
         # Converters also leave missing-value interpretation to stated_values.
-        df = pd.read_csv(path, sep=sep, converters={
+        df = pd.read_csv(path, sep=sep, float_precision="round_trip", converters={
             (columns or {}).get(column, column): str
             for column in ("prediction_method_name", "predictor_version")
         })
@@ -1197,7 +1465,7 @@ class CachedPredictor:
         installed model bundle manually.  Pass an explicit string only
         when you need a custom label.
         """
-        df = pd.read_csv(path)
+        df = pd.read_csv(path, float_precision="round_trip")
         # mhcflurry's wide-format output carries up to three kinds of
         # prediction per (peptide, allele) row: binding affinity,
         # presentation, antigen processing.  Explode into one row per
@@ -1472,7 +1740,7 @@ class CachedPredictor:
         if callable(on_overlap):
             singletons = df[~dup_mask]
             resolved = []
-            for _, group in df[dup_mask].groupby(key_cols, sort=False):
+            for _, group in df[dup_mask].groupby(key_cols, sort=False, dropna=False):
                 rows = [r.to_dict() for _, r in group.iterrows()]
                 merged = rows[0]
                 for nxt in rows[1:]:

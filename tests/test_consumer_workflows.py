@@ -3683,3 +3683,34 @@ def test_exacto_and_legacy_annotation_types_survive_combined_replay(tmp_path, ex
     assert [type(value) for value in actual] == [type(value) for value in expected]
     assert restored.df.source_observation_id.tolist() == combined.df.source_observation_id.tolist()
     assert restored.extra == combined.extra
+
+
+@pytest.mark.parametrize("suffix", [".tsv", ".parquet"])
+def test_contextual_file_cache_and_fallback_preserve_selection(tmp_path, suffix):
+    from topiary import (CachedPredictor, TopiaryResult, SelectionPolicy,
+                         evaluate_selection_policy, predict_peptide_occurrences)
+    from .test_candidate_tables import Model
+    from .test_peptide_occurrences import occurrences
+
+    inputs = occurrences()
+    model = Model()
+    fresh = predict_peptide_occurrences(inputs, model)
+    path = tmp_path / ("predictions" + suffix)
+    CachedPredictor.from_dataframe(fresh.iloc[:1]).save(path)
+    fallback = Model()
+    cache = CachedPredictor.from_topiary_output(path, fallback=fallback)
+    replayed = predict_peptide_occurrences(inputs, cache)
+    assert sum(len(peptides) for peptides, _ in fallback.calls) == 2
+    policy = SelectionPolicy("contextual", "1 / affinity.value", min_score=1 / 802.)
+    keys = ["prediction_id", "peptide", "peptide_offset", "allele"]
+    evaluate = lambda frame: evaluate_selection_policy(TopiaryResult(frame), policy, group_keys=keys)
+    expected, actual = evaluate(fresh), evaluate(replayed)
+    assert actual.selected.prediction_id.tolist() == ["other-context", "other-peptide"]
+    pd.testing.assert_frame_equal(actual.occurrences, expected.occurrences, check_exact=True)
+    cache.save(path)
+    offline = predict_peptide_occurrences(inputs, CachedPredictor.from_topiary_output(path))
+    pd.testing.assert_frame_equal(evaluate(offline).occurrences, expected.occurrences, check_exact=True)
+    # Changing context changes the decision even though the peptide is identical.
+    changed = inputs.assign(n_flank="AAA")
+    changed_output = predict_peptide_occurrences(changed, CachedPredictor.from_topiary_output(path))
+    assert evaluate(changed_output).selected.prediction_id.tolist() == ["other-peptide"]

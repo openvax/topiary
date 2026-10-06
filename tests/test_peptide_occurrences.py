@@ -24,6 +24,24 @@ def occurrences():
     ])
 
 
+@pytest.mark.parametrize("suffix", [".tsv", ".parquet"])
+@pytest.mark.parametrize("predict", PEPTIDE_OCCURRENCE_TWINS)
+def test_file_cache_replays_exact_occurrence_contexts(tmp_path, suffix, predict):
+    inputs = occurrences()
+    fresh = predict(inputs, Model())
+    path = tmp_path / ("contexts" + suffix)
+    CachedPredictor.from_dataframe(fresh).save(path)
+    cache = CachedPredictor.from_topiary_output(path)
+    replayed = predict(inputs, cache)
+    columns = list(inputs.columns) + [
+        "allele", "kind", "value", "score", "percentile_rank",
+        "prediction_method_name", "predictor_version",
+        "prediction_mhc_dependence", "prediction_flanks_supplied", "allele_set",
+    ]
+    pd.testing.assert_frame_equal(fresh[columns], replayed[columns], check_exact=True)
+    assert replayed.value.tolist() == [803., 803., 801., 13.]
+
+
 @pytest.mark.parametrize("predict", PEPTIDE_OCCURRENCE_TWINS)
 def test_contexts_batch_once_and_keep_every_occurrence(predict):
     inputs = occurrences()
