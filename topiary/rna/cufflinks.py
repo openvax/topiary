@@ -90,12 +90,12 @@ def load_cufflinks_dataframe(
 
     drop_hidata : bool, optional
         Drop rows whose FPKM status is "HIDATA", meaning that too many
-        fragments aligned to a feature for Cufflinks to process. Dropping
-        the most expressed genes seems like a stupid idea so: default=False
+        fragments aligned to a feature for Cufflinks to process (default=True).
 
     replace_hidata_fpkm_value : float, optional
-        If drop_hidata=False, the HIDATA entries will still have an FPKM=0.0,
-        this argument lets you replace the FPKM with some known constant.
+        When HIDATA rows are retained, replace their reported FPKM with this
+        explicitly chosen constant, including 0.0. None preserves the reported
+        values. Dropped rows are never restored by this option.
 
     drop_nonchromosomal_loci : bool, optional
         Drop rows whose location isn't on a canonical chromosome
@@ -164,7 +164,7 @@ def load_cufflinks_dataframe(
             )
             df = df[chromosomal_loci]
 
-    if replace_hidata_fpkm_value:
+    if replace_hidata_fpkm_value is not None:
         hidata_mask = df[status_column] == "HIDATA"
         n_hidata = hidata_mask.sum()
         logging.info(
@@ -173,7 +173,9 @@ def load_cufflinks_dataframe(
             n_hidata,
             len(df),
         )
-        df[fpkm_column][hidata_mask] = replace_hidata_fpkm_value
+        # Integer-looking files still carry continuous expression values.
+        df[fpkm_column] = df[fpkm_column].astype(float)
+        df.loc[hidata_mask, fpkm_column] = replace_hidata_fpkm_value
 
     if len(df) == 0:
         raise ValueError("Empty FPKM tracking file: %s" % filename)

@@ -40,6 +40,7 @@ from topiary.evidence import (
     attach_dna_evidence,
     attach_rna_evidence,
 )
+from topiary.rna import load_cufflinks_dataframe, load_cufflinks_dict, load_cufflinks_fpkm_dict
 from topiary import (
     APPROXIMATED, MEASURED, CachedPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
     read_fragments, read_pvacseq, write_fragments, unique_fragments,
@@ -113,6 +114,14 @@ TWINS = (
         # `depth`; they are the same quantity per assay.
         shared={"overlapping": "depth", "vaf": "vaf"},
     ),
+)
+
+
+# The three public Cufflinks readers must expose the same expression values.
+CUFFLINKS_FPKM_TWINS = (
+    ("dataframe", lambda *a, **kw: load_cufflinks_dataframe(*a, **kw).set_index("id").fpkm.to_dict()),
+    ("rows", lambda *a, **kw: {key: row.fpkm for key, row in load_cufflinks_dict(*a, **kw).items()}),
+    ("values", load_cufflinks_fpkm_dict),
 )
 
 

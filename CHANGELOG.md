@@ -7,6 +7,13 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.94.1
+
+- Apply explicit Cufflinks HIDATA expression replacements under pandas
+  Copy-on-Write, including an explicitly requested zero. All public Cufflinks
+  readers retain the corrected values; the default HIDATA drop policy is
+  unchanged (#476, #482).
+
 ## 5.94.0
 
 - Add contextual exact-peptide cache queries through the occurrence API, with
