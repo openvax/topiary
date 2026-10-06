@@ -187,7 +187,7 @@ class TestCachedPredictorKindSupport:
             "pMHC_presentation",
         }
 
-    def test_fallback_kind_support_overrides_for_shared_kinds(self):
+    def test_fallback_kind_support_resolves_legacy_rows_and_declares_missing_kinds(self):
         """If the fallback predictor reports a richer mapping, prefer it
         for kinds the cache also carries — single-allele vs haplotype is
         a property of (predictor, kind), not just kind."""
@@ -216,8 +216,10 @@ class TestCachedPredictorKindSupport:
         )
         support = cache.kind_support()
         assert support["pMHC_presentation"]["mhc_dependence"] == "haplotype"
-        # Cache had no affinity rows, so fallback's affinity entry isn't surfaced
-        assert "pMHC_affinity" not in support
+        # Declared fallback kinds participate in coverage even before they have
+        # cached rows, so a missing kind cannot disappear from the query contract.
+        assert support["pMHC_affinity"] == {
+            "mhc_dependence": "single_allele", "mhc_class": "I"}
 
     @pytest.mark.parametrize("kind", [
         "antigen_processing", "proteasome_cleavage", "endolysosomal_cleavage",

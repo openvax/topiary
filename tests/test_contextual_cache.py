@@ -68,6 +68,24 @@ def test_peptide_only_inference_replays_without_promoting_source_annotations():
         predict_peptide_occurrences(inputs, cache)
 
 
+@pytest.mark.parametrize("missing", ["n_flank", "c_flank"])
+@pytest.mark.parametrize("suffix", [".tsv", ".parquet"])
+def test_one_unknown_legacy_flank_does_not_become_a_known_terminus(tmp_path, missing, suffix):
+    row = source().df.iloc[:1].assign(**{missing: None})
+    cache = CachedPredictor.from_dataframe(row)
+    path = tmp_path / ("partial-context" + suffix)
+    cache.save(path)
+    restored = CachedPredictor.from_topiary_output(path)
+    inputs = [dict(prediction_id="one", peptide="SIINFEKL",
+                   n_flank="" if missing == "n_flank" else "AAA",
+                   c_flank="" if missing == "c_flank" else "GGG")]
+    for candidate in (cache, restored):
+        with pytest.raises(CachedPredictorCoverageError):
+            predict_peptide_occurrences(inputs, candidate)
+        with pytest.raises(CachedPredictorCoverageError):
+            predict_peptide_occurrences(inputs, candidate, use_flanks=False)
+
+
 def test_known_empty_and_unknown_predictions_do_not_collide_in_cache_keys():
     rows = source().df.iloc[:1].assign(n_flank="", c_flank="")
     known = rows.assign(prediction_flanks_supplied=True, value=100.)

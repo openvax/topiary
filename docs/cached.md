@@ -411,7 +411,9 @@ haplotype fallback must be configured for that same genotype. Primary and
 explicit wild-type comparator occurrences use their own flanks.
 
 Two strings specify known flanks; `""` means a known molecular terminus.
-Missing legacy context cannot satisfy a known-context request. Peptide-only
+Missing legacy context cannot satisfy a known-context request. A blank legacy
+flank cannot establish a known terminus without `prediction_flanks_supplied=True`,
+even when the other flank is populated. Peptide-only
 queries require `use_flanks=False` (or omission of both flank sequences in the
 direct contextual method). They accept explicitly peptide-only measurements
 and legacy rows with absent context. Source annotations on a measurement

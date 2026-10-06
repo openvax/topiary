@@ -165,8 +165,8 @@ def prediction_flanks_match(prediction, *, n_flank=None, c_flank=None):
     ----------
     prediction : mapping
         A prediction row with optional flanks and ``prediction_flanks_supplied``.
-        Nonempty legacy flanks establish supplied context. Blank legacy flanks
-        alone do not establish known molecular termini.
+        Two nonempty legacy flanks establish supplied context. A blank legacy
+        flank cannot establish a known molecular terminus without the flag.
     n_flank, c_flank : str or None
         Both strings request exactly that context; empty strings state known
         termini. Both None explicitly request peptide-only predictions.
@@ -186,7 +186,7 @@ def prediction_flanks_match(prediction, *, n_flank=None, c_flank=None):
         raise ValueError("Flanks must be strings or None")
     supplied = _flank_flag(prediction.get("prediction_flanks_supplied"))
     cached_n, cached_c = (_flank_key(prediction.get(c)) for c in ("n_flank", "c_flank"))
-    if supplied is None and (cached_n or cached_c):
+    if supplied is None and cached_n and cached_c:
         supplied = True
     if n_flank is None:
         return supplied is False or supplied is None and not (cached_n or cached_c)
@@ -501,7 +501,7 @@ class CachedPredictor:
                 out[flank_col] = out[flank_col].map(_flank_key)
         flags = out.get("prediction_flanks_supplied", pd.Series(None, index=out.index, dtype=object))
         flags = flags.map(_flank_flag)
-        inferred = out.n_flank.ne("") | out.c_flank.ne("")
+        inferred = out.n_flank.ne("") & out.c_flank.ne("")
         out["prediction_flanks_supplied"] = pd.array(flags.where(flags.notna(), inferred.where(inferred)), dtype="boolean")
         modes = out.get("prediction_mhc_dependence", pd.Series(None, index=out.index, dtype=object))
         out["prediction_mhc_dependence"] = modes.map(_dependence_tag).astype("string")
