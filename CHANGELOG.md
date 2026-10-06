@@ -7,6 +7,13 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.93.5
+
+- Decode signed scalar transform arguments and explicit unbounded clip limits
+  in the DSL. Reject data-dependent parameters instead of passing expression
+  nodes into numerical transforms; preserve negative bounds in saved policies
+  (#471).
+
 ## 5.93.4
 
 - Preserve arithmetic associativity, complete transform receivers, nested

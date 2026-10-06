@@ -127,6 +127,43 @@ def test_every_transform_roundtrips_its_complete_receiver(receiver, transform):
     _assert_roundtrips(parse(f"{receiver}.{transform}"), frame)
 
 
+@pytest.mark.parametrize("transform, arguments", [
+    ("clip", (-1, 1)), ("clip", (None, -1)),
+    ("clip", (-1, None)), ("clip", (None, None)),
+    ("ascending_cdf", (-1, 2)), ("descending_cdf", (-1, 2)),
+    ("logistic", (-1, 2)), ("logistic_normalized", (-1, 2)),
+    ("fillna", (-1,)), ("dense_rank", (False, True)),
+])
+@pytest.mark.parametrize("receiver", [Column("x"), Affinity])
+def test_scalar_transform_arguments_roundtrip(transform, arguments, receiver):
+    frame = _simple_df()
+    frame["x"] = frame["value"] = [-2., -2., 2., 2.]
+    frame = pd.concat([frame, frame.iloc[:1].assign(
+        source_sequence_name="missing", peptide="AAA", x=np.nan, value=np.nan,
+    )], ignore_index=True)
+    # KindAccessor's report-wide transforms are reached through its value field.
+    if receiver is Affinity and not hasattr(receiver, transform):
+        receiver = receiver.value
+    node = getattr(receiver, transform)(*arguments)
+    _assert_roundtrips(node, frame)
+    receiver_text = "affinity" if receiver is Affinity else repr(receiver)
+    source = f"{receiver_text}.{transform}({', '.join(map(repr, arguments))})"
+    pd.testing.assert_series_equal(
+        node.eval(EvalContext(frame)), parse(source).eval(EvalContext(frame)),
+        check_exact=True, check_names=False,
+    )
+
+
+@pytest.mark.parametrize("expression", [
+    "column(x).clip(column(limit), 1)", "column(x).clip(limit, 1)",
+    "column(x).clip(column(None), 1)", "column(x).clip(-limit, 1)",
+    "affinity.logistic(None, 1)", "column(x).fillna('missing')",
+])
+def test_transform_parameters_reject_data_expressions(expression):
+    with pytest.raises(ValueError, match="arguments must be numeric literals"):
+        parse(expression)
+
+
 # ---------------------------------------------------------------------------
 # Simple comparisons
 # ---------------------------------------------------------------------------
