@@ -56,6 +56,41 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
+def test_cufflinks_replacement_changes_expression_selection_and_replays(tmp_path):
+    from contextlib import nullcontext
+    from topiary import (SelectionPolicy, evaluate_selection_policy, join_annotations,
+                         read_tsv, replay_selection_policy)
+    from topiary.rna import load_cufflinks_dataframe
+    from .test_candidate_tables import source
+
+    path = tmp_path / "expression.tsv"
+    path.write_text("tracking_id\tFPKM\tFPKM_status\tlocus\tgene_short_name\n"
+                    "ENSG000001\t0.0\tHIDATA\tchr1:1-10\tGENE1\n"
+                    "ENSG000002\t2.0\tOK\tchr1:11-20\tGENE2\n")
+    predictions = source(gene_id=["ENSG000001", "ENSG000002"])
+    policy = SelectionPolicy("expression-fixture", "expr_fpkm", min_score=10.)
+    context = (pd.option_context("mode.copy_on_write", True)
+               if int(pd.__version__.split(".")[0]) < 3 else nullcontext())
+    with context:
+        evaluations = []
+        for replacement in (None, 100.):
+            expression = load_cufflinks_dataframe(
+                path, sep="\t", drop_hidata=False, replace_hidata_fpkm_value=replacement)
+            annotated = join_annotations(
+                predictions, expression[["id", "fpkm"]].rename(columns={"id": "gene_id"}),
+                on="gene_id", prefix="expr", provenance=dict(
+                    source="synthetic-cufflinks", unit="FPKM", hidata_replacement=replacement))
+            evaluations.append(evaluate_selection_policy(annotated, policy))
+    baseline, replaced = evaluations
+    assert baseline.selected.empty
+    assert replaced.selected.peptide.tolist() == ["SIINFEKL"]
+    assert replaced.occurrences.score.tolist() == [100., 2.]
+    evidence_path = tmp_path / "selection.tsv"
+    replaced.evidence.to_tsv(evidence_path)
+    replay = replay_selection_policy(read_tsv(evidence_path))
+    pd.testing.assert_frame_equal(replay.occurrences, replaced.occurrences, check_exact=True)
+
+
 def test_negative_transform_limits_survive_saved_policy_replay(tmp_path):
     from topiary import (
         Column, SelectionPolicy, combine_sources, rank_with_policy,
