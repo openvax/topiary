@@ -22,6 +22,17 @@ from vaxrank.vaccine_antigen import (
 from vaxrank.vaccine_peptide import VaccinePeptide
 
 
+def test_vaxrank_default_percentile_formula_clips_and_ranks():
+    from topiary import EvalContext
+    from vaxrank.epitope_dsl import build_score_node
+
+    frame = source().df.assign(percentile_rank=[1., 3.])
+    strict = build_score_node(EpitopeConfig(scoring_mode="percentile_rank", percentile_rank_cutoff=2.))
+    broad = build_score_node(EpitopeConfig(scoring_mode="percentile_rank", percentile_rank_cutoff=4.))
+    assert strict.eval(EvalContext(frame)).tolist() == [.5, 0.]
+    assert broad.eval(EvalContext(frame)).tolist() == [.75, .25]
+
+
 def test_self_evidence_changes_vaxrank_window_without_losing_required_targets(tmp_path):
     from topiary import (
         SelfProteome, self_matches_in_windows, read_tsv, from_predictions,

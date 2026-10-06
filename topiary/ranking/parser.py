@@ -751,11 +751,11 @@ class _Parser:
                     raise ValueError(f".{name}() arguments must be numeric literals")
             if token[0] == "NUMBER":
                 args.append(sign * float(self.tokenizer.advance()[1]))
-            elif token == ("IDENT", "None") and name.lower() == "clip":
+            elif token[0] == "IDENT" and token[1].lower() == "none" and name.lower() == "clip":
                 self.tokenizer.advance()
                 args.append(None)
-            elif token[0] == "IDENT" and token[1] in ("True", "False"):
-                args.append(self.tokenizer.advance()[1] == "True")
+            elif token[0] == "IDENT" and token[1].lower() in ("true", "false"):
+                args.append(self.tokenizer.advance()[1].lower() == "true")
             else:
                 raise ValueError(
                     f".{name}() arguments must be numeric literals "

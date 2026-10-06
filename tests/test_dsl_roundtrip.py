@@ -164,6 +164,23 @@ def test_transform_parameters_reject_data_expressions(expression):
         parse(expression)
 
 
+@pytest.mark.parametrize("spelling", ["none", "None", "NONE"])
+@pytest.mark.parametrize("receiver", ["column(x)", "affinity"])
+def test_null_transform_limits_preserve_case_insensitive_spelling(spelling, receiver):
+    frame = _simple_df().assign(x=[-2., -2., 2., 2.], value=[-2., -2., 2., 2.])
+    node = parse(f"{receiver}.clip({spelling}, -1)")
+    assert node.eval(EvalContext(frame)).tolist() == [-2., -1.]
+    _assert_roundtrips(node, frame)
+
+
+@pytest.mark.parametrize("truth,falsehood", [("True", "False"), ("true", "false"), ("TRUE", "FALSE")])
+def test_boolean_transform_parameters_preserve_case_insensitive_spelling(truth, falsehood):
+    frame = _simple_df().assign(x=[1., 1., 2., 2.])
+    node = parse(f"column(x).dense_rank({falsehood}, {truth})")
+    pd.testing.assert_series_equal(node.eval(EvalContext(frame)),
+                                   Column("x").dense_rank(False, True).eval(EvalContext(frame)))
+
+
 # ---------------------------------------------------------------------------
 # Simple comparisons
 # ---------------------------------------------------------------------------
