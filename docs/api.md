@@ -199,6 +199,13 @@ pre-computed table. Pass as `models=cache` to `TopiaryPredictor`. See
 | `CachedPredictor.from_dataframe(df, ...)` | In-memory DataFrame. |
 | `CachedPredictor(fallback=live_predictor)` | Empty cache, lazy identity discovery — pure read-through over a live model. |
 
+`CachedPredictor.predict_contextual_peptides_dataframe(peptides, n_flanks=..., c_flanks=...)`
+queries exact inference contexts and validates complete kind/MHC coverage.
+`predict_peptide_occurrences` selects this method automatically. Assign
+`cache.alleles` to select a genotype. `prediction_flanks_match(row, n_flank=...,
+c_flank=...)` exposes the context rule; missing context never matches known termini.
+The legacy flat lookup methods still return all stored contexts.
+
 Constructor-level knobs:
 
 | Parameter | Description |

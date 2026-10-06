@@ -7,6 +7,14 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.94.0
+
+- Add contextual exact-peptide cache queries through the occurrence API, with
+  explicit unknown-context handling, per-kind/allele/genotype coverage,
+  primary/comparator replay, and version-checked fallback (#468).
+- Preserve exact floating-point scores when loading text caches (#477) and
+  verify model identity on every fallback batch (#478).
+
 ## 5.93.5
 
 - Decode signed scalar transform arguments and explicit unbounded clip limits

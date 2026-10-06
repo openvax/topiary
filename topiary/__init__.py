@@ -117,6 +117,7 @@ from .cached import (
     PREDICTION_VALUE_COLUMNS,
     PROTEIN_SCAN_COLUMNS,
     conflicting_predictions,
+    prediction_flanks_match,
     mhcflurry_composite_version,
 )
 from .io_isovar import (
@@ -207,7 +208,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.93.5"
+__version__ = "5.94.0"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -418,6 +419,7 @@ __all__ = [
     "PREDICTION_CONTEXT_COLUMNS",
     "PROTEIN_SCAN_COLUMNS",
     "conflicting_predictions",
+    "prediction_flanks_match",
     "RNA_EVIDENCE_COLUMNS",
     "DNA_EVIDENCE_COLUMNS",
     "DNA_ALIGNMENT",

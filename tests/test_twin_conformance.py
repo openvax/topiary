@@ -465,6 +465,13 @@ CACHE_PROVENANCE_TWINS = (
     ("directory", CachedPredictor.from_directory),
 )
 
+# Every cache entry point must verify every fallback response, not just the
+# first one. Driven by test_contextual_cache.py.
+CACHE_FALLBACK_IDENTITY_TWINS = (
+    CachedPredictor.predict_peptides_dataframe,
+    CachedPredictor.predict_contextual_peptides_dataframe,
+)
+
 
 def osteosarc_export_paths(manifest, directory, cache):
     from topiary import osteosarc_fixture_paths

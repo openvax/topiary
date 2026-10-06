@@ -326,7 +326,7 @@ Enforcement:
   pairs raises. `None` / `NaN` / empty-string values are also
   rejected — silent "I don't know" would mask the invariant.
 - **On fallback attachment** (below): the fallback's `(name, version)`
-  must equal the cache's, verified on the first fallback call.
+  must equal the cache's, verified on every fallback batch.
 - **On concat / `from_directory`**: every shard
   must agree.
 
@@ -379,6 +379,49 @@ or no model release is configured.
 Other tools (NetMHCpan, NetMHCIIpan, etc.) don't need this — their
 binary version is their full identity.
 
+## Exact peptide occurrences and context
+
+`predict_peptide_occurrences` uses the cache's
+`predict_contextual_peptides_dataframe` method to select exactly the requested
+peptide, flanks, kinds and MHC scope:
+
+```python
+from topiary import CachedPredictor, predict_peptide_occurrences
+
+cache = CachedPredictor.from_topiary_output("predictions.tsv", fallback=live)
+cache.alleles = ["HLA-A*02:01", "HLA-B*07:02"]
+predictions = predict_peptide_occurrences([
+    dict(prediction_id="first", peptide="SIINFEKL", n_flank="AAA", c_flank="GG"),
+    dict(prediction_id="second", peptide="SIINFEKL", n_flank="T", c_flank="GG"),
+], cache)
+cache.save("filled.parquet")
+```
+
+Only uncovered exact contexts are sent to the fallback. It must declare
+`kind_support`; returned peptides, kinds, alleles and context are validated
+through the same occurrence workflow used for fresh prediction. Its model
+identity is checked before inserting each batch. Existing measurements are
+retained. Valid earlier batches remain cached if a later batch fails.
+
+Every declared kind must cover each occurrence, including every selected
+allele for per-allele kinds. Haplotype queries match the entire genotype,
+independently of the reported best presenter. Assign `cache.alleles` to select
+one genotype; its default is the union of stored and fallback alleles. A
+haplotype fallback must be configured for that same genotype. Primary and
+explicit wild-type comparator occurrences use their own flanks.
+
+Two strings specify known flanks; `""` means a known molecular terminus.
+Missing legacy context cannot satisfy a known-context request. Peptide-only
+queries require `use_flanks=False` (or omission of both flank sequences in the
+direct contextual method). They accept explicitly peptide-only measurements
+and legacy rows with absent context. Source annotations on a measurement
+marked `prediction_flanks_supplied=False` do not become inference context.
+The public `prediction_flanks_match` function exposes this matching rule.
+
+The legacy `predict_peptides_dataframe` / `predict_dataframe` entry points
+retain their flat lookup behavior, returning all stored contexts. Protein-scan
+fallback remains separate, as described below.
+
 ## Fallback: delegate misses to a live predictor
 
 If you want a cache that falls back to a live predictor for peptides
@@ -404,8 +447,8 @@ Semantics:
   `(peptide, allele, peptide_length)` serve locally. Caching hits
   is always the right default — there's no separate flag.
 - **Same version invariant**: the fallback's `(name, version)` must
-  equal the cache's (or be in `also_accept_versions`), checked on the
-  first fallback call.
+  equal the cache's (or be in `also_accept_versions`), checked on every
+  fallback batch.
 - **Pure read-through mode** — empty cache, fallback-only — is
   supported: `CachedPredictor(fallback=live)`. The cache starts
   empty; identity is discovered from the fallback's first output.

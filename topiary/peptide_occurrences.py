@@ -106,14 +106,17 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
     if "peptide_length" in frame and not frame.peptide_length.eq(frame.peptide.str.len()).all():
         raise ValueError("peptide_length disagrees with peptide")
     flank_model = bool(getattr(model, "uses_flanking_sequences", False))
+    contextual_predict = getattr(model, "predict_contextual_peptides_dataframe", None)
+    if not callable(contextual_predict):
+        contextual_predict = None
     has_flanks = frame.n_flank.map(lambda value: isinstance(value, str)) & frame.c_flank.map(lambda value: isinstance(value, str))
-    if use_flanks and flank_model and not has_flanks.all():
+    if use_flanks and (flank_model or contextual_predict is not None) and not has_flanks.all():
         raise ValueError("Flank-dependent prediction requires both flanks; set use_flanks=False explicitly")
     if predict_wt and "wt_peptide" in frame:
         comparators = frame.loc[frame.wt_peptide.notna()]
         if not comparators.wt_peptide.map(lambda value: isinstance(value, str) and bool(value.strip())).all():
             raise ValueError("wt_peptide must be a nonempty string or missing")
-        if use_flanks and flank_model and not comparators.empty:
+        if use_flanks and (flank_model or contextual_predict is not None) and not comparators.empty:
             if any(column not in comparators or not comparators[column].map(lambda value: isinstance(value, str)).all()
                    for column in ("wt_n_flank", "wt_c_flank")):
                 raise ValueError("Flank-dependent comparator prediction requires both flanks for the comparator")
@@ -151,7 +154,8 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
         inputs = frame.iloc[indices]
         peptides = inputs.peptide.drop_duplicates().tolist()
         kwargs = {} if n_flank is None else dict(n_flanks=[n_flank] * len(peptides), c_flanks=[c_flank] * len(peptides))
-        predicted = from_predictions(model.predict_dataframe(peptides, **kwargs))
+        predict = contextual_predict or model.predict_dataframe
+        predicted = from_predictions(predict(peptides, **kwargs))
         if predicted.empty:
             raise ValueError(f"Model returned no prediction for {peptides}")
         if not predicted.peptide.isin(peptides).all():
