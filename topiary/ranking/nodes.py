@@ -3200,9 +3200,18 @@ class BinOp(DSLNode):
         sym = _OP_SYMBOLS.get(self.op, "?")
         left_str = repr(self.left)
         right_str = repr(self.right)
-        if isinstance(self.left, BinOp) and _op_prec(self.left.op) < _op_prec(self.op):
+        # Powers associate to the right; all other arithmetic associates to
+        # the left. Preserve the actual tree even for + and *: floating-point
+        # rounding and overflow make regrouping observably different.
+        if isinstance(self.left, BinOp) and (
+            _op_prec(self.left.op) < _op_prec(self.op)
+            or self.op is operator.pow and self.left.op is operator.pow
+        ):
             left_str = f"({left_str})"
-        if isinstance(self.right, BinOp) and _op_prec(self.right.op) < _op_prec(self.op):
+        if isinstance(self.right, BinOp) and (
+            _op_prec(self.right.op) < _op_prec(self.op)
+            or _op_prec(self.right.op) == _op_prec(self.op) and self.op is not operator.pow
+        ):
             right_str = f"({right_str})"
         # Comparisons have lower precedence than arithmetic → parenthesize
         if isinstance(self.left, (Comparison, BoolOp)):
@@ -3263,8 +3272,8 @@ class UnaryOp(DSLNode):
         if name == "abs":
             return f"abs({repr(self.inner)})"
         if name:
-            return f"{repr(self.inner)}.{name}()"
-        return f"{repr(self.inner)}.<?>()"
+            return f"({self.inner!r}).{name}()"
+        return f"({self.inner!r}).<?>()"
 
     def to_ast_string(self):
         name = _UNARY_NAMES.get(self.fn, "<?>")
@@ -3319,7 +3328,7 @@ class NormExpr(DSLNode):
 
     def __repr__(self):
         return (
-            f"{repr(self.inner)}.ascending_cdf"
+            f"({self.inner!r}).ascending_cdf"
             f"({_fmt_num(self.mean)}, {_fmt_num(self.std)})"
         )
 
@@ -3352,7 +3361,7 @@ class SurvivalExpr(DSLNode):
 
     def __repr__(self):
         return (
-            f"{repr(self.inner)}.descending_cdf"
+            f"({self.inner!r}).descending_cdf"
             f"({_fmt_num(self.mean)}, {_fmt_num(self.std)})"
         )
 
@@ -3389,7 +3398,7 @@ class LogisticExpr(DSLNode):
 
     def __repr__(self):
         return (
-            f"{repr(self.inner)}.logistic"
+            f"({self.inner!r}).logistic"
             f"({_fmt_num(self.midpoint)}, {_fmt_num(self.width)})"
         )
 
@@ -3438,7 +3447,7 @@ class LogisticNormalizedExpr(DSLNode):
 
     def __repr__(self):
         return (
-            f"{repr(self.inner)}.logistic_normalized"
+            f"({self.inner!r}).logistic_normalized"
             f"({_fmt_num(self.midpoint)}, {_fmt_num(self.width)})"
         )
 
@@ -3473,8 +3482,8 @@ class ClipExpr(DSLNode):
 
     def __repr__(self):
         if self.lo == 0 and self.hi is None:
-            return f"{repr(self.inner)}.hinge()"
-        return f"{repr(self.inner)}.clip({_fmt_num(self.lo)}, {_fmt_num(self.hi)})"
+            return f"({self.inner!r}).hinge()"
+        return f"({self.inner!r}).clip({_fmt_num(self.lo)}, {_fmt_num(self.hi)})"
 
     def to_ast_string(self):
         return (
@@ -3732,10 +3741,11 @@ class Comparison(DSLNode):
         sym = _CMP_SYMBOLS.get(self.op, "?")
         left_str = repr(self.left)
         right_str = repr(self.right)
-        # Wrap lower-precedence boolean children
-        if isinstance(self.left, BoolOp):
+        # The grammar accepts one comparison at a time, so nested
+        # comparisons need parentheses just like boolean children.
+        if isinstance(self.left, (Comparison, BoolOp)):
             left_str = f"({left_str})"
-        if isinstance(self.right, BoolOp):
+        if isinstance(self.right, (Comparison, BoolOp)):
             right_str = f"({right_str})"
         return f"{left_str} {sym} {right_str}"
 
@@ -3798,7 +3808,7 @@ class BoolOp(DSLNode):
             # ~ binds tighter than comparison & boolean combinators in
             # the parser grammar, so wrap anything that isn't a bare
             # atom / unary-invert.
-            if isinstance(inner, (Comparison, BoolOp)):
+            if isinstance(inner, (BinOp, Comparison, BoolOp)):
                 if not (isinstance(inner, BoolOp) and inner.op is operator.invert):
                     inner_str = f"({inner_str})"
             return f"~{inner_str}"

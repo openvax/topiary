@@ -148,8 +148,8 @@ def resolve_selection_expression(expression, criteria=(), *, role="score"):
             raise ValueError("A numeric criterion needs an explicit comparison for eligibility")
         if expected != "eligibility" and ((boolean and active) or referenced_role == "eligibility"):
             raise ValueError(f"Expected numeric {expected} expression, got a predicate")
-        # Preserve source parentheses and numeric literals. repr(node) is a
-        # human display, not a lossless serialization of arithmetic grouping.
+        # Preserve the author's parentheses and numeric spelling. Rendering
+        # the AST retains evaluation order but normalizes the original syntax.
         tokens = _Tokenizer(text).tokens[:-1]
         rendered, i = [], 0
         while i < len(tokens):

@@ -56,6 +56,39 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
+def test_rendered_expression_preserves_saved_policy_scores_and_selection(tmp_path):
+    from topiary import (
+        Column, SelectionPolicy, combine_sources, rank_with_policy,
+        read_selection_policy, write_selection_policy,
+    )
+    from .test_candidate_tables import source
+    from .test_twin_conformance import DSL_RENDER_TWINS
+
+    evidence = combine_sources({"input": source(
+        review_score=[10., 8.], penalty=[3., 2.], credit=[1., 4.],
+    )}, sample_name="patient")
+    expression = Column("review_score") - (Column("penalty") - Column("credit"))
+    expected = evaluate_scores(evidence.df, expression)
+    assert expected.tolist() == [8., 10.]
+    # Removing the grouping reverses the ranking and excludes both rows.
+    regrouped = evaluate_scores(evidence.df, parse("review_score - penalty - credit"))
+    assert regrouped.tolist() == [6., 2.]
+    for index, render in enumerate(DSL_RENDER_TWINS):
+        policy = SelectionPolicy(
+            "saved-expression", render(expression), filter_by=render(expression >= 9),
+        )
+        path = tmp_path / f"policy-{index}.json"
+        write_selection_policy(policy, path)
+        restored = read_selection_policy(path)
+        pd.testing.assert_series_equal(
+            evaluate_scores(evidence.df, parse(restored.score_by)), expected,
+            check_exact=True,
+        )
+        ranked = rank_with_policy(evidence, restored)
+        assert ranked.df.peptide.tolist() == ["GILGFVFTL"]
+        assert ranked.df.candidate_score.tolist() == [10.]
+
+
 @pytest.mark.parametrize("form", ["long", "wide"])
 def test_saved_profiles_replay_exact_scores_and_change_selection(tmp_path, form):
     from topiary import (
