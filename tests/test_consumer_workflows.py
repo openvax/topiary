@@ -56,6 +56,32 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
+@pytest.mark.parametrize("suffix,separator", [("csv", ","), ("tsv", "\t")])
+def test_single_feature_expression_changes_selection_and_replays(tmp_path, suffix, separator):
+    from topiary import (SelectionPolicy, evaluate_selection_policy, join_annotations,
+                         read_tsv, replay_selection_policy)
+    from topiary.rna import load_expression
+    from .test_candidate_tables import source
+
+    path = tmp_path / ("expression." + suffix)
+    predictions = source(gene_id=["ENSG00000000001", "ENSG00000000002"])
+    evaluations = []
+    for abundance in (0., 5.):
+        path.write_text(separator.join(["gene_id", "TPM"]) + "\n"
+                        + separator.join(["ENSG00000000001", str(abundance)]) + "\n")
+        expression = load_expression(path, id_col="gene_id", val_cols="TPM")
+        annotated = join_annotations(predictions, expression, on="gene_id", prefix="expr",
+                                     provenance={"source": "synthetic-expression", "unit": "TPM"})
+        evaluations.append(evaluate_selection_policy(
+            annotated, SelectionPolicy("patient-expression", "expr_TPM", min_score=2.)))
+    assert evaluations[0].selected.empty
+    assert evaluations[1].selected.peptide.tolist() == ["SIINFEKL"]
+    saved = tmp_path / "selection.tsv"
+    evaluations[1].evidence.to_tsv(saved)
+    replay = replay_selection_policy(read_tsv(saved))
+    pd.testing.assert_frame_equal(replay.occurrences, evaluations[1].occurrences, check_exact=True)
+
+
 def test_cufflinks_replacement_changes_expression_selection_and_replays(tmp_path):
     from contextlib import nullcontext
     from topiary import (SelectionPolicy, evaluate_selection_policy, join_annotations,

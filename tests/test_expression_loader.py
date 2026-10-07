@@ -16,6 +16,15 @@ from topiary.rna.expression_loader import (
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 
+@pytest.mark.parametrize("contents", ["", "\n\n", "# comment\n\n"])
+def test_empty_delimiter_input_is_rejected(tmp_path, contents):
+    from topiary.rna.common import infer_delimiter
+    path = tmp_path / "empty.csv"
+    path.write_text(contents)
+    with pytest.raises(ValueError, match="No data lines"):
+        infer_delimiter(path)
+
+
 # ---------------------------------------------------------------------------
 # Format detection
 # ---------------------------------------------------------------------------

@@ -42,7 +42,7 @@ from topiary.evidence import (
 )
 from topiary.rna import load_cufflinks_dataframe, load_cufflinks_dict, load_cufflinks_fpkm_dict
 from topiary.rna import load_transcript_fpkm_dict_from_gtf
-from topiary.rna.expression_loader import load_expression
+from topiary.rna.expression_loader import load_expression, load_expression_from_spec
 from topiary import (
     APPROXIMATED, MEASURED, CachedPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
     read_fragments, read_pvacseq, write_fragments, unique_fragments,
@@ -133,6 +133,42 @@ GTF_FPKM_TWINS = (
     ("dataframe", lambda path: load_expression(
         path, val_cols="FPKM").set_index("reference_id")["FPKM"].to_dict()),
 )
+
+
+# File and CLI-spec expression readers must expose identical measurements.
+EXPRESSION_INPUT_TWINS = (
+    ("file", lambda path, **columns: load_expression(path, **columns)),
+    ("spec", lambda path, **columns: load_expression_from_spec(
+        str(path) + (":" + columns["id_col"] + ":" + columns["val_cols"]
+                     if columns else ""))[2]),
+)
+
+
+@pytest.mark.parametrize("suffix,separator", [("csv", ","), ("tsv", "\t")])
+@pytest.mark.parametrize("n_rows", [0, 1, 4])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_short_expression_input_doors_agree(tmp_path, suffix, separator, n_rows, explicit):
+    path = tmp_path / ("expression." + suffix)
+    ids = [f"ENSG{index:011d}" for index in range(n_rows)]
+    # Comments and blank lines are not expression observations.
+    path.write_text("# expression fixture\n\n" + separator.join(["gene_id", "TPM"]) + "\n"
+                    + "".join(separator.join([identity, str(index * 2.5)]) + "\n"
+                              for index, identity in enumerate(ids)) + "\n")
+    columns = {"id_col": "gene_id", "val_cols": "TPM"} if explicit else {}
+    results = []
+    for _, door in EXPRESSION_INPUT_TWINS:
+        if not explicit and not n_rows:
+            # A header has no numeric measurements from which to infer a
+            # value column. Both doors must ask for that declaration.
+            with pytest.raises(ValueError, match="No numeric columns"):
+                door(path, **columns)
+        else:
+            result = door(path, **columns)
+            assert result.gene_id.tolist() == ids
+            assert result.TPM.tolist() == [index * 2.5 for index in range(n_rows)]
+            results.append(result)
+    if results:
+        pd.testing.assert_frame_equal(*results)
 
 
 # Drive both input forms through the same hypothesis validation battery.

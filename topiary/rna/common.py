@@ -22,19 +22,20 @@ def infer_delimiter(filename, comment_char="#", n_lines=3):
         - tabs
         - spaces
     Return the most likely separator by sniffing the first few lines
-    of the file's contents.
+    of the file's contents. ``n_lines`` is an inspection limit, not a
+    minimum file length: a header alone can identify the separator.
     """
     lines = []
     with open(filename, "r") as f:
         for line in f:
-            if line.startswith(comment_char):
+            if line.startswith(comment_char) or not line.strip():
                 continue
             if len(lines) < n_lines:
                 lines.append(line)
             else:
                 break
-    if len(lines) < n_lines:
-        raise ValueError("Not enough lines in %s to infer delimiter" % filename)
+    if not lines:
+        raise ValueError("No data lines in %s to infer delimiter" % filename)
     candidate_delimiters = [r"\t", ",", r"\s+"]
     for candidate_delimiter in candidate_delimiters:
         counts = [len(re.split(candidate_delimiter, line)) for line in lines]
