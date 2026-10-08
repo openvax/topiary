@@ -9,7 +9,7 @@ import pandas as pd
 from mhctools import Prediction
 
 from topiary import (
-    SelectionPolicy, combine_sources, evaluate_scores, join_annotations, parse,
+    Affinity, Column, SelectionPolicy, combine_sources, evaluate_scores, join_annotations, parse,
     rank_with_policy, read_selection_policy, write_selection_policy, rescore_candidates,
 )
 from tests.test_candidate_tables import Model, source
@@ -160,7 +160,7 @@ def test_explicit_windows_keep_repeated_source_ids_through_vaxrank_scoring():
 
 
 @pytest.mark.parametrize("antigen_kind", ["mutation", "fusion", "splice", "CTA", "ERV", "viral"])
-@pytest.mark.parametrize("policy", ["original", "rescored", "rna_overlay"])
+@pytest.mark.parametrize("policy", ["original", "rescored", "rna_overlay", "categorical"])
 def test_candidate_features_reach_vaxrank_scoring_and_vaccine_construction(antigen_kind, policy, tmp_path):
     proteins = ["MAAASIINFEKL", "MAAAGILGFVFTL"]
     identity = dict(protein_sequence=proteins, event_id=["event-1", "event-2"])
@@ -179,6 +179,8 @@ def test_candidate_features_reach_vaxrank_scoring_and_vaccine_construction(antig
         combined = join_annotations(combined, annotations, on=keys, prefix="rna",
                                     provenance={"source": "rna_only", "unit": "TPM"})
         expression = "rna_transcript_expression / affinity.value"
+    elif policy == "categorical":
+        expression = (1 / Affinity.value + 10 * Column("peptide").eq("GILGFVFTL")).to_expr_string()
     saved_policy = SelectionPolicy(
         name="example-" + policy, score_by=expression,
         filter_by="n_rna_alt >= 5", duplicates="best",

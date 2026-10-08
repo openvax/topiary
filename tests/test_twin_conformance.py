@@ -226,6 +226,8 @@ FILTER_DECISION_TWINS = (evaluate_filter, apply_filter)
 
 # Both public expression renderers must preserve evaluation. The shared
 # original-versus-reparsed battery lives in test_dsl_roundtrip.py.
+# Categorical literals and saved-policy replay use this same pair, including
+# negation and escaped strings (test_categorical_roundtrip.py).
 DSL_RENDER_TWINS = (repr, lambda node: node.to_expr_string())
 
 # Coverage summaries and common-set comparisons must agree on assessability.
