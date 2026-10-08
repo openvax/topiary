@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import math
 import operator
-import re
 from collections import Counter
 from collections.abc import Mapping
 from types import MappingProxyType
@@ -1775,7 +1774,11 @@ class Column(DSLNode):
 
     def __repr__(self):
         name = self.col_name
-        if not re.fullmatch(r"[^\W\d]\w*", name):
+        is_identifier = (
+            bool(name) and (name[0].isalpha() or name[0] == "_")
+            and all(char.isalnum() or char == "_" for char in name)
+        )
+        if not is_identifier:
             name = repr(name)
         return f"column({name})"
 

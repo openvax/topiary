@@ -92,7 +92,8 @@ def test_nullable_column_dtypes_preserve_unknown_membership(dtype, values, targe
         assert_same(~node, df, preserve_unknown)
 
 
-@pytest.mark.parametrize("name", ["review label", "a'b\"c", "x) | y", "", "é", "e\u0301"])
+@pytest.mark.parametrize("name", ["review label", "a'b\"c", "x) | y", "", "é", "e\u0301",
+                                 "²label", "Ⅳlabel"])
 def test_quoted_column_names_share_one_rendering(name):
     df = frame(["yes", "no"], column=name)
     for node in (Column(name).eq("yes"), ~Column(name).isin(["no", "never"]),
