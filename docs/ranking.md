@@ -474,7 +474,7 @@ apply_filter(df, ~Column("source").isin(["control", "blacklist"]))
 
 `DSLNode.__eq__` is intentionally not overridden — `Column("x") == "y"` still does Python identity equality and won't compose. Always use `.eq()` / `.ne()` / `.isin()`. Passing the resulting `bool` as a filter, sort or score expression raises a `TypeError` that says so, rather than filtering or sorting on a constant.
 
-NaN handling matches pandas, not SQL: missing values evaluate to `False` for `.eq()` / `.isin()` and to `True` for `.ne()` / `~.eq()` (the inverse). To exclude NaN explicitly, compose with the source-of-truth column — e.g. `Column("mhc_class").ne("II") & Column("mhc_class").isin(["I", "II"])`.
+For nonmissing category targets, missing values evaluate to `False` for `.eq()` / `.isin()` and to `True` for `.ne()` / `~.eq()` (the inverse). Explicit `None` or `nan` targets retain pandas membership semantics. To exclude NaN explicitly, compose with the source-of-truth column — e.g. `Column("mhc_class").ne("II") & Column("mhc_class").isin(["I", "II"])`.
 
 The string parser accepts string literals on the right-hand side of `==` and `!=` (rejected with `<` / `<=` / `>` / `>=` since ordering on arbitrary strings isn't meaningful):
 
@@ -484,6 +484,27 @@ from topiary import parse
 parse('mhc_class == "I"')
 parse('affinity.value <= 500 & mhc_class != "II"')
 ```
+
+The method forms also parse directly and are the canonical forms emitted by
+`repr(node)` and `node.to_expr_string()`. They can be saved in a `SelectionPolicy`
+without losing categorical semantics:
+
+```python
+parse('column(mhc_class).eq("I")')
+parse('column(source).ne("control")')
+parse('~column(source).isin(["control", "blacklist"])')
+parse('column("review label").isin(["approved", "pending"])')
+parse('column(reviewed).eq(True) * affinity.score')
+```
+
+Arguments are literal strings, integers, floats, booleans, `None`, `nan`, or
+`inf`; signed numbers retain their values, including integers larger than
+floating-point precision. Strings and quoted column names use Python string
+escapes. `.isin([])` matches nothing and `~column(x).isin([])` matches everything
+under ordinary filtering. Evaluation with `preserve_unknown=True` still keeps
+missing evidence unknown. Expressions and nested collections are not category
+literals. These methods use the same raw-column membership implementation as
+the Python API; numeric `column(x) == 1` retains its numeric comparison behavior.
 
 For the two most common categorical filters, `class_i` and `class_ii` are pre-built shortcuts:
 

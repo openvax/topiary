@@ -1773,7 +1773,14 @@ class Column(DSLNode):
         return vals.reindex(ctx.group_index).astype(float)
 
     def __repr__(self):
-        return f"column({self.col_name})"
+        name = self.col_name
+        is_identifier = (
+            bool(name) and (name[0].isalpha() or name[0] == "_")
+            and all(char.isalnum() or char == "_" for char in name)
+        )
+        if not is_identifier:
+            name = repr(name)
+        return f"column({name})"
 
     def to_ast_string(self):
         return f"Column({self.col_name!r})"
@@ -1863,7 +1870,7 @@ class Includes(DSLNode):
 
     def __repr__(self):
         prefix = "~" if self.negate else ""
-        return f"{prefix}column({self.col_name}).includes({self.value!r})"
+        return f"{prefix}{Column(self.col_name)!r}.includes({self.value!r})"
 
     def to_expr_string(self):
         return repr(self)
@@ -1937,11 +1944,15 @@ class IsIn(DSLNode):
     def __repr__(self):
         # Single-value: render as .eq(v) / .ne(v).  Multi-value: render
         # as .isin([...]) or ~.isin([...]) when negated.
-        if len(self.values) == 1:
+        # NumPy scalar reprs name constructors (np.int64(...), etc.); the
+        # categorical grammar accepts literals, not Python function calls.
+        scalar_types = (np.bool_, np.integer, np.floating, np.str_)
+        values = [value.item() if isinstance(value, scalar_types) else value for value in self.values]
+        if len(values) == 1:
             method = "ne" if self.negate else "eq"
-            return f"column({self.col_name}).{method}({self.values[0]!r})"
+            return f"{Column(self.col_name)!r}.{method}({values[0]!r})"
         prefix = "~" if self.negate else ""
-        return f"{prefix}column({self.col_name}).isin({list(self.values)!r})"
+        return f"{prefix}{Column(self.col_name)!r}.isin({values!r})"
 
     def to_ast_string(self):
         name = "NotIn" if self.negate else "In"

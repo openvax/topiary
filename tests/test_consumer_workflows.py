@@ -117,6 +117,49 @@ def test_cufflinks_replacement_changes_expression_selection_and_replays(tmp_path
     pd.testing.assert_frame_equal(replay.occurrences, replaced.occurrences, check_exact=True)
 
 
+def test_categorical_policy_preserves_scores_selection_and_evidence_replay(tmp_path):
+    from topiary import (
+        Column, SelectionCriterion, SelectionPolicy, combine_sources,
+        evaluate_selection_policy, read_selection_policy, read_tsv, replay_selection_policy,
+        write_selection_policy,
+    )
+    from .test_candidate_tables import source
+    from .test_twin_conformance import DSL_RENDER_TWINS
+
+    approved = "approved 'review' \"quoted\"\\line\nnext"
+    evidence = combine_sources({"input": source(**{
+        "review label": [approved, "rejected"], "reviewed": [True, True],
+        "review_score": [1., 9.],
+    })}, sample_name="patient")
+    score = Column("review_score") + 10 * Column("review label").ne("rejected")
+    assert evaluate_scores(evidence.df, score).tolist() == [11., 9.]
+    for index, render in enumerate(DSL_RENDER_TWINS):
+        selected = []
+        for allowed in (approved, "rejected"):
+            eligibility = (Column("review label").isin([allowed, "unobserved"])
+                           & Column("reviewed").eq(True))
+            policy = SelectionPolicy(
+                "categorical", render(score), filter_by='criterion("eligible")',
+                criteria=[SelectionCriterion("eligible", render(eligibility), "eligibility")],
+            )
+            path = tmp_path / f"policy-{index}-{len(selected)}.json"
+            write_selection_policy(policy, path)
+            restored = read_selection_policy(path)
+            assert restored.to_dict() == policy.to_dict()
+            assert restored.sha256 == policy.sha256
+            original = evaluate_selection_policy(evidence, policy)
+            actual = evaluate_selection_policy(evidence, restored)
+            pd.testing.assert_frame_equal(actual.occurrences, original.occurrences, check_exact=True)
+            selected.append(actual.selected.peptide.tolist())
+            assert actual.selected.score.tolist() == ([11.] if allowed == approved else [9.])
+            evidence_path = path.with_suffix(".tsv")
+            actual.evidence.to_tsv(evidence_path)
+            replay = replay_selection_policy(read_tsv(evidence_path))
+            pd.testing.assert_frame_equal(replay.occurrences, actual.occurrences, check_exact=True)
+            pd.testing.assert_frame_equal(replay.selected, actual.selected, check_exact=True)
+        assert selected == [["SIINFEKL"], ["GILGFVFTL"]]
+
+
 def test_negative_transform_limits_survive_saved_policy_replay(tmp_path):
     from topiary import (
         Column, SelectionPolicy, combine_sources, rank_with_policy,

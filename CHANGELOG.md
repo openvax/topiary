@@ -7,6 +7,14 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.94.4
+
+- Round-trip categorical equality, inequality and membership through both DSL
+  renderers and the parser, including negation, escaped strings, quoted column
+  names, exact integers and missing-value literals (#472).
+- Preserve categorical filters and arithmetic scores through saved selection
+  policies and evidence replay without coercing text columns to numbers.
+
 ## 5.94.2
 
 - Require gtfparse 3.0.2+ and PyEnsembl 2.24.1+, allowing the current pandas 3

@@ -13,7 +13,7 @@ Grammar (lowest precedence first)::
     postfix  := atom ('.' IDENT call? | '[' BRACKET_ARG (',' BRACKET_ARG)? ']')*
     BRACKET_ARG := STRING | IDENT | raw version token run
     atom     := NUMBER | '(' top ')' | abs(expr) | agg(expr,...)
-              | count(STR) | column(IDENT) | column(IDENT).includes(STR) | len
+              | count(STR) | column(IDENT | STRING) | len
               | IDENT ('[' BRACKET_ARG ']')? (':' | '.') kind_ref
               | IDENT '-' numeric_version ':' kind_ref
               | CONTEXT '.' scoped_atom | kind_ref | IDENT
@@ -21,6 +21,7 @@ Grammar (lowest precedence first)::
 
 from __future__ import annotations
 
+import ast
 import operator
 import re
 from difflib import get_close_matches
@@ -125,10 +126,14 @@ class _Tokenizer:
                 quote = text[i]
                 j = i + 1
                 while j < len(text) and text[j] != quote:
-                    j += 1
+                    j += 2 if text[j] == "\\" else 1
                 if j >= len(text):
                     raise ValueError(f"Unterminated string at position {i}")
-                self.tokens.append(("STRING", text[i + 1:j]))
+                try:
+                    value = ast.literal_eval(text[i:j + 1])
+                except (SyntaxError, ValueError) as error:
+                    raise ValueError(f"Invalid string literal at position {i}") from error
+                self.tokens.append(("STRING", value))
                 i = j + 1
                 continue
             if text[i].isalpha() or text[i] == '_':
@@ -386,6 +391,8 @@ class _Parser:
                 name = name_tok[1]
                 if name.lower() == "includes":
                     node = self._apply_includes(node)
+                elif name.lower() in {"eq", "ne", "isin"}:
+                    node = self._apply_categorical(node, name.lower())
                 elif self.tokenizer.peek()[0] == "LPAREN":
                     args = self._transform_args(name)
                     node = self._apply_transform(node, name, args)
@@ -481,7 +488,10 @@ class _Parser:
             if name == "column":
                 self.tokenizer.advance()
                 self.tokenizer.expect("LPAREN")
-                col_tok = self.tokenizer.expect("IDENT")
+                col_tok = self.tokenizer.peek()
+                if col_tok[0] not in {"IDENT", "STRING"}:
+                    raise ValueError("column() expects a column name or quoted string")
+                self.tokenizer.advance()
                 self.tokenizer.expect("RPAREN")
                 return Column(col_tok[1])
             if self._is_kind_name(name):
@@ -737,6 +747,47 @@ class _Parser:
         self.tokenizer.expect("RPAREN")
         return node.includes(value)
 
+    def _categorical_literal(self):
+        """Read a scalar category without coercing integers or evaluating code."""
+        token = self.tokenizer.peek()
+        if token[0] == "STRING":
+            return self.tokenizer.advance()[1]
+        if token[0] == "IDENT" and token[1].lower() in {"none", "true", "false"}:
+            return {"none": None, "true": True, "false": False}[self.tokenizer.advance()[1].lower()]
+        sign = 1
+        if token in (("OP", "-"), ("OP", "+")):
+            sign = -1 if self.tokenizer.advance()[1] == "-" else 1
+            token = self.tokenizer.peek()
+        if token[0] == "NUMBER":
+            text = self.tokenizer.advance()[1]
+            return sign * (int(text) if text.isdigit() else float(text))
+        if token[0] == "IDENT" and token[1].lower() in {"nan", "inf"}:
+            return sign * float(self.tokenizer.advance()[1])
+        raise ValueError(
+            "Categorical arguments must be scalar literals: quoted strings, "
+            "numbers, True, False, None, nan or inf"
+        )
+
+    def _apply_categorical(self, node, name):
+        """Route literal-only categorical syntax through the public Column API."""
+        if not isinstance(node, Column):
+            raise ValueError(f".{name}() requires a column reference, got {type(node).__name__}")
+        self.tokenizer.expect("LPAREN")
+        if name == "isin":
+            self.tokenizer.expect("LBRACKET")
+            values = []
+            while self.tokenizer.peek()[0] != "RBRACKET":
+                values.append(self._categorical_literal())
+                if self.tokenizer.peek()[0] != "COMMA":
+                    break
+                self.tokenizer.advance()
+            self.tokenizer.expect("RBRACKET")
+            value = values
+        else:
+            value = self._categorical_literal()
+        self.tokenizer.expect("RPAREN")
+        return getattr(node, name)(value)
+
     def _transform_args(self, name):
         """Decode scalar parameters, never pass expression nodes to transforms."""
         self.tokenizer.expect("LPAREN")
@@ -849,7 +900,10 @@ def parse(text: str, *, criteria=None) -> DSLNode:
     """Parse a DSL string into a :class:`DSLNode`.
 
     Supports the full grammar: arithmetic, comparisons, boolean
-    combinators, transforms, aggregations, scoped fields.
+    combinators, transforms, aggregations, scoped fields. Categorical
+    ``column(name).eq(value)``, ``.ne(value)`` and ``.isin([values])`` use
+    scalar literals and read the raw column without numeric coercion. Quoted
+    strings use Python string-literal escapes; column names may also be quoted.
     ``criteria`` optionally maps stable names to already-resolved DSL nodes
     for explicit ``criterion("name")`` references. Bare identifiers continue
     to name input columns. Unknown references raise ValueError. No registry is
