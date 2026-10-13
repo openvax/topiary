@@ -37,8 +37,11 @@ also handles their installation and licensing.
 | `bigmhc` / `bigmhc-el` / `bigmhc-im` | presentation / immunogenicity |
 | `netmhcstabpan` | pMHC stability |
 | `pepsickle` / `netchop` | proteasomal cleavage |
-| `netmhcpan-iedb` / `netmhccons-iedb` / `smm-iedb` | IEDB web API (no local install) |
+| `netmhcpan-iedb` / `netmhccons-iedb` / `smm-iedb` | local compatibility wrappers; require NetMHCpan 4.1 BA, NetMHCcons or SMM, respectively |
 | `random` | random predictions (for testing) |
+
+The historical `*-iedb` names run installed tools locally and have no HTTP
+fallback. See [MHCTools' compatibility-wrapper requirements](https://openvax.github.io/mhctools/predictors/binding/#compatibility-names-for-the-old-iedb-predictors).
 
 Peptide lengths for sliding-window scans come from the predictor unless you set
 them: `--mhc-epitope-lengths 8,9,10,11`.

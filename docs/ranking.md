@@ -395,7 +395,7 @@ In Python they are `Len()` and `Count()`:
 from topiary import Len, Count, wt
 
 Len() >= 9
-Count("C") - wt.Count("C")    # gained/lost cysteines vs wildtype
+Count("C") - wt.count("C")    # gained/lost cysteines vs wildtype
 ```
 
 ## String form (CLI)
