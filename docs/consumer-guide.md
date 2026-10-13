@@ -1,13 +1,11 @@
 # Consumer guide
 
-Prediction, evidence and ranking interfaces for downstream consumers, including
-Vaxrank. For release history and migrations, see the
-[changelog](https://github.com/openvax/topiary/blob/master/CHANGELOG.md).
-
-For table-only combination, ORF/RNA evidence, additive re-scoring and the
-Vaxrank handoff, see [Combining sources](combined-sources.md) (5.68.0+).
-
----
+The prediction, evidence and ranking interfaces a downstream consumer such as
+Vaxrank reads, and the rules that keep its numbers attributable. For release
+history and migrations, see the
+[changelog](https://github.com/openvax/topiary/blob/master/CHANGELOG.md); for
+table-only combination, ORF/RNA evidence, additive re-scoring and the Vaxrank
+handoff, see [combining sources](combined-sources.md) (5.68.0 and newer).
 
 ## The shortest useful version
 
@@ -27,21 +25,19 @@ scores = evaluate_scores(
 Every reader produces the same column vocabulary, so that expression runs
 unchanged against LENS, pVACseq, or a predictor's own output.
 
----
-
 ## RNA and DNA evidence
 
-Columns come in three layers. **Filter against layer 1.**
+Columns come in three layers, and a portable filter reads layer 1.
 
-1. **Canonical cross-source** — same meaning from every reader.
-2. **Canonical unit-specific** — `n_rna_alt_reads` / `n_rna_alt_fragments`, present
+1. Canonical cross-source — same meaning from every reader.
+2. Canonical unit-specific — `n_rna_alt_reads` / `n_rna_alt_fragments`, present
    only where a source reports both units and they differ.
-3. **Source-prefixed originals** — `lens_vaf`, `pvacseq_tumor_dna_vaf`:
-   exactly the number the tool printed, never reinterpreted. Find them with
+3. Source-prefixed originals — `lens_vaf`, `pvacseq_tumor_dna_vaf`: exactly the
+   number the tool printed, never reinterpreted. Find them with
    `source_columns(df)`, or `source_columns(df, "lens")` for one tool.
 
-**The same vocabulary across readers, not the same columns** — a reader emits
-one only where its source can answer:
+Readers share the vocabulary, not the column set: a reader emits a column only
+where its source can answer it.
 
 | Column | Meaning |
 |---|---|
@@ -58,18 +54,18 @@ one only where its source can answer:
 | `transcript_expression` | Transcript-level abundance, where separately stated |
 | `sequence_source` | How the protein sequence came to exist |
 
-**DNA support is the same shape**, so a filter written against RNA depth
+DNA support has the same shape, so a filter written against RNA depth
 becomes the DNA one by changing three letters: `n_dna_alt`, `n_dna_ref`,
 `n_dna_other`, `n_dna_overlapping`, `dna_vaf`, `dna_evidence_subject`,
 `dna_evidence_method`. There is no DNA expression pair — abundance is a
 transcript property.
 
-`n_rna_other` / `n_dna_other` are **absent unless the source counted the
-reference independently.** Where topiary derived `ref` as `depth - alt`, that
+`n_rna_other` / `n_dna_other` are absent unless the source counted the
+reference independently. Where topiary derived `ref` as `depth - alt`, that
 figure already absorbs the other alleles, so reporting a difference of zero
 would assert a clean locus nobody checked.
 
-**A column is omitted, not nulled, where the source cannot answer it.** A
+A column is omitted, not nulled, where the source cannot answer it. A
 pVACseq aggregated report states a DNA VAF but no DNA depth, so it gets
 `dna_vaf` and no `n_dna_*` at all — a column full of nulls would make
 `available_evidence_columns()` report a capability the source lacks.
@@ -77,13 +73,12 @@ pVACseq aggregated report states a DNA VAF but no DNA depth, so it gets
 This holds on every path. LENS emits no `rna_alt_expression`
 (it has no DNA VAF to scale abundance by, and its `vaf` never names its
 assay), and a prediction run where nobody supplied expression emits no
-`gene_expression`. **This changes filter behaviour:** `gene_expression > 1`
-against such a frame now raises instead of evaluating to NaN and silently
-emptying your candidate list. Check with `available_evidence_columns(df)`
-before naming a column in a config that runs against more than one source.
+`gene_expression`. That changes filter behaviour: `gene_expression > 1` against
+such a frame raises instead of evaluating to NaN and silently emptying your
+candidate list.
 
-**Check which are present before naming one in a config that has to run against
-more than one source:**
+So check which columns are present before naming one in a config that has to run
+against more than one source:
 
 ```python
 from topiary import available_evidence_columns, EVIDENCE_COLUMNS
@@ -91,7 +86,7 @@ from topiary import available_evidence_columns, EVIDENCE_COLUMNS
 missing = set(EVIDENCE_COLUMNS) - set(available_evidence_columns(df))
 ```
 
-Naming an absent column in an expression **raises** rather than evaluating to
+Naming an absent column in an expression raises rather than evaluating to
 NaN:
 
 ```
@@ -110,14 +105,14 @@ separately stated transcript-level abundance, so it has no
 `transcript_expression`; a LENS file without a `tpm` column has no
 `gene_expression` either.
 
-**`n_rna_alt`, `rna_evidence_subject` and `rna_evidence_method` are present
-wherever a source can determine variant support**, which is what makes a
+`n_rna_alt`, `rna_evidence_subject` and `rna_evidence_method` are present
+wherever a source can determine variant support, which is what makes a
 threshold written against `n_rna_alt` portable — whatever unit that source
 counts in. Coverage without a usable fraction can still populate
 `n_rna_overlapping` and its subject while correctly omitting the unavailable
 alt count and derivation.
 
-**Read `rna_evidence_subject` before a number leaves the run.** Within one run
+Read `rna_evidence_subject` before a number leaves the run. Within one run
 the unit is consistent and rankings are unaffected. It matters for things that
 travel — a documented threshold, a config copied between projects, a number in
 a paper. Five fragments and five reads are different bars.
@@ -149,7 +144,7 @@ the definitions above; derived estimates remain approximated.
 | pVACseq (aggregated) | from `RNA VAF` | `reads` | `rna_depth_x_vaf` | `dna_vaf` only — no DNA depth stated |
 | LENS | from `lens_vaf` | `reads` | `rna_depth_x_source_vaf` | none — see below |
 
-**LENS's `vaf` carries no assay qualifier**, and lands as `lens_vaf`. LENS names
+LENS's `vaf` carries no assay qualifier, and lands as `lens_vaf`. LENS names
 its read columns `rna_*` explicitly and leaves `vaf` bare, so topiary cannot tell
 whether the fraction is from RNA or DNA. It is used to split the RNA depth —
 under a method that says so — and *not* to scale expression or to populate any
@@ -187,8 +182,6 @@ Expression remains per-sample because it has no generally valid cross-sample
 sum. `n_samples` records how many samples actually contain rows for each
 candidate; a candidate absent from a sample is not treated as a zero row.
 
----
-
 ## Fragments
 
 Four sources, one shape:
@@ -209,7 +202,7 @@ def support(fragment):
     return fragment.n_rna_alt          # None where the source has no RNA
 ```
 
-**isovar is optional in the strong sense** — it is not a base requirement, and
+Isovar is optional in the strong sense: it is not a base requirement, and
 `import topiary` does not import it. Install it with
 `pip install 'topiary[isovar]'`; only `fragments_from_variants` with an
 `alignment_file` needs it.
@@ -302,8 +295,6 @@ correctness: a placeholder the loader invented has a value that means nothing,
 and anything doing variant-effect annotation on it must refuse rather than
 compute.
 
----
-
 ## The ranking DSL
 
 ### Resolving ambiguity
@@ -335,8 +326,8 @@ EvalContext(df, alleles={"SIINFEKLA": ["HLA-A*02:01"]})    # per peptide
 EvalContext(df, alleles=lambda keys: genotype_for(keys["peptide"]))
 ```
 
-**Use a per-peptide form when peptides were not each reported against the whole
-genotype** — a reader emitting one row per (peptide, allele) passing its own
+Use a per-peptide form when peptides were not each reported against the whole
+genotype — a reader emitting one row per (peptide, allele) passing its own
 threshold produces exactly that. Declaring the union invents a group for every
 pairing that was never scored, and an expression reading only peptide-level
 evidence gives each invented group a real number.
@@ -344,7 +335,7 @@ evidence gives each invented group a real number.
 ### Peptide-level evidence
 
 A row whose kind is MHC-independent broadcasts across a peptide's allele groups
-— **unless the row names an allele**, in which case it lands there and nowhere
+— unless the row names an allele, in which case it lands there and nowhere
 else. That is the mechanism for allele attribution: writing a row onto chosen
 alleles is how a policy says "credit this evidence here".
 
@@ -363,9 +354,7 @@ b = evaluate_scores(df, node_b, context=ctx)
 threaded down a pipeline — reuse applies to several operations on one unchanged
 frame. Passing a stale one raises.
 
----
-
-## Shared helpers, so you do not reimplement them
+## Shared helpers
 
 ```python
 is_stated(value)        # did the source say anything here?
@@ -382,8 +371,6 @@ independently in a consumer that had reimplemented it.
 Also public rather than reimplemented: `fragment_from_effect`,
 `resolve_default_methods`, `CANONICAL_METHOD_PREFERENCE`, `KIND_MHC_DEPENDENCE`,
 `derive_mhc_class`.
-
----
 
 ## Migrating renamed columns
 
@@ -405,13 +392,13 @@ to do:
 Column 'vaf' not found in DataFrame. It was renamed to 'lens_vaf'.
 ```
 
-**Do not fuzzy-match these yourself.** `vaf` is the trap: the closest
+Do not fuzzy-match these yourself. `vaf` is the trap: the closest
 surviving name is `rna_vaf`, and that is the wrong answer — `rna_vaf` is the
 canonical cross-source fraction, while `vaf` became `lens_vaf`, LENS's own
 fraction whose assay the file never states.
 
-**If you read reader-frame columns with `row.get(...)` or `df[...]` rather than
-through the DSL, topiary cannot warn you** — a missed `.get()` returns `None`
+Reading reader-frame columns with `row.get(...)` or `df[...]` rather than
+through the DSL gets no warning from topiary — a missed `.get()` returns `None`
 and becomes a silent zero. Check your column names against `RENAMED_COLUMNS`
 once at startup. Serialized `ProteinFragment` JSON and TSV are the exception:
 their old unit-specific evidence names are migrated on load, including
@@ -422,8 +409,6 @@ quantity is the ambiguity the renames existed to remove. `ProteinFragment`
 accepts its old unit-specific names when loading, constructing, and reading
 attributes so the 5.x API remains compatible, but serialization emits only the
 new names.
-
----
 
 ## Reader escape hatches
 
@@ -462,8 +447,6 @@ or `_wt_rank` wide column rather than being relabeled as MT. Wide-form
 round-trips also preserve distinct WT predictor metadata in `_wt_method` and
 `_wt_version` columns; older frames without those columns continue to infer
 that metadata from the MT model.
-
----
 
 ## Cache compatibility
 
