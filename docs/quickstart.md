@@ -1,51 +1,9 @@
 # Quickstart
 
-## CLI
+## A first prediction
 
-```bash
-# From a FASTA of protein sequences
-topiary --fasta proteins.fasta \
-  --mhc-predictor netmhcpan --mhc-alleles A0201,B0702 \
-  --filter-by "affinity <= 500 | presentation.rank <= 2" \
-  --output-csv results.csv
-
-# From specific genes
-topiary --gene-names BRAF TP53 EGFR \
-  --mhc-predictor netmhcpan --mhc-alleles A0201 \
-  --filter-by "affinity <= 500" \
-  --output-csv results.csv
-
-# Score specific peptides (no sliding window)
-topiary --peptide-csv peptides.csv \
-  --mhc-predictor netmhcpan --mhc-alleles A0201 \
-  --ic50-cutoff 500 \
-  --output-csv results.csv
-
-# CTA proteins, excluding vital organ peptides
-topiary --cta \
-  --exclude-tissues heart_muscle lung liver \
-  --mhc-predictor netmhcpan --mhc-alleles A0201 \
-  --filter-by "affinity <= 500" \
-  --output-csv results.csv
-
-# From genomic variants (VCF)
-topiary --vcf somatic.vcf \
-  --mhc-predictor netmhcpan --mhc-alleles A0201 \
-  --filter-by "affinity <= 500" \
-  --only-novel-epitopes \
-  --output-csv results.csv
-
-# Multi-model with tool-qualified ranking
-topiary --fasta proteins.fasta \
-  --mhc-predictor netmhcpan --mhc-alleles A0201 \
-  --filter-by "netmhcpan_ba <= 500 & column(cysteine_count) <= 2" \
-  --sort-by "netmhcpan_affinity,mhcflurry_presentation" \
-  --output-csv results.csv
-```
-
-## Python API
-
-### Basic prediction
+Give `TopiaryPredictor` one or more mhctools models, the alleles to predict
+against, and a source of sequence:
 
 ```python
 from topiary import TopiaryPredictor, Affinity
@@ -59,8 +17,7 @@ predictor = TopiaryPredictor(
 df = predictor.predict_from_sequences(["MASIINFEKLGGG"])
 ```
 
-The returned DataFrame has one row per `(peptide, allele, kind)` with
-columns including:
+The returned DataFrame has one row per `(peptide, allele, kind)`:
 
 | Column | Meaning |
 |---|---|
@@ -74,52 +31,60 @@ columns including:
 | `prediction_method_name` | Which predictor produced this row |
 
 Variant-derived predictions add `gene`, `variant`, `effect`,
-`contains_mutant_residues`, `wt_peptide`, and more — see the
-[API Reference](api.md) for the full column list.
+`contains_mutant_residues`, `wt_peptide` and more — the
+[API reference](api.md) has the full column list.
 
-### Whole-peptide half-life models
-
-With Topiary 5.53.0, the Python API accepts mhctools' `PeptiVerse` and
-`PlifePred2` instances, classes, or public class names. Configure the external
-model installation through mhctools, then score **the complete peptide**:
+Sequences can be named, scored as given rather than scanned, or read from a
+file:
 
 ```python
-from mhctools import PeptiVerse
-from topiary import TopiaryPredictor, evaluate_scores, parse
+# Sliding-window scan over named proteins
+df = predictor.predict_from_named_sequences({"PRAME": PRAME_SEQUENCE})
 
-model = PeptiVerse(peptiverse_home="/path/to/PeptiVerse")
-df = TopiaryPredictor(models=model).predict_from_named_peptides({
-    "candidate": "SIINFEKLGGALQ",
-})
-scores = evaluate_scores(df, parse("peptide_view(serum_half_life.value)"))
+# Score these peptides as-is, no sliding window
+df = predictor.predict_from_named_peptides({"flu_np": "GILGFVFTL"})
 ```
 
-No HLA allele is needed. Protein/fragment scanning rejects these peptide-only
-models and points to `predict_from_named_peptides`; Topiary does not invent
-scanning lengths or assign the full peptide's half-life to its inner ligands.
+## The same runs from the command line
 
-`serum_half_life`, `blood_half_life`, and `pMHC_stability` are separate kinds.
-The first two describe the peptide without MHC; the third describes a
-peptide–MHC complex. Known physical half-lives use `value` in hours. An unknown
-unit stays missing rather than being replaced by the native `score`.
-Do not assume a half-life score is a probability, or infer a percentile that
-the model does not supply. Use explicit `peptide_view(...)` when combining
-peptide-level evidence with per-allele predictions.
+```bash
+# From a FASTA of protein sequences
+topiary --fasta proteins.fasta \
+  --mhc-predictor netmhcpan --mhc-alleles A0201,B0702 \
+  --filter-by "affinity <= 500 | presentation.rank <= 2" \
+  --output-csv results.csv
 
-Topiary tests the real wrapper interfaces with synthetic sidecar output through
-prediction, cache replay, TSV, wide/long conversion, and ranking. This verifies
-data transport, **not biological accuracy or suitability for long vaccines**.
-The external models and their runtime environments are not bundled. PlifePred2
-has upstream [workspace-safety](https://github.com/openvax/mhctools/issues/310)
-and [unit/assay validation](https://github.com/openvax/mhctools/issues/311)
-issues addressed in mhctools 3.39.0 (included in Topiary's current minimum). Its native
-output is not a verified half-life in hours by default.
+# Score specific peptides (no sliding window)
+topiary --peptide-csv peptides.csv \
+  --mhc-predictor netmhcpan --mhc-alleles A0201 \
+  --ic50-cutoff 500 \
+  --output-csv results.csv
 
-These models do not supply per-bond extracellular peptidase maps. Site-level
-cleavage, full assay/chemistry provenance and configuration-aware cache identity
-remain tracked in [Topiary #288](https://github.com/openvax/topiary/issues/288).
+# From specific genes
+topiary --gene-names BRAF TP53 EGFR \
+  --mhc-predictor netmhcpan --mhc-alleles A0201 \
+  --filter-by "affinity <= 500" \
+  --output-csv results.csv
 
-### Multiple models
+# From genomic variants (VCF)
+topiary --vcf somatic.vcf \
+  --mhc-predictor netmhcpan --mhc-alleles A0201 \
+  --filter-by "affinity <= 500" \
+  --only-novel-epitopes \
+  --output-csv results.csv
+
+# CTA proteins, excluding peptides also found in vital organs
+topiary --cta \
+  --exclude-tissues heart_muscle lung liver \
+  --mhc-predictor netmhcpan --mhc-alleles A0201 \
+  --filter-by "affinity <= 500" \
+  --output-csv results.csv
+```
+
+The [command-line interface](cli.md) page covers predictor names, the remaining
+input modes, output options and exit status.
+
+## Multiple models
 
 ```python
 from topiary import Affinity, Presentation
@@ -133,7 +98,8 @@ predictor = TopiaryPredictor(
 )
 ```
 
-When multiple models produce the same prediction kind, qualify with brackets:
+When several models produce the same prediction kind, say which one an
+expression means with brackets:
 
 ```python
 Affinity["netmhcpan"] <= 500           # NetMHCpan only
@@ -141,9 +107,10 @@ Affinity["mhcflurry"].score            # MHCflurry only
 Presentation["mhcflurry"].rank <= 2    # MHCflurry presentation
 ```
 
-See [Ranking DSL](ranking.md) for full details.
+The string form is `netmhcpan:affinity <= 500`. See the
+[ranking DSL](ranking.md) for the whole grammar.
 
-### Input formats
+## Input formats
 
 ```python
 from topiary.inputs import (
@@ -170,7 +137,7 @@ sliced = slice_regions(seqs, {
 })
 ```
 
-### Ensembl and tissue lookups
+## Ensembl and tissue lookups
 
 ```python
 from topiary.sources import (
@@ -203,7 +170,7 @@ seqs = ensembl_proteome()
 print(available_tissues())
 ```
 
-### Exclusion
+## Exclusion
 
 ```python
 from topiary.inputs import exclude_by
@@ -218,7 +185,7 @@ df = exclude_by(df, vital, mode="substring")
 df = exclude_by(df, vital, mode="exact")
 ```
 
-### Peptide properties
+## Peptide properties
 
 ```python
 from topiary.properties import add_peptide_properties
@@ -231,7 +198,7 @@ df = add_peptide_properties(df, groups=["manufacturability"])
 
 See [Peptide Properties](properties.md) for all available properties and groups.
 
-### From somatic variants
+## From somatic variants
 
 ```python
 from varcode import load_vcf
@@ -245,7 +212,10 @@ df = predictor.predict_from_variants(variants)
 #   wt_peptide, wt_peptide_length, ...
 ```
 
-### From protein fragments (non-variant sources)
+RNA quantification can annotate and filter these rows; see
+[RNA expression](expression.md).
+
+## From protein fragments (non-variant sources)
 
 ```python
 from topiary import ProteinFragment
@@ -263,7 +233,7 @@ df = predictor.predict_from_fragments(fragments)
 # vaccine-window selection) can group peptides back to their fragment.
 ```
 
-### From cached predictions (skip the predictor call)
+## From cached predictions (skip the predictor call)
 
 Use a pre-computed prediction table instead of running the predictor
 live — for reproducibility, iterating on filters/ranking without
@@ -296,3 +266,50 @@ topiary --peptide-csv peptides.csv \
 
 Full details — all loaders, sharding, version invariants, and
 the CLI flag reference — in [Cached Predictions](cached.md).
+
+## Whole-peptide half-life models
+
+mhctools' `PeptiVerse` and `PlifePred2` score a complete peptide rather than a
+peptide-MHC pair, so they need no allele. Configure the external model
+installation through mhctools, then pass the instance, class or public class
+name (Topiary 5.53.0 and newer):
+
+```python
+from mhctools import PeptiVerse
+from topiary import TopiaryPredictor, evaluate_scores, parse
+
+model = PeptiVerse(peptiverse_home="/path/to/PeptiVerse")
+df = TopiaryPredictor(models=model).predict_from_named_peptides({
+    "candidate": "SIINFEKLGGALQ",
+})
+scores = evaluate_scores(df, parse("peptide_view(serum_half_life.value)"))
+```
+
+Protein and fragment scanning reject these peptide-only models and point to
+`predict_from_named_peptides`: Topiary does not invent scanning lengths or
+assign a whole peptide's half-life to the ligands inside it.
+
+### Interpreting the output
+
+`serum_half_life`, `blood_half_life` and `pMHC_stability` are separate kinds.
+The first two describe the peptide without MHC; the third describes a
+peptide-MHC complex. Known physical half-lives use `value` in hours, and an
+unknown unit stays missing rather than being replaced by the model's native
+`score`. Do not assume a half-life score is a probability, or infer a percentile
+the model does not supply. Use an explicit `peptide_view(...)` when combining
+peptide-level evidence with per-allele predictions.
+
+Topiary's tests carry synthetic sidecar output through prediction, cache replay,
+TSV, wide/long conversion and ranking. That verifies data transport, not
+biological accuracy or suitability for long vaccines. The external models and
+their runtime environments are not bundled.
+
+PlifePred2 had upstream
+[workspace-safety](https://github.com/openvax/mhctools/issues/310) and
+[unit/assay validation](https://github.com/openvax/mhctools/issues/311) issues,
+addressed in mhctools 3.39.0 (included in Topiary's current minimum). Its native
+output is not a verified half-life in hours by default.
+
+Neither model supplies per-bond extracellular peptidase maps. Site-level
+cleavage, full assay/chemistry provenance and configuration-aware cache identity
+remain tracked in [Topiary #288](https://github.com/openvax/topiary/issues/288).

@@ -6,16 +6,14 @@ external predictor's output, a previous topiary run, or shards from
 parallel jobs — and plugs into `TopiaryPredictor(models=…)` the same
 way a live predictor does.
 
-Use it when you want to:
-
-- Iterate on filters / ranking / the DSL without re-running a slow predictor.
-- Pin scores for reproducibility (papers, benchmarks).
-- Predict per-allele / per-sample in parallel jobs, persist each shard, merge later.
-- Ingest predictions from a tool topiary doesn't natively run.
+Use it to iterate on filters, ranking and the DSL without re-running a slow
+predictor; to pin scores for reproducibility in a paper or benchmark; to predict
+per allele or per sample in parallel jobs, persist each shard and merge them
+later; or to ingest predictions from a tool topiary does not run itself.
 
 ## Basic usage
 
-Load a cache, pass it as the model to `TopiaryPredictor`, go:
+Load a cache and pass it as the model:
 
 ```python
 from topiary import CachedPredictor, TopiaryPredictor
@@ -201,7 +199,7 @@ Each loader parses the version out of the stdout preamble (e.g.
 Pass `predictor_version="..."` if you want a different label, or
 if your capture stripped the preamble.
 
-**Multi-kind output**: NetMHCpan run with `-BA` (which produces
+NetMHCpan run with `-BA` (which produces
 both eluted-ligand and binding-affinity scores per peptide) is
 loaded as **both** kinds in the cache — `pMHC_affinity` and
 `pMHC_presentation` rows for each `(peptide, allele)`. The new
@@ -277,7 +275,7 @@ applies across shards the same way it applies inside one.
 Malformed shards report their filename and the required `topiary_output`
 format. Missing or unreadable files report the underlying file-access error.
 
-**Overlap resolution** (`on_overlap=`):
+`on_overlap=` decides what happens when shards are not disjoint:
 
 - `"raise"` (default) — fail if any `(peptide, allele, peptide_length)`
   appears in more than one shard. A sample of conflicting keys is
@@ -314,21 +312,18 @@ some other way, or intermediates in a larger pipeline.
 
 ## Version invariant
 
-**A single `CachedPredictor` holds predictions from exactly one
-`(prediction_method_name, predictor_version)` pair.** Scores from
+A single `CachedPredictor` holds predictions from exactly one
+`(prediction_method_name, predictor_version)` pair. Scores from
 different model versions aren't interchangeable — even percentile
 ranks aren't directly comparable across versions. Mixing them would
 produce an output that passes every downstream filter invisibly.
 
-Enforcement:
-
-- **On construction**: a DataFrame with multiple `(name, version)`
-  pairs raises. `None` / `NaN` / empty-string values are also
-  rejected — silent "I don't know" would mask the invariant.
-- **On fallback attachment** (below): the fallback's `(name, version)`
-  must equal the cache's, verified on every fallback batch.
-- **On concat / `from_directory`**: every shard
-  must agree.
+This is enforced in three places. On construction, a DataFrame with several
+`(name, version)` pairs raises, and so do `None`, `NaN` and empty-string
+values — a silent "I don't know" would mask the invariant. On fallback
+attachment (below), the fallback's pair must equal the cache's, verified on
+every fallback batch. On `concat` and `from_directory`, every shard must
+agree.
 
 ### Explicit opt-in equivalence
 
@@ -359,8 +354,8 @@ different predictions if they have different model bundles installed.
 `topiary.mhcflurry_composite_version()` introspects the installed
 mhcflurry and returns a composite string like
 `"2.2.1+release-2.2.0"`. `CachedPredictor.from_mhcflurry(path)`
-calls it automatically when you omit `predictor_version` — **you
-never have to enumerate model bundles manually**:
+calls it automatically when you omit `predictor_version`, so model bundles
+never have to be enumerated by hand:
 
 ```python
 # Auto-composed from the local install
@@ -442,20 +437,18 @@ predictor = TopiaryPredictor(models=cache)
 df = predictor.predict_from_variants(variants)   # misses delegate
 ```
 
-Semantics:
+A miss is routed to `fallback`, and the fallback's output is merged into the
+cache, so later queries for the same `(peptide, allele, peptide_length)` are
+served locally. There is no flag for this: caching a hit is always right.
 
-- **Miss routed to `fallback`**, and the fallback's output is merged
-  into the cache so subsequent queries for the same
-  `(peptide, allele, peptide_length)` serve locally. Caching hits
-  is always the right default — there's no separate flag.
-- **Same version invariant**: the fallback's `(name, version)` must
-  equal the cache's (or be in `also_accept_versions`), checked on every
-  fallback batch.
-- **Pure read-through mode** — empty cache, fallback-only — is
-  supported: `CachedPredictor(fallback=live)`. The cache starts
-  empty; identity is discovered from the fallback's first output.
-- **No fallback** (default): misses raise `KeyError` with the missed
-  peptides listed.
+The version invariant covers the fallback too — its
+`(prediction_method_name, predictor_version)` must equal the cache's, or be in
+`also_accept_versions`, and this is checked on every fallback batch.
+
+An empty cache with only a fallback, `CachedPredictor(fallback=live)`, is a
+supported read-through mode; the identity is discovered from the fallback's
+first output. With no fallback, the default, a miss raises `KeyError` listing
+the missed peptides.
 
 A cached protein-scan occurrence with incompatible flanks or genotype raises
 `CachedPredictorCoverageError`, even when a fallback is attached. The current
@@ -554,7 +547,7 @@ Full flag reference:
 `--mhc-predictor` is mutually exclusive with cache flags. `--mhc-alleles`
 is optional: omit it to use the cache's allele set, or supply a covered subset.
 
-## When *not* to use
+## When not to use a cache
 
 - You've never run the predictor on these peptides — just use the
   live predictor directly; there's nothing to cache yet.

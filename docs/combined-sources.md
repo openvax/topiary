@@ -1,9 +1,10 @@
 # Combine source tables and re-score on demand
 
-Topiary combines normalized source tables, preserves their original values,
-and uses the existing DSL to filter and rank reported candidates. Models run
-only when explicitly requested. Raw reads and protein reconstruction are not
-prerequisites for combining tables.
+`combine_sources` puts candidates reported by several pipelines into one table,
+keeping each source's original values and labels, and `rank_candidates` filters
+and ranks them with the ordinary [ranking DSL](ranking.md). Neither runs a
+prediction model: raw reads, protein reconstruction and fresh predictions are
+separate, explicit steps.
 
 ```python
 from topiary import (
@@ -28,9 +29,9 @@ ranked.to_csv("ranked-candidates.tsv", sep="\t", index=False)
 ```
 
 Inputs may be `TopiaryResult` objects or normalized DataFrames. Existing readers
-normalize LENS and pVACseq; [native Exacto tables](exacto.md) use `read_exacto`.
-Already normalized ORF/RNA DataFrames are also supported. Aggregated reports contribute only the
-candidates they actually report.
+normalize LENS and pVACseq, [native Exacto tables](exacto.md) use `read_exacto`,
+and already normalized ORF/RNA DataFrames are accepted as they are. An
+aggregated report contributes only the candidates it actually reports.
 
 A single input needs no model name, version or per-row source metadata. For
 example, this table can be ranked directly after combination:
@@ -52,13 +53,16 @@ version-qualified expression for this simple case.
 
 ## Named selection policies
 
-`SelectionPolicy` saves the exact candidate filter, score, model/version
-selections, ranking direction, duplicate policy and strata under a stable name.
-It has no implicit scientific recipe. **Vaxrank owns the published
-`builtin:openvax-v1` bundle**, shipped with experimental overlays in
+A `SelectionPolicy` saves one named, reusable configuration: the candidate
+filter, the score expression, model and version selections, ranking direction,
+duplicate policy and strata. It carries no implicit scientific recipe, and a
+changed policy needs a new name.
+
+The published `builtin:openvax-v1` bundle belongs to Vaxrank, which ships it
+with experimental overlays in
 [Vaxrank 3.36.0 / PR #565](https://github.com/openvax/vaxrank/pull/565).
-Topiary evaluates its policy subtree and tests against that released bundle;
-it does not maintain a second definition. Give changed policies new names.
+Topiary evaluates that bundle's policy subtree and tests against the released
+version rather than maintaining a second definition.
 
 ```python
 from topiary import (
@@ -81,32 +85,35 @@ replayed = rank_with_policy(
 )
 ```
 
-The immutable policy has `to_dict()` / `from_dict()` for complete, strict,
-schema-versioned mappings and `sha256` for the canonical definition, including
-its name. Every default is saved explicitly. Changing an expression or model
-selection changes the digest even if the name remains `openvax-v1`. Runtime
-versions and input facts live separately in
+The policy is immutable. `to_dict()` / `from_dict()` convert it to and from
+complete, strict, schema-versioned mappings, with every default saved
+explicitly, and `sha256` digests the canonical definition including its name.
+Changing an expression or a model selection changes the digest even when the
+name stays `openvax-v1`.
+
+Runtime versions and input facts live separately in
 `ranked.extra['selection_policy']['execution']`; authoring history can be passed
 as `provenance=` and is stored alongside the definition, outside its digest.
 Record actual base digests and ordered config-file hashes there when available.
 
 `rank_with_policy` delegates to `rank_candidates`: it filters first, then scores
-surviving evidence and chooses one representative per candidate/stratum. Unknown
-filter results exclude groups under the existing DSL's evidence-retention
-rules. Missing scores remain unranked; zero scores remain zero. It performs no
-predictor calls, automatic method/version preference selection, or score filling.
-Explicit model selections follow the same DSL rules as direct calls. To choose
-input-dependent defaults, call `resolve_default_methods` and
-`resolve_default_versions` explicitly and include their results in the effective
-policy before saving. Unstated historical versions remain unknown. Distinct
-source-local selections need separate effective policies/invocations; do not
-apply one source's choice globally.
+surviving evidence and chooses one representative per candidate and stratum.
+Unknown filter results exclude groups under the DSL's evidence-retention rules.
+Missing scores remain unranked; zero scores remain zero.
+
+It calls no predictor, selects no method or version preference on its own, and
+fills no scores. Explicit model selections follow the same DSL rules as a direct
+call. For input-dependent defaults, call `resolve_default_methods` and
+`resolve_default_versions` yourself and include their results in the effective
+policy before saving it; an unstated historical version stays unknown.
+Source-local selections need their own effective policies or invocations — one
+source's choice must not be applied globally.
 
 CSV/TSV exports retain the full definition, digest, derivation and execution
-record in long and wide form. Numeric measurements and annotations round-trip
-exactly as binary floats. Preserve the **full evidence** as well: a filtered
-ranking cannot restore excluded observations or discarded alternatives. Replay
-also needs the recorded Topiary version when exact execution semantics matter.
+record in long and wide form, and numeric measurements and annotations
+round-trip exactly as binary floats. Keep the full evidence as well: a filtered
+ranking cannot restore excluded observations or discarded alternatives. Exact
+replay also needs the recorded Topiary version.
 
 Proteasome cleavage and whole-peptide half-life can already be named explicitly,
 for example `peptide_view(proteasome_cleavage.score)` and

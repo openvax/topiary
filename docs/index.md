@@ -1,21 +1,47 @@
 # Topiary
 
-Predict which peptides from protein sequences will be presented by MHC molecules, making them potential T-cell epitopes. Used in cancer immunotherapy research to find mutant peptides (neoantigens) that the immune system could target.
+Topiary predicts which peptides from a protein sequence will be presented by
+MHC molecules, and therefore which could be seen by T cells. Give it protein
+sequences (or peptides, somatic variants, or another pipeline's report) plus a
+list of HLA alleles, and it scans every candidate peptide with one or more
+[mhctools](https://github.com/openvax/mhctools) prediction models and returns
+the predicted binders as a DataFrame, ranked by any combination of binding
+affinity, presentation, processing and stability.
 
-**Core idea:** Given protein sequences + HLA alleles + one or more MHC prediction models, Topiary scans all possible peptides and returns those predicted to be presented by MHC, ranked by any combination of binding affinity, presentation score, processing score, and stability.
+It is used in cancer immunotherapy research to find mutant peptides
+(neoantigens) that the immune system could target, and in viral epitope mapping.
 
-## Features
+## Installation
 
-- **Multiple MHC prediction models** — [NetMHCpan](https://services.healthtech.dtu.dk/services/NetMHCpan-4.1/), [MHCflurry](https://github.com/openvax/mhcflurry), [NetMHCIIpan](https://services.healthtech.dtu.dk/services/NetMHCIIpan-4.3/), etc. via [mhctools](https://github.com/openvax/mhctools); combine and rank across models
-- **Composable ranking DSL** — filter, rank, and score with operator expressions over affinity, presentation, stability, wildtype comparisons, and peptide properties
-- **Universal antigen abstraction** — `ProteinFragment` runs somatic variants, fusions, ERVs, CTAs, viral, and synthetic antigens through one pipeline
-- **Cached predictions** — `CachedPredictor` reuses pre-computed scores ([mhctools](https://github.com/openvax/mhctools) output, [NetMHC](https://services.healthtech.dtu.dk/services/NetMHC-4.0/) stdout, generic TSV) so you can iterate on filters and ranking without re-running the predictor
-- **Multiple input modes** — VCF/MAF variants, FASTA, CSV, gene names, [LENS](https://www.uselens.io/) reports, [pVACseq](https://pvactools.readthedocs.io/) output
-- **Expression- and tissue-aware prioritization** — exclude peptides from vital-organ proteomes, prioritize by RNA expression
+Topiary requires Python 3.10 or newer.
 
-## Quick example
+```bash
+pip install topiary
+```
 
-Score the [PRAME](https://www.uniprot.org/uniprotkb/P78395/) cancer-testis antigen against two HLA class I alleles, keeping strong binders and presentation hits and sorting by presentation score:
+Binding predictors are installed separately and called through mhctools:
+MHCflurry with `pip install mhcflurry && mhcflurry-downloads fetch`, NetMHCpan
+and the other DTU tools under a license from
+[DTU Health Tech](https://services.healthtech.dtu.dk/).
+
+Variant annotation, gene lookups and `SelfProteome` need a local Ensembl
+annotation database:
+
+```bash
+pyensembl install --release "$(python -c 'from pyensembl import ensembl_grch38; print(ensembl_grch38.release)')" --species human
+```
+
+Two extras add input sources: `pip install 'topiary[pirlygenes]'` for
+cancer-testis antigens and tissue expression, and `pip install 'topiary[isovar]'`
+for protein fragments assembled from RNA reads. See
+[installation details](cli.md#installation-details) for choosing a different
+Ensembl release and for the optional-package versions.
+
+## A first prediction
+
+Score the [PRAME](https://www.uniprot.org/uniprotkb/P78395/) cancer-testis
+antigen against two HLA class I alleles, keeping strong binders and presentation
+hits, sorted by presentation score:
 
 ```python
 from topiary import TopiaryPredictor
@@ -43,35 +69,24 @@ predictor = TopiaryPredictor(
 df = predictor.predict_from_named_sequences({"PRAME": PRAME})
 ```
 
-## Installation
+## Where to go next
 
-Requires Python ≥ 3.10. Osteosarc, including its read-extraction dependency,
-is installed with Topiary.
+- [Quickstart](quickstart.md) — more input formats, Ensembl and tissue lookups,
+  exclusion filtering.
+- [Command-line interface](cli.md) — predictor names, input modes, output
+  columns and exit status.
+- [Ranking DSL](ranking.md) — the filter and ranking expressions, in Python and
+  as strings.
+- [Protein fragments](fragments.md) — one antigen record for somatic variants,
+  fusions, ERVs, CTAs, viral and synthetic sources.
+- [Cached predictions](cached.md) — iterate on filters and ranking without
+  re-running a predictor.
+- [API reference](api.md) — classes, functions and complete column lists.
 
-```bash
-pip install topiary
-```
-
-For Ensembl-based features (variant annotation, gene lookups,
-`SelfProteome`), install the default reference selected by PyEnsembl:
-
-```bash
-pyensembl install --release "$(python -c 'from pyensembl import ensembl_grch38; print(ensembl_grch38.release)')" --species human
-```
-
-If you install a different release, select it explicitly with `release=` or
-`--ensembl-release`; installing it does not change the default.
-
-For cancer-testis antigen and tissue expression features:
-
-```bash
-pip install 'topiary[pirlygenes]'
-```
-
-For RNA-assembled protein fragments from Isovar:
-
-```bash
-pip install 'topiary[isovar]'
-```
-
-See the [Quickstart](quickstart.md) for more examples, [Protein Fragments](fragments.md) for the universal antigen abstraction, [Cached Predictions](cached.md) for running from pre-computed scores, [Ranking DSL](ranking.md) for the expression system, and [API Reference](api.md) for full details.
+Several MHC prediction models can run in one pass and be compared or combined in
+one ranking expression: NetMHCpan, [MHCflurry](https://github.com/openvax/mhcflurry),
+[NetMHCIIpan](https://services.healthtech.dtu.dk/services/NetMHCIIpan-4.3/) and
+others. Reports from [pVACseq](https://pvactools.readthedocs.io/),
+[LENS](https://www.uselens.io/) and [Exacto](exacto.md) can be read in and
+ranked beside fresh predictions, and peptides can be excluded by vital-organ
+proteome membership or prioritized by RNA expression.

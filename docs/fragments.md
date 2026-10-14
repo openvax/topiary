@@ -1,51 +1,16 @@
 # Protein Fragments
 
-## Identity and RNA outcomes
+`ProteinFragment` is one record for a protein or peptide sequence, with its
+source type, target region and comparator sequences. It is how Topiary runs
+antigens of any origin through one pipeline: somatic variants, structural
+variants, ERVs, CTAs, viral proteins, allergens, autoantigens and synthetic
+constructs.
 
-A record is one observation of a candidate: the pair `(sample_name,
-fragment_id)`. `fragment_id` names the candidate, and `sample_name` names
-which sample (or library, or analysis policy) observed it. The same candidate
-seen in two samples is two records sharing one ID. They may differ in evidence,
-but not in the candidate itself (`CANDIDATE_FIELDS`: sequence, target
-intervals, reference and germline sequences).
+Each fragment's identity is carried onto its prediction rows, so downstream
+tools such as vaxrank and vaccine-window selection can group peptides back to
+the fragment they came from.
 
-- `fragments_from_dataframe` derives the ID from everything it groups rows by:
-  source, variant, transcript (`transcript_id` or pVACseq's `transcript`),
-  reported peptide and sequence. A frame's `sample_name` column fills the
-  field. A LENS context reported for several peptides becomes one fragment
-  per peptide, each with that peptide's evidence and
-  `annotations["reported_peptide"]`. Rows describing the same fragment that
-  disagree about its evidence raise.
-- `fragments_from_variants(..., sample_name="T1")` and
-  `fragments_for_sample(fragments, "T1")` label observations from any source.
-  The label is kept exactly and is checked before any alignment is read.
-- Prediction scans each candidate once and writes one row per observation.
-  `sample_name` comes from the fragment, never from a model or cache (blank
-  when unlabelled), so `aggregate_evidence_across_samples` pools a candidate
-  across samples with its default keys.
-
-`unique_fragments(records)` keeps the first record per `(sample_name,
-fragment_id)` and coalesces repeats that hold the same content. It raises,
-naming the fields that differ, on conflicting content or on one ID naming
-different candidates. Content is compared by passing it through fragment IO
-itself, so a record and its own `write_fragments` round trip always agree
-(`5` and `5.0`, NaN, blank or `"None"` text and `None`, tuples and lists,
-numbers in text fields). A value IO cannot store cannot be compared, and
-fails explicitly. Prediction runs this check before any model, preventing
-silent last-record overwrites.
-
-`describe_isovar_result(result)` returns a JSON-compatible diagnostic record for
-every completed upstream result, including empty or filtered reconstructions.
-It preserves separate read/template counts, unknowns as null, sequence/edit
-interval, transcript IDs and named failed filters. `passing` means the supplied
-result has a protein and passes its recorded filters, not clinical eligibility
-or proof that default filters were used. Fragment adapters remain diagnostic:
-do not promote a reconstructed but filtered sequence into accepted inputs.
-Acquisition errors must be reported separately, never as biological negatives.
-
-`ProteinFragment` is a universal record for a protein / peptide sequence with source-type, target-region, and comparator metadata. It's the substrate that lets Topiary handle antigens from any origin — somatic variants, structural variants, ERVs, CTAs, viral proteins, allergens, autoantigens, synthetic constructs — through one pipeline, and threads identity through predictions so downstream tools (vaxrank, vaccine-window selection) can group peptides back to their source.
-
-## The dataclass
+## The fragment record
 
 ```python
 from topiary import ProteinFragment
@@ -257,20 +222,11 @@ for an absent field *and* for a synthesized one. Anything that annotates variant
 effects, reannotates transcripts, or otherwise treats a value as biology must
 check it and refuse rather than compute on a placeholder.
 
-The point of all this is that **a consumer never branches on `source_type`**.
-Every source produces the same shape; they differ only in which fields are
-populated and how real those fields are:
-
-```python
-def rna_support(fragment):
-    subject = fragment.rna_evidence_subject()
-    if subject is None:
-        return None
-    field = f"n_rna_alt_{subject}"
-    if not fragment.is_usable_as_biology(field):
-        return None
-    return fragment.n_rna_alt
-```
+Together with the provenance mapping, this is what lets a consumer read every
+source without branching on `source_type`, as in the
+[`rna_support` example above](#every-source-reaches-a-fragment): every source
+produces the same shape, and they differ only in which fields are populated and
+how real those fields are.
 
 ## source_type vocabulary (recommended, not enforced)
 
@@ -462,6 +418,49 @@ __4f9c2a8e                  # no metadata → hash-only fallback
 ```
 
 Prefix is sanitized to `[A-Za-z0-9._:-]`; runs of other characters collapse to `_`. Hash is 8 hex chars of SHA-1 over `sequence`, the optional `variant` and any `qualifiers` — the other values a producer groups records by, such as a reported peptide. Without qualifiers the id is unchanged from earlier releases.
+
+## Identity and RNA outcomes
+
+A record is one observation of a candidate: the pair `(sample_name,
+fragment_id)`. `fragment_id` names the candidate, and `sample_name` names
+which sample (or library, or analysis policy) observed it. The same candidate
+seen in two samples is two records sharing one ID. They may differ in evidence,
+but not in the candidate itself (`CANDIDATE_FIELDS`: sequence, target
+intervals, reference and germline sequences).
+
+- `fragments_from_dataframe` derives the ID from everything it groups rows by:
+  source, variant, transcript (`transcript_id` or pVACseq's `transcript`),
+  reported peptide and sequence. A frame's `sample_name` column fills the
+  field. A LENS context reported for several peptides becomes one fragment
+  per peptide, each with that peptide's evidence and
+  `annotations["reported_peptide"]`. Rows describing the same fragment that
+  disagree about its evidence raise.
+- `fragments_from_variants(..., sample_name="T1")` and
+  `fragments_for_sample(fragments, "T1")` label observations from any source.
+  The label is kept exactly and is checked before any alignment is read.
+- Prediction scans each candidate once and writes one row per observation.
+  `sample_name` comes from the fragment, never from a model or cache (blank
+  when unlabelled), so `aggregate_evidence_across_samples` pools a candidate
+  across samples with its default keys.
+
+`unique_fragments(records)` keeps the first record per `(sample_name,
+fragment_id)` and coalesces repeats that hold the same content. It raises,
+naming the fields that differ, on conflicting content or on one ID naming
+different candidates. Content is compared by passing it through fragment IO
+itself, so a record and its own `write_fragments` round trip always agree
+(`5` and `5.0`, NaN, blank or `"None"` text and `None`, tuples and lists,
+numbers in text fields). A value IO cannot store cannot be compared, and
+fails explicitly. Prediction runs this check before any model, preventing
+silent last-record overwrites.
+
+`describe_isovar_result(result)` returns a JSON-compatible diagnostic record for
+every completed upstream result, including empty or filtered reconstructions.
+It preserves separate read/template counts, unknowns as null, sequence/edit
+interval, transcript IDs and named failed filters. `passing` means the supplied
+result has a protein and passes its recorded filters, not clinical eligibility
+or proof that default filters were used. Fragment adapters remain diagnostic:
+do not promote a reconstructed but filtered sequence into accepted inputs.
+Acquisition errors must be reported separately, never as biological negatives.
 
 ## What's not in this release
 

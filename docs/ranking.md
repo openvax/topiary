@@ -1,6 +1,9 @@
 # Ranking DSL
 
-Topiary's ranking system uses composable expressions — a single `DSLNode` tree — to filter and rank MHC binding predictions. Every expression evaluates vectorized across peptide-allele groups.
+Topiary filters and ranks predictions with composable expressions: comparisons,
+arithmetic, normalizing transforms and aggregations over prediction fields and
+DataFrame columns. Each expression evaluates vectorized across peptide-allele
+groups, and has an equivalent string form for the CLI and configuration files.
 
 ## Applying expressions
 
@@ -24,174 +27,18 @@ For reusable named configurations and exact save/replay, see
 stores explicit expressions and settings without changing the DSL or enabling
 new predictors.
 
-## Group identity
+## Parsing strings
 
-Expressions evaluate per *group*, not per row: one peptide-allele group can span several rows (one per predictor and kind). `apply_filter` keeps or drops whole groups, `apply_sort` orders groups, and `evaluate_scores` gives every row its group's score.
-
-By default the group keys are inferred from the columns present:
-
-| Columns present | Inferred group keys |
-|---|---|
-| `source_observation_id` | `source_observation_id, peptide, allele` |
-| `fragment_id` | `fragment_id, peptide, peptide_offset, allele` |
-| `variant` | `variant, peptide, peptide_offset, allele` |
-| neither | `source_sequence_name, peptide, peptide_offset, allele` |
-
-A `sample_name` column is prepended when it holds real values. Blank or null-only `sample_name` columns are ignored — `mhctools` stamps `sample_name=""` on every row of a single-sample run, and a constant level carries no identity.
-
-### Explicit group keys
-
-Inferred keys are sequence-oriented, so two rows that share peptide, source sequence and offset land in the same group even when they came from different variants, transcripts or genes — one row's filter decision then applies to the other. When your frame carries a stable provenance identity, pass it explicitly:
+A single `parse()` function takes a DSL string and returns a `DSLNode`:
 
 ```python
-from topiary import apply_filter, apply_sort, evaluate_scores, Affinity
+from topiary import parse, apply_filter
 
-group_keys = ["prediction_id", "source_sequence_name", "peptide",
-              "peptide_offset", "allele"]
-
-kept = apply_filter(df, Affinity <= 500, group_keys=group_keys)
-kept = apply_sort(kept, [Affinity.score], group_keys=group_keys)
-scores = evaluate_scores(kept, Affinity.score, group_keys=group_keys)
+node = parse("affinity <= 500 | el.rank <= 2")
+df = apply_filter(df, node)
 ```
 
-`apply_filter`, `apply_sort` and `evaluate_scores` accept the same keyword-only context options — `group_keys`, `default_methods`, `kind_support` and `alleles` — so filtering, sorting and scoring can share one grouping and one method resolution.
-
-Prediction fields require one consistent measurement per group after model and
-version selection. Conflicting values raise `ValueError` in scoring, filtering,
-sorting, best-allele aggregation and peptide-level projection. Reordering rows
-cannot select a different measurement. Equal repeats are allowed, a missing
-value does not contradict a known value, and an entirely missing group stays
-missing. No predictor version is inferred for historical rows that omit it.
-
-As with peptide-level reads, differences within `1e-9 * max(1, abs(min), abs(max))`
-are treated as floating-point noise. The minimum of these equivalent values is
-used consistently in either row order; conflicting values are never averaged.
-The public `prediction_field_values(df, column, group_keys=...)` function applies
-this same numeric reduction to already-selected prediction rows.
-
-Populated `source_label` and `prediction_run_name` columns separate ordinary
-observations automatically. Combined source tables retain their existing
-`source_observation_id` grouping. Explicit `group_keys` remain authoritative:
-include the source/run identity to retain independent measurements, or select
-one observation before evaluating. Simply naming a run does not authorize
-combining it with another run under narrower explicit keys.
-
-If named runs are complementary shards of one prediction (for example one run
-per allele), pass explicit keys without `prediction_run_name` when aggregating
-across them. They can then contribute different alleles or kinds to one group;
-duplicate measurements within that grouping must still agree.
-
-When several models produce the same kind, an unqualified reference raises rather than picking one. To say "pick the canonical one" explicitly:
-
-```python
-from topiary import resolve_default_methods, validate_default_methods
-
-defaults = resolve_default_methods(df)          # {"pMHC_affinity": "mhcflurry"}
-evaluate_scores(df, node, default_methods=defaults)
-
-validate_default_methods(df, user_supplied)     # catches a typo at config time
-```
-
-`resolve_default_methods` returns an entry only for kinds that actually have a choice, and resolves by `CANONICAL_METHOD_PREFERENCE` — a **tie-break convention, not a quality ranking**. It orders general-purpose predictors ahead of ones whose output for a kind is secondary to their main job, then anything unlisted alphabetically, so the answer is always deterministic. Pass your own `preference=` to override it, or qualify the reference (`Affinity["netmhcpan"]`) if you care which model answers.
-
-### Versions
-
-The same question one level down: when one model produced a kind at several versions, an unqualified reference is ambiguous and raises. `default_versions` answers it, keyed on `(kind, model)` — a version means nothing without the model it belongs to:
-
-```python
-from topiary import resolve_default_versions, validate_default_versions
-
-versions = resolve_default_versions(df)   # {("pMHC_affinity", "netmhcpan"): "4.2"}
-evaluate_scores(df, node, default_versions=versions)
-```
-
-`resolve_default_versions` orders by PEP 440, so `4.10` beats `4.9`; pass `prefer="oldest"` for a pipeline pinned to an older validated model. A version that isn't PEP 440 — a build tag, a date, a git hash — sorts before everything that parses, so "newest" means a real release rather than whichever string happened to sort last.
-
-Like `default_methods`, it only speaks where there is a real choice: a model present at one version is omitted.
-
-`is_named_version(value)` is the rule both of those use for "was a version stated at all" — `None`, `NaN`, blank, and the literal strings `"nan"` / `"None"` / `"<NA>"` all mean not stated. It is public because the obvious version, `if str(v).strip()`, excludes only the blank spellings: `str(None)` is `"None"` and `str(float("nan"))` is `"nan"`, both truthy. `known_versions(series)` is the same rule over a column. Call them rather than writing the test again.
-
-`validate_default_methods` exists because `EvalContext` only consults a default when a kind is *actually* ambiguous — so an entry naming a model that never ran sits inert until the day two models do produce that kind, and then starts deciding.
-
-One thing is deliberately *not* shared: on a frame where several methods produce the same kind, `apply_filter` auto-aggregates an unqualified reference across them (`nanmin` for `<`/`<=`, `nanmax` for `>`/`>=`), while `apply_sort` and `evaluate_scores` stay strict and raise on the ambiguity. Pass `default_methods={"affinity": "mhcflurry"}` (or qualify the reference, `Affinity["mhcflurry"]`) to get one answer from all three.
-
-All three options are forwarded to `EvalContext`, which you can also build directly when you need the raw per-group Series:
-
-```python
-from topiary.ranking import EvalContext
-
-ctx = EvalContext(df, group_keys=group_keys)
-per_group = (Affinity <= 500).eval(ctx)   # indexed by ctx.group_index
-```
-
-Group key names are validated before anything is evaluated, so a typo fails immediately with a suggestion rather than deep inside a node — including on empty frames, where there is otherwise nothing to fail on.
-
-With a single group key, `ctx.group_index` is a flat `Index` of bare values (matching `DataFrame.groupby` on one column); with several it is a `MultiIndex` of key tuples. Null keys are collapsed to one group per spelling — `None`, `NaN` and `pd.NA` in an identity column name the same group, as they do under `groupby(dropna=False)`.
-
-To map a per-group result back onto rows, use `ctx.row_group_codes()`, which gives each row the position of its group in `group_index`. Looking group keys up by value is unreliable when a key is null: `NaN` never equals itself.
-
-### Writing your own node
-
-A node is any object with an `eval(ctx)` returning a Series indexed by `ctx.group_index`. Subclass `DSLNode` to get the operators, so your node composes with the built-in ones:
-
-```python
-from topiary.ranking import DSLNode
-
-class MeanRnaAlt(DSLNode):
-    def eval(self, ctx):
-        return ctx.df.groupby(ctx.group_keys, dropna=False, observed=True)[
-            "n_rna_alt"
-        ].mean().reindex(ctx.group_index)
-
-apply_sort(df, [MeanRnaAlt()])
-combined = (Affinity <= 500) & (MeanRnaAlt() >= 5)
-```
-
-**Group `ctx.df`, not the frame you passed to `EvalContext`.** They are usually the same object, but when an identity column spells a missing value more than one way — an `allele` that is `None` in one row and the string `"nan"` in another — `ctx.df` carries the collapsed keys that `ctx.group_index` was built from and your original does not. Grouping the original produces keys the index has no slot for, and `reindex` turns every one of them into `NaN`. `ctx.df` normalizes on a copy; your frame is never mutated.
-
-Reindexing onto `ctx.group_index` is what makes the result alignable, so do it even when the groupby looks like it already returned the right rows: a group your rows never name still needs a slot, and `alleles=` below can add groups that hold no rows at all.
-
-### Declaring alleles
-
-Group keys come from the rows, so a peptide whose evidence is allele-free — an antigen-processing prediction with nothing in its `allele` column — has no per-allele group for a consumer to read. `alleles=` declares the genotype so `peptide_view` has somewhere to broadcast into.
-
-It takes the same three forms `from_predictions(allele_set=...)` does:
-
-```python
-EvalContext(df, alleles=["HLA-A*02:01", "HLA-B*07:02"])          # every peptide
-EvalContext(df, alleles={"SIINFEKLA": ["HLA-A*02:01"]})           # per peptide
-EvalContext(df, alleles=lambda keys: genotype_for(keys["peptide"]))
-```
-
-**Use a per-peptide form when peptides were not each reported against the whole genotype.** A reader that emits one row per (peptide, allele) passing its own threshold produces exactly that: each peptide arrives scored against only some alleles. Declaring the union then invents a group for every pairing that was never scored, and an expression reading only peptide-level evidence — `proteasome_cleavage.score`, say — gives each invented group a real number, as if that allele had been evaluated.
-
-This is easy to miss, because an expression containing an allele-scoped term makes the invented groups read NaN and the output look unchanged. Unchanged output is not evidence the declaration was right.
-
-A mapping may be keyed by the `peptide` value or by the full peptide-key tuple. A peptide it declares nothing for keeps only the groups its own rows name — it does not inherit another peptide's genotype. A key matching no peptide in the frame raises, since a key that declares nothing looks exactly like a peptide left undeclared on purpose.
-
-### Sharing a context
-
-Building a context is not free: it takes a `drop_duplicates` over the frame for the group index and a code array mapping every row to its group. When you run several operations over one frame, build the context once and pass it as `context=`:
-
-```python
-ctx = EvalContext(df, group_keys=group_keys)
-
-affinity = evaluate_scores(df, Affinity.value, context=ctx)
-presented = evaluate_scores(df, Presentation.score, context=ctx)
-ordered = apply_sort(df, [Affinity.value], context=ctx)
-```
-
-`context=` replaces the four options above rather than combining with them — passing both raises, so there is no question of which one won.
-
-**A context belongs to one frame.** `apply_filter` and `apply_sort` both return *new* frames, so a context cannot be threaded down a filter → sort → score pipeline; each step needs its own. Reuse applies to several operations on one unchanged frame. Passing a context built on a different frame raises rather than mapping rows to another frame's groups, and the check is identity rather than equality — a copy has its own row order to account for. `ctx.is_built_on(df)` makes that check yourself; don't compare against `ctx.df`, which is the normalized frame and a different object whenever a key needed normalizing.
-
-`apply_filter` evaluates with `filter_context=True` (unqualified same-kind references auto-aggregate) while `apply_sort` deliberately does not. Handing one context to both is still fine: `apply_filter` derives the variant it needs, inheriting the grouping rather than recomputing it, and leaves your context's own flag alone. To vary an option yourself:
-
-```python
-strict = ctx.derive(default_methods={"pMHC_affinity": "netmhcpan"})
-```
-
-`derive` inherits the cached grouping when `df`, `group_keys` and `alleles` are unchanged, and recomputes it when they are not.
+`parse` handles the full grammar — arithmetic, comparisons, boolean combinators, transforms, aggregations, scoped fields.
 
 ## Prediction kinds
 
@@ -220,89 +67,6 @@ Circulating-peptide half-life is available by its distinct kind name:
 physical values or percentiles stay missing. See the
 [whole-peptide workflow](quickstart.md#whole-peptide-half-life-models) for the
 model setup and interpretation limits.
-
-## peptide_view — one value per peptide
-
-Expressions evaluate per (peptide, allele) group, but the *correct* per-peptide reduction depends on how the predictor treats alleles:
-
-| `mhc_dependence` | Rows per peptide | Peptide-level value |
-|---|---|---|
-| `single_allele` (NetMHCpan, MHCflurry per-allele) | one per (peptide, allele) | best across the peptide's alleles |
-| `haplotype` (MHCflurry presentation, haplotype mode) | one per peptide | that row, read directly |
-| `none` (antigen processing) | one per peptide, no allele | that row, read directly |
-
-`peptide_view()` picks the right one, so a mixed expression doesn't require you to track which kind needs `best_*` and which is allele-free:
-
-```python
-from topiary import peptide_view, Affinity, Processing
-
-# "this peptide's processing score" and "this peptide's best affinity"
-0.5 * peptide_view(Processing.score) + 0.5 * peptide_view(Affinity.score)
-```
-
-The peptide-level cases are the ones that couldn't be written before. An antigen-processing row carries no allele, so it forms its own group and a plain read leaves every per-allele group `NaN` — the row is in none of them. A haplotype row has the same problem wearing an allele name: it scores a whole genotype, and mhctools stamps it with the deconvolved best allele, so a plain read hands that joint score to one allele and leaves the rest of the genotype `NaN`. Since neither reading has a useful meaning, a bare reference to either kind in an allele-keyed grouping is projected anyway, with a warning naming the explicit form:
-
-```python
-evaluate_scores(df, Processing.score)                # [0.77, 0.77, 0.77] + UserWarning
-evaluate_scores(df, peptide_view(Processing.score))  # [0.77, 0.77, 0.77], silent
-```
-
-Per-allele (`single_allele`) kinds are left alone: a plain read there returns a real row, and choosing *which* row is a genuine decision that stays with `best_*` / `peptide_view`. Writing the wrapper explicitly is still the right thing — it silences the warning and says what the expression means:
-
-That is why producers duplicated the processing row across the patient's alleles before handing topiary a frame. With `peptide_view` the frame keeps one canonical row and the value is broadcast at evaluation time:
-
-```python
-apply_filter(df, parse("affinity <= 500 & peptide_view(processing.score) >= 0.5"))
-```
-
-The allele-free row is still its own group. A filter on an allele-scoped kind has nothing to say about that group, so rather than dropping it — which would take the evidence out of the frame before the score expression reads it — topiary keeps it whenever the filter kept at least one of that peptide's allele groups. A filter that *does* read the allele-free kind (`peptide_view(processing.score) >= 0.9`) still decides it, and a peptide excluded entirely takes its evidence with it.
-
-### Genotype-level predictions and `allele_set`
-
-MHCflurry's presentation predictor in haplotype mode — its default for six alleles or fewer, i.e. any ordinary patient genotype — scores a peptide against the sample's whole allele list and reports the allele it deconvolved as the likeliest presenter. That one allele is what lands in the `allele` column, so the row reads exactly like a per-allele prediction.
-
-`allele_set` records what the prediction was actually about, comma-joined and sorted:
-
-| peptide | allele | allele_set | kind | score |
-|---|---|---|---|---|
-| SIINFEKLA | HLA-A\*02:01 | | pMHC_affinity | 0.24 |
-| SIINFEKLA | HLA-B\*07:02 | | pMHC_affinity | 0.04 |
-| SIINFEKLA | HLA-A\*02:01 | HLA-A\*02:01,HLA-B\*07:02 | pMHC_presentation | 0.03 |
-
-`allele` keeps the best allele, so nothing that reads it breaks and the attribution isn't thrown away. When the column is populated it joins the group keys, which is what keeps the genotype-level row out of A\*02:01's own group — otherwise its score would be read as that allele's. Frames with no genotype-level rows keep the narrower key, exactly as a blank `sample_name` is left out.
-
-The set also makes a frame self-describing: `mhc_dependence` is read from it, so a genotype-level row keeps its meaning through a TSV round-trip or a file-based loader, where `kind_support` cannot follow.
-
-Asking whether a prediction covers an allele is a membership question, and gets its own spelling — `eq()` continues to mean equality:
-
-```python
-Column("allele").eq("HLA-B*07:02")            # the row's allele is B*07:02
-Column("allele_set").includes("HLA-B*07:02")  # the set scored includes B*07:02
-```
-
-`includes()` compares whole tokens, never substrings: allele names prefix one another (`HLA-A*02:01` is a prefix of `HLA-A*02:010`, both real alleles), so a substring test would report membership that isn't there. Tokens are compared as stored, so writers are responsible for canonical names. It parses in string form too: `column(allele_set).includes('HLA-B*07:02')`.
-
-### Declaring the alleles to evaluate against
-
-Groups come from the rows, so a peptide whose *only* evidence is allele-free has no per-allele group at all — and a consumer keyed by patient allele has nothing to read. The genotype isn't in the frame, so pass it:
-
-```python
-scores = evaluate_scores(
-    df, peptide_view(Processing.score),
-    group_keys=group_keys,
-    alleles=["HLA-A*02:01", "HLA-B*07:02"],
-)
-```
-
-`alleles` adds one group per peptide per declared allele, giving `peptide_view` somewhere to broadcast into. The added groups hold no rows, so allele-scoped fields read `NaN` there — which is the truth: that allele has no prediction of its own. The frame itself is untouched; only the group index grows.
-
-`topiary.mhc_dependence(kind, kind_support=..., rows=...)` answers this directly, and works with nothing but a kind — which is what an external-input run has. Which mode a kind is in comes from several places, in order: a predictor's `kind_support`, an `allele_set` in the rows, then the kind's own default in `KIND_MHC_DEPENDENCE` — `pMHC_*` kinds describe a peptide-MHC pair and are per-allele, while processing-pathway kinds (cleavage, transport, trimming) describe the peptide alone. Rows are consulted only for a kind topiary doesn't know.
-
-That order matters for a row that carries no allele. A peptide-level record and an allele-scoped record that lost its allele look identical row-by-row, so the kind is what separates them: a blank allele on `pMHC_affinity` is a malformed row (warned about, kept per-allele), not a peptide-level fact to spread across a genotype no model scored.
-
-The mode comes from `EvalContext(kind_support=...)` — mhctools' per-(model, kind) metadata, available as `TopiaryPredictor.kind_support` — which is the only thing that can tell `haplotype` from `single_allele`, since both put a real allele on every row. Without it, a kind whose rows carry no allele is treated as allele-free and everything else as per-allele. Inconsistent data is an error, not a silent pick: a peptide-level kind with two different values for one peptide, or models that disagree about `mhc_dependence`, both raise.
-
-Available in string form too, so it works in `--filter-by` / `--sort-by` and in config files: `peptide_view(processing.score)`. Sorting reads the direction through the wrapper, so `peptide_view(affinity.value)` ranks strong binders first under the default `--sort-direction auto`, exactly like the bare field.
 
 ## Filters
 
@@ -385,7 +149,9 @@ score = (
 )
 ```
 
-**When only one model produces a kind, no bracket is needed.** `Affinity <= 500` works automatically. If you use it with multiple models producing the same kind, you get a clear error:
+When only one model produces a kind, no bracket is needed: `Affinity <= 500`
+works on its own. Used on a frame where several models produce that kind, it
+raises:
 
 ```
 ValueError: Ambiguous: multiple models produce pMHC_affinity
@@ -399,9 +165,37 @@ ValueError: No pMHC_affinity predictions from method matching 'netmhcapn'.
 Available: ['mhcflurry', 'netmhcpan']. Did you mean: ['netmhcpan']?
 ```
 
+## Method + version qualification
+
+`Affinity["netmhcpan"]` first matches an exact `prediction_method_name`
+(case-insensitive), falling back to substring matching when there is no exact
+match. A partial selector or `default_methods` choice matching several models
+within one group raises: use an exact model name to disambiguate. To select a
+version as well, pass a tuple with an exact `predictor_version`:
+
+```python
+Affinity["netmhcpan", "4.1b"].value    # only NetMHCpan v4.1b rows
+```
+
+In the string DSL, prefer these forms:
+
+```
+affinity[netmhcpan, 4.1b].value <= 500
+affinity[netmhcpan, release-2.2.0].value <= 500
+netmhcpan[4.1b]:affinity.value <= 500
+netmhcpan-4.1b:affinity.value <= 500
+wt.netmhcpan[4.1b]:ba.score
+```
+
+Use brackets for arbitrary version labels. The dash form is a compact
+shortcut for numeric-leading versions; the required `:kind` suffix keeps
+it distinct from ordinary subtraction.
+
 ## Column() — arbitrary DataFrame columns
 
-`Column()` reads any column from the predictions DataFrame, enabling peptide properties, variant metadata, or custom annotations as ranking signals:
+`Column()` reads any column from the predictions DataFrame, which makes peptide
+properties, RNA expression, variant metadata and custom annotations available as
+filter and ranking signals:
 
 ```python
 from topiary.ranking import Column
@@ -431,6 +225,15 @@ For independent measurements, retain their identities in `group_keys`.
 Candidate-ranking `duplicates='best'` or `'worst'` selects among source
 observations after DSL evaluation; it does not resolve conflicting columns
 within an observation.
+
+In string expressions an identifier that is not a known kind, alias or function
+is read as a column reference, so `gene_tpm >= 5` and
+`column(gene_tpm) >= 5` mean the same thing:
+
+```bash
+--filter-by "ba <= 500 & gene_tpm >= 5"
+--sort-by "affinity.logistic(350, 150) + 0.1 * gene_tpm.log1p()"
+```
 
 If the column doesn't exist, you get a clear error with close-match suggestions:
 
@@ -577,54 +380,23 @@ topiary ... --predict-wt --sort-by "affinity.score - wt.affinity.score"
 
 `len` reads the peptide length; `count('C')` counts amino acid occurrences in the peptide. Both compose with scope prefixes:
 
-```python
-# String DSL
+```
 len                           # peptide length
 count('C')                    # cysteine count
 wt.len                        # wildtype peptide length
 wt.count('C')                 # wildtype cysteine count
-count('C') - wt.count('C')   # gained/lost cysteines vs wildtype
+count('C') - wt.count('C')    # gained/lost cysteines vs wildtype
 count('KR') >= 2              # filter: at least 2 basic residues
 ```
 
-## Method + version qualification
-
-`Affinity["netmhcpan"]` first matches an exact `prediction_method_name`
-(case-insensitive), falling back to substring matching when there is no exact
-match. A partial selector or `default_methods` choice matching several models
-within one group raises: use an exact model name to disambiguate. To select a
-version as well, pass a tuple with an exact `predictor_version`:
+In Python they are `Len()` and `Count()`:
 
 ```python
-Affinity["netmhcpan", "4.1b"].value    # only NetMHCpan v4.1b rows
+from topiary import Len, Count, wt
+
+Len() >= 9
+Count("C") - wt.count("C")    # gained/lost cysteines vs wildtype
 ```
-
-In the string DSL, prefer these forms:
-
-```
-affinity[netmhcpan, 4.1b].value <= 500
-affinity[netmhcpan, release-2.2.0].value <= 500
-netmhcpan[4.1b]:affinity.value <= 500
-netmhcpan-4.1b:affinity.value <= 500
-wt.netmhcpan[4.1b]:ba.score
-```
-
-Use brackets for arbitrary version labels. The dash form is a compact
-shortcut for numeric-leading versions; the required `:kind` suffix keeps
-it distinct from ordinary subtraction.
-
-## Parsing strings
-
-A single `parse()` function takes a DSL string and returns a `DSLNode`:
-
-```python
-from topiary import parse, apply_filter
-
-node = parse("affinity <= 500 | el.rank <= 2")
-df = apply_filter(df, node)
-```
-
-`parse` handles the full grammar — arithmetic, comparisons, boolean combinators, transforms, aggregations, scoped fields.
 
 ## String form (CLI)
 
@@ -642,7 +414,7 @@ The `--filter-by` flag and `--sort-by` flag accept string expressions:
 | `(A <= 500) \| (B.rank <= 2)` | `affinity <= 500 \| presentation.rank <= 2` |
 | `(A <= 500) & (B.rank <= 2)` | `affinity <= 500 & presentation.rank <= 2` |
 
-**Recommended model-qualified syntax:**
+Prefer these model-qualified spellings:
 
 | Meaning | Prefer |
 |---|---|
@@ -652,14 +424,15 @@ The `--filter-by` flag and `--sort-by` flag accept string expressions:
 | Method + numeric-leading version | `netmhcpan-4.1b:affinity.score` |
 | Wildtype scope | `wt.netmhcpan[4.1b]:ba.score` |
 
-**Accepted aliases:** `ba` / `aff` / `ic50` = Affinity, `el` =
+Accepted aliases: `ba` / `aff` / `ic50` = Affinity, `el` =
 Presentation. Canonical serialization still uses bracket form
 (`affinity[netmhcpan]`). The parser also accepts compatibility forms
 such as `affinity:netmhcpan`, `netmhcpan.affinity`,
 `affinity[netmhcpan]`, and `netmhcpan_ba`, but new docs and configs
 should use the recommended forms above.
 
-**All features work in both Python and CLI string form** (`--sort-by`):
+Everything below works in Python and in string form (`--filter-by`,
+`--sort-by`):
 
 - Arithmetic: `0.5 * affinity.score + 0.5 * presentation.score`
 - Transforms: `.logistic()`, `.ascending_cdf()`, `.descending_cdf()`, `.clip()`, `.hinge()`, `.log()`
@@ -671,7 +444,279 @@ should use the recommended forms above.
 default is `auto`: raw affinity values and percentile ranks sort ascending,
 while all other sort expressions sort descending.
 
-## Combining Separate Predictor Runs
+## peptide_view — one value per peptide
+
+Expressions evaluate per (peptide, allele) group, but the *correct* per-peptide reduction depends on how the predictor treats alleles:
+
+| `mhc_dependence` | Rows per peptide | Peptide-level value |
+|---|---|---|
+| `single_allele` (NetMHCpan, MHCflurry per-allele) | one per (peptide, allele) | best across the peptide's alleles |
+| `haplotype` (MHCflurry presentation, haplotype mode) | one per peptide | that row, read directly |
+| `none` (antigen processing) | one per peptide, no allele | that row, read directly |
+
+`peptide_view()` picks the right one, so a mixed expression doesn't require you to track which kind needs `best_*` and which is allele-free:
+
+```python
+from topiary import peptide_view, Affinity, Processing
+
+# "this peptide's processing score" and "this peptide's best affinity"
+0.5 * peptide_view(Processing.score) + 0.5 * peptide_view(Affinity.score)
+```
+
+The peptide-level cases are the ones that couldn't be written before. An antigen-processing row carries no allele, so it forms its own group and a plain read leaves every per-allele group `NaN` — the row is in none of them. A haplotype row has the same problem wearing an allele name: it scores a whole genotype, and mhctools stamps it with the deconvolved best allele, so a plain read hands that joint score to one allele and leaves the rest of the genotype `NaN`. Since neither reading has a useful meaning, a bare reference to either kind in an allele-keyed grouping is projected anyway, with a warning naming the explicit form:
+
+```python
+evaluate_scores(df, Processing.score)                # [0.77, 0.77, 0.77] + UserWarning
+evaluate_scores(df, peptide_view(Processing.score))  # [0.77, 0.77, 0.77], silent
+```
+
+Per-allele (`single_allele`) kinds are left alone: a plain read there returns a real row, and choosing *which* row is a genuine decision that stays with `best_*` / `peptide_view`. Writing the wrapper explicitly still silences the warning and says what the expression means.
+
+Without it, producers had to duplicate the processing row across the patient's alleles before handing topiary a frame. With `peptide_view` the frame keeps one canonical row and the value is broadcast at evaluation time:
+
+```python
+apply_filter(df, parse("affinity <= 500 & peptide_view(processing.score) >= 0.5"))
+```
+
+The allele-free row is still its own group. A filter on an allele-scoped kind has nothing to say about that group, so rather than dropping it — which would take the evidence out of the frame before the score expression reads it — topiary keeps it whenever the filter kept at least one of that peptide's allele groups. A filter that *does* read the allele-free kind (`peptide_view(processing.score) >= 0.9`) still decides it, and a peptide excluded entirely takes its evidence with it.
+
+### Genotype-level predictions and `allele_set`
+
+MHCflurry's presentation predictor in haplotype mode — its default for six alleles or fewer, i.e. any ordinary patient genotype — scores a peptide against the sample's whole allele list and reports the allele it deconvolved as the likeliest presenter. That one allele is what lands in the `allele` column, so the row reads exactly like a per-allele prediction.
+
+`allele_set` records what the prediction was actually about, comma-joined and sorted:
+
+| peptide | allele | allele_set | kind | score |
+|---|---|---|---|---|
+| SIINFEKLA | HLA-A\*02:01 | | pMHC_affinity | 0.24 |
+| SIINFEKLA | HLA-B\*07:02 | | pMHC_affinity | 0.04 |
+| SIINFEKLA | HLA-A\*02:01 | HLA-A\*02:01,HLA-B\*07:02 | pMHC_presentation | 0.03 |
+
+`allele` keeps the best allele, so nothing that reads it breaks and the attribution isn't thrown away. When the column is populated it joins the group keys, which is what keeps the genotype-level row out of A\*02:01's own group — otherwise its score would be read as that allele's. Frames with no genotype-level rows keep the narrower key, exactly as a blank `sample_name` is left out.
+
+The set also makes a frame self-describing: `mhc_dependence` is read from it, so a genotype-level row keeps its meaning through a TSV round-trip or a file-based loader, where `kind_support` cannot follow.
+
+Asking whether a prediction covers an allele is a membership question, and gets its own spelling — `eq()` continues to mean equality:
+
+```python
+Column("allele").eq("HLA-B*07:02")            # the row's allele is B*07:02
+Column("allele_set").includes("HLA-B*07:02")  # the set scored includes B*07:02
+```
+
+`includes()` compares whole tokens, never substrings: allele names prefix one another (`HLA-A*02:01` is a prefix of `HLA-A*02:010`, both real alleles), so a substring test would report membership that isn't there. Tokens are compared as stored, so writers are responsible for canonical names. It parses in string form too: `column(allele_set).includes('HLA-B*07:02')`.
+
+### Declaring the alleles to evaluate against
+
+Groups come from the rows, so a peptide whose *only* evidence is allele-free has no per-allele group at all — and a consumer keyed by patient allele has nothing to read. The genotype isn't in the frame, so pass it:
+
+```python
+scores = evaluate_scores(
+    df, peptide_view(Processing.score),
+    group_keys=group_keys,
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+)
+```
+
+`alleles` adds one group per peptide per declared allele, giving `peptide_view` somewhere to broadcast into. The added groups hold no rows, so allele-scoped fields read `NaN` there — which is the truth: that allele has no prediction of its own. The frame itself is untouched; only the group index grows.
+
+It takes the same three forms `from_predictions(allele_set=...)` does:
+
+```python
+EvalContext(df, alleles=["HLA-A*02:01", "HLA-B*07:02"])          # every peptide
+EvalContext(df, alleles={"SIINFEKLA": ["HLA-A*02:01"]})           # per peptide
+EvalContext(df, alleles=lambda keys: genotype_for(keys["peptide"]))
+```
+
+Use a per-peptide form when peptides were not each reported against the whole
+genotype. A reader that emits one row per (peptide, allele) passing its own
+threshold produces exactly that: each peptide arrives scored against only some
+alleles. Declaring the union then invents a group for every pairing that was
+never scored, and an expression reading only peptide-level evidence —
+`proteasome_cleavage.score`, say — gives each invented group a real number, as
+if that allele had been evaluated. This is easy to miss, because an expression
+containing an allele-scoped term makes the invented groups read NaN and the
+output look unchanged. Unchanged output is not evidence the declaration was
+right.
+
+A mapping may be keyed by the `peptide` value or by the full peptide-key tuple.
+A peptide it declares nothing for keeps only the groups its own rows name — it
+does not inherit another peptide's genotype. A key matching no peptide in the
+frame raises, since a key that declares nothing looks exactly like a peptide
+left undeclared on purpose.
+
+`topiary.mhc_dependence(kind, kind_support=..., rows=...)` answers this directly, and works with nothing but a kind — which is what an external-input run has. Which mode a kind is in comes from several places, in order: a predictor's `kind_support`, an `allele_set` in the rows, then the kind's own default in `KIND_MHC_DEPENDENCE` — `pMHC_*` kinds describe a peptide-MHC pair and are per-allele, while processing-pathway kinds (cleavage, transport, trimming) describe the peptide alone. Rows are consulted only for a kind topiary doesn't know.
+
+That order matters for a row that carries no allele. A peptide-level record and an allele-scoped record that lost its allele look identical row-by-row, so the kind is what separates them: a blank allele on `pMHC_affinity` is a malformed row (warned about, kept per-allele), not a peptide-level fact to spread across a genotype no model scored.
+
+The mode comes from `EvalContext(kind_support=...)` — mhctools' per-(model, kind) metadata, available as `TopiaryPredictor.kind_support` — which is the only thing that can tell `haplotype` from `single_allele`, since both put a real allele on every row. Without it, a kind whose rows carry no allele is treated as allele-free and everything else as per-allele. Inconsistent data is an error, not a silent pick: a peptide-level kind with two different values for one peptide, or models that disagree about `mhc_dependence`, both raise.
+
+Available in string form too, so it works in `--filter-by` / `--sort-by` and in config files: `peptide_view(processing.score)`. Sorting reads the direction through the wrapper, so `peptide_view(affinity.value)` ranks strong binders first under the default `--sort-direction auto`, exactly like the bare field.
+
+## Group identity
+
+The sections above need no grouping configuration. The rest of this page covers
+how groups are formed, how to override them, and how to resolve a frame that
+carries several models, several versions, or evidence with no allele.
+
+Expressions evaluate per *group*, not per row: one peptide-allele group can span several rows (one per predictor and kind). `apply_filter` keeps or drops whole groups, `apply_sort` orders groups, and `evaluate_scores` gives every row its group's score.
+
+By default the group keys are inferred from the columns present:
+
+| Columns present | Inferred group keys |
+|---|---|
+| `source_observation_id` | `source_observation_id, peptide, allele` |
+| `fragment_id` | `fragment_id, peptide, peptide_offset, allele` |
+| `variant` | `variant, peptide, peptide_offset, allele` |
+| neither | `source_sequence_name, peptide, peptide_offset, allele` |
+
+A `sample_name` column is prepended when it holds real values. Blank or null-only `sample_name` columns are ignored — `mhctools` stamps `sample_name=""` on every row of a single-sample run, and a constant level carries no identity.
+
+### Explicit group keys
+
+Inferred keys are sequence-oriented, so two rows that share peptide, source sequence and offset land in the same group even when they came from different variants, transcripts or genes — one row's filter decision then applies to the other. When your frame carries a stable provenance identity, pass it explicitly:
+
+```python
+from topiary import apply_filter, apply_sort, evaluate_scores, Affinity
+
+group_keys = ["prediction_id", "source_sequence_name", "peptide",
+              "peptide_offset", "allele"]
+
+kept = apply_filter(df, Affinity <= 500, group_keys=group_keys)
+kept = apply_sort(kept, [Affinity.score], group_keys=group_keys)
+scores = evaluate_scores(kept, Affinity.score, group_keys=group_keys)
+```
+
+`apply_filter`, `apply_sort` and `evaluate_scores` accept the same keyword-only context options — `group_keys`, `default_methods`, `kind_support` and `alleles` — so filtering, sorting and scoring can share one grouping and one method resolution.
+
+Prediction fields require one consistent measurement per group after model and
+version selection. Conflicting values raise `ValueError` in scoring, filtering,
+sorting, best-allele aggregation and peptide-level projection. Reordering rows
+cannot select a different measurement. Equal repeats are allowed, a missing
+value does not contradict a known value, and an entirely missing group stays
+missing. No predictor version is inferred for historical rows that omit it.
+
+As with peptide-level reads, differences within `1e-9 * max(1, abs(min), abs(max))`
+are treated as floating-point noise. The minimum of these equivalent values is
+used consistently in either row order; conflicting values are never averaged.
+The public `prediction_field_values(df, column, group_keys=...)` function applies
+this same numeric reduction to already-selected prediction rows.
+
+Populated `source_label` and `prediction_run_name` columns separate ordinary
+observations automatically. Combined source tables retain their existing
+`source_observation_id` grouping. Explicit `group_keys` remain authoritative:
+include the source/run identity to retain independent measurements, or select
+one observation before evaluating. Simply naming a run does not authorize
+combining it with another run under narrower explicit keys.
+
+If named runs are complementary shards of one prediction (for example one run
+per allele), pass explicit keys without `prediction_run_name` when aggregating
+across them. They can then contribute different alleles or kinds to one group;
+duplicate measurements within that grouping must still agree.
+
+When several models produce the same kind, an unqualified reference raises rather than picking one. To say "pick the canonical one" explicitly:
+
+```python
+from topiary import resolve_default_methods, validate_default_methods
+
+defaults = resolve_default_methods(df)          # {"pMHC_affinity": "mhcflurry"}
+evaluate_scores(df, node, default_methods=defaults)
+
+validate_default_methods(df, user_supplied)     # catches a typo at config time
+```
+
+`resolve_default_methods` returns an entry only for kinds that actually have a choice, and resolves by `CANONICAL_METHOD_PREFERENCE` — a **tie-break convention, not a quality ranking**. It orders general-purpose predictors ahead of ones whose output for a kind is secondary to their main job, then anything unlisted alphabetically, so the answer is always deterministic. Pass your own `preference=` to override it, or qualify the reference (`Affinity["netmhcpan"]`) if you care which model answers.
+
+### Versions
+
+The same question one level down: when one model produced a kind at several versions, an unqualified reference is ambiguous and raises. `default_versions` answers it, keyed on `(kind, model)` — a version means nothing without the model it belongs to:
+
+```python
+from topiary import resolve_default_versions, validate_default_versions
+
+versions = resolve_default_versions(df)   # {("pMHC_affinity", "netmhcpan"): "4.2"}
+evaluate_scores(df, node, default_versions=versions)
+```
+
+`resolve_default_versions` orders by PEP 440, so `4.10` beats `4.9`; pass `prefer="oldest"` for a pipeline pinned to an older validated model. A version that isn't PEP 440 — a build tag, a date, a git hash — sorts before everything that parses, so "newest" means a real release rather than whichever string happened to sort last.
+
+Like `default_methods`, it only speaks where there is a real choice: a model present at one version is omitted.
+
+`is_named_version(value)` is the rule both of those use for "was a version stated at all" — `None`, `NaN`, blank, and the literal strings `"nan"` / `"None"` / `"<NA>"` all mean not stated. It is public because the obvious version, `if str(v).strip()`, excludes only the blank spellings: `str(None)` is `"None"` and `str(float("nan"))` is `"nan"`, both truthy. `known_versions(series)` is the same rule over a column. Call them rather than writing the test again.
+
+`validate_default_methods` exists because `EvalContext` only consults a default when a kind is *actually* ambiguous — so an entry naming a model that never ran sits inert until the day two models do produce that kind, and then starts deciding.
+
+One thing is deliberately *not* shared: on a frame where several methods produce the same kind, `apply_filter` auto-aggregates an unqualified reference across them (`nanmin` for `<`/`<=`, `nanmax` for `>`/`>=`), while `apply_sort` and `evaluate_scores` stay strict and raise on the ambiguity. Pass `default_methods={"affinity": "mhcflurry"}` (or qualify the reference, `Affinity["mhcflurry"]`) to get one answer from all three.
+
+All three options are forwarded to `EvalContext`, which you can also build directly when you need the raw per-group Series:
+
+```python
+from topiary.ranking import EvalContext
+
+ctx = EvalContext(df, group_keys=group_keys)
+per_group = (Affinity <= 500).eval(ctx)   # indexed by ctx.group_index
+```
+
+Group key names are validated before anything is evaluated, so a typo fails immediately with a suggestion rather than deep inside a node — including on empty frames, where there is otherwise nothing to fail on.
+
+With a single group key, `ctx.group_index` is a flat `Index` of bare values (matching `DataFrame.groupby` on one column); with several it is a `MultiIndex` of key tuples. Null keys are collapsed to one group per spelling — `None`, `NaN` and `pd.NA` in an identity column name the same group, as they do under `groupby(dropna=False)`.
+
+To map a per-group result back onto rows, use `ctx.row_group_codes()`, which gives each row the position of its group in `group_index`. Looking group keys up by value is unreliable when a key is null: `NaN` never equals itself.
+
+### Writing your own node
+
+A node is any object with an `eval(ctx)` returning a Series indexed by `ctx.group_index`. Subclass `DSLNode` to get the operators, so your node composes with the built-in ones:
+
+```python
+from topiary.ranking import DSLNode
+
+class MeanRnaAlt(DSLNode):
+    def eval(self, ctx):
+        return ctx.df.groupby(ctx.group_keys, dropna=False, observed=True)[
+            "n_rna_alt"
+        ].mean().reindex(ctx.group_index)
+
+apply_sort(df, [MeanRnaAlt()])
+combined = (Affinity <= 500) & (MeanRnaAlt() >= 5)
+```
+
+Group `ctx.df`, not the frame you passed to `EvalContext`. They are usually the same object, but when an identity column spells a missing value more than one way — an `allele` that is `None` in one row and the string `"nan"` in another — `ctx.df` carries the collapsed keys that `ctx.group_index` was built from and your original does not. Grouping the original produces keys the index has no slot for, and `reindex` turns every one of them into `NaN`. `ctx.df` normalizes on a copy; your frame is never mutated.
+
+Reindexing onto `ctx.group_index` is what makes the result alignable, so do it even when the groupby looks like it already returned the right rows: a group your rows never name still needs a slot, and `alleles=` below can add groups that hold no rows at all.
+
+### Declaring alleles
+
+Group keys come from the rows, so a peptide whose evidence is allele-free — an
+antigen-processing prediction with nothing in its `allele` column — has no
+per-allele group for a consumer to read. `EvalContext(df, alleles=...)`
+declares the genotype so `peptide_view` has somewhere to broadcast into; see
+[declaring the alleles to evaluate against](#declaring-the-alleles-to-evaluate-against)
+for the three forms it accepts and when a per-peptide form is required.
+
+### Sharing a context
+
+Building a context is not free: it takes a `drop_duplicates` over the frame for the group index and a code array mapping every row to its group. When you run several operations over one frame, build the context once and pass it as `context=`:
+
+```python
+ctx = EvalContext(df, group_keys=group_keys)
+
+affinity = evaluate_scores(df, Affinity.value, context=ctx)
+presented = evaluate_scores(df, Presentation.score, context=ctx)
+ordered = apply_sort(df, [Affinity.value], context=ctx)
+```
+
+`context=` replaces the four options above rather than combining with them — passing both raises, so there is no question of which one won.
+
+A context belongs to one frame. `apply_filter` and `apply_sort` both return *new* frames, so a context cannot be threaded down a filter → sort → score pipeline; each step needs its own. Reuse applies to several operations on one unchanged frame. Passing a context built on a different frame raises rather than mapping rows to another frame's groups, and the check is identity rather than equality — a copy has its own row order to account for. `ctx.is_built_on(df)` makes that check yourself; don't compare against `ctx.df`, which is the normalized frame and a different object whenever a key needed normalizing.
+
+`apply_filter` evaluates with `filter_context=True` (unqualified same-kind references auto-aggregate) while `apply_sort` deliberately does not. Handing one context to both is still fine: `apply_filter` derives the variant it needs, inheriting the grouping rather than recomputing it, and leaves your context's own flag alone. To vary an option yourself:
+
+```python
+strict = ctx.derive(default_methods={"pMHC_affinity": "netmhcpan"})
+```
+
+`derive` inherits the cached grouping when `df`, `group_keys` and `alleles` are unchanged, and recomputes it when they are not.
+
+## Combining separate predictor runs
 
 Run predictors together when that is convenient:
 

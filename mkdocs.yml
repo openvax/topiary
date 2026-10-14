@@ -16,22 +16,28 @@ theme:
 nav:
   - Home: index.md
   - Quickstart: quickstart.md
-  - Protein Fragments: fragments.md
-  - Cached Predictions: cached.md
-  - Reading pVACseq: pvacseq.md
-  - Reading Exacto: exacto.md
-  - Combining Sources: combined-sources.md
+  - Command-line interface: cli.md
+  - Guides:
+    - Ranking DSL: ranking.md
+    - Report-wide ranking terms: report-wide-ranking.md
+    - Protein Fragments: fragments.md
+    - RNA Expression: expression.md
+    - Peptide Properties: properties.md
+    - Cross-reactivity: self_proteome.md
+    - Cached Predictions: cached.md
+  - Other pipelines:
+    - Reading pVACseq: pvacseq.md
+    - Reading Exacto: exacto.md
+    - Combining Sources: combined-sources.md
+    - SV Evidence Reports: sv-interest.md
   - Consumer Guide: consumer-guide.md
-  - Cache Miss Reports: cache-miss-reporting.md
-  - SV Evidence Reports: sv-interest.md
-  - Osteosarc RNA Audit: osteosarc-rna-audit.md
-  - Osteosarc RNA Overlay: osteosarc-rna-overlay.md
-  - Osteosarc Variant Outcomes: osteosarc-variant-outcomes.md
-  - Shared Osteosarc Data: osteosarc-shared-data.md
-  - Cross-reactivity: self_proteome.md
-  - Ranking DSL: ranking.md
-  - Peptide Properties: properties.md
   - API Reference: api.md
+  - Project notes:
+    - Cache Miss Reports: cache-miss-reporting.md
+    - Osteosarc RNA Audit: osteosarc-rna-audit.md
+    - Osteosarc RNA Overlay: osteosarc-rna-overlay.md
+    - Osteosarc Variant Outcomes: osteosarc-variant-outcomes.md
+    - Shared Osteosarc Data: osteosarc-shared-data.md
 
 markdown_extensions:
   - pymdownx.highlight
