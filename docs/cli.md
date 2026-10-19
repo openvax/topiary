@@ -270,7 +270,7 @@ run.
 
 ## Installation details
 
-`pip install topiary` requires Python 3.10 or newer and brings in Osteosarc and
+`pip install topiary` requires Python 3.11 or newer and brings in Osteosarc and
 its read-extraction dependency, which supply shared source data and indexed
 regional read extraction; see [shared Osteosarc data](osteosarc-shared-data.md).
 Importing topiary does not acquire any data.

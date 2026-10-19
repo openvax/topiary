@@ -13,7 +13,7 @@ It is used in cancer immunotherapy research to find mutant peptides
 
 ## Installation
 
-Topiary requires Python 3.10 or newer.
+Topiary requires Python 3.11 or newer.
 
 ```bash
 pip install topiary
