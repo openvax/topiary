@@ -176,7 +176,11 @@ jobs:
             export NETMHC_BUNDLE_TMPDIR=$PWD/netmhc-bundle-tmp
             export PATH=$PATH:$NETMHC_BUNDLE_HOME/bin
           fi
-          ./test.sh
+          if [[ "$HAS_NETMHC_TOKEN" == "true" ]]; then
+            ./test.sh
+          else
+            ./test.sh -m 'not netmhc' --strict-markers
+          fi
       - name: Save coverage for the upload job
         uses: actions/upload-artifact@v7
         with:

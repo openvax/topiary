@@ -54,4 +54,5 @@ markers = [
     "isovar: exercises the installed Isovar optional integration",
     "pirlygenes: exercises the installed PirlyGenes optional integration",
     "osteosarc: exercises Osteosarc data acquisition and shared fixtures",
+    "netmhc: requires the private NetMHC bundle executables",
 ]

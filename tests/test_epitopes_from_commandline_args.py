@@ -1,6 +1,10 @@
+import pytest
+
 from topiary.cli.args import arg_parser, predict_epitopes_from_args
 
 from .common import eq_
+
+pytestmark = pytest.mark.netmhc
 
 
 def test_cancer_epitopes_from_args(cancer_test_variants):
