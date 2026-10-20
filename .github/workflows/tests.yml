@@ -45,6 +45,10 @@ jobs:
             pandas: "pandas>=3,<4"
           - python-version: "3.12"
             pandas: "pandas>=3,<4"
+          - python-version: "3.13"
+            pandas: "pandas>=3,<4"
+          - python-version: "3.14"
+            pandas: "pandas>=3,<4"
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python ${{ matrix.python-version }}
@@ -267,7 +271,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

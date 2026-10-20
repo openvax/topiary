@@ -105,7 +105,7 @@ def coverage_matrix(tmp_path):
     source.write_text("first = 1\nsecond = 2\nthird = 3\n")
     directory = tmp_path / "coverage-data"
     paths = []
-    for line, version in enumerate(["3.10", "3.11", "3.12"], 1):
+    for line, version in enumerate(["3.11", "3.12", "3.13"], 1):
         path = directory / f"coverage-python-{version}" / ".coverage"
         path.parent.mkdir(parents=True)
         data = CoverageData(basename=str(path))

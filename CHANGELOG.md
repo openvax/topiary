@@ -7,6 +7,11 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.94.6
+
+- Require Python 3.11+ and test through Python 3.14, retaining pandas 2 and 3
+  coverage on Python 3.11 (#492).
+
 ## 5.94.4
 
 - Round-trip categorical equality, inequality and membership through both DSL
