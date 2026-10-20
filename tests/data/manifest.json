@@ -50,9 +50,9 @@
     },
     {
       "filename": "osteosarc_all_variants/expected.json",
-      "sha256": "2570c8252cbeb82a4825a2a42c02c46eca07a7f68cc0c8c137cfd0768345cc7a",
-      "size_bytes": 554272,
-      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.71.3/tests/data/osteosarc_all_variants/expected.json"
+      "sha256": "2228645766d20930e12063bed559e73604369a4a9d2b050b0b95411fb3e22bcc",
+      "size_bytes": 554851,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.94.6/tests/data/osteosarc_all_variants/expected.json"
     },
     {
       "filename": "osteosarc_all_variants/inventory.json",
@@ -62,9 +62,9 @@
     },
     {
       "filename": "osteosarc_all_variants/manifest.json",
-      "sha256": "4ec3f2dc1cc7b1a3c4a7ac5c3e1fda74d7142a9a60682fd16e94c0837e81c774",
+      "sha256": "99c2cb4227fb7bb9cd73687db73eb4726dbb2bfa0f816160041b8a61e09b1f79",
       "size_bytes": 1462,
-      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.75.0/tests/data/osteosarc_all_variants/manifest.json"
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.94.6/tests/data/osteosarc_all_variants/manifest.json"
     },
     {
       "filename": "osteosarc_all_variants/reference/manifest.json",
@@ -92,9 +92,9 @@
     },
     {
       "filename": "osteosarc_all_variants/run.json",
-      "sha256": "607cac6cd7b76a7cba7feb589cf69bd13f8524f251f0be96fdaa773e75e9ba72",
-      "size_bytes": 585,
-      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.71.3/tests/data/osteosarc_all_variants/run.json"
+      "sha256": "5260ecd5e698d7cd20a53784d84ee5675b935c383704d30d7694710b6833e587",
+      "size_bytes": 721,
+      "url": "https://raw.githubusercontent.com/openvax/topiary/v5.94.6/tests/data/osteosarc_all_variants/run.json"
     },
     {
       "filename": "osteosarc_all_variants/source/bam.receipt.json",
@@ -1729,5 +1729,5 @@
     }
   },
   "schema_version": 1,
-  "total_size_bytes": 3427536
+  "total_size_bytes": 3428251
 }

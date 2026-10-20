@@ -18,6 +18,8 @@ from varcode import Variant, VariantCollection
 
 from .common import eq_
 
+pytestmark = pytest.mark.netmhc
+
 # TODO: find out about these variants,
 # what do we expect from them? Are they SNVs?
 variants = VariantCollection(

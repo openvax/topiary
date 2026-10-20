@@ -8,6 +8,7 @@ import argparse
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import gzip
+from importlib.metadata import version
 import json
 from pathlib import Path
 import re
@@ -356,6 +357,7 @@ def audit(root):
     creator = isovar.ProteinSequenceCreator(protein_context_peptide_length=25, variant_sequence_assembly=True)
     collector = isovar.ReadCollector(**POLICY)
     run = dict(isovar_version=isovar.__version__, collection_policy=POLICY,
+               dependency_versions={name: version(name) for name in ("varcode", "pyensembl", "pysam")},
                audit_schema_version=2,
                protein_context_peptide_length=25, variant_sequence_assembly=True,
                bam_sha256=receipt["sha256"],

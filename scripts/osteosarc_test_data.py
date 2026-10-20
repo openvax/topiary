@@ -1,7 +1,7 @@
 """Acquire, export or verify all bundled Sid fixtures through Osteosarc.
 
 Run ``python -m scripts.osteosarc_test_data --help`` from a checkout with
-``pip install -e .`` (Python 3.10+). Ordinary tests never acquire.
+``pip install -e .`` (Python 3.11+). Ordinary tests never acquire.
 """
 
 import argparse

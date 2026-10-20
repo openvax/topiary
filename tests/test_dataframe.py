@@ -2,6 +2,8 @@ import pytest
 from mhctools import NetMHC
 from topiary import TopiaryPredictor
 
+pytestmark = pytest.mark.netmhc
+
 alleles = [
     "A02:01",
     "B*07:02",

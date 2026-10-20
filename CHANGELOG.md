@@ -7,6 +7,17 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.94.6
+
+- Require Python 3.11+ and test through Python 3.14, retaining pandas 2 and 3
+  coverage on Python 3.11 (#492).
+- Run public tests and produce coverage when fork PRs cannot access the private
+  NetMHC bundle.
+- Re-audit the compact Osteosarc fixture against current dependencies, record
+  matching run provenance, and reject fixture exports from different inputs.
+  RNA evidence is unchanged; five predicted splice summaries are refreshed
+  (#494, #495).
+
 ## 5.94.4
 
 - Round-trip categorical equality, inequality and membership through both DSL

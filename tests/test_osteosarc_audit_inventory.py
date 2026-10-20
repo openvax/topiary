@@ -1,7 +1,12 @@
 """Source gaps and conflicts must not turn into biological negative results."""
 
+import json
+from pathlib import Path
+import runpy
+
 import pytest
 
+from scripts.osteosarc_rna_overlay import digest, write_json
 from scripts.osteosarc_variant_audit import fetch_snapshot, variant_inventory
 
 
@@ -94,3 +99,37 @@ def test_incomplete_cached_acquisition_is_not_silently_reused(tmp_path):
     path.write_bytes(b"original")
     with pytest.raises(FileNotFoundError):
         fetch_snapshot("https://example.org/input", path)
+
+
+@pytest.mark.parametrize("changed", [None, "bam_sha256", "inventory_sha256", "reference_sha256"])
+def test_fixture_export_requires_the_audited_inputs(tmp_path, changed):
+    """Re-pinning cannot pair valid new sources with outcomes from an old run."""
+    regenerate = runpy.run_path(str(
+        Path(__file__).parent / "data/osteosarc_all_variants/regenerate.py"))["regenerate"]
+    source, destination = tmp_path / "audit", tmp_path / "export"
+    (source / "source").mkdir(parents=True)
+    (source / "reference").mkdir()
+    bam = source / "source/t2-all-variant-regions.bam"
+    bam.write_bytes(b"verified alignment bytes")
+    index = bam.with_suffix(".bam.bai")
+    index.write_bytes(b"verified index bytes")
+    write_json(source / "source/bam.receipt.json",
+               dict(sha256=digest(bam), index_sha256=digest(index)))
+    write_json(source / "inventory.json", dict(sources={}, variants=[]))
+    write_json(source / "checked-inventory.json", dict(variants=[]))
+    write_json(source / "reference/manifest.json", dict(files={}))
+    run = dict(bam_sha256=digest(bam),
+               inventory_sha256=digest(source / "checked-inventory.json"),
+               reference_sha256=digest(source / "reference/manifest.json"))
+    if changed is not None:
+        run[changed] = "0" * 64
+    write_json(source / "run.json", run)
+
+    if changed is not None:
+        with pytest.raises(ValueError, match=f"Audit run input mismatch: {changed}"):
+            regenerate(source, destination)
+        assert not destination.exists()
+    else:
+        regenerate(source, destination)
+        assert json.loads((destination / "run.json").read_text()) == run
+        assert (destination / "source/t2-all-variant-regions.bam").read_bytes() == bam.read_bytes()

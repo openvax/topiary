@@ -4,7 +4,7 @@ Topiary uses **Osteosarc 0.11** for new audit downloads, indexed regional read
 extraction, access to the shared OpenVax source objects, and the shared
 `openvax-v1` test reads. Osteosarc and its
 read-extraction dependency are installed by `pip install topiary` on Python
-3.10+. From a checkout, use `pip install -e .`; add `.[isovar]` for RNA
+3.11+. From a checkout, use `pip install -e .`; add `.[isovar]` for RNA
 reconstruction. Extraction also needs `samtools` on PATH. Importing Topiary
 does not acquire data.
 

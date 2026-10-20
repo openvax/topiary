@@ -39,13 +39,15 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - python-version: "3.10"
-            pandas: "pandas>=2.2.2,<3"
           - python-version: "3.11"
             pandas: "pandas>=2.2.2,<3"
           - python-version: "3.11"
             pandas: "pandas>=3,<4"
           - python-version: "3.12"
+            pandas: "pandas>=3,<4"
+          - python-version: "3.13"
+            pandas: "pandas>=3,<4"
+          - python-version: "3.14"
             pandas: "pandas>=3,<4"
     steps:
       - uses: actions/checkout@v7
@@ -166,15 +168,19 @@ jobs:
           # the actual default reference after both cache hits and installs.
           python scripts/check_default_ensembl.py
       - name: Test with pytest
-        if: env.HAS_NETMHC_TOKEN == 'true'
         run: |
-          # configure netmhc-bundle paths
-          export NETMHC_BUNDLE_HOME=$PWD/netmhc-bundle
-          echo "NetMHC-bundle dir:" && ls -l $NETMHC_BUNDLE_HOME
-          mkdir -p $PWD/netmhc-bundle-tmp
-          export NETMHC_BUNDLE_TMPDIR=$PWD/netmhc-bundle-tmp
-          export PATH=$PATH:$NETMHC_BUNDLE_HOME/bin
-          ./test.sh
+          if [[ "$HAS_NETMHC_TOKEN" == "true" ]]; then
+            export NETMHC_BUNDLE_HOME=$PWD/netmhc-bundle
+            echo "NetMHC-bundle dir:" && ls -l "$NETMHC_BUNDLE_HOME"
+            mkdir -p "$PWD/netmhc-bundle-tmp"
+            export NETMHC_BUNDLE_TMPDIR=$PWD/netmhc-bundle-tmp
+            export PATH=$PATH:$NETMHC_BUNDLE_HOME/bin
+          fi
+          if [[ "$HAS_NETMHC_TOKEN" == "true" ]]; then
+            ./test.sh
+          else
+            ./test.sh -m 'not netmhc' --strict-markers
+          fi
       - name: Save coverage for the upload job
         uses: actions/upload-artifact@v7
         with:
@@ -269,7 +275,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

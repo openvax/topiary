@@ -18,6 +18,16 @@ def regenerate(root, destination):
     inventory = json.loads((root / "inventory.json").read_text())
     receipt = json.loads((root / "source/bam.receipt.json").read_text())
     reference = json.loads((root / "reference/manifest.json").read_text())
+    run = json.loads((root / "run.json").read_text())
+    # Valid source bytes alone do not show that the saved outcomes used them.
+    # The compact-fixture migration once retained a run from a different BAM.
+    for name, expected in (
+        ("bam_sha256", receipt["sha256"]),
+        ("inventory_sha256", digest(root / "checked-inventory.json")),
+        ("reference_sha256", digest(root / "reference/manifest.json")),
+    ):
+        if run[name] != expected:
+            raise ValueError(f"Audit run input mismatch: {name}")
     originals = {
         "source/t2-all-variant-regions.bam": receipt["sha256"],
         "source/t2-all-variant-regions.bam.bai": receipt["index_sha256"],
