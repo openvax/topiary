@@ -2,7 +2,8 @@
 
 For new acquisition and missing regional annotation handling, see
 [shared Osteosarc data](osteosarc-shared-data.md). The results below describe
-the unchanged historical snapshot.
+the historical snapshot; the [current regression audit](#current-regression-audit)
+records its replay with newer dependencies.
 
 The 2026-09-17 snapshot covers **all 182 entries** in the
 [website index](https://osteosarc.com/variants/), not just its 44
@@ -128,14 +129,61 @@ original-read evidence from its immutable release commit. That separate audit
 queries 14 RNA products, preserving dependent processing families rather than
 pooling them; it is not a 14-library re-run of every one of the 184 entries.
 
-The current `.cache/osteosarc-all-variants-v181-2026-09-17/` contains source bytes and
+The historical `.cache/osteosarc-all-variants-v181-2026-09-17/` contains source bytes and
 SHA-256 receipts, regional BAM/index, references, per-entry outcomes, accepted
 and filtered fragments, diagnostic stopping stages, genuine predictions and
 the full source-linked `README.md`. The earlier 1.17.4 run is preserved separately;
 current counts require the corrected optional Isovar floor of 1.18.1.
 Historical pVAC files and the new RNA overlay
 remain in their separate archives. The committed
-`tests/data/osteosarc_all_variants/` corpus is about 7.7 MB and runs offline in
-CI against both minimum and latest supported Isovar. Every literal allele
+`tests/data/osteosarc_all_variants/` metadata and references are paired with
+shared `openvax-v1` reads, downloaded on first use and reused offline.
+CI checks both minimum and latest supported Isovar. Every literal allele
 drives both diagnostic handoff doors and default acceptance; every accepted
 fragment runs prediction → save/reload → filters that must change selection.
+
+## Current regression audit
+
+The 2026-10-20 replay resolves [#494](https://github.com/openvax/topiary/issues/494)
+and [#495](https://github.com/openvax/topiary/issues/495). Fixture reduction in
+[PR #361](https://github.com/openvax/topiary/pull/361) kept only records overlapping
+the tested loci, but left `run.json` describing the earlier, broader BAM.
+The current pin uses the compact BAM identified by `source/bam.receipt.json`:
+
+| Input | Records | BAM SHA-256 prefix |
+| --- | ---: | --- |
+| Historical regional audit | 124,046 | `290d6e56a529` |
+| Compact audit input | 55,610 | `1787492e8a67` |
+| Local `openvax-v1` export used by tests | 55,610 | `212e2e95b907` |
+
+Complete SAM records, including tags and repeated-record multiplicity, prove
+that the compact input is a subset of the historical input and equals the
+shared export. Exported BAM bytes can differ with sorting and compression;
+the compact and shared record-multiset SHA-256 is
+`c9bb1eccafa90d304c5485cfb11928303da050d3a76d06993fda89341335f0e1`.
+The existing shared-read tests verify that digest.
+
+All 184 entries were replayed separately on the historical and compact inputs
+with Isovar 1.59.1, Varcode 10.17.3, and PyEnsembl 2.28.3. Their outcomes agree.
+Against the earlier pin, after sorting unordered transcript IDs, every status,
+read/template count, reconstructed protein, mutation interval, and filter
+decision is unchanged. Only five predicted-effect descriptions change:
+
+| Entry | Change |
+| --- | --- |
+| BAZ1B, PCDH19, SULT6B1 | Include all predicted splice alternatives |
+| BTBD11, PPP6R3 | Retain the complete `SpliceOutcomeSet`, including the previous coding consequence conditional on normal splicing |
+
+This follows [Varcode #603](https://github.com/openvax/varcode/pull/603).
+Predicted alternatives do not establish which splice mechanism occurred.
+Variant consequences depend on the transcript, as described in
+[Ensembl's consequence definitions](https://www.ensembl.org/info/genome/variation/prediction/predicted_data.html).
+[Isovar #530](https://github.com/openvax/isovar/pull/530), released in 1.59.1,
+also prevents PCDH19's nonexonic reference-context exception without removing
+its predicted splice evidence.
+
+`expected.json`, `run.json`, and both fixture manifests now describe this
+compact-input replay together. New runs record Varcode, PyEnsembl, and pysam
+versions as well as Isovar. The fixture exporter refuses a run whose BAM,
+inventory, or reference digest differs from its supplied inputs. Historical
+audit directories and their original predictions remain available separately.

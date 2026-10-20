@@ -117,3 +117,8 @@ def test_reference_build_to_report_keeps_annotation_gaps(tmp_path, monkeypatch, 
     assert "no_regional_annotation | unavailable" in text
     assert "RNA support is unknown" in text
     assert "Prediction stage has not been run" in text
+    # A dependency update can change predictions even when Isovar itself and
+    # the source inputs stay fixed. Resuming must not mix those outcomes.
+    monkeypatch.setattr("scripts.osteosarc_variant_audit.version", lambda name: "changed")
+    with pytest.raises(ValueError, match="Run inputs/settings changed"):
+        audit(tmp_path)

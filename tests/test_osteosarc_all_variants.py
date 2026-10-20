@@ -69,6 +69,19 @@ def test_all_original_assets_and_inventory_membership():
     assert all(r["observed_reference"] == r["ref"] for r in current if r["input_status"] == "ready")
 
 
+def test_pinned_run_matches_its_source_receipts():
+    """A verified source manifest must describe the run that made the outcomes."""
+    run = json.loads((ROOT / "run.json").read_text())
+    receipt = json.loads((ROOT / "source/bam.receipt.json").read_text())
+    assert run["bam_sha256"] == receipt["sha256"]
+    assert run["inventory_sha256"] == digest(ROOT / "checked-inventory.json")
+    assert run["reference_sha256"] == digest(ROOT / "reference/manifest.json")
+    for outcome in pinned_outcomes().values():
+        if outcome["rna"] is not None:
+            assert outcome["isovar_version"] == run["isovar_version"]
+            assert outcome["collection_policy"] == run["collection_policy"]
+
+
 @pytest.mark.parametrize("entry", [r for r in records() if r["input_status"] != "ready"], ids=lambda r: r["variant_id"])
 def test_incomplete_alleles_have_no_invented_rna_outcome(entry):
     expected = pinned_outcomes()[entry["variant_id"]]

@@ -1,5 +1,5 @@
 {
-  "isovar_version": "1.18.1",
+  "isovar_version": "1.59.1",
   "collection_policy": {
     "use_secondary_alignments": false,
     "use_duplicate_reads": false,
@@ -7,9 +7,15 @@
     "use_soft_clipped_bases": false,
     "merge_overlapping_fragments": true
   },
+  "dependency_versions": {
+    "varcode": "10.17.3",
+    "pyensembl": "2.28.3",
+    "pysam": "0.24.1"
+  },
+  "audit_schema_version": 2,
   "protein_context_peptide_length": 25,
   "variant_sequence_assembly": true,
-  "bam_sha256": "290d6e56a52946a09d2a6077d1dcd093dd6f6327280860e9b68948f6fc17dea8",
+  "bam_sha256": "1787492e8a67f214711f5fe0a8f79bd6e3442e48e7b3a9ebfebb520e87037e0c",
   "inventory_sha256": "e61c71dda2e6d390e579de8d475f1f072d832badb06ad185a18a20be03e8526e",
   "reference_sha256": "cd74762f076032480d7c600ca2064aeeb1d8d87ba9ee730465544b3e786a2647"
 }

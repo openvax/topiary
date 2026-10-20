@@ -85,7 +85,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -177,7 +177,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -272,7 +272,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -356,14 +356,14 @@
       "mutation_start": 24,
       "mutation_end": 25,
       "transcript_ids": [
-        "ENST00000471714",
         "ENST00000284322",
+        "ENST00000471714",
         "ENST00000495063"
       ],
       "protein_supporting_reads": 3,
       "protein_supporting_fragments": 3
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -458,7 +458,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -553,7 +553,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -648,7 +648,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -743,7 +743,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -838,7 +838,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -933,7 +933,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -1019,15 +1019,15 @@
       "mutation_start": 24,
       "mutation_end": 25,
       "transcript_ids": [
+        "ENST00000311278",
         "ENST00000392038",
         "ENST00000424901",
-        "ENST00000311278",
         "ENST00000579047"
       ],
       "protein_supporting_reads": 11,
       "protein_supporting_fragments": 7
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -1122,7 +1122,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -1217,7 +1217,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -1301,14 +1301,14 @@
       "mutation_start": 24,
       "mutation_end": 25,
       "transcript_ids": [
+        "ENST00000330838",
         "ENST00000358602",
-        "ENST00000509867",
-        "ENST00000330838"
+        "ENST00000509867"
       ],
       "protein_supporting_reads": 29,
       "protein_supporting_fragments": 23
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -1399,7 +1399,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -1494,7 +1494,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -1590,7 +1590,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -1679,7 +1679,7 @@
       "protein_supporting_reads": 3,
       "protein_supporting_fragments": 3
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -1774,7 +1774,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -1869,7 +1869,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -1956,7 +1956,7 @@
         "protein_sequence_contains_mutation"
       ],
       "predicted_effect_class": "SpliceOutcomeSet",
-      "predicted_effect": "splice-set:exon-skip ENSE00000689942 (p.V124fs)",
+      "predicted_effect": "splice-set:exon-skip ENSE00000689942 (p.V124fs) | intron-retention (acceptor side, predicted) | cryptic-acceptor (predicted) | normal-splicing",
       "protein_sequence": null,
       "mutation_start": null,
       "mutation_end": null,
@@ -1964,7 +1964,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -2048,13 +2048,13 @@
       "mutation_start": 24,
       "mutation_end": 25,
       "transcript_ids": [
-        "ENST00000306385",
-        "ENST00000306349"
+        "ENST00000306349",
+        "ENST00000306385"
       ],
       "protein_supporting_reads": 30,
       "protein_supporting_fragments": 25
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -2149,7 +2149,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -2244,7 +2244,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -2339,7 +2339,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -2425,8 +2425,8 @@
         "min_ratio_alt_to_other_fragments",
         "protein_sequence_contains_mutation"
       ],
-      "predicted_effect_class": "PrematureStop",
-      "predicted_effect": "p.Q974*",
+      "predicted_effect_class": "SpliceOutcomeSet",
+      "predicted_effect": "splice-set:normal-splicing (p.Q974*) | exon-skip ENSE00002345127 (p.R947fs) | cryptic-donor (predicted) | intron-retention (donor side, predicted)",
       "protein_sequence": null,
       "mutation_start": null,
       "mutation_end": null,
@@ -2434,7 +2434,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -2518,15 +2518,15 @@
       "mutation_start": 22,
       "mutation_end": 23,
       "transcript_ids": [
-        "ENST00000449107",
         "ENST00000303498",
+        "ENST00000383778",
         "ENST00000437172",
-        "ENST00000383778"
+        "ENST00000449107"
       ],
       "protein_supporting_reads": 9,
       "protein_supporting_fragments": 9
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -2621,7 +2621,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -2742,7 +2742,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -2837,7 +2837,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -2955,7 +2955,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -3039,14 +3039,14 @@
       "mutation_start": 24,
       "mutation_end": 25,
       "transcript_ids": [
-        "ENST00000368932",
         "ENST00000307731",
-        "ENST00000368930"
+        "ENST00000368930",
+        "ENST00000368932"
       ],
       "protein_supporting_reads": 8,
       "protein_supporting_fragments": 4
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -3142,7 +3142,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -3238,7 +3238,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -3333,7 +3333,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -3428,7 +3428,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -3523,7 +3523,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -3632,7 +3632,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -3727,7 +3727,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -3823,7 +3823,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -3918,7 +3918,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -4013,7 +4013,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -4108,7 +4108,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -4203,7 +4203,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -4324,7 +4324,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -4419,7 +4419,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -4514,7 +4514,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -4605,7 +4605,7 @@
       "protein_supporting_reads": 5,
       "protein_supporting_fragments": 3
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -4700,7 +4700,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -4789,7 +4789,7 @@
       "protein_supporting_reads": 98,
       "protein_supporting_fragments": 66
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -4884,7 +4884,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -4979,7 +4979,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -5065,16 +5065,16 @@
       "mutation_start": 10,
       "mutation_end": 11,
       "transcript_ids": [
-        "ENST00000396045",
         "ENST00000310758",
         "ENST00000396040",
+        "ENST00000396045",
         "ENST00000442504",
         "ENST00000448602"
       ],
       "protein_supporting_reads": 4,
       "protein_supporting_fragments": 2
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -5169,7 +5169,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -5264,7 +5264,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -5354,7 +5354,7 @@
       "protein_supporting_reads": 8,
       "protein_supporting_fragments": 4
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -5438,13 +5438,13 @@
       "mutation_start": 24,
       "mutation_end": 25,
       "transcript_ids": [
-        "ENST00000393161",
-        "ENST00000253861"
+        "ENST00000253861",
+        "ENST00000393161"
       ],
       "protein_supporting_reads": 41,
       "protein_supporting_fragments": 28
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -5539,7 +5539,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -5631,7 +5631,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -5741,7 +5741,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -5837,7 +5837,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -5932,7 +5932,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -6021,7 +6021,7 @@
       "protein_supporting_reads": 6,
       "protein_supporting_fragments": 6
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -6111,7 +6111,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -6206,7 +6206,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -6298,7 +6298,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -6393,7 +6393,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -6488,7 +6488,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -6583,7 +6583,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -6678,7 +6678,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -6773,7 +6773,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -6894,7 +6894,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -6990,7 +6990,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -7085,7 +7085,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -7197,15 +7197,15 @@
       "mutation_start": 25,
       "mutation_end": 25,
       "transcript_ids": [
-        "ENST00000372099",
+        "ENST00000342018",
         "ENST00000372097",
-        "ENST00000372108",
-        "ENST00000342018"
+        "ENST00000372099",
+        "ENST00000372108"
       ],
       "protein_supporting_reads": 31,
       "protein_supporting_fragments": 23
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -7296,7 +7296,7 @@
       "protein_supporting_reads": 112,
       "protein_supporting_fragments": 81
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -7391,7 +7391,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -7486,7 +7486,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -7581,7 +7581,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -7676,7 +7676,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -7771,7 +7771,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -7866,7 +7866,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -7961,7 +7961,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -8056,7 +8056,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -8151,7 +8151,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -8246,7 +8246,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -8341,7 +8341,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -8436,7 +8436,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -8531,7 +8531,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -8626,7 +8626,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -8721,7 +8721,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -8816,7 +8816,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -8910,7 +8910,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -9005,7 +9005,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -9100,7 +9100,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -9195,7 +9195,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -9290,7 +9290,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -9385,7 +9385,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -9480,7 +9480,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -9569,7 +9569,7 @@
       "protein_supporting_reads": 4105,
       "protein_supporting_fragments": 2469
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -9665,7 +9665,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -9786,7 +9786,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -9881,7 +9881,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -9971,7 +9971,7 @@
       "protein_supporting_reads": 15,
       "protein_supporting_fragments": 10
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -10066,7 +10066,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -10155,7 +10155,7 @@
       "protein_supporting_reads": 7,
       "protein_supporting_fragments": 6
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -10250,7 +10250,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -10345,7 +10345,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -10437,7 +10437,7 @@
       "protein_supporting_reads": 5,
       "protein_supporting_fragments": 4
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -10532,7 +10532,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -10616,15 +10616,15 @@
       "mutation_start": 23,
       "mutation_end": 24,
       "transcript_ids": [
+        "ENST00000013034",
         "ENST00000336097",
         "ENST00000480143",
-        "ENST00000555572",
-        "ENST00000013034"
+        "ENST00000555572"
       ],
       "protein_supporting_reads": 20,
       "protein_supporting_fragments": 15
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -10719,7 +10719,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -10814,7 +10814,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -10909,7 +10909,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -11004,7 +11004,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -11099,7 +11099,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -11194,7 +11194,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -11289,7 +11289,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -11399,7 +11399,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -11481,7 +11481,7 @@
         "protein_sequence_contains_mutation"
       ],
       "predicted_effect_class": "SpliceOutcomeSet",
-      "predicted_effect": "splice-set:normal-splicing",
+      "predicted_effect": "splice-set:normal-splicing | exon-skip ENSE00000673367 (p.S892fs) | intron-retention (donor side, predicted) | cryptic-donor (predicted)",
       "protein_sequence": null,
       "mutation_start": null,
       "mutation_end": null,
@@ -11489,7 +11489,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -11584,7 +11584,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -11679,7 +11679,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -11764,14 +11764,14 @@
       "mutation_end": 41,
       "transcript_ids": [
         "ENST00000349792",
+        "ENST00000368888",
         "ENST00000409426",
-        "ENST00000441902",
-        "ENST00000368888"
+        "ENST00000441902"
       ],
       "protein_supporting_reads": 4,
       "protein_supporting_fragments": 3
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -11866,7 +11866,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -11953,14 +11953,14 @@
       "mutation_end": 9,
       "transcript_ids": [
         "ENST00000270861",
-        "ENST00000515069",
         "ENST00000513090",
-        "ENST00000514379"
+        "ENST00000514379",
+        "ENST00000515069"
       ],
       "protein_supporting_reads": 6,
       "protein_supporting_fragments": 4
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -12050,7 +12050,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -12136,8 +12136,8 @@
         "min_ratio_alt_to_other_fragments",
         "protein_sequence_contains_mutation"
       ],
-      "predicted_effect_class": "Substitution",
-      "predicted_effect": "p.A767S",
+      "predicted_effect_class": "SpliceOutcomeSet",
+      "predicted_effect": "splice-set:normal-splicing (p.A767S) | exon-skip ENSE00003469412 (p.T732fs) | cryptic-donor (predicted) | intron-retention (donor side, predicted)",
       "protein_sequence": null,
       "mutation_start": null,
       "mutation_end": null,
@@ -12145,7 +12145,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -12240,7 +12240,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -12335,7 +12335,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -12419,14 +12419,14 @@
       "mutation_start": 24,
       "mutation_end": 25,
       "transcript_ids": [
-        "ENST00000367742",
         "ENST00000338920",
+        "ENST00000367742",
         "ENST00000426496"
       ],
       "protein_supporting_reads": 73,
       "protein_supporting_fragments": 50
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -12521,7 +12521,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -12616,7 +12616,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -12711,7 +12711,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -12806,7 +12806,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -12896,7 +12896,7 @@
       "protein_supporting_reads": 6,
       "protein_supporting_fragments": 5
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -12991,7 +12991,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -13086,7 +13086,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -13178,7 +13178,7 @@
       "protein_supporting_reads": 23,
       "protein_supporting_fragments": 17
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -13262,14 +13262,14 @@
       "mutation_start": 13,
       "mutation_end": 14,
       "transcript_ids": [
-        "ENST00000487694",
+        "ENST00000332191",
         "ENST00000461745",
-        "ENST00000332191"
+        "ENST00000487694"
       ],
       "protein_supporting_reads": 10,
       "protein_supporting_fragments": 8
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -13366,7 +13366,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -13461,7 +13461,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -13556,7 +13556,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -13651,7 +13651,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -13746,7 +13746,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -13841,7 +13841,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -13936,7 +13936,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -14025,7 +14025,7 @@
       "protein_supporting_reads": 8,
       "protein_supporting_fragments": 8
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -14120,7 +14120,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -14209,7 +14209,7 @@
       "protein_supporting_reads": 2,
       "protein_supporting_fragments": 2
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -14298,7 +14298,7 @@
       "protein_supporting_reads": 14,
       "protein_supporting_fragments": 10
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -14393,7 +14393,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -14478,15 +14478,15 @@
       "mutation_end": 15,
       "transcript_ids": [
         "ENST00000261866",
-        "ENST00000535302",
         "ENST00000427534",
+        "ENST00000535302",
         "ENST00000558319",
         "ENST00000559193"
       ],
       "protein_supporting_reads": 5,
       "protein_supporting_fragments": 5
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -14572,14 +14572,14 @@
       "mutation_start": 7,
       "mutation_end": 7,
       "transcript_ids": [
-        "ENST00000383836",
         "ENST00000360413",
+        "ENST00000383836",
         "ENST00000618999"
       ],
       "protein_supporting_reads": 6,
       "protein_supporting_fragments": 3
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -14674,7 +14674,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -14761,7 +14761,7 @@
         "protein_sequence_contains_mutation"
       ],
       "predicted_effect_class": "SpliceOutcomeSet",
-      "predicted_effect": "splice-set:exon-skip ENSE00001309529 (p.N209fs)",
+      "predicted_effect": "splice-set:exon-skip ENSE00001309529 (p.N209fs) | intron-retention (donor side, predicted) | cryptic-donor (predicted) | normal-splicing",
       "protein_sequence": null,
       "mutation_start": null,
       "mutation_end": null,
@@ -14769,7 +14769,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -14864,7 +14864,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -14953,7 +14953,7 @@
       "protein_supporting_reads": 22,
       "protein_supporting_fragments": 15
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -15048,7 +15048,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -15132,14 +15132,14 @@
       "mutation_start": 10,
       "mutation_end": 11,
       "transcript_ids": [
-        "ENST00000375119",
         "ENST00000375118",
+        "ENST00000375119",
         "ENST00000611338"
       ],
       "protein_supporting_reads": 2,
       "protein_supporting_fragments": 2
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -15234,7 +15234,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -15329,7 +15329,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -15424,7 +15424,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -15545,7 +15545,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -15640,7 +15640,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -15724,13 +15724,13 @@
       "mutation_start": 24,
       "mutation_end": 25,
       "transcript_ids": [
-        "ENST00000368892",
-        "ENST00000354473"
+        "ENST00000354473",
+        "ENST00000368892"
       ],
       "protein_supporting_reads": 8,
       "protein_supporting_fragments": 7
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -15825,7 +15825,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -15917,7 +15917,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -16012,7 +16012,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -16102,7 +16102,7 @@
       "protein_supporting_reads": 4,
       "protein_supporting_fragments": 4
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -16186,13 +16186,13 @@
       "mutation_start": 24,
       "mutation_end": 25,
       "transcript_ids": [
-        "ENST00000523374",
-        "ENST00000414387"
+        "ENST00000414387",
+        "ENST00000523374"
       ],
       "protein_supporting_reads": 5,
       "protein_supporting_fragments": 3
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -16282,7 +16282,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -16377,7 +16377,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -16463,7 +16463,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
@@ -16549,7 +16549,7 @@
       "protein_supporting_reads": null,
       "protein_supporting_fragments": null
     },
-    "isovar_version": "1.18.1",
+    "isovar_version": "1.59.1",
     "collection_policy": {
       "use_secondary_alignments": false,
       "use_duplicate_reads": false,
