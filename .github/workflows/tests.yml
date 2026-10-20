@@ -168,14 +168,14 @@ jobs:
           # the actual default reference after both cache hits and installs.
           python scripts/check_default_ensembl.py
       - name: Test with pytest
-        if: env.HAS_NETMHC_TOKEN == 'true'
         run: |
-          # configure netmhc-bundle paths
-          export NETMHC_BUNDLE_HOME=$PWD/netmhc-bundle
-          echo "NetMHC-bundle dir:" && ls -l $NETMHC_BUNDLE_HOME
-          mkdir -p $PWD/netmhc-bundle-tmp
-          export NETMHC_BUNDLE_TMPDIR=$PWD/netmhc-bundle-tmp
-          export PATH=$PATH:$NETMHC_BUNDLE_HOME/bin
+          if [[ "$HAS_NETMHC_TOKEN" == "true" ]]; then
+            export NETMHC_BUNDLE_HOME=$PWD/netmhc-bundle
+            echo "NetMHC-bundle dir:" && ls -l "$NETMHC_BUNDLE_HOME"
+            mkdir -p "$PWD/netmhc-bundle-tmp"
+            export NETMHC_BUNDLE_TMPDIR=$PWD/netmhc-bundle-tmp
+            export PATH=$PATH:$NETMHC_BUNDLE_HOME/bin
+          fi
           ./test.sh
       - name: Save coverage for the upload job
         uses: actions/upload-artifact@v7
