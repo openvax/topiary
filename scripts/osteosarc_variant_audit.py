@@ -313,6 +313,7 @@ def reference_genome(root, cache=None):
     not an empty gene table to pad with invented features.
     """
     from pyensembl import Genome
+    from pyensembl.species import human
 
     reference = root / "reference"
     manifest = json.loads((reference / "manifest.json").read_text())
@@ -328,6 +329,9 @@ def reference_genome(root, cache=None):
         transcript_fasta_paths_or_urls=[str(reference / "reference.cdna.fa.gz")],
         protein_fasta_paths_or_urls=[str(reference / "reference.pep.fa.gz")],
         copy_local_files_to_cache=True, cache_directory_path=str(cache or root / "reference-index"))
+    # These are Homo sapiens Ensembl records. The custom subset name cannot
+    # identify the species for Varcode's compartment-specific genetic codes.
+    genome.species = human
     genome.index()
     return genome
 
