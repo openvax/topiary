@@ -1,15 +1,20 @@
-"""Fail CI setup unless the dependency-selected human reference is usable."""
+"""Fail CI setup unless both human references used by the suite are usable."""
 
-from pyensembl import ensembl_grch38
+from pyensembl import ensembl_grch37, ensembl_grch38
 
 
 def main():
-    # The same BRAF transcript is exercised by Topiary's sequence-source tests.
-    # This lookup needs both the indexed annotation and its sequence data.
-    transcript = ensembl_grch38.transcript_by_id("ENST00000496384")
-    if not transcript.protein_sequence:
-        raise RuntimeError(f"Missing BRAF protein sequence in {ensembl_grch38}")
-    print(f"Verified {ensembl_grch38}: {len(transcript.protein_sequence)} BRAF residues")
+    # Use the same canonical objects as the GRCh37 protein-change and GRCh38
+    # sequence-source workflows. Both indexed annotation and proteins must
+    # work; a successful install of a different mirror identity is not enough.
+    for genome, gene, transcript_id in (
+        (ensembl_grch37, "EGFR", "ENST00000275493"),
+        (ensembl_grch38, "BRAF", "ENST00000496384"),
+    ):
+        transcript = genome.transcript_by_id(transcript_id)
+        if not transcript.protein_sequence:
+            raise RuntimeError(f"Missing {gene} protein sequence in {genome}")
+        print(f"Verified {genome}: {len(transcript.protein_sequence)} {gene} residues")
 
 
 if __name__ == "__main__":

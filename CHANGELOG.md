@@ -7,12 +7,14 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
-## 5.94.7
+## 5.94.8
 
 - Preserve the human species identity of Osteosarc reference subsets so current
   Varcode selects the correct mitochondrial genetic code. Retain the checked
   MT-ND5 RNA/protein outcome and repeated-translation round trips (#497).
 - Verify downstream candidate workflows with Vaxrank 3.46.6.
+- Install canonical GRCh37 and GRCh38 references in CI and verify both before
+  testing, including when a restored cache is incomplete (#499).
 
 ## 5.94.6
 
