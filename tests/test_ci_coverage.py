@@ -16,23 +16,32 @@ from coverage import CoverageData
 import pytest
 
 
-@pytest.mark.parametrize("protein", ["MAAA", None])
-def test_ensembl_setup_checks_the_selected_reference(monkeypatch, protein):
+@pytest.mark.parametrize("missing", [None, ("EGFR", "annotation"), ("EGFR", "protein"),
+                                     ("BRAF", "annotation"), ("BRAF", "protein")])
+def test_ensembl_setup_checks_both_runtime_references(monkeypatch, missing):
     lookups = []
 
-    def transcript_by_id(transcript_id):
-        lookups.append(transcript_id)
-        return SimpleNamespace(protein_sequence=protein)
+    def reference(gene):
+        def transcript_by_id(transcript_id):
+            lookups.append((gene, transcript_id))
+            if missing == (gene, "annotation"):
+                raise ValueError(f"Missing {gene} annotation database")
+            protein = None if missing == (gene, "protein") else "MAAA"
+            return SimpleNamespace(protein_sequence=protein)
+        return SimpleNamespace(transcript_by_id=transcript_by_id)
 
     monkeypatch.setitem(sys.modules, "pyensembl", SimpleNamespace(
-        ensembl_grch38=SimpleNamespace(transcript_by_id=transcript_by_id)))
+        ensembl_grch37=reference("EGFR"), ensembl_grch38=reference("BRAF")))
     script = Path(__file__).resolve().parents[1] / "scripts/check_default_ensembl.py"
-    if protein is None:
-        with pytest.raises(RuntimeError, match="Missing BRAF protein"):
+    if missing is not None:
+        with pytest.raises((RuntimeError, ValueError), match=f"Missing {missing[0]} {missing[1]}"):
             runpy.run_path(str(script), run_name="__main__")
     else:
         runpy.run_path(str(script), run_name="__main__")
-    assert lookups == ["ENST00000496384"]
+    expected = [("EGFR", "ENST00000275493")]
+    if missing is None or missing[0] != "EGFR":
+        expected.append(("BRAF", "ENST00000496384"))
+    assert lookups == expected
 
 
 @pytest.fixture

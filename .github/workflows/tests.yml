@@ -99,7 +99,7 @@ jobs:
           from pyensembl import ensembl_grch38
           release = ensembl_grch38.release
           print(f"release={release}")
-          print(f"cache-key=pyensembl-GRCh37.75-GRCh38.{release}-v4")
+          print(f"cache-key=pyensembl-GRCh37.75-GRCh38.{release}-v5")
           PY
       - name: Cache pyensembl data
         id: ensembl-cache
@@ -107,7 +107,9 @@ jobs:
         with:
           path: ${{ github.workspace }}/pyensembl-data
           key: ${{ steps.ensembl-release.outputs.cache-key }}
-          restore-keys: pyensembl-GRCh37.75-GRCm38.102-GRCh38.93-GRCm38.93-v2
+          restore-keys: |
+            pyensembl-GRCh37.75-GRCh38.${{ steps.ensembl-release.outputs.release }}-v4
+            pyensembl-GRCh37.75-GRCm38.102-GRCh38.93-GRCm38.93-v2
       - name: Verify PirlyGenes is absent from the base environment
         run: |
           python -c "import importlib.util; assert importlib.util.find_spec('pirlygenes') is None, 'base CI unexpectedly installed PirlyGenes'"
@@ -133,24 +135,18 @@ jobs:
       - name: Lint with ruff
         run: |
           ./lint.sh
-      - name: Download Ensembl data
-        if: steps.ensembl-cache.outputs.cache-hit != 'true'
+      - name: Install required Ensembl references
         run: |
           echo "Before installing Ensembl releases" && df -h
-          # GRCh37 fixtures use the mirror; the dependency-selected GRCh38
-          # default uses Ensembl itself and belongs in the cache key. The
-          # suite uses no downloaded mouse or release-93 annotation.
+          # Install the canonical sources used by the test consumers (#499).
+          # New mirror caches have distinct identities. Always run the
+          # idempotent installer: a restored directory can be incomplete.
           # Retry with backoff: the failures seen in practice are 504s and
           # transient DNS, both of which a second attempt clears.
           install_release() {
             local attempt
-            local mirror_args=()
-            if [ -n "$3" ]; then
-              mirror_args=(--custom-mirror "$3")
-            fi
             for attempt in 1 2 3; do
-              if pyensembl install --release "$1" --species "$2" \
-                  "${mirror_args[@]}"; then
+              if pyensembl install --release "$1" --species "$2"; then
                 return 0
               fi
               echo "::warning::pyensembl install $2 $1 failed (attempt $attempt/3)"
@@ -159,13 +155,12 @@ jobs:
             echo "::error::pyensembl install $2 $1 failed after 3 attempts"
             return 1
           }
-          BASE=https://github.com/openvax/ensembl-data/releases/download
-          install_release 75  human "$BASE/GRCh37.75/"
-          install_release '${{ steps.ensembl-release.outputs.release }}' human ""
+          install_release 75 human
+          install_release '${{ steps.ensembl-release.outputs.release }}' human
       - name: Verify Ensembl data is present
         run: |
-          # A nonempty cache may contain only obsolete releases. Exercise
-          # the actual default reference after both cache hits and installs.
+          # Exercise both runtime references, including their protein data,
+          # after cache hits and new installs.
           python scripts/check_default_ensembl.py
       - name: Test with pytest
         run: |
