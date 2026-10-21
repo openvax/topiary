@@ -110,6 +110,7 @@ def load_osteosarc(directory, dataset="osteosarc"):
     """Verify the reference subset, then index it; reads come from openvax-v1."""
     import pysam
     from pyensembl import Genome
+    from pyensembl.species import human
     from varcode import Variant
 
     data = sid_data_root(dataset)
@@ -130,6 +131,7 @@ def load_osteosarc(directory, dataset="osteosarc"):
         copy_local_files_to_cache=True,
         cache_directory_path=str(directory / "reference"),
     )
+    genome.species = human
     genome.index()
     variants = {
         record["gene"]: Variant(

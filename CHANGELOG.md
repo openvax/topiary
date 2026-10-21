@@ -7,6 +7,13 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.94.7
+
+- Preserve the human species identity of Osteosarc reference subsets so current
+  Varcode selects the correct mitochondrial genetic code. Retain the checked
+  MT-ND5 RNA/protein outcome and repeated-translation round trips (#497).
+- Verify downstream candidate workflows with Vaxrank 3.46.6.
+
 ## 5.94.6
 
 - Require Python 3.11+ and test through Python 3.14, retaining pandas 2 and 3

@@ -30,7 +30,7 @@ from typing import Callable, Dict, Tuple
 import numpy as np
 import pandas as pd
 from osteosarc import parse_variants
-from scripts.osteosarc_variant_audit import variant_inventory
+from scripts.osteosarc_variant_audit import reference_genome, variant_inventory
 import pytest
 from packaging.requirements import Requirement
 from mhctools import RandomBindingPredictor
@@ -62,6 +62,8 @@ from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
 import topiary.optional_dependencies as optional_dependencies
 from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_REPORTS, ROOT as PVACSEQ_ROOT
+from .osteosarc_helpers import load_osteosarc
+from .sid_data import sid_data_root
 from topiary import build_sv_interest_report
 from topiary.cli.sv_interest import main as sv_interest_main
 
@@ -117,6 +119,31 @@ TWINS = (
         shared={"overlapping": "depth", "vaf": "vaf"},
     ),
 )
+
+
+HUMAN_REFERENCE_TWINS = (
+    ("audit", lambda cache: reference_genome(sid_data_root("osteosarc_all_variants"), cache)),
+    ("six-locus", lambda cache: next(iter(load_osteosarc(cache)[0].values())).genome),
+    ("indels", lambda cache: next(iter(load_osteosarc(cache, "osteosarc_indels")[0].values())).genome),
+)
+
+
+@pytest.mark.isovar
+@pytest.mark.parametrize("name,load", HUMAN_REFERENCE_TWINS, ids=[p[0] for p in HUMAN_REFERENCE_TWINS])
+def test_human_reference_subsets_select_compartment_specific_genetic_codes(name, load, tmp_path):
+    """Every human subset must retain the nuclear/mitochondrial distinction.
+
+    NCBI tables 1 and 2 translate ATA/TGA as I/stop and M/W respectively:
+    https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi#SG2
+    Real MT-ND5 reconstruction and repeated-hypothesis replay are also checked
+    in the all-variant audit and consumer workflows (#497).
+    """
+    from varcode.effects.codon_tables import codon_table_for_transcript, translate_sequence
+
+    genome = load(tmp_path)
+    for contig, expected in (("1", "I*"), ("MT", "MW")):
+        table = codon_table_for_transcript(SimpleNamespace(genome=genome, contig=contig))
+        assert translate_sequence("ATATGA", table, to_stop=False) == expected
 
 
 # The three public Cufflinks readers must expose the same expression values.
