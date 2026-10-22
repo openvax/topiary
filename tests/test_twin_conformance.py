@@ -1224,7 +1224,19 @@ def test_cache_loader_doors_agree_on_provenance(recorded, supplied, accepted, tm
     pd.testing.assert_frame_equal(frame, original)
 
 
+STRUCTURED_CONTEXT_CASES = (
+    ("nested mapping versus pairs", {"extension": {"a": "b"}},
+     {"extension": [["a", "b"]]}),
+    ("empty mapping versus sequence", {"extension": {}}, {"extension": []}),
+)
+
+
 CACHE_CASES = {
+    **{
+        name: ([_cache_row(measurement_context=left)],
+               [_cache_row(measurement_context=right)], "raise")
+        for name, left, right in STRUCTURED_CONTEXT_CASES
+    },
     "same measurement context in different key order": (
         [_cache_row(measurement_context={"estimate_type": "ml_predicted", "score_semantics": "policy-v1"})],
         [_cache_row(measurement_context={"score_semantics": "policy-v1", "estimate_type": "ml_predicted"})],
@@ -1327,6 +1339,21 @@ def test_every_cache_column_is_classified_as_key_value_or_context():
     )
     assert not set(_CACHE_COLUMNS) - groups, "unclassified cache column(s)"
     assert not groups - set(_CACHE_COLUMNS), "classified non-cache column(s)"
+
+
+@pytest.mark.parametrize("name,left,right", STRUCTURED_CONTEXT_CASES,
+                         ids=[case[0] for case in STRUCTURED_CONTEXT_CASES])
+def test_wide_and_cache_keep_distinct_container_shapes(name, left, right):
+    """The cache conflict battery also protects annotation identity in wide tables."""
+    from topiary import TopiaryResult
+
+    frame = pd.DataFrame([
+        _cache_row(annotation=context, source_sequence_name="p", peptide_offset=0)
+        for context in (left, right)
+    ])
+    wide = TopiaryResult(frame).to_wide()
+    assert len(wide.df) == 2
+    assert wide.to_long().df.annotation.tolist() == [left, right]
 
 
 @pytest.mark.parametrize("context", [None, {

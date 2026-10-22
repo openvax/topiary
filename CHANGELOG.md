@@ -16,6 +16,8 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   concatenation, and CSV/TSV (including gzip) or Parquet persistence. Reject
   contradictory contexts for the same cache key (#501).
 - Fix writing tables with all-missing nullable string columns (#502).
+- Keep nested mappings distinct from sequences when comparing annotations
+  and measurement contexts, preventing silent row collapse (#505).
 - Exercise the released model on Python 3.11–3.14 and downstream candidate
   workflows with Vaxrank 3.46.8.
 

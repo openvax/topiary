@@ -183,21 +183,22 @@ def _normalized_container(value):
 
     Sequences keep their order — two orders of the same transcripts are
     two different annotations — while sets and mappings do not, because
-    iteration order is not part of their value.
+    iteration order is not part of their value. Preserve the container
+    kind at every depth: a mapping is not a sequence of key/value pairs.
     """
     if isinstance(value, dict):
-        return tuple(sorted(
+        return ("mapping", tuple(sorted(
             (str(key), _normalized_container(item))
             for key, item in value.items()
-        ))
+        )))
     if isinstance(value, (set, frozenset)):
-        return tuple(sorted(
+        return ("set", tuple(sorted(
             (_normalized_container(item) for item in value), key=repr
-        ))
+        )))
     if isinstance(value, np.ndarray):
-        return tuple(_normalized_container(item) for item in value.tolist())
+        value = value.tolist()
     if isinstance(value, (list, tuple)):
-        return tuple(_normalized_container(item) for item in value)
+        return ("sequence", tuple(_normalized_container(item) for item in value))
     return value
 
 
