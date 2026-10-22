@@ -429,7 +429,7 @@ def _read_delimited(path, sep, tag=None):
                                for column in _FLANK_COLUMNS if column in columns})
         version_types = {key: value for key, value in version_types.items() if key not in converters}
         df = pd.read_csv(StringIO(data_text), sep=sep, dtype=version_types,
-                         converters=converters, float_precision="round_trip")
+                         converters=converters)
         # Decode after pandas inference. A converter returning int/None can
         # itself be inferred as floats, losing the declared scalar cell types.
         for column in json_columns:

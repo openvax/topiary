@@ -1434,7 +1434,7 @@ class CachedPredictor:
             from .io import read_tsv, read_csv
             df = (read_tsv if sep == "\t" else read_csv)(path).df
         else:
-            df = pd.read_csv(path, sep=sep, float_precision="round_trip", converters={
+            df = pd.read_csv(path, sep=sep, converters={
                 (columns or {}).get(column, column): str
                 for column in ("prediction_method_name", "predictor_version")
             })
@@ -1484,7 +1484,7 @@ class CachedPredictor:
         installed model bundle manually.  Pass an explicit string only
         when you need a custom label.
         """
-        df = pd.read_csv(path, float_precision="round_trip")
+        df = pd.read_csv(path)
         # mhcflurry's wide-format output carries up to three kinds of
         # prediction per (peptide, allele) row: binding affinity,
         # presentation, antigen processing.  Explode into one row per

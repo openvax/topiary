@@ -675,9 +675,9 @@ contract, with occurrence IDs in the failure records.
 
 Prediction inputs contain context and annotations, not historical measurement
 columns. Keep imported measurements in their original table and use the additive
-operation below. Context-aware live prediction requires mhctools' flank-aware
-API; sparse historical tables with unknown model versions remain the separate
-prediction-source work in [#368](https://github.com/openvax/topiary/issues/368).
+operation below. Context-aware live prediction requires mhctools' flank-aware API;
+sparse historical tables with unknown model versions are supported through
+:class:`topiary.HistoricalPredictor` ([#368](https://github.com/openvax/topiary/issues/368)).
 
 ## Add prediction features on demand
 

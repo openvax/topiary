@@ -44,7 +44,7 @@ from topiary.rna import load_cufflinks_dataframe, load_cufflinks_dict, load_cuff
 from topiary.rna import load_transcript_fpkm_dict_from_gtf
 from topiary.rna.expression_loader import load_expression, load_expression_from_spec
 from topiary import (
-    APPROXIMATED, MEASURED, CachedPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
+    APPROXIMATED, MEASURED, CachedPredictor, HistoricalPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
     read_fragments, read_pvacseq, write_fragments, unique_fragments,
     read_exacto, read_exacto_fragments,
     describe_isovar_result, fragment_from_isovar_result, TopiaryResult,
@@ -562,6 +562,13 @@ CACHE_MEASUREMENT_REPLAY_DOORS = (
     lambda cache, peptide: cache.predict_peptides_dataframe([peptide]),
     lambda cache, peptide: cache.predict_contextual_peptides_dataframe([peptide]),
     lambda cache, peptide: cache.predict_proteins_dataframe({"query": peptide}),
+)
+
+# Both prediction table sources agree on single-model replay, duplicate
+# conflict rejection, and identical record deduplication.
+PREDICTOR_SOURCE_TWINS = (
+    ("CachedPredictor", CachedPredictor),
+    ("HistoricalPredictor", HistoricalPredictor),
 )
 
 
@@ -1379,6 +1386,41 @@ def test_cache_replay_doors_preserve_measurement_context(context, suffix, tmp_pa
                 assert pd.isna(value)
             else:
                 np.testing.assert_equal(value, context)
+
+
+@pytest.mark.parametrize("name,constructor", PREDICTOR_SOURCE_TWINS)
+def test_cache_and_historical_agree_on_single_model_replay(name, constructor):
+    row = _cache_row()
+    df = pd.DataFrame([row])
+    predictor = constructor(df)
+    res = predictor.predict_peptides_dataframe(["SIINFEKLA"])
+    assert len(res) == 1
+    assert res.peptide.iloc[0] == "SIINFEKLA"
+    assert res.allele.iloc[0] == "HLA-A*02:01"
+    assert res.value.iloc[0] == 100.0
+    assert res.score.iloc[0] == 0.5
+    assert res.kind.iloc[0] == "pMHC_affinity"
+    assert res.prediction_method_name.iloc[0] == "netmhcpan"
+    assert res.predictor_version.iloc[0] == "4.1"
+
+
+@pytest.mark.parametrize("name,constructor", PREDICTOR_SOURCE_TWINS)
+def test_cache_and_historical_agree_on_duplicate_rejection(name, constructor):
+    row1 = _cache_row(value=100.0)
+    row2 = _cache_row(value=200.0)
+    df = pd.DataFrame([row1, row2])
+    with pytest.raises(ValueError, match="more than one answer"):
+        constructor(df)
+
+
+@pytest.mark.parametrize("name,constructor", PREDICTOR_SOURCE_TWINS)
+def test_cache_and_historical_agree_on_identical_deduplication(name, constructor):
+    row1 = _cache_row(value=100.0)
+    row2 = _cache_row(value=100.0)
+    df = pd.DataFrame([row1, row2])
+    predictor = constructor(df)
+    res = predictor.predict_peptides_dataframe(["SIINFEKLA"])
+    assert len(res) == 1
 
 
 def _ids(twin):
