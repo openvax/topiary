@@ -372,7 +372,8 @@ class TestCachedPredictorCliAutoSniff:
         # NetMHC classic — multi-allele file → 3 rows
         assert len(df) == 3
 
-    def test_topiary_output_autodetected(self, tmp_path):
+    @pytest.mark.parametrize("suffix", ["tsv", "csv", "tsv.gz", "csv.gz", "parquet"])
+    def test_topiary_output_autodetected(self, tmp_path, suffix):
         import pandas as pd
         from topiary import CachedPredictor
 
@@ -388,12 +389,13 @@ class TestCachedPredictorCliAutoSniff:
             "predictor_version": "1.0",
         }])
         cache = CachedPredictor.from_dataframe(df)
-        cache.save(tmp_path / "cache.tsv")
+        path = tmp_path / ("cache." + suffix)
+        cache.save(path)
         pep_csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
-        # No --mhc-cache-format — sniffed from the column headers.
+        # No --mhc-cache-format — sniffed from native metadata or Parquet magic.
         out = _run([
             "--peptide-csv", pep_csv,
-            "--mhc-cache-file", str(tmp_path / "cache.tsv"),
+            "--mhc-cache-file", str(path),
         ])
         assert len(out) == 1
         assert out.iloc[0]["affinity"] == 42.0

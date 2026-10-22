@@ -378,19 +378,27 @@ def _sniff_format(path):
 
     Detection order:
     1. Parquet magic bytes → ``topiary_output``.
-    2. NetMHC-family ``...version ...`` preamble lines → respective
+    2. Topiary's metadata preamble → ``topiary_output``.
+    3. NetMHC-family ``...version ...`` preamble lines → respective
        tool name.
-    3. ``mhcflurry_*`` columns in the first text line → ``mhcflurry``.
-    4. ``prediction_method_name`` + ``predictor_version`` columns in
+    4. ``mhcflurry_*`` columns in the first text line → ``mhcflurry``.
+    5. ``prediction_method_name`` + ``predictor_version`` columns in
        the first text line → ``topiary_output``.
+
+    Gzip input is decompressed before inspecting its text.
     """
     with open(path, "rb") as f:
         magic = f.read(4)
     if magic == b"PAR1":
         return "topiary_output"
 
-    with open(path, "r", errors="replace") as f:
+    import gzip
+    opener = gzip.open if magic.startswith(b"\x1f\x8b") else open
+    with opener(path, "rt" if magic.startswith(b"\x1f\x8b") else "r", errors="replace") as f:
         head = f.read(10000)
+
+    if head.startswith("#topiary_version="):
+        return "topiary_output"
 
     # NetMHC-family preamble detection.  Order matters: more specific
     # tool names come first so e.g. "NetMHCstabpan" doesn't get

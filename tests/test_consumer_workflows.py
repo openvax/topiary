@@ -56,6 +56,110 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
+@pytest.mark.weirdo
+def test_weirdo_model_mixed_ranking_and_cache_replay(tmp_path):
+    """The released model must change an opted-in ranking and survive offline replay."""
+    pytest.importorskip("weirdo")
+    from mhctools import Kind, Prediction, WEIRDO
+    from topiary import from_predictions, read_tsv, to_tsv
+    from .test_twin_conformance import FOREIGNNESS_EXPRESSION_TWINS, WHOLE_PEPTIDE_PREDICTION_DOORS
+
+    model = WEIRDO()
+    peptides = ["ACDEFGHIK", "MTMDKSELV", "ACDEFGHIK"]
+    columns = ["source_sequence_name", "peptide", "allele", "kind", "score",
+               "prediction_method_name", "predictor_version", "measurement_context"]
+    frames = [door(model, peptides).sort_values("source_sequence_name").reset_index(drop=True)
+              for door in WHOLE_PEPTIDE_PREDICTION_DOORS]
+    pd.testing.assert_frame_equal(frames[0][columns], frames[1][columns], check_dtype=False)
+    native = frames[0]
+    assert len(native) == 3
+    assert native.allele.eq("").all()
+    assert native.kind.eq(Kind.foreignness).all()
+    assert native.predictor_version.eq(model.predictor_version).all()
+    assert mhc_dependence(Kind.foreignness) == "none"
+    assert native.affinity.isna().all()
+    assert native.value.isna().all()
+
+    path = tmp_path / "weirdo.tsv"
+    to_tsv(native, path)
+    restored = read_tsv(path).df
+    cache = CachedPredictor(restored)
+    assert cache.kind_support()[Kind.foreignness]["mhc_dependence"] == "none"
+    replayed = TopiaryPredictor(models=cache).predict_from_named_peptides(
+        {str(i): peptide for i, peptide in enumerate(peptides)},
+    ).sort_values("source_sequence_name").reset_index(drop=True)
+    pd.testing.assert_frame_equal(native[columns], replayed[columns], check_dtype=False)
+
+    distinct = native.iloc[:2].copy()
+    scores = distinct.set_index("peptide").score
+    high, low = scores.idxmax(), scores.idxmin()
+    assert high != low and scores[high] > scores[low]
+    # A deterministic binding fixture prefers the opposite peptide, so adding
+    # the optional score has an observable effect rather than merely a column.
+    binding = from_predictions([
+        Prediction(kind=Kind.pMHC_affinity, peptide=peptide, allele=allele,
+                   score=float(peptide == low), value=100.0,
+                   source_sequence_name=str(index),
+                   predictor_name="binding_fixture", predictor_version="1")
+        for index, peptide in enumerate(peptides[:2])
+        for allele in ("HLA-A*02:01", "HLA-B*07:02")
+    ])
+    mixed = stack_results([TopiaryResult(distinct), TopiaryResult(binding)]).df
+    for frame in (mixed, TopiaryResult(mixed).to_wide().to_long().df):
+        assert len(frame[frame.kind == Kind.foreignness]) == 2
+        assert frame.loc[frame.kind == Kind.foreignness, "allele"].eq("").all()
+        kept = apply_filter(frame, parse("affinity[binding_fixture].value <= 500"))
+        assert len(kept) == len(frame)
+        evaluated = [evaluate_scores(kept, expression) for expression in FOREIGNNESS_EXPRESSION_TWINS]
+        pd.testing.assert_series_equal(evaluated[0], evaluated[1])
+        np.testing.assert_allclose(evaluated[0], kept.peptide.map(scores))
+        baseline = apply_sort(kept, [parse("peptide_view(affinity[binding_fixture].score)")])
+        opted_in = apply_sort(kept, [FOREIGNNESS_EXPRESSION_TWINS[0]])
+        assert baseline.peptide.iloc[0] == low
+        assert opted_in.peptide.iloc[0] == high
+        changed = kept.copy()
+        mask = changed.kind.eq(Kind.foreignness)
+        changed.loc[mask, "score"] = 1 - changed.loc[mask, "score"]
+        changed.loc[mask, "predictor_version"] = "synthetic-alternative-for-regression-test"
+        assert apply_sort(changed, [FOREIGNNESS_EXPRESSION_TWINS[0]]).peptide.iloc[0] == low
+
+
+@pytest.mark.weirdo
+@pytest.mark.parametrize("identity_part", ["artifact", "policy", "host"])
+def test_weirdo_cache_refuses_cross_identity_fallback(identity_part):
+    pytest.importorskip("weirdo")
+    from mhctools import WEIRDO
+    from weirdo import get_model_manifest
+
+    model = WEIRDO()
+    frame = TopiaryPredictor(models=model).predict_from_named_peptides({"p": "ACDEFGHIK"})
+    version = model.predictor_version
+    if identity_part == "artifact":
+        changed = version.replace(get_model_manifest()["artifact_id"], "0" * 64)
+    elif identity_part == "policy":
+        changed = version.replace("human-self-complement-v1", "different-policy-v1")
+    else:
+        changed = version.removesuffix("9606") + "10090"
+    assert changed != version
+    frame["predictor_version"] = changed
+    cache = CachedPredictor(frame, fallback=model)
+    with pytest.raises(ValueError, match="version|fallback"):
+        cache.predict_peptides_dataframe(["MTMDKSELV"])
+
+
+@pytest.mark.weirdo
+@pytest.mark.parametrize("door", ["instance", "class", "name"])
+def test_weirdo_construction_and_empty_batch(door):
+    pytest.importorskip("weirdo")
+    from mhctools import WEIRDO
+    supplied = WEIRDO() if door == "instance" else WEIRDO if door == "class" else "weirdo"
+    predictor = TopiaryPredictor(models=supplied)
+    frame = predictor.predict_from_named_peptides({"p": "ACDEFGHIK"})
+    assert len(frame) == 1 and frame.kind.iloc[0] == "foreignness"
+    assert frame.allele.iloc[0] == ""
+    assert predictor.predict_from_named_peptides({}).empty
+
+
 @pytest.mark.parametrize("suffix,separator", [("csv", ","), ("tsv", "\t")])
 def test_single_feature_expression_changes_selection_and_replays(tmp_path, suffix, separator):
     from topiary import (SelectionPolicy, evaluate_selection_policy, join_annotations,

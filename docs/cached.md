@@ -31,9 +31,18 @@ For whole-peptide half-life tables, use `predict_from_named_peptides` to replay
 the complete peptides originally scored. Known allele-independent kinds retain
 `mhc_dependence="none"` without a live fallback; caching a measurement does not
 make it allele-specific. A fallback's explicit kind metadata takes precedence.
-The cache does not yet identify different chemistry, assay conditions or model
-settings beyond the stored method/version: do not mix those experiments in one
-cache ([#288](https://github.com/openvax/topiary/issues/288)).
+Measurement contexts survive loading, queries and saving. Rows sharing a cache
+key must agree on those semantics as well as their numerical measurements;
+contradictory contexts are rejected. The cache does not yet index distinct
+chemistry or assay conditions as separate queries: keep those experiments in
+separate caches ([#288](https://github.com/openvax/topiary/issues/288)).
+
+`save()` writes structured contexts using Topiary's typed CSV/TSV codec,
+including metadata comments, or Parquet. Both delimited formats accept a `.gz`
+suffix. Reload with `from_topiary_output`; the CLI recognizes these saved files
+automatically. Generic pandas readers can skip metadata using `comment="#"`,
+but use Topiary's readers when dictionaries and literal identifiers must retain
+their types.
 
 ## Incomplete cache coverage
 

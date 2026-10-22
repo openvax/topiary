@@ -43,6 +43,7 @@ from .nodes import (
     PeptideProperty,
     Presentation,
     Processing,
+    Foreignness,
     Stability,
     peptide_view,
     _CONTEXT_KEYWORDS,
@@ -80,6 +81,7 @@ _KIND_ACCESSOR_ALIASES = {
     "presentation": Presentation,
     "stability": Stability,
     "processing": Processing,
+    "foreignness": Foreignness,
     "ba": Affinity,
     "aff": Affinity,
     "ic50": Affinity,
@@ -494,6 +496,20 @@ class _Parser:
                 self.tokenizer.advance()
                 self.tokenizer.expect("RPAREN")
                 return Column(col_tok[1])
+            if name == "foreignness":
+                # Published policies already use this bare column for an
+                # IEDB similarity feature. The new category prediction has
+                # no default physical value: require a model or metric to
+                # select it, preserving existing column expressions.
+                next_token = self.tokenizer.peek_at(1)
+                metric = self.tokenizer.peek_at(2)
+                fields = {"score", "value", "rank", "percentile", *_BEST_ALLELE_ACCESSOR_ALIASES}
+                explicit_kind = (next_token[0] == "LBRACKET" or
+                                 (next_token[0] == "DOT" and metric[0] == "IDENT"
+                                  and metric[1].lower() in fields))
+                if not explicit_kind:
+                    self.tokenizer.advance()
+                    return Column(tok[1])
             if self._is_kind_name(name):
                 return self._kind_accessor()
             if name in _PROPERTIES:

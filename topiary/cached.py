@@ -40,6 +40,7 @@ import pandas as pd
 import mhcgnomes
 
 from .predictor import _backfill_value_from_score
+from .wide import _group_token
 from .ranking import (
     KIND_MHC_DEPENDENCE, is_stated, stated_values, mhc_dependence,
     prediction_mhc_scope, split_allele_set,
@@ -70,6 +71,7 @@ _CACHE_COLUMNS = (
     # a prediction for its deconvolved best allele.
     "allele_set",
     "prediction_flanks_supplied", "prediction_mhc_dependence",
+    "measurement_context",
 )
 
 #: Columns a sliding-window protein scan emits, in mhctools' vocabulary.
@@ -136,6 +138,7 @@ PROTEIN_SCAN_COLUMNS = tuple(
 PREDICTION_VALUE_COLUMNS = (
     "score", "affinity", "percentile_rank", "value",
     "prediction_method_name", "predictor_version",
+    "measurement_context",
 )
 
 #: Columns saying where a peptide was found, not what was predicted.
@@ -215,6 +218,19 @@ def _dependence_tag(value):
 
 
 
+def _cache_comparison_frame(df):
+    """Use hashable context tokens only while comparing rows, preserving cells."""
+    if "measurement_context" not in df:
+        return df
+    comparison = df.copy(deep=False)
+    comparison["measurement_context"] = df.measurement_context.map(_group_token)
+    return comparison
+
+
+def _distinct_cache_rows(df, subset=None):
+    return df.loc[~_cache_comparison_frame(df).duplicated(subset=subset)]
+
+
 def conflicting_predictions(df: pd.DataFrame) -> pd.DataFrame:
     """Rows sharing a prediction key but disagreeing about the prediction.
 
@@ -261,7 +277,7 @@ def conflicting_predictions(df: pd.DataFrame) -> pd.DataFrame:
     # repeated is one the source gave two different answers for.
     # drop_duplicates and duplicated both treat NA as equal to NA, which
     # is the comparison we want and the one `==` will not give.
-    distinct = df.drop_duplicates(subset=key + value)
+    distinct = _distinct_cache_rows(df, subset=key + value)
     return distinct[distinct.duplicated(subset=key, keep=False)]
 
 
@@ -269,7 +285,7 @@ def _conflict_message(where: str, conflicts: pd.DataFrame) -> str:
     """One wording for both doors, naming the key and what differed."""
     key = [c for c in PREDICTION_KEY_COLUMNS if c in conflicts.columns]
     value = [c for c in PREDICTION_VALUE_COLUMNS if c in conflicts.columns]
-    groups = conflicts.groupby(key, dropna=False, sort=False)
+    groups = _cache_comparison_frame(conflicts).groupby(key, dropna=False, sort=False)
     disagreed = sorted({
         column
         for _, group in groups
@@ -435,7 +451,7 @@ class CachedPredictor:
         # already applies this rule; applying it here makes both public
         # construction paths return the same cache, not merely agree
         # that the input is acceptable.
-        self._df = self._df.drop_duplicates(ignore_index=True)
+        self._df = _distinct_cache_rows(self._df).reset_index(drop=True)
         self.prediction_method_name, self.predictor_version = \
             self._unique_version_pair(self._df)
         self._index, self._prefix_index = self._build_index(self._df)
@@ -985,7 +1001,7 @@ class CachedPredictor:
                             missing.append((peptide, n_flank, c_flank))
                             continue
                         values = [c for c in PREDICTION_VALUE_COLUMNS if c in matching]
-                        if len(matching[values].drop_duplicates()) > 1:
+                        if len(_distinct_cache_rows(matching[values])) > 1:
                             raise ValueError(f"Ambiguous cached predictions for {peptide}/{kind}/{scope}")
                         selected = matching.iloc[0].to_dict()
                         # Source annotations may retain flanks even when the
@@ -1241,8 +1257,10 @@ class CachedPredictor:
         return self._df.copy()
 
     def save(self, path) -> None:
-        """Write the cache as Parquet (``.parquet``/``.pq``) or TSV
-        (``.tsv``, optionally ``.tsv.gz``).
+        """Write Parquet or typed Topiary TSV/CSV, optionally gzip-compressed.
+
+        Structured measurement contexts retain their original dictionary
+        representation through Topiary's shared table codec.
 
         Raises ``ValueError`` if the cache has no identity yet — an
         empty cache built with only a fallback hasn't learned its
@@ -1262,10 +1280,10 @@ class CachedPredictor:
         path_str = str(path)
         if path_str.endswith((".parquet", ".pq")):
             self._df.to_parquet(path_str, index=False)
-        elif path_str.endswith((".tsv", ".tsv.gz")):
-            self._df.to_csv(path_str, sep="\t", index=False)
         else:
-            self._df.to_csv(path_str, index=False)
+            from .io import to_tsv, to_csv
+            writer = to_tsv if path_str.endswith((".tsv", ".tsv.gz")) else to_csv
+            writer(self._df, path)
 
     # --- loaders ----------------------------------------------------
 
@@ -1366,12 +1384,9 @@ class CachedPredictor:
             if path_str.endswith((".parquet", ".pq")):
                 df = pd.read_parquet(path_str)
             else:
-                df = pd.read_csv(
-                    path_str,
-                    sep="\t" if path_str.endswith((".tsv", ".tsv.gz")) else ",",
-                    converters={"prediction_method_name": str, "predictor_version": str},
-                    float_precision="round_trip",
-                )
+                from .io import read_tsv, read_csv
+                reader = read_tsv if path_str.endswith((".tsv", ".tsv.gz")) else read_csv
+                df = reader(path).df
             return cls.from_dataframe(
                 df, fallback=fallback,
                 prediction_method_name=prediction_method_name,
@@ -1415,10 +1430,14 @@ class CachedPredictor:
         """
         # Versions are identities, not numbers: 2.10 must not become 2.1.
         # Converters also leave missing-value interpretation to stated_values.
-        df = pd.read_csv(path, sep=sep, float_precision="round_trip", converters={
-            (columns or {}).get(column, column): str
-            for column in ("prediction_method_name", "predictor_version")
-        })
+        if not columns and sep in ("\t", ","):
+            from .io import read_tsv, read_csv
+            df = (read_tsv if sep == "\t" else read_csv)(path).df
+        else:
+            df = pd.read_csv(path, sep=sep, float_precision="round_trip", converters={
+                (columns or {}).get(column, column): str
+                for column in ("prediction_method_name", "predictor_version")
+            })
         if columns:
             df = df.rename(columns={v: k for k, v in columns.items()})
         if "kind" not in df.columns:
@@ -1707,7 +1726,7 @@ class CachedPredictor:
                 )
             # Identical rows carry no information twice over; rows that
             # differ only in context do, so only exact duplicates go.
-            combined = combined.drop_duplicates(ignore_index=True)
+            combined = _distinct_cache_rows(combined).reset_index(drop=True)
         else:
             dup_mask = combined.duplicated(subset=key_cols, keep=False)
             if dup_mask.any():

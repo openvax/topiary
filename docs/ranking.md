@@ -50,6 +50,7 @@ Each MHC prediction model produces one or more *kinds* of output. The built-in a
 | `Presentation` | `pMHC_presentation` | Presentation score (EL) |
 | `Stability` | `pMHC_stability` | pMHC complex stability |
 | `Processing` | `antigen_processing` | Antigen processing score |
+| `Foreignness` | `foreignness` | Allele-independent category score (WEIRDO) |
 
 Each accessor has three fields:
 
@@ -818,6 +819,42 @@ presentation rows with per-allele rows, use `coverage="partial"` because those
 kinds have different identity grids by construction.  Processing-only
 quantities that do not depend on allele should be read directly rather than
 through `best_*`.
+
+## Optional WEIRDO foreignness
+
+Install `pip install 'topiary[weirdo]'` to use the released, offline WEIRDO
+model with canonical peptides of length 8–11:
+
+```python
+from topiary import TopiaryPredictor, Foreignness, apply_sort, peptide_view
+
+rows = TopiaryPredictor(models="weirdo").predict_from_named_peptides(
+    {"first": "ACDEFGHIK", "second": "MTMDKSELV"},
+)
+ordered = apply_sort(rows, [peptide_view(Foreignness["weirdo"].score)])
+```
+
+The equivalent DSL expression is `peptide_view(foreignness[weirdo].score)`.
+Bare `foreignness` continues to read an annotation column, including the
+historical IEDB similarity feature. Select the new prediction explicitly with
+`foreignness[weirdo].score` or `foreignness.score`; these are different measures.
+Use `peptide_view` to broadcast the same allele-independent observation into
+the peptide/allele groups of a mixed prediction table. The stored observation
+keeps an empty `allele`; it is not duplicated for each HLA allele.
+
+The score is `1 - human-category output` under WEIRDO's versioned
+`human-self-complement-v1` policy, with human host taxon 9606. It describes the
+model's training categories. It is not a calibrated probability of processing,
+presentation, recognition, or immune response, and Topiary does not add it to
+default ranking. Other host taxa and score policies are rejected by the
+released model. Opting into this expression changes the ranking explicitly;
+it does not establish a biological benefit.
+
+The row's `predictor_version` includes the wrapper version, WEIRDO version,
+model manifest digest, score policy, and host taxon. Preserve it together with
+`measurement_context` when saving results. `to_tsv` / `read_tsv` and
+`CachedPredictor` retain this identity; a fallback model with a different
+artifact, policy, or host is rejected rather than mixed into the cache.
 
 ## Putting it together
 

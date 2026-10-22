@@ -8,6 +8,25 @@ on:
   pull_request:
 
 jobs:
+  weirdo-integration:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install the released WEIRDO integration
+        run: |
+          bash scripts/pip_install.sh pytest pytest-cov pytest-xdist -e '.[weirdo]'
+          python -m pip check
+          python -c "from mhctools import WEIRDO; print(WEIRDO().predictor_version)"
+      - name: Exercise scoring, mixed ranking, and cache replay
+        run: ./test.sh -m weirdo --strict-markers
+
   vaxrank-candidate-workflow:
     runs-on: ubuntu-22.04
     steps:
@@ -17,7 +36,7 @@ jobs:
           python-version: "3.12"
       - name: Install the released downstream consumer
         run: |
-          bash scripts/pip_install.sh pytest 'vaxrank==3.46.6' -e .
+          bash scripts/pip_install.sh pytest 'vaxrank==3.46.8' -e .
           python -m pip check
       - name: Verify table features through DSL scoring and vaccine construction
         run: python -m pytest scripts/check_vaxrank_candidates.py -q
