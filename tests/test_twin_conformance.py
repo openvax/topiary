@@ -1625,6 +1625,8 @@ def test_foreignness_annotation_and_model_metric_remain_distinct():
         (Foreignness['weirdo'].score, parse_dsl('foreignness[weirdo].score')),
     )
     for native, parsed in pairs:
-        pd.testing.assert_series_equal(evaluate_scores(frame, native), evaluate_scores(frame, parsed))
-    assert evaluate_scores(frame, parse_dsl('foreignness')).tolist() == [0.1, 0.9]
-    assert evaluate_scores(frame, parse_dsl('foreignness.score')).tolist() == [0.9, 0.1]
+        pd.testing.assert_series_equal(
+            evaluate_scores(frame, native, group_keys=['peptide']),
+            evaluate_scores(frame, parsed, group_keys=['peptide']))
+    assert evaluate_scores(frame, parse_dsl('foreignness'), group_keys=['peptide']).tolist() == [0.1, 0.9]
+    assert evaluate_scores(frame, parse_dsl('foreignness.score'), group_keys=['peptide']).tolist() == [0.9, 0.1]
