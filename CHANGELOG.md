@@ -7,6 +7,22 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.96.0
+
+- Add `HistoricalPredictor` to support sparse historical table predictions with
+  unknown model versions as a reusable prediction source (#368).
+- Preserve genuinely missing or unknown predictor versions without inferring
+  them from installed packages or relabeling aggregate prediction methods.
+- Support sparse peptide/allele coverage without requiring or fabricating a
+  complete Cartesian genotype cross-product.
+- Preserve all prediction values, kinds, flanks, genotype scopes, comparators
+  (`wt_*`), and source artifact provenance; detect and reject conflicting
+  predictions deterministically.
+- Keep live-model fallback distinct so historical records never masquerade as
+  hits for a live predictor.
+- Support round-trip persistence and composition through `combine_sources`,
+  `rescore_candidates`, and `TopiaryPredictor`.
+
 ## 5.95.0
 
 - Add optional WEIRDO scoring through mhctools 4.3.0 and the explicit
