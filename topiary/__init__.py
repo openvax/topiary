@@ -68,6 +68,7 @@ from .ranking import (
     PeptideView,
     Presentation,
     Processing,
+    Foreignness,
     Scope,
     Stability,
     SurvivalExpr,
@@ -208,7 +209,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.94.8"
+__version__ = "5.95.0"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -322,6 +323,7 @@ __all__ = [
     "available_properties",
     "Presentation",
     "Processing",
+    "Foreignness",
     "Scope",
     "Stability",
     "SurvivalExpr",

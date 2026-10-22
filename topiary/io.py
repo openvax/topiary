@@ -40,6 +40,7 @@ tuples come back as lists and non-string keys as strings.
 """
 
 import ast
+import gzip
 import json
 from collections import OrderedDict
 from dataclasses import dataclass, field as dataclass_field, replace
@@ -383,7 +384,8 @@ def _read_delimited(path, sep, tag=None):
     from .wide import _parse_wide_column
 
     path = Path(path)
-    with open(path) as f:
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rt" if path.suffix == ".gz" else "r") as f:
         all_lines = f.readlines()
 
     meta, n_comment = _parse_comment_block(all_lines)
@@ -413,7 +415,8 @@ def _read_delimited(path, sep, tag=None):
         version_types = {}
         for column in columns:
             parsed = _parse_wide_column(column)
-            if (column == "predictor_version" or column.endswith("_predictor_version")
+            if (column in ("prediction_method_name", "predictor_version")
+                    or column.endswith("_predictor_version")
                     or (parsed is not None and parsed[2] == "wt_version")):
                 version_types[column] = str
         # Explicitly marked strings bypass numeric and NA inference. Missing
@@ -510,6 +513,8 @@ def _json_columns(df, exclude=()):
     for column in df.columns:
         if isinstance(column, str) and column not in exclude:
             stated = df[column].dropna()
+            if stated.empty:
+                continue
             structured = stated.map(lambda value: isinstance(value, (dict, list))).any()
             typed_scalar = (pd.api.types.is_object_dtype(df[column].dtype)
                             and stated.map(lambda value: isinstance(
@@ -517,7 +522,7 @@ def _json_columns(df, exclude=()):
             nullable_discrete = ((pd.api.types.is_integer_dtype(df[column].dtype)
                                   or pd.api.types.is_bool_dtype(df[column].dtype))
                                  and df[column].isna().any())
-            if len(stated) and (structured or typed_scalar or nullable_discrete):
+            if structured or typed_scalar or nullable_discrete:
                 columns.append(column)
     return columns
 
@@ -606,7 +611,8 @@ def _write_delimited(df, path, sep, metadata, index):
                                   columns=json_columns) if json_columns else None)
     comment_block = _format_comment_block(file_metadata)
 
-    with open(path, "w") as f:
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "wt" if path.suffix == ".gz" else "w") as f:
         if comment_block:
             f.write(comment_block + "\n")
         df.to_csv(f, sep=sep, index=index)

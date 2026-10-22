@@ -2546,6 +2546,7 @@ KIND_MHC_DEPENDENCE = MappingProxyType({
     "pMHC_stability": "single_allele",
     "pMHC_TCR_binding": "single_allele",
     "immunogenicity": "single_allele",
+    "foreignness": "none",
     "antigen_processing": "none",
     "proteasome_cleavage": "none",
     "endolysosomal_cleavage": "none",
@@ -4027,6 +4028,7 @@ Affinity = KindAccessor(Kind.pMHC_affinity)
 Presentation = KindAccessor(Kind.pMHC_presentation)
 Stability = KindAccessor(Kind.pMHC_stability)
 Processing = KindAccessor(Kind.antigen_processing)
+Foreignness = KindAccessor(Kind.foreignness)
 
 # Pre-built IsIn nodes for the most common categorical filter: MHC class.
 # Both require a ``mhc_class`` column in the DataFrame — present after

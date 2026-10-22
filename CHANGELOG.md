@@ -7,6 +7,20 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.95.0
+
+- Add optional WEIRDO scoring through mhctools 4.3.0 and the explicit
+  `foreignness[weirdo].score` DSL. Preserve existing bare `foreignness`
+  annotation expressions and keep the experimental score opt-in (#491, #503).
+- Preserve structured measurement context through cache construction, replay,
+  concatenation, and CSV/TSV (including gzip) or Parquet persistence. Reject
+  contradictory contexts for the same cache key (#501).
+- Fix writing tables with all-missing nullable string columns (#502).
+- Keep nested mappings distinct from sequences when comparing annotations
+  and measurement contexts, preventing silent row collapse (#505).
+- Exercise the released model on Python 3.11–3.14 and downstream candidate
+  workflows with Vaxrank 3.46.8.
+
 ## 5.94.8
 
 - Preserve the human species identity of Osteosarc reference subsets so current

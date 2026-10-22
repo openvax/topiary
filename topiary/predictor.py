@@ -71,7 +71,8 @@ def _backfill_value_from_score(df):
     ``simplejson.dumps`` rejects NaN, ``sorted()`` is undefined on it,
     and arithmetic silently propagates. Unit-bearing kinds are
     intentionally left alone: a NaN ``value`` there means the unit is
-    genuinely unknown, not "fall back to the score".
+    genuinely unknown, not "fall back to the score". Foreignness is also
+    score-only: its versioned category policy defines no physical value.
 
     Mutates ``df`` in place and returns it for chaining.
     """
@@ -79,9 +80,9 @@ def _backfill_value_from_score(df):
         return df
     if "kind" not in df.columns:
         return df
-    from mhctools import VALUE_BEST_DIRECTIONS
-    unit_kinds = set(VALUE_BEST_DIRECTIONS.keys())
-    needs_backfill = df["value"].isna() & ~df["kind"].isin(unit_kinds)
+    from mhctools import Kind, VALUE_BEST_DIRECTIONS
+    preserve_value_kinds = set(VALUE_BEST_DIRECTIONS) | {Kind.foreignness}
+    needs_backfill = df["value"].isna() & ~df["kind"].isin(preserve_value_kinds)
     if needs_backfill.any():
         df.loc[needs_backfill, "value"] = df.loc[needs_backfill, "score"]
     return df

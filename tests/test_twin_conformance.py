@@ -56,6 +56,7 @@ from topiary import (
     predict_peptide_occurrences,
     match_self_peptides, self_matches_in_windows,
     Affinity, Column, apply_filter, apply_sort,
+    Foreignness, peptide_view,
     parse as parse_dsl,
 )
 from topiary.io_isovar import _check_isovar
@@ -557,6 +558,13 @@ CACHE_FALLBACK_IDENTITY_TWINS = (
 )
 
 
+CACHE_MEASUREMENT_REPLAY_DOORS = (
+    lambda cache, peptide: cache.predict_peptides_dataframe([peptide]),
+    lambda cache, peptide: cache.predict_contextual_peptides_dataframe([peptide]),
+    lambda cache, peptide: cache.predict_proteins_dataframe({"query": peptide}),
+)
+
+
 def osteosarc_export_paths(manifest, directory, cache):
     from topiary import osteosarc_fixture_paths
     return osteosarc_fixture_paths(manifest, directory=directory)
@@ -899,6 +907,14 @@ def whole_peptides_through_predictions(model, peptides):
 WHOLE_PEPTIDE_PREDICTION_DOORS = (whole_peptides_through_predictor, whole_peptides_through_predictions)
 
 
+# The public Python accessor and its DSL spelling must select the same model
+# and preserve the explicit peptide-level projection, including after replay.
+FOREIGNNESS_EXPRESSION_TWINS = (
+    peptide_view(Foreignness["weirdo"].score),
+    parse_dsl("peptide_view(foreignness[weirdo].score)"),
+)
+
+
 def stability_through_stdout_cache(path):
     from topiary import CachedPredictor
 
@@ -1208,7 +1224,34 @@ def test_cache_loader_doors_agree_on_provenance(recorded, supplied, accepted, tm
     pd.testing.assert_frame_equal(frame, original)
 
 
+STRUCTURED_CONTEXT_CASES = (
+    ("nested mapping versus pairs", {"extension": {"a": "b"}},
+     {"extension": [["a", "b"]]}),
+    ("empty mapping versus sequence", {"extension": {}}, {"extension": []}),
+)
+
+
 CACHE_CASES = {
+    **{
+        name: ([_cache_row(measurement_context=left)],
+               [_cache_row(measurement_context=right)], "raise")
+        for name, left, right in STRUCTURED_CONTEXT_CASES
+    },
+    "same measurement context in different key order": (
+        [_cache_row(measurement_context={"estimate_type": "ml_predicted", "score_semantics": "policy-v1"})],
+        [_cache_row(measurement_context={"score_semantics": "policy-v1", "estimate_type": "ml_predicted"})],
+        "accept",
+    ),
+    "contradictory measurement context": (
+        [_cache_row(measurement_context={"estimate_type": "ml_predicted", "score_semantics": "policy-v1"})],
+        [_cache_row(measurement_context={"estimate_type": "ml_predicted", "score_semantics": "policy-v2"})],
+        "raise",
+    ),
+    "one measurement context is absent": (
+        [_cache_row(measurement_context=None)],
+        [_cache_row(measurement_context={"estimate_type": "ml_predicted"})],
+        "raise",
+    ),
     "identical rows": ([_cache_row()], [_cache_row()], "accept"),
     "differ only in context": (
         [_cache_row(sample_name="a")], [_cache_row(sample_name="b")], "accept",
@@ -1296,6 +1339,46 @@ def test_every_cache_column_is_classified_as_key_value_or_context():
     )
     assert not set(_CACHE_COLUMNS) - groups, "unclassified cache column(s)"
     assert not groups - set(_CACHE_COLUMNS), "classified non-cache column(s)"
+
+
+@pytest.mark.parametrize("name,left,right", STRUCTURED_CONTEXT_CASES,
+                         ids=[case[0] for case in STRUCTURED_CONTEXT_CASES])
+def test_wide_and_cache_keep_distinct_container_shapes(name, left, right):
+    """The cache conflict battery also protects annotation identity in wide tables."""
+    from topiary import TopiaryResult
+
+    frame = pd.DataFrame([
+        _cache_row(annotation=context, source_sequence_name="p", peptide_offset=0)
+        for context in (left, right)
+    ])
+    wide = TopiaryResult(frame).to_wide()
+    assert len(wide.df) == 2
+    assert wide.to_long().df.annotation.tolist() == [left, right]
+
+
+@pytest.mark.parametrize("context", [None, {
+    "estimate_type": "ml_predicted", "score_semantics": "policy-v1",
+    "extension": {"categories": ["human", "rodent"]},
+}])
+@pytest.mark.parametrize("suffix", ["tsv", "tsv.gz", "csv", "csv.gz", "parquet"])
+def test_cache_replay_doors_preserve_measurement_context(context, suffix, tmp_path):
+    """#501: semantic dictionaries survive every cache query and serialization."""
+    cache = CachedPredictor(pd.DataFrame([_cache_row(measurement_context=context)]))
+    path = tmp_path / ("context." + suffix)
+    cache.save(path)
+    restored = CachedPredictor.from_topiary_output(path)
+    caches = [cache, restored]
+    if suffix != "parquet":
+        caches.append(CachedPredictor.from_tsv(path, sep="," if suffix.startswith("csv") else "\t"))
+    for current in caches:
+        for query in CACHE_MEASUREMENT_REPLAY_DOORS:
+            frame = query(current, "SIINFEKLA")
+            assert len(frame) == 1
+            value = frame.measurement_context.iloc[0]
+            if context is None:
+                assert pd.isna(value)
+            else:
+                np.testing.assert_equal(value, context)
 
 
 def _ids(twin):
@@ -1548,3 +1631,29 @@ def test_exacto_table_and_fragment_doors_agree(malformed):
         assert result.df.sequence.tolist() == [f.sequence for f in fragments]
         assert result.df.target_intervals.iloc[0] == [list(i) for i in fragments[0].target_intervals]
         assert result.df.sample_name.tolist() == [f.sample_name for f in fragments]
+
+
+def test_foreignness_annotation_and_model_metric_remain_distinct():
+    """A new score-only kind cannot reinterpret existing saved column policies."""
+    from topiary import Column, Foreignness, evaluate_scores
+
+    frame = pd.DataFrame({
+        'peptide': ['ACDEFGHIK', 'MTMDKSELV'], 'allele': ['', ''],
+        'source_sequence_name': ['first', 'second'], 'peptide_offset': [0, 0],
+        'kind': ['foreignness', 'foreignness'], 'score': [0.9, 0.1],
+        'prediction_method_name': ['weirdo', 'weirdo'],
+        'predictor_version': ['test-v1', 'test-v1'],
+        'foreignness': [0.1, 0.9],
+    })
+    pairs = (
+        (Column('foreignness'), parse_dsl('foreignness')),
+        (Column('foreignness').clip(0, 1), parse_dsl('foreignness.clip(0, 1)')),
+        (Foreignness.score, parse_dsl('foreignness.score')),
+        (Foreignness['weirdo'].score, parse_dsl('foreignness[weirdo].score')),
+    )
+    for native, parsed in pairs:
+        pd.testing.assert_series_equal(
+            evaluate_scores(frame, native, group_keys=['peptide']),
+            evaluate_scores(frame, parsed, group_keys=['peptide']))
+    assert evaluate_scores(frame, parse_dsl('foreignness'), group_keys=['peptide']).tolist() == [0.1, 0.9]
+    assert evaluate_scores(frame, parse_dsl('foreignness.score'), group_keys=['peptide']).tolist() == [0.9, 0.1]
