@@ -342,7 +342,7 @@ def to_wide(df):
 
     # Build model key per row.
     if "prediction_method_name" in work.columns:
-        model_col = work["prediction_method_name"].fillna("unknown").astype(str)
+        model_col = work["prediction_method_name"].astype(object).fillna("unknown").astype(str)
     else:
         model_col = pd.Series("unknown", index=work.index)
 
@@ -601,7 +601,7 @@ def from_wide(df, metadata=None):
             # unions and ORF-only rows must not acquire invented model rows
             # merely because another source supplied that wide column.
             mask = (chunk.source_prediction_kind.eq(canonical_kind)
-                    & chunk.source_prediction_method.fillna("unknown").astype(str).eq(method_name))
+                    & chunk.source_prediction_method.astype(object).fillna("unknown").astype(str).eq(method_name))
             if recorded and model_key != method_name:
                 mask &= chunk.source_predictor_version.map(_version_str).eq(_version_str(recorded[1]))
             represented |= mask
