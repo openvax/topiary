@@ -64,6 +64,12 @@ _FLANK_COLUMNS = ("n_flank", "c_flank")
 _MISSING_TEXT = "<NA>"
 
 
+def _float_precision_kwargs():
+    """Keep exact float reads without Pandas 3.1's deprecated argument."""
+    return ({"float_precision": "round_trip"}
+            if tuple(map(int, pd.__version__.split(".")[:2])) < (3, 1) else {})
+
+
 @dataclass
 class Metadata:
     """Comment-block metadata for a topiary file.
@@ -419,21 +425,30 @@ def _read_delimited(path, sep, tag=None):
                     or column.endswith("_predictor_version")
                     or (parsed is not None and parsed[2] == "wt_version")):
                 version_types[column] = str
-        # Explicitly marked strings bypass numeric and NA inference. Missing
-        # cells use a sentinel, so literal "NA" and empty strings stay text.
-        converters = {column: _decode_text for column in text_columns}
-        converters.update({column: lambda value: value
-                           for column in json_columns})
+        # Pandas 3.1 applies NA inference even to converter results. Box each
+        # explicitly encoded cell until after parsing so its missing sentinel,
+        # literal "NA", empty string, and malformed JSON stay distinct.
+        converters = {column: lambda value: (value,)
+                      for column in (*text_columns, *json_columns)}
         if meta.topiary_flank_encoding:
-            converters.update({column: lambda value: _decode_text(value, label="flank")
+            converters.update({column: lambda value: (value,)
                                for column in _FLANK_COLUMNS if column in columns})
         version_types = {key: value for key, value in version_types.items() if key not in converters}
         df = pd.read_csv(StringIO(data_text), sep=sep, dtype=version_types,
-                         converters=converters, float_precision="round_trip")
+                         converters=converters, **_float_precision_kwargs())
+        for column in text_columns:
+            df[column] = pd.Series([_decode_text(value[0]) for value in df[column]],
+                                   index=df.index, dtype="str")
+        if meta.topiary_flank_encoding:
+            for column in _FLANK_COLUMNS:
+                if column in df:
+                    df[column] = pd.Series(
+                        [_decode_text(value[0], label="flank") for value in df[column]],
+                        index=df.index, dtype="str")
         # Decode after pandas inference. A converter returning int/None can
         # itself be inferred as floats, losing the declared scalar cell types.
         for column in json_columns:
-            df[column] = pd.Series([_decode_json(value, allow_scalar=mixed_json)
+            df[column] = pd.Series([_decode_json(value[0], allow_scalar=mixed_json)
                                     for value in df[column]], index=df.index, dtype=object)
 
     # Record source (tag overrides filename).

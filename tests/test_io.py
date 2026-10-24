@@ -355,6 +355,20 @@ _JSON_CELLS = [
 ]
 
 
+def test_json_io_twins_keep_all_missing_declared_cells(tmp_path):
+    for suffix, _, _, reader in DELIMITED_IO_TWINS:
+        sep = "\t" if suffix == "tsv" else ","
+        path = tmp_path / ("missing-json." + suffix)
+        path.write_text(
+            '#topiary_json_encoding=json:{"version":"json-v1","columns":["context"]}\n'
+            + sep.join(["context", "row"]) + "\n"
+            + sep.join(["<NA>", "1"]) + "\n"
+            + sep.join(["<NA>", "2"]) + "\n")
+        restored = reader(path).df
+        assert restored.context.tolist() == [None, None]
+        assert restored.row.tolist() == [1, 2]
+
+
 @pytest.mark.parametrize("call_style", ["dataframe", "result-function", "result-method"])
 def test_json_io_twins_round_trip_dicts_lists_and_missing(tmp_path, call_style):
     frame = pd.DataFrame({
