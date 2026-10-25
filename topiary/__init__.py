@@ -125,8 +125,10 @@ from .cached import (
     PROTEIN_SCAN_COLUMNS,
     conflicting_predictions,
     prediction_flanks_match,
+    prediction_matches_protein_context,
     mhcflurry_composite_version,
 )
+from .protein_predictions import validate_protein_predictions
 from .io_isovar import (
     DEFAULT_PROTEIN_SEQUENCE_LENGTH,
     describe_isovar_result,
@@ -215,9 +217,11 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.96.0"
+__version__ = "5.97.0"
 
 __all__ = [
+    "prediction_matches_protein_context",
+    "validate_protein_predictions",
     "normalize_isovar_rna_support",
     "read_isovar_hypotheses",
     "read_exacto",

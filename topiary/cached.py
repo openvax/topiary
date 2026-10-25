@@ -30,6 +30,8 @@ Fallback semantics
 from __future__ import annotations
 
 import re
+from copy import copy
+import inspect
 from collections import Counter
 from itertools import repeat
 from numbers import Integral
@@ -1061,31 +1063,135 @@ class CachedPredictor:
             )
         return pd.DataFrame(output).reindex(columns=list(_CACHE_COLUMNS))
 
-    def predict_proteins_dataframe(
-        self, name_to_sequence: Mapping[str, str],
-    ) -> pd.DataFrame:
-        """Sliding-window lookup — generate peptides from each input
-        sequence at every ``default_peptide_lengths``, then resolve
-        through :meth:`predict_peptides_dataframe`.
+    def predict_proteins_dataframe(self, name_to_sequence: Mapping[str, str]) -> pd.DataFrame:
+        """Scan requested windows, filling missing contexts through a live scanner.
+
+        Parameters
+        ----------
+        name_to_sequence : mapping of str to str
+            Original named proteins. ``default_peptide_lengths`` selects the
+            windows. Empty inputs and proteins shorter than every selected
+            length return an empty frame without calling a fallback.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Rows in ``PROTEIN_SCAN_COLUMNS``, with coordinates belonging to the
+            requested proteins. Stored model inputs must match each occurrence;
+            incompatible flanks or genotype scopes are never relabelled.
+
+        Notes
+        -----
+        A configured fallback with ``predict_proteins_dataframe`` scans each
+        affected full protein once. Its complete output is validated before
+        missing measurements are inserted. Original cache hits remain intact,
+        and any failed scanner batch leaves this cache unchanged. The fallback's
+        configuration is never mutated. Scans retain the stored MHC scopes;
+        allele selection on exact-context queries remains separate.
+
+        Peptide-only fallbacks retain peptide-miss support, but cannot resolve a
+        different stored flank context. Cache-only scans preserve sparse stored
+        kinds/genotypes; a live fallback must cover its declared kinds and the
+        requested alleles. Subsequent queries and file replay need no inference.
         """
-        unique_peptides = set()
-        per_peptide_positions: dict[str, list[tuple[str, int, int]]] = {}
-        peptide_lengths = self.default_peptide_lengths
-        for name, seq in name_to_sequence.items():
-            for length in peptide_lengths:
-                if length > len(seq):
-                    continue
-                for offset in range(len(seq) - length + 1):
-                    peptide = seq[offset:offset + length]
-                    unique_peptides.add(peptide)
-                    per_peptide_positions.setdefault(peptide, []).append(
-                        (name, offset, length)
-                    )
-
-        if not unique_peptides:
+        if not isinstance(name_to_sequence, Mapping) or any(
+                not isinstance(name, str) or not name or not isinstance(sequence, str)
+                for name, sequence in name_to_sequence.items()):
+            raise ValueError("Protein inputs must map nonempty names to sequence strings")
+        positions = {}
+        lengths = self.default_peptide_lengths
+        for name, sequence in name_to_sequence.items():
+            for length in lengths:
+                for offset in range(len(sequence) - length + 1):
+                    positions.setdefault(sequence[offset:offset + length], []).append((name, offset, length))
+        if not positions:
             return pd.DataFrame(columns=list(PROTEIN_SCAN_COLUMNS))
-        df = self.predict_peptides_dataframe(sorted(unique_peptides))
+        scanner = getattr(self.fallback, "predict_proteins_dataframe", None)
+        if not callable(scanner):
+            # Keep the legacy peptide-only fallback contract, including strict
+            # errors for stored context mismatches it cannot resolve.
+            self.predict_peptides_dataframe(sorted(positions))
+            expanded, unmatched, counts = self._scan_cached_occurrences(positions, name_to_sequence)
+            _raise_on_uncovered_occurrences(expanded, unmatched, counts)
+            return pd.DataFrame(expanded, columns=list(PROTEIN_SCAN_COLUMNS))
 
+        if not callable(getattr(self.fallback, "kind_support", None)):
+            raise TypeError("Protein fallback must declare kind_support")
+        support = {str(getattr(kind, "value", kind)): spec
+                   for kind, spec in self.fallback.kind_support().items()}
+        if not support:
+            raise ValueError("Protein fallback must declare at least one prediction kind")
+        declared = self.kind_support()
+        scan_alleles = sorted({allele for allele in self._cache_alleles() if allele}
+                              | set(getattr(self.fallback, "alleles", ())))
+        for kind, spec in support.items():
+            if spec.get("mhc_dependence") not in {"none", "single_allele", "haplotype"}:
+                raise ValueError("Protein fallback must declare MHC dependence")
+            if declared[kind]["mhc_dependence"] != spec["mhc_dependence"]:
+                raise ValueError("Fallback MHC dependence differs from the cached model")
+        expanded, unmatched, counts = self._scan_cached_occurrences(positions, name_to_sequence)
+        covered = {_coverage_key(row, row["source_sequence_name"], row["offset"]) for row in expanded}
+        expected = covered | set(unmatched)
+        for peptide, occurrences in positions.items():
+            for kind, spec in support.items():
+                mode = spec["mhc_dependence"]
+                for allele in scan_alleles if mode == "single_allele" else [""]:
+                    template = dict(peptide=peptide, allele=allele, kind=kind,
+                                    prediction_mhc_dependence=mode,
+                                    allele_set=getattr(self.fallback, "alleles", ()) if mode == "haplotype" else "")
+                    for name, offset, _ in occurrences:
+                        expected.add(_coverage_key(template, name, offset))
+        missing = expected - covered
+        if not missing:
+            return pd.DataFrame(expanded, columns=list(PROTEIN_SCAN_COLUMNS))
+        affected_names = {key[-2] for key in missing}
+        affected = {name: sequence for name, sequence in name_to_sequence.items() if name in affected_names}
+        parameters = inspect.signature(scanner).parameters
+        kwargs = {"peptide_lengths": lengths} if "peptide_lengths" in parameters else {}
+        raw = self._conform_predictor_output(scanner(affected, **kwargs))
+        # Work on a detached cache state: identity adoption, validation, and
+        # coverage checks must all succeed before anything becomes a cache hit.
+        trial = copy(self)
+        trial._verify_fallback_version(raw)
+        from .protein_predictions import validate_protein_predictions
+        fresh = validate_protein_predictions(raw, affected, self.fallback, peptide_lengths=lengths)
+        normalized = self._normalize(fresh)
+        conflicts = conflicting_predictions(normalized)
+        if not conflicts.empty:
+            raise ValueError(_conflict_message("Protein fallback", conflicts))
+        novel = normalized.loc[[
+            _coverage_key(row, row["source_sequence_name"], row["peptide_offset"]) in missing
+            and key not in self._index
+            for row, key in zip(normalized.to_dict("records"), self._row_keys_from_frame(normalized))]]
+        trial._df = novel.copy() if self._df.empty else pd.concat([self._df, novel], ignore_index=True)
+        trial._index, trial._prefix_index = self._build_index(trial._df)
+        result, remaining, remaining_counts = trial._scan_cached_occurrences(positions, name_to_sequence)
+        actual = {_coverage_key(row, row["source_sequence_name"], row["offset"]) for row in result}
+        _raise_on_uncovered_occurrences(result, remaining, remaining_counts)
+        if expected - actual:
+            raise CachedPredictorCoverageError("Protein fallback did not cover every requested kind, allele and occurrence")
+        # A newly inserted general prediction must not introduce a conflicting
+        # answer at an occurrence already covered by a more specific cache row.
+        original = {}
+        for row in expanded:
+            original.setdefault(_coverage_key(row, row["source_sequence_name"], row["offset"]), []).append(row)
+        for row in result:
+            key = _coverage_key(row, row["source_sequence_name"], row["offset"])
+            if key in original:
+                measurements = [column for column in PREDICTION_VALUE_COLUMNS if column in row]
+                if not any(all(_group_token(row.get(column)) == _group_token(old.get(column))
+                               for column in measurements) for old in original[key]):
+                    raise ValueError("Protein fallback conflicts with an existing occurrence prediction")
+        self._df, self._index, self._prefix_index = trial._df, trial._index, trial._prefix_index
+        self.prediction_method_name, self.predictor_version = trial.prediction_method_name, trial.predictor_version
+        return pd.DataFrame(result, columns=list(PROTEIN_SCAN_COLUMNS))
+
+    def _scan_cached_occurrences(self, per_peptide_positions, name_to_sequence):
+        """Read-only expansion and coverage bookkeeping for a protein query."""
+        df = pd.DataFrame([row for peptide in sorted(per_peptide_positions)
+                           for allele in self._cache_alleles()
+                           for row in self._lookup_by_prefix(peptide, allele, len(peptide))],
+                          columns=self._df.columns)
         # Expand: one row per (peptide, allele) × (name, offset) matching
         # length.  Each output row describes the *requested* occurrence,
         # so every column saying where the peptide was found is rewritten
@@ -1110,7 +1216,7 @@ class CachedPredictor:
                 if int(row["peptide_length"]) != length:
                     continue
                 sequence = name_to_sequence[name]
-                if not _flanks_apply_at(row, sequence, offset, length):
+                if not prediction_matches_protein_context(row, sequence, offset):
                     # The cached score was computed with flanking
                     # residues this occurrence does not have, so it is a
                     # prediction about a different context.  Record it
@@ -1137,17 +1243,15 @@ class CachedPredictor:
                 r.pop("peptide_offset", None)
                 r["source_sequence_name"] = name
                 r["offset"] = offset
+                if _flank_flag(row.get("prediction_flanks_supplied")) is False:
+                    # These are annotations, not model inputs. Rebind them to
+                    # the queried occurrence without changing the stored row.
+                    n, c = len(_flank_key(row.get("n_flank"))), len(_flank_key(row.get("c_flank")))
+                    r["n_flank"] = sequence[max(0, offset - n):offset]
+                    r["c_flank"] = sequence[offset + length:offset + length + c]
                 expanded.append(r)
 
-        _raise_on_uncovered_occurrences(
-            expanded, unmatched_context, unmatched_counts,
-        )
-
-        if not expanded:
-            return pd.DataFrame(columns=list(PROTEIN_SCAN_COLUMNS))
-        return pd.DataFrame(expanded).reindex(
-            columns=list(PROTEIN_SCAN_COLUMNS)
-        )
+        return expanded, unmatched_context, unmatched_counts
 
     # --- fallback resolution ----------------------------------------
 
@@ -1916,31 +2020,48 @@ def _allele_set_key(value):
 _MAX_STORED_MISMATCHES_PER_KEY = 5
 
 
-def _flanks_apply_at(row, sequence, offset, length) -> bool:
-    """Whether a cached row's prediction applies at one occurrence.
+def prediction_matches_protein_context(row, sequence, offset) -> bool:
+    """Whether a measurement applies to a peptide occurrence in a protein.
 
-    Flanking residues are a prediction *input*, not provenance: they sit
-    in :data:`PREDICTION_KEY_COLUMNS` precisely because mhcflurry's
-    processing and presentation predictors score the same peptide
-    differently in different flanking contexts.  So a cached row carrying
-    flanks answers a question about the context it was predicted in, and
-    reusing it at an occurrence with different neighbours reports a score
-    for a protein the caller never asked about.
+    Parameters
+    ----------
+    row : mapping
+        Prediction with a peptide, optional inference flanks and
+        ``prediction_flanks_supplied``. False means annotated flanks were not
+        model inputs; True distinguishes known empty termini from unknown legacy
+        context. Legacy nonempty flanks still constrain the occurrence.
+    sequence : str
+        Requested original protein sequence. No padding or context is invented.
+    offset : int
+        Zero-based peptide start in that sequence. Invalid coordinates raise.
 
-    A row with no flank context (the empty string :func:`_flank_key`
-    normalizes every missing spelling to) came from a predictor that does
-    not read flanks, so it applies wherever the peptide occurs.
-
-    A stored flank is compared against the occurrence's real neighbours
-    rather than required to equal them: predictors store a bounded number
-    of flanking residues, so the cached ``n_flank`` is the tail of what
-    actually precedes the peptide and ``c_flank`` the head of what
-    follows.  A stored flank longer than the sequence provides fails both
-    tests, which is the right answer — the occurrence cannot supply the
-    context the prediction was made in.
+    Returns
+    -------
+    bool
+        True only when the peptide and recorded inference context apply here.
+        Nonempty flanks match bounded upstream/downstream neighbours. Explicit
+        empty inference flanks require the corresponding protein terminus.
+        Missing legacy flanks are unconstrained, not evidence of a terminus.
+        Model/version and MHC scope must be matched separately by the caller.
     """
+    if not isinstance(sequence, str) or isinstance(offset, bool) or not isinstance(offset, Integral) or offset < 0:
+        raise ValueError("Protein context requires a sequence and nonnegative integer offset")
+    peptide = row.get("peptide")
+    if not isinstance(peptide, str) or not peptide:
+        raise ValueError("Protein context requires a nonempty peptide")
+    length = len(peptide)
+    if sequence[offset:offset + length] != peptide:
+        return False
+    supplied = _flank_flag(row.get("prediction_flanks_supplied"))
+    if supplied is False:
+        return True
     cached_n = _flank_key(row.get("n_flank"))
     cached_c = _flank_key(row.get("c_flank"))
+    if supplied is True:
+        if not all(isinstance(row.get(column), str) for column in ("n_flank", "c_flank")):
+            return False
+        if not cached_n and offset != 0 or not cached_c and offset + length != len(sequence):
+            return False
     if not cached_n and not cached_c:
         return True
     # Bounded to the cached flank's own length: only that many residues
@@ -1963,31 +2084,19 @@ def _flanks_apply_at(row, sequence, offset, length) -> bool:
     return True
 
 
+def _prediction_dependence(row):
+    # Resolve explicit invocation metadata before annotations or kind defaults.
+    return (_dependence_tag(row.get("prediction_mhc_dependence"))
+            or mhc_dependence(row["kind"], rows=pd.DataFrame([row])))
+
+
 def _coverage_key(row, name, offset):
-    """The key deciding whether one occurrence's prediction is covered.
-
-    Peptide, allele, kind and genotype (``allele_set``) say *what* was
-    predicted; source and offset say *where* it is being asked about.
-    ``allele_set`` sits beside ``kind`` in :data:`PREDICTION_KEY_COLUMNS`
-    for the same reason: a haplotype-mode presentation call scores the
-    same ``(peptide, allele)`` differently per genotype, exactly the way
-    a multi-kind cache scores it differently per kind. Leaving either
-    dimension out of this key lets one applicable row vouch for another
-    prediction that has none — #302 fixed that for ``kind``; omitting
-    ``allele_set`` here reopened the identical hole one column over.
-
-    Used identically by the caller building ``expanded``/
-    ``unmatched_context`` and by :func:`_raise_on_uncovered_occurrences`
-    building ``covered``, so the two can't compute a different answer to
-    "is this the same occurrence" (topiary's own "two doors, one
-    answer" rule).
-    """
-    allele_set = row.get("allele_set")
-    allele_set = _allele_set_key(allele_set)
-    return (
-        row["peptide"], row["allele"], row["kind"], allele_set,
-        name, offset,
-    )
+    """Internal occurrence key using the public measurement-scope definition."""
+    mode = _prediction_dependence(row)
+    scope = prediction_mhc_scope(row.get("allele"), dependence=mode, allele_set=row.get("allele_set"))
+    allele = scope[1] if scope is not None and mode == "single_allele" else ""
+    genotype = ",".join(scope[1:]) if scope is not None and mode == "haplotype" else ""
+    return (row["peptide"], allele, row["kind"], genotype, mode, name, offset)
 
 
 def _raise_on_uncovered_occurrences(
@@ -1996,14 +2105,13 @@ def _raise_on_uncovered_occurrences(
     """Fail loudly when flank mismatch left a kind with no row.
 
     A peptide whose only cached rows were predicted in a different
-    flanking context is not a cache hit for this occurrence. The current
-    fallback path only requests peptide predictions; it does not retry
-    mismatched occurrences through a fallback's protein-scan API, even if
-    that API is available (see #307). Raise rather than reuse a score
+    flanking context is not a cache hit for this occurrence. A compatible
+    protein-scanning fallback may fill it before this final coverage check.
+    Raise when no compatible result remains, rather than reuse a score
     computed for different neighbours or genotype context.
 
     Coverage is decided per :func:`_coverage_key` — ``(peptide, allele,
-    kind, allele_set, source, offset)`` — rather than per occurrence,
+    kind, allele_set, MHC dependence, source, offset)`` — rather than per occurrence,
     because the two are not the same question for a cache holding both a
     flank-reading predictor and one that ignores flanks, or two
     genotypes' haplotype-mode calls for the same peptide and allele.
@@ -2038,7 +2146,7 @@ def _raise_on_uncovered_occurrences(
     uncovered = sorted(key for key in unmatched_context if key not in covered)
     if not uncovered:
         return
-    peptide, allele, kind, allele_set, name, offset = uncovered[0]
+    peptide, allele, kind, allele_set, _mode, name, offset = uncovered[0]
     # The cache's own uniqueness invariant keys on flanks alongside
     # (peptide, allele, kind, allele_set), so every stored row under one
     # coverage key is a genuinely distinct flanking context -- none of

@@ -459,11 +459,35 @@ supported read-through mode; the identity is discovered from the fallback's
 first output. With no fallback, the default, a miss raises `KeyError` listing
 the missed peptides.
 
-A cached protein-scan occurrence with incompatible flanks or genotype raises
-`CachedPredictorCoverageError`, even when a fallback is attached. The current
-fallback path does not retry such occurrences through the fallback's protein
-scanner. Context-preserving fallback is tracked in
-[#307](https://github.com/openvax/topiary/issues/307).
+Protein scans resolve missing occurrence contexts through the fallback's
+`predict_proteins_dataframe` when it is available. Topiary sends each affected
+original protein once, keeping its name, full sequence and coordinates. It does
+not first run a peptide-only prediction. The cache's selected window lengths
+apply, without modifying the fallback's lengths or alleles.
+
+The scanner must declare `kind_support()` and its configured alleles. Every
+requested window in the affected proteins must have all its declared kinds and
+MHC scopes. Topiary validates source coordinates, peptide lengths, bounded
+flanks, genotype, model/version and coverage before inserting anything. Only
+missing compatible measurements are inserted; existing cache hits and stored
+provenance stay intact. A failed scanner response leaves the cache, including
+an empty cache's identity, unchanged. A different haplotype presenter can match
+the same genotype; a different genotype cannot fill its gap.
+
+Repeated queries and saved/reloaded caches reuse the new inference contexts
+offline. As before, protein scans retain stored MHC scopes; assigning
+`cache.alleles` selects exact-context queries, not the protein-scan inventory.
+A cache-only scan may retain sparse kinds/genotypes, but a mismatched stored
+context cannot disappear behind another kind's hit. A fallback with only a
+peptide API can fill ordinary peptide misses; it cannot repair stored inference
+flanks that disagree with the requested occurrence.
+
+`prediction_flanks_supplied=False` makes flanks source annotations, so scan
+output rebinds those annotations to the queried occurrence. With `True`, empty
+flanks specify actual protein termini. Legacy missing flanks remain unknown.
+The public `prediction_matches_protein_context` predicate exposes this rule;
+`validate_protein_predictions` validates a configured scanner's complete
+occurrence response for other consumers.
 
 ## Persisting a cache
 
