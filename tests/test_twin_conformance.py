@@ -44,7 +44,7 @@ from topiary.rna import load_cufflinks_dataframe, load_cufflinks_dict, load_cuff
 from topiary.rna import load_transcript_fpkm_dict_from_gtf
 from topiary.rna.expression_loader import load_expression, load_expression_from_spec
 from topiary import (
-    APPROXIMATED, MEASURED, CachedPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
+    APPROXIMATED, MEASURED, CachedPredictor, HistoricalPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
     read_fragments, read_pvacseq, write_fragments, unique_fragments,
     read_exacto, read_exacto_fragments,
     describe_isovar_result, fragment_from_isovar_result, TopiaryResult,
@@ -562,6 +562,25 @@ CACHE_MEASUREMENT_REPLAY_DOORS = (
     lambda cache, peptide: cache.predict_peptides_dataframe([peptide]),
     lambda cache, peptide: cache.predict_contextual_peptides_dataframe([peptide]),
     lambda cache, peptide: cache.predict_proteins_dataframe({"query": peptide}),
+)
+
+# Both prediction table sources agree on single-model replay, duplicate
+# conflict rejection, and identical record deduplication.
+PREDICTOR_SOURCE_TWINS = (
+    ("CachedPredictor", CachedPredictor),
+    ("HistoricalPredictor", HistoricalPredictor),
+)
+
+HISTORICAL_CONSTRUCTION_TWINS = (
+    HistoricalPredictor, HistoricalPredictor.from_dataframe,
+    HistoricalPredictor.from_table, HistoricalPredictor.from_topiary_output,
+)
+
+# Both paths replay reported rows; typed source annotations must identify the
+# same distinct observations in historical storage and in wide-table grouping.
+ANNOTATION_REPLAY_TWINS = (
+    lambda frame: HistoricalPredictor(frame).to_dataframe(),
+    lambda frame: TopiaryResult(frame).to_wide().to_long().df,
 )
 
 
@@ -1381,6 +1400,41 @@ def test_cache_replay_doors_preserve_measurement_context(context, suffix, tmp_pa
                 np.testing.assert_equal(value, context)
 
 
+@pytest.mark.parametrize("name,constructor", PREDICTOR_SOURCE_TWINS)
+def test_cache_and_historical_agree_on_single_model_replay(name, constructor):
+    row = _cache_row()
+    df = pd.DataFrame([row])
+    predictor = constructor(df)
+    res = predictor.predict_peptides_dataframe(["SIINFEKLA"])
+    assert len(res) == 1
+    assert res.peptide.iloc[0] == "SIINFEKLA"
+    assert res.allele.iloc[0] == "HLA-A*02:01"
+    assert res.value.iloc[0] == 100.0
+    assert res.score.iloc[0] == 0.5
+    assert res.kind.iloc[0] == "pMHC_affinity"
+    assert res.prediction_method_name.iloc[0] == "netmhcpan"
+    assert res.predictor_version.iloc[0] == "4.1"
+
+
+@pytest.mark.parametrize("name,constructor", PREDICTOR_SOURCE_TWINS)
+def test_cache_and_historical_agree_on_duplicate_rejection(name, constructor):
+    row1 = _cache_row(value=100.0)
+    row2 = _cache_row(value=200.0)
+    df = pd.DataFrame([row1, row2])
+    with pytest.raises(ValueError, match="more than one answer"):
+        constructor(df)
+
+
+@pytest.mark.parametrize("name,constructor", PREDICTOR_SOURCE_TWINS)
+def test_cache_and_historical_agree_on_identical_deduplication(name, constructor):
+    row1 = _cache_row(value=100.0)
+    row2 = _cache_row(value=100.0)
+    df = pd.DataFrame([row1, row2])
+    predictor = constructor(df)
+    res = predictor.predict_peptides_dataframe(["SIINFEKLA"])
+    assert len(res) == 1
+
+
 def _ids(twin):
     return [f"{twin.name}:{arg}" for arg in twin.shared]
 
@@ -1657,3 +1711,24 @@ def test_foreignness_annotation_and_model_metric_remain_distinct():
             evaluate_scores(frame, parsed, group_keys=['peptide']))
     assert evaluate_scores(frame, parse_dsl('foreignness'), group_keys=['peptide']).tolist() == [0.1, 0.9]
     assert evaluate_scores(frame, parse_dsl('foreignness.score'), group_keys=['peptide']).tolist() == [0.9, 0.1]
+
+
+@pytest.mark.parametrize('construct', HISTORICAL_CONSTRUCTION_TWINS)
+def test_historical_constructors_preserve_unknown_provenance_and_reject_conflicts(construct):
+    row = _cache_row(predictor_version=None, wt_value=30.)
+    source = construct(pd.DataFrame([row, row]), source_id='report')
+    assert len(source.df) == 1
+    assert source.predictor_version is None
+    assert source.df.iloc[0].historical_source_id == 'report'
+    with pytest.raises(ValueError, match='conflicting'):
+        construct(pd.DataFrame([row, dict(row, wt_value=31.)]), source_id='report')
+
+
+@pytest.mark.parametrize('replay', ANNOTATION_REPLAY_TWINS)
+@pytest.mark.parametrize('annotations', [(False, 0), (True, 1), ({'flag': False}, {'flag': 0}), ([True], [1])])
+def test_annotation_replay_doors_preserve_boolean_numeric_identity(replay, annotations):
+    rows = pd.DataFrame([_cache_row(annotation=value) for value in annotations])
+    output = replay(rows)
+    assert len(output) == 2
+    assert output.annotation.tolist() == list(annotations)
+    assert [type(value) for value in output.annotation] == [type(value) for value in annotations]

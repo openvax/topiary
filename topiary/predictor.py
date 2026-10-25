@@ -859,8 +859,13 @@ class TopiaryPredictor(object):
         if not isinstance(raw_models, (list, tuple)):
             raw_models = [raw_models]
 
+        from .historical import HistoricalPredictor
+
         self.models = []
         for m in raw_models:
+            if isinstance(m, HistoricalPredictor):
+                raise TypeError("HistoricalPredictor is a sparse source; use lookup_occurrences, "
+                                "rescore_candidates, or to_result instead of live TopiaryPredictor inference")
             if isinstance(m, str):
                 m = _resolve_model_name(m)
             if isinstance(m, type):

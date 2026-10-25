@@ -20,7 +20,7 @@ from .ranking import (
 )
 from .result import TopiaryResult, stack_results
 from .serialization import normalize_python_types
-from .wide import PREDICTION_COLUMNS, SOURCE_PREDICTION_COLUMNS
+from .wide import PREDICTION_COLUMNS, SOURCE_PREDICTION_COLUMNS, _group_token
 
 
 # Comparator scores vary by model/kind/allele just like the primary scores.
@@ -372,13 +372,21 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
     result : TopiaryResult
         Combined source observations. Original values, rows and metadata
         remain intact; this operation does not change the ranking policy.
-    models : predictor instance or sequence of instances
+    models : predictor or HistoricalPredictor, or sequence of instances
         Configured mhctools models exposing ``predict_dataframe`` and
         ``kind_support()``. Their configured alleles must cover the selected
         candidates for every declared allele-dependent kind. Allele-free
         processing cannot satisfy missing affinity/presentation coverage;
         processing-only models need no allele coverage. Models are called
         only here, never during combination.
+        HistoricalPredictor sources instead match the selected reported
+        occurrences exactly, preserving sparse model/allele coverage. Their
+        missing='omit' policy leaves absent features missing. Historical and
+        live sources use separate prefixes when their model versions differ.
+        Each feature requires one source identity, version, unit and measurement
+        context; partition a historical source before rescoring if those differ
+        within a method/kind. Known features remain present even if all selected
+        occurrences are missing from the historical source.
     prefix : str
         Unique run identifier used in added feature names, for example
         ``fresh__mhcflurry__pMHC_affinity__value``. Double separators keep
@@ -400,6 +408,8 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
         within matching sample, flank and genotype context. Empty selections
         call no predictor. Existing prefixes or conflicting outputs raise.
     """
+    from .historical import HistoricalPredictor
+
     frame = _combined_frame(result)
     if not isinstance(prefix, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", prefix):
         raise ValueError("prefix must be an identifier starting with a letter")
@@ -410,7 +420,7 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
     if prefix in runs or any(c.startswith(prefix + "__") for c in frame):
         raise ValueError(f"Re-scoring prefix {prefix!r} already exists")
     models = list(models) if isinstance(models, (list, tuple)) else [models]
-    if not models or any(not callable(getattr(m, method, None))
+    if not models or any(not isinstance(m, HistoricalPredictor) and not callable(getattr(m, method, None))
                          for m in models for method in ("predict_dataframe", "kind_support")):
         raise TypeError("models must expose predict_dataframe and kind_support; pass configured mhctools instances")
     selected = apply_filter(frame, as_dsl_node(select)) if select is not None else frame
@@ -421,57 +431,84 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
     requests = selected.reindex(columns=["peptide", "candidate_sample", "n_flank", "c_flank", "allele_set"]).copy()
     requests["prediction_id"] = [str(index) for index in range(len(requests))]
     features, descriptors = {}, {}
+
+    def add_prediction(prediction, dependence, model, historical, key=None):
+        kind = str(prediction.kind)
+        if not is_stated(prediction.prediction_method_name):
+            raise ValueError("Prediction features require a stated model name")
+        method = str(prediction.prediction_method_name)
+        if not re.fullmatch(r"[A-Za-z0-9_]+", method):
+            raise ValueError(f"Predictor name {method!r} cannot form a DSL feature identifier")
+        for field in ("value", "score", "percentile_rank"):
+            if field not in prediction or (key is not None and not is_stated(prediction[field])):
+                continue
+            column = f"{prefix}__{method}__{kind}__{field}"
+            measurement = normalize_python_types(prediction.get("measurement_context"),
+                                                 dataclasses_as_dict=True)
+            unit = prediction.get("value_unit")
+            if not is_stated(unit):
+                unit = measurement.get("unit") if isinstance(measurement, Mapping) else value_unit(kind)
+            descriptor = dict(model=method, version=prediction.get("predictor_version"),
+                              kind=kind, field=field, mhc_dependence=dependence,
+                              unit=unit if field == "value" else ("percent" if field == "percentile_rank" else None))
+            descriptor = {k: str(v) if is_stated(v) else None for k, v in descriptor.items()}
+            if dependence != "none" and not historical:
+                descriptor["configured_alleles"] = split_allele_set(
+                    format_allele_set(getattr(model, "alleles", ())))
+            if historical:
+                descriptor["historical_source_id"] = prediction.historical_source_id
+            if historical:
+                descriptor["measurement_context"] = (
+                    None if pd.api.types.is_scalar(measurement) and pd.isna(measurement)
+                    else measurement)
+            elif isinstance(measurement, Mapping):
+                descriptor["measurement_context"] = dict(measurement)
+            if column in descriptors and _group_token(descriptors[column]) != _group_token(descriptor):
+                raise ValueError("Multiple versions/units/contexts or historical sources need separate re-scoring prefixes")
+            descriptors[column] = descriptor
+            values = features.setdefault(column, {})
+            if key is None:
+                continue
+            value = prediction[field]
+            if key in values and values[key] != value:
+                raise ValueError("Conflicting re-scoring values for the same observation")
+            values[key] = value
+
     for model in models:
-        predicted = predict_peptide_occurrences(requests, model, use_flanks=use_flanks)
-        support = model.kind_support()
-        by_occurrence = {name: rows for name, rows in predicted.groupby("prediction_id", sort=False)} if not predicted.empty else {}
+        historical = isinstance(model, HistoricalPredictor)
+        if historical:
+            predicted = model.lookup_occurrences(selected, use_flanks=use_flanks)
+            if not selected.empty:
+                for _, reported in model.to_dataframe(selected=True).iterrows():
+                    add_prediction(reported, reported.prediction_mhc_dependence, model, True)
+            support = {}
+            query_key = "historical_query_index"
+        else:
+            predicted = predict_peptide_occurrences(requests, model, use_flanks=use_flanks)
+            support = model.kind_support()
+            query_key = "prediction_id"
+        by_occurrence = {str(name): rows for name, rows in predicted.groupby(query_key, sort=False)} if not predicted.empty else {}
         for index, row in selected.iterrows():
             genotype = format_allele_set(split_allele_set(row.get("allele_set")))
+            if historical and str(index) not in by_occurrence:
+                continue
             predictions = by_occurrence[str(index)]
             matched_kinds = set()
             for _, prediction in predictions.iterrows():
                 kind = str(prediction.kind)
                 spec = next((v for k, v in support.items() if str(getattr(k, "value", k)) == kind), {})
-                dependence = spec.get("mhc_dependence")
+                dependence = prediction.prediction_mhc_dependence if historical else spec.get("mhc_dependence")
                 if dependence not in {"none", "single_allele", "haplotype"}:
                     raise ValueError(f"Model must declare MHC dependence for {kind!r}")
                 if dependence == "haplotype":
-                    actual = format_allele_set(getattr(model, "alleles", []))
+                    actual = format_allele_set(split_allele_set(prediction.get("allele_set"))) if historical else format_allele_set(getattr(model, "alleles", []))
                     if not genotype or genotype != actual:
                         raise ValueError("Haplotype re-scoring requires allele_set matching the configured model")
                 elif dependence != "none" and _allele(prediction.get("allele")) != row.candidate_allele:
                     continue
                 matched_kinds.add(kind)
-                method = str(prediction.prediction_method_name)
-                if not re.fullmatch(r"[A-Za-z0-9_]+", method):
-                    raise ValueError(f"Predictor name {method!r} cannot form a DSL feature identifier")
-                for field in ("value", "score", "percentile_rank"):
-                    if field not in prediction or not is_stated(prediction[field]):
-                        continue
-                    column = f"{prefix}__{method}__{kind}__{field}"
-                    measurement = normalize_python_types(prediction.get("measurement_context"),
-                                                         dataclasses_as_dict=True)
-                    unit = prediction.get("value_unit")
-                    if not is_stated(unit):
-                        unit = measurement.get("unit") if isinstance(measurement, Mapping) else value_unit(kind)
-                    descriptor = dict(model=method, version=prediction.get("predictor_version"),
-                                      kind=kind, field=field, mhc_dependence=dependence,
-                                      unit=unit if field == "value" else ("percent" if field == "percentile_rank" else None))
-                    descriptor = {k: str(v) if is_stated(v) else None for k, v in descriptor.items()}
-                    if dependence != "none":
-                        descriptor["configured_alleles"] = split_allele_set(
-                            format_allele_set(getattr(model, "alleles", ())))
-                    if isinstance(measurement, Mapping):
-                        descriptor["measurement_context"] = dict(measurement)
-                    if column in descriptors and descriptors[column] != descriptor:
-                        raise ValueError("Multiple versions/units need separate re-scoring prefixes")
-                    descriptors[column] = descriptor
-                    key = (row.source_observation_id, row.candidate_id, genotype)
-                    values = features.setdefault(column, {})
-                    value = prediction[field]
-                    if key in values and values[key] != value:
-                        raise ValueError("Conflicting re-scoring values for the same observation")
-                    values[key] = value
+                add_prediction(prediction, dependence, model, historical,
+                               (row.source_observation_id, row.candidate_id, genotype))
             # Processing output is useful on its own, but cannot stand in for
             # a missing affinity/presentation result for the selected allele.
             required_kinds = {
@@ -482,7 +519,7 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
             if missing_kinds:
                 raise ValueError(f"Model returned no {', '.join(sorted(missing_kinds))} prediction "
                                  f"for {row.peptide}/{row.candidate_allele}")
-            if not matched_kinds:
+            if not matched_kinds and not historical:
                 raise ValueError(f"Model returned no prediction for {row.peptide}/{row.candidate_allele}")
     output = frame.copy()
     genotypes = frame.get("allele_set", pd.Series(None, index=frame.index, dtype=object)).map(

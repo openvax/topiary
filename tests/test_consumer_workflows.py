@@ -3918,3 +3918,166 @@ def test_contextual_file_cache_and_fallback_preserve_selection(tmp_path, suffix)
     changed = inputs.assign(n_flank="AAA")
     changed_output = predict_peptide_occurrences(changed, CachedPredictor.from_topiary_output(path))
     assert evaluate(changed_output).selected.prediction_id.tolist() == ["other-peptide"]
+
+
+@pytest.mark.parametrize('format_name,filename', [
+    ('pvacseq', 'pvacseq/mhc_i_aggregated.tsv'),
+    ('pvacseq', 'pvacseq/mhc_i_all_epitopes.tsv'),
+    ('lens', 'lens/sample_v1_4.tsv'),
+])
+def test_historical_report_source_replays_through_candidate_rescoring(format_name, filename):
+    from pathlib import Path
+    from topiary import HistoricalPredictor, combine_sources, read_lens, read_pvacseq, rescore_candidates
+    path = Path(__file__).parent / 'data' / filename
+    reader = read_lens if format_name == 'lens' else read_pvacseq
+    result = reader(path)
+    source = getattr(HistoricalPredictor, 'from_' + format_name)(path)
+    combined = combine_sources({'reported': result}, sample_name='patient')
+    replayed = rescore_candidates(combined, source, prefix='archived', use_flanks=True)
+    pd.testing.assert_frame_equal(replayed.df[combined.df.columns], combined.df)
+    for row in combined.df.to_dict('records'):
+        if pd.notna(row.get('value')):
+            column = f"archived__{row['prediction_method_name']}__{row['kind']}__value"
+            observed = replayed.df.loc[replayed.df.source_row.eq(row['source_row']), column]
+            assert observed.eq(row['value']).all()
+    descriptors = replayed.extra['candidate_rescoring']['archived']['features']
+    assert descriptors
+    assert all(item['historical_source_id'].startswith('sha256:') for item in descriptors.values())
+    if format_name == 'pvacseq':
+        assert all(item['version'] is None for item in descriptors.values())
+
+
+def test_sparse_historical_and_fresh_features_remain_separate_and_change_ranking(tmp_path):
+    from topiary import HistoricalPredictor, TopiaryResult, combine_sources, rank_candidates, rescore_candidates, read_tsv
+    records = [dict(source_sequence_name='p1', peptide_offset=0, peptide='SIINFEKL', allele='HLA-A*02:01',
+                    kind='pMHC_affinity', prediction_method_name='archive', predictor_version=None, value=100., score=.8),
+               dict(source_sequence_name='p2', peptide_offset=0, peptide='GILGFVFTL', allele='HLA-B*07:02',
+                    kind='pMHC_affinity', prediction_method_name='archive', predictor_version=None, value=10., score=.2)]
+    historical = HistoricalPredictor(pd.DataFrame(records))
+    combined = combine_sources({'reported': TopiaryResult(pd.DataFrame(records))}, sample_name='patient')
+    replayed = rescore_candidates(combined, historical, prefix='old', use_flanks=False)
+
+    class Current:
+        alleles = ['HLA-A*02:01', 'HLA-B*07:02']
+        predictor_version = '2026'
+
+        def kind_support(self):
+            return {'pMHC_affinity': {'mhc_dependence': 'single_allele', 'mhc_class': 'I'}}
+
+        def predict_dataframe(self, peptides):
+            return pd.DataFrame([dict(peptide=peptide, allele=allele, kind='pMHC_affinity',
+                                      predictor_name='current', predictor_version=self.predictor_version,
+                                      value=1. if peptide == 'SIINFEKL' else 100., score=.5)
+                                 for peptide in peptides for allele in self.alleles])
+
+    fresh = rescore_candidates(replayed, Current(), prefix='new', use_flanks=False)
+    assert fresh.df.predictor_version.isna().all()
+    assert fresh.df.value.tolist() == [100., 10.]
+    assert rank_candidates(fresh, 'old__archive__pMHC_affinity__value', ascending=True).peptide.tolist() == ['GILGFVFTL', 'SIINFEKL']
+    assert rank_candidates(fresh, 'new__current__pMHC_affinity__value', ascending=True).peptide.tolist() == ['SIINFEKL', 'GILGFVFTL']
+    assert fresh.extra['candidate_rescoring']['old']['features']['old__archive__pMHC_affinity__value']['version'] is None
+    assert fresh.extra['candidate_rescoring']['new']['features']['new__current__pMHC_affinity__value']['version'] == '2026'
+    path = tmp_path / 'combined.tsv'
+    fresh.to_tsv(path)
+    restored = read_tsv(path)
+    assert rank_candidates(restored, 'old__archive__pMHC_affinity__value', ascending=True).peptide.tolist() == ['GILGFVFTL', 'SIINFEKL']
+    assert restored.extra['candidate_rescoring'] == fresh.extra['candidate_rescoring']
+
+
+def test_missing_historical_occurrences_leave_missing_features():
+    from topiary import HistoricalPredictor, TopiaryResult, combine_sources, rescore_candidates
+    base = dict(source_sequence_name='p1', peptide_offset=0, peptide='SIINFEKL', allele='HLA-A*02:01',
+                kind='pMHC_affinity', prediction_method_name='archive', predictor_version=None, value=10.)
+    combined = combine_sources({'reported': TopiaryResult(pd.DataFrame([base, dict(base, source_sequence_name='p2')]))}, sample_name='patient')
+    source = HistoricalPredictor(pd.DataFrame([base]), missing='omit')
+    partial = rescore_candidates(combined, source, prefix='partial', use_flanks=False)
+    assert partial.df['partial__archive__pMHC_affinity__value'].iloc[0] == 10.
+    assert pd.isna(partial.df['partial__archive__pMHC_affinity__value'].iloc[1])
+    absent = rescore_candidates(combined, source, prefix='absent', select="source_sequence_name == 'p2'", use_flanks=False)
+    assert absent.df['absent__archive__pMHC_affinity__value'].isna().all()
+
+
+def test_historical_rescoring_refuses_mixed_feature_provenance():
+    from topiary import HistoricalPredictor, combine_sources, rescore_candidates
+    base = dict(peptide='SIINFEKL', allele='HLA-A*02:01', kind='pMHC_affinity',
+                prediction_method_name='archive', predictor_version=None, value=10.)
+    combined = combine_sources({'reported': pd.DataFrame([base])}, sample_name='patient')
+    for changed in (dict(predictor_version='1'), dict(historical_source_id='other'),
+                    dict(measurement_context={'unit': 'different'})):
+        first = dict(base, historical_source_id='original')
+        records = [first, dict(first, **changed)]
+        if 'measurement_context' in changed:
+            # Conflicting contexts for the same historical identity are refused
+            # even before feature construction.
+            with pytest.raises(ValueError, match='conflicting'):
+                HistoricalPredictor(pd.DataFrame(records))
+        else:
+            source = HistoricalPredictor(pd.DataFrame(records))
+            with pytest.raises(ValueError, match='separate re-scoring prefixes'):
+                rescore_candidates(combined, source, prefix='mixed', use_flanks=False)
+
+
+def test_historical_rescoring_describes_only_the_selected_source_scope():
+    from topiary import HistoricalPredictor, combine_sources, rescore_candidates
+    base = dict(peptide='SIINFEKL', allele='HLA-A*02:01', kind='pMHC_affinity',
+                prediction_method_name='archive', predictor_version=None, value=10.)
+    rows = [base, dict(base, allele='HLA-B*07:02', predictor_version='2')]
+    source = HistoricalPredictor(pd.DataFrame(rows), alleles=['HLA-A*02:01'])
+    combined = combine_sources({'reported': pd.DataFrame([base])}, sample_name='patient')
+    replayed = rescore_candidates(combined, source, prefix='selected', use_flanks=False)
+    assert replayed.df['selected__archive__pMHC_affinity__value'].tolist() == [10.]
+
+
+@pytest.mark.parametrize('context', ['scale-001', '', False, 0, ['scale', '001'], {'scale': '001'}])
+def test_historical_feature_context_survives_rescoring_and_persistence(tmp_path, context):
+    from topiary import HistoricalPredictor, combine_sources, rescore_candidates, read_tsv
+    row = dict(peptide='SIINFEKL', allele='HLA-A*02:01', kind='pMHC_affinity',
+               prediction_method_name='archive', value=10., measurement_context=context)
+    source = HistoricalPredictor(pd.DataFrame([row]))
+    combined = combine_sources({'reported': source.to_result()}, sample_name='patient')
+    replayed = rescore_candidates(combined, source, prefix='old', use_flanks=False)
+    path = tmp_path / 'rescored.tsv'
+    replayed.to_tsv(path)
+    for result in (replayed, read_tsv(path)):
+        actual = result.extra['candidate_rescoring']['old']['features']['old__archive__pMHC_affinity__value']['measurement_context']
+        assert isinstance(actual, dict) if isinstance(context, dict) else type(actual) is type(context)
+        assert actual == context
+
+
+def test_historical_feature_context_labels_cannot_be_silently_combined():
+    from topiary import HistoricalPredictor, combine_sources, rescore_candidates
+    row = dict(peptide='SIINFEKL', allele='HLA-A*02:01', kind='pMHC_affinity',
+               prediction_method_name='archive', value=10., measurement_context='scale-001')
+    source = HistoricalPredictor(pd.DataFrame([row, dict(row, peptide='GILGFVFTL', measurement_context='scale-002')]))
+    combined = combine_sources({'reported': source.to_result()}, sample_name='patient')
+    with pytest.raises(ValueError, match='separate re-scoring prefixes'):
+        rescore_candidates(combined, source, prefix='old', use_flanks=False)
+
+
+@pytest.mark.parametrize('annotations', [(False, 0), (True, 1), ({'flag': False}, {'flag': 0}), ([True], [1])])
+def test_typed_annotation_identity_survives_historical_wide_and_file_workflow(tmp_path, annotations):
+    from topiary import HistoricalPredictor
+    rows = [dict(peptide='SIINFEKL', allele='HLA-A*02:01', kind='pMHC_affinity',
+                 prediction_method_name='archive', value=10. + index, annotation=value)
+            for index, value in enumerate(annotations)]
+    source = HistoricalPredictor(pd.DataFrame(rows))
+    wide = source.to_result().to_wide()
+    assert len(wide.df) == 2
+    path = tmp_path / 'wide.tsv'
+    wide.to_tsv(path)
+    restored = HistoricalPredictor.from_table(path)
+    assert restored.df.value.tolist() == [10., 11.]
+    assert [type(value) for value in restored.df.annotation] == [type(value) for value in annotations]
+    queried = restored.lookup_occurrences(rows)
+    assert queried.historical_query_index.tolist() == [0, 1]
+    assert queried.value.tolist() == [10., 11.]
+
+
+def test_historical_feature_boolean_and_numeric_contexts_need_distinct_prefixes():
+    from topiary import HistoricalPredictor, combine_sources, rescore_candidates
+    row = dict(peptide='SIINFEKL', allele='HLA-A*02:01', kind='pMHC_affinity',
+               prediction_method_name='archive', value=10., measurement_context={'scale': False})
+    source = HistoricalPredictor(pd.DataFrame([row, dict(row, peptide='GILGFVFTL', measurement_context={'scale': 0})]))
+    combined = combine_sources({'reported': source.to_result()}, sample_name='patient')
+    with pytest.raises(ValueError, match='separate re-scoring prefixes'):
+        rescore_candidates(combined, source, prefix='old', use_flanks=False)

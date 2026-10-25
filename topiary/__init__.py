@@ -109,6 +109,12 @@ from .sequence_helpers import (
     contains_mutant_residues,
     protein_subsequences_around_mutations,
 )
+from .historical import (
+    HistoricalPredictor,
+    HISTORICAL_KEY_COLUMNS,
+    conflicting_historical_predictions,
+    historical_prediction_key_columns,
+)
 from .cached import (
     CachedPredictor,
     CachedPredictorCoverageError,
@@ -209,7 +215,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.95.3"
+__version__ = "5.96.0"
 
 __all__ = [
     "normalize_isovar_rna_support",
@@ -272,6 +278,10 @@ __all__ = [
     "fragment_from_effect",
     "CachedPredictor",
     "CachedPredictorCoverageError",
+    "HistoricalPredictor",
+    "HISTORICAL_KEY_COLUMNS",
+    "conflicting_historical_predictions",
+    "historical_prediction_key_columns",
     "PredictorSetupError",
     "mhcflurry_composite_version",
     "SelfProteome",

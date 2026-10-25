@@ -7,6 +7,27 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.96.0
+
+- Add `HistoricalPredictor` to support sparse historical table predictions with
+  unknown model versions as a reusable prediction source (#368).
+- Preserve genuinely missing or unknown predictor versions without inferring
+  them from installed packages or relabeling aggregate prediction methods.
+- Support sparse peptide/allele coverage without requiring or fabricating a
+  complete Cartesian genotype cross-product.
+- Preserve all prediction values, kinds, flanks, genotype scopes, comparators
+  (`wt_*`), and source artifact provenance; detect and reject conflicting
+  predictions deterministically.
+- Add exact occurrence lookup and sparse `rescore_candidates` features with
+  explicit source IDs. Fresh predictions use separate calls and prefixes;
+  historical sources never fill gaps by silently running a live model (#512).
+- Support typed CSV/TSV (including gzip) and Parquet persistence, result
+  metadata, and composition through `combine_sources`. Keep the complete
+  live-model coverage contract of `TopiaryPredictor` and `CachedPredictor`.
+- Verify downstream candidate workflows with Vaxrank 3.46.13.
+- Keep boolean and numeric provenance distinct during historical lookup,
+  duplicate detection, rescoring and wide-table grouping (#513).
+
 ## 5.95.3
 
 - Require pandas 3.x (`pandas>=3,<4`) alongside Python 3.11+ (#496).

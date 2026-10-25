@@ -675,9 +675,68 @@ contract, with occurrence IDs in the failure records.
 
 Prediction inputs contain context and annotations, not historical measurement
 columns. Keep imported measurements in their original table and use the additive
-operation below. Context-aware live prediction requires mhctools' flank-aware
-API; sparse historical tables with unknown model versions remain the separate
-prediction-source work in [#368](https://github.com/openvax/topiary/issues/368).
+operation below. Context-aware live prediction requires mhctools' flank-aware API;
+sparse historical tables with unknown model versions are supported through
+`HistoricalPredictor` ([#368](https://github.com/openvax/topiary/issues/368)).
+
+## Reuse reported historical predictions
+
+`HistoricalPredictor` is a read-only source for sparse LENS, pVACseq or Topiary
+tables. It retains aggregate method labels such as `pvacseq`, unknown versions,
+reported values, comparators, annotations and result metadata. It never infers a
+version from the installed software or fills an unreported peptide/allele pair.
+Measurement columns must contain numbers or missing values.
+
+```python
+from topiary import HistoricalPredictor, combine_sources, rescore_candidates
+
+history = HistoricalPredictor.from_pvacseq("report.tsv", missing="omit")
+# from_lens("report.tsv") and from_table("topiary.tsv") are also available.
+combined = combine_sources({"reported": history.to_result()}, sample_name="patient")
+replayed = rescore_candidates(combined, history, prefix="reported")
+history.to_tsv("historical.tsv.gz")
+restored = HistoricalPredictor.from_table("historical.tsv.gz", missing="omit")
+```
+
+File imports receive a SHA-256 `historical_source_id`; in-memory sources receive
+an opaque ID unless `source_id=` is supplied. Saved records retain their original
+IDs. `source_id=` cannot relabel existing records. Exact duplicate records may
+collapse, but differing source observations remain distinct. Contradictory
+measurements for one historical identity raise instead of being averaged or
+selected. `historical_prediction_key_columns(frame)` describes that identity,
+and `conflicting_historical_predictions(frame)` exposes contradictory rows.
+
+For direct replay, `history.lookup_occurrences(queries)` returns original rows
+plus `historical_query_index`, the zero-based position in the query batch. Supply
+every recorded occurrence identifier: source sequence, offset, prediction ID,
+sample, source label/row, gene and transcript ID. Recorded genotype scope must
+match exactly. Flank annotations match exactly by default, including the
+difference between unknown context and a known terminus; this does not claim
+the historical model used the flanks. `use_flanks=False` selects predictions
+recorded as peptide-only. Additional source annotations supplied in the query
+also narrow the match. Query measurement values do not affect lookup.
+
+The default `missing="raise"` refuses an entirely unmatched occurrence.
+`missing="omit"` omits it; during candidate rescoring its known feature columns
+remain missing. Partial model/allele coverage stays sparse in either mode.
+`predict_peptides_dataframe(peptides)` is an inventory query returning all
+reported contexts for those sequences. The `alleles` and
+`default_peptide_lengths` options narrow queries; `to_dataframe(selected=True)`
+exports that selection. `to_result()` and the typed CSV/TSV/Parquet writers
+preserve the full backing source. Reapply query options when loading a file.
+
+Fresh predictions are a separate `rescore_candidates` call with a separate
+prefix, as below. Each feature has one source ID, model version, unit and
+measurement context; partition a source with differing identities into separate
+`HistoricalPredictor` instances and prefixes. Unknown method names can be stored
+and queried, but cannot become named rescoring features. Choose the original or
+new feature explicitly in the ranking expression. Original measurements and
+comparator provenance remain intact either way.
+
+Historical sources do not implement live inference, protein scanning or an
+implicit fallback. Use `lookup_occurrences`, `rescore_candidates` or `to_result`
+for this workflow. `TopiaryPredictor` and `predict_peptide_occurrences` require
+complete live-model coverage and reject a `HistoricalPredictor`.
 
 ## Add prediction features on demand
 
