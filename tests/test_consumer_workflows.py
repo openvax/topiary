@@ -4026,3 +4026,29 @@ def test_historical_rescoring_describes_only_the_selected_source_scope():
     combined = combine_sources({'reported': pd.DataFrame([base])}, sample_name='patient')
     replayed = rescore_candidates(combined, source, prefix='selected', use_flanks=False)
     assert replayed.df['selected__archive__pMHC_affinity__value'].tolist() == [10.]
+
+
+@pytest.mark.parametrize('context', ['scale-001', '', False, 0, ['scale', '001'], {'scale': '001'}])
+def test_historical_feature_context_survives_rescoring_and_persistence(tmp_path, context):
+    from topiary import HistoricalPredictor, combine_sources, rescore_candidates, read_tsv
+    row = dict(peptide='SIINFEKL', allele='HLA-A*02:01', kind='pMHC_affinity',
+               prediction_method_name='archive', value=10., measurement_context=context)
+    source = HistoricalPredictor(pd.DataFrame([row]))
+    combined = combine_sources({'reported': source.to_result()}, sample_name='patient')
+    replayed = rescore_candidates(combined, source, prefix='old', use_flanks=False)
+    path = tmp_path / 'rescored.tsv'
+    replayed.to_tsv(path)
+    for result in (replayed, read_tsv(path)):
+        actual = result.extra['candidate_rescoring']['old']['features']['old__archive__pMHC_affinity__value']['measurement_context']
+        assert isinstance(actual, dict) if isinstance(context, dict) else type(actual) is type(context)
+        assert actual == context
+
+
+def test_historical_feature_context_labels_cannot_be_silently_combined():
+    from topiary import HistoricalPredictor, combine_sources, rescore_candidates
+    row = dict(peptide='SIINFEKL', allele='HLA-A*02:01', kind='pMHC_affinity',
+               prediction_method_name='archive', value=10., measurement_context='scale-001')
+    source = HistoricalPredictor(pd.DataFrame([row, dict(row, peptide='GILGFVFTL', measurement_context='scale-002')]))
+    combined = combine_sources({'reported': source.to_result()}, sample_name='patient')
+    with pytest.raises(ValueError, match='separate re-scoring prefixes'):
+        rescore_candidates(combined, source, prefix='old', use_flanks=False)

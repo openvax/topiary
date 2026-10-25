@@ -457,7 +457,11 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
                     format_allele_set(getattr(model, "alleles", ())))
             if historical:
                 descriptor["historical_source_id"] = prediction.historical_source_id
-            if isinstance(measurement, Mapping):
+            if historical:
+                descriptor["measurement_context"] = (
+                    None if pd.api.types.is_scalar(measurement) and pd.isna(measurement)
+                    else measurement)
+            elif isinstance(measurement, Mapping):
                 descriptor["measurement_context"] = dict(measurement)
             if column in descriptors and descriptors[column] != descriptor:
                 raise ValueError("Multiple versions/units/contexts or historical sources need separate re-scoring prefixes")
