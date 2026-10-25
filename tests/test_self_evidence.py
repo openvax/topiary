@@ -40,7 +40,7 @@ def test_all_origins_and_candidate_sequences_are_retained(search):
 
 
 @pytest.mark.parametrize("search", SELF_WINDOW_TWINS)
-def test_window_and_direct_exact_queries_agree(search, pandas_string_inference):
+def test_window_and_direct_exact_queries_agree(search):
     result = search(reference(), ["SIINFEKL", "AAAAAAAA", "SIINFEKL"], excluded_gene_ids={"CTA"})
     assert result.df.self_gene_id.isna().tolist() == [False, False, True, False, False]
     assert result.df.self_gene_id.dropna().tolist() == ["CTA", "healthy", "CTA", "healthy"]
@@ -128,7 +128,7 @@ def test_search_finds_a_candidate_beyond_the_first_reference_chunk():
     assert result.df.self_mismatches.tolist() == [1]
 
 
-def test_search_evidence_roundtrip_and_identity(tmp_path, pandas_string_inference):
+def test_search_evidence_roundtrip_and_identity(tmp_path):
     result = match_self_peptides(reference(), ["SIINFEKL", "SIINFEKM", "AAAAAAAA"], max_mismatches=1,
                                  alleles=["A0201"] * 3, observations=observations(), predictions=predictions())
     path = tmp_path / "self.tsv"

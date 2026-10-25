@@ -54,13 +54,21 @@ tests or suppress their errors.
 ## Downstream verification
 
 CI installs a pinned published Vaxrank release and runs the real candidate
-scoring and vaccine-construction workflow. To repeat it locally:
+scoring and vaccine-construction workflow. Use a separate consumer environment
+to repeat it locally:
 
 ```bash
-"$PYTHON" -m pip install 'vaxrank==3.46.8'
-"$PYTHON" -m pip check
-"$PYTHON" -m pytest scripts/check_vaxrank_candidates.py -q
+"$PYTHON" -m venv .venv/vaxrank-consumer
+VAXRANK_PYTHON="$PWD/.venv/vaxrank-consumer/bin/python"
+"$VAXRANK_PYTHON" -m pip install pytest 'vaxrank==3.46.11' -e .
+"$VAXRANK_PYTHON" -m pip check
+"$VAXRANK_PYTHON" -m pytest scripts/check_vaxrank_candidates.py -q
 ```
+
+Vaxrank 3.46.11 requires OncoRef 1.19.2, while PirlyGenes 6.0.17 requires
+OncoRef 1.13.0 ([PirlyGenes #652](https://github.com/pirl-unc/pirlygenes/issues/652)).
+The separate environment exercises the current consumer without letting pip
+downgrade PirlyGenes in the release environment to satisfy those conflicting pins.
 
 Update that pin when adopting a new downstream release; do not leave temporary
 migration-branch pins after the corresponding release is published.
