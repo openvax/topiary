@@ -60,15 +60,16 @@ to repeat it locally:
 ```bash
 "$PYTHON" -m venv .venv/vaxrank-consumer
 VAXRANK_PYTHON="$PWD/.venv/vaxrank-consumer/bin/python"
-"$VAXRANK_PYTHON" -m pip install pytest 'vaxrank==3.46.11' -e .
+"$VAXRANK_PYTHON" -m pip install pytest 'vaxrank==3.46.13' -e .
 "$VAXRANK_PYTHON" -m pip check
 "$VAXRANK_PYTHON" -m pytest scripts/check_vaxrank_candidates.py -q
 ```
 
-Vaxrank 3.46.11 requires OncoRef 1.19.2, while PirlyGenes 6.0.17 requires
-OncoRef 1.13.0 ([PirlyGenes #652](https://github.com/pirl-unc/pirlygenes/issues/652)).
-The separate environment exercises the current consumer without letting pip
-downgrade PirlyGenes in the release environment to satisfy those conflicting pins.
+Vaxrank 3.46.13 and PirlyGenes 6.0.18 both accept OncoRef 1.19.2, resolving
+the earlier joint-install conflict
+([PirlyGenes #652](https://github.com/pirl-unc/pirlygenes/issues/652)).
+The separate consumer environment keeps this check independent of the release
+environment's optional integrations.
 
 Update that pin when adopting a new downstream release; do not leave temporary
 migration-branch pins after the corresponding release is published.

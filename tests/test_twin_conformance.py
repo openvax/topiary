@@ -571,6 +571,11 @@ PREDICTOR_SOURCE_TWINS = (
     ("HistoricalPredictor", HistoricalPredictor),
 )
 
+HISTORICAL_CONSTRUCTION_TWINS = (
+    HistoricalPredictor, HistoricalPredictor.from_dataframe,
+    HistoricalPredictor.from_table, HistoricalPredictor.from_topiary_output,
+)
+
 
 def osteosarc_export_paths(manifest, directory, cache):
     from topiary import osteosarc_fixture_paths
@@ -1699,3 +1704,14 @@ def test_foreignness_annotation_and_model_metric_remain_distinct():
             evaluate_scores(frame, parsed, group_keys=['peptide']))
     assert evaluate_scores(frame, parse_dsl('foreignness'), group_keys=['peptide']).tolist() == [0.1, 0.9]
     assert evaluate_scores(frame, parse_dsl('foreignness.score'), group_keys=['peptide']).tolist() == [0.9, 0.1]
+
+
+@pytest.mark.parametrize('construct', HISTORICAL_CONSTRUCTION_TWINS)
+def test_historical_constructors_preserve_unknown_provenance_and_reject_conflicts(construct):
+    row = _cache_row(predictor_version=None, wt_value=30.)
+    source = construct(pd.DataFrame([row, row]), source_id='report')
+    assert len(source.df) == 1
+    assert source.predictor_version is None
+    assert source.df.iloc[0].historical_source_id == 'report'
+    with pytest.raises(ValueError, match='conflicting'):
+        construct(pd.DataFrame([row, dict(row, wt_value=31.)]), source_id='report')

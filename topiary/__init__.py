@@ -113,6 +113,7 @@ from .historical import (
     HistoricalPredictor,
     HISTORICAL_KEY_COLUMNS,
     conflicting_historical_predictions,
+    historical_prediction_key_columns,
 )
 from .cached import (
     CachedPredictor,
@@ -280,6 +281,7 @@ __all__ = [
     "HistoricalPredictor",
     "HISTORICAL_KEY_COLUMNS",
     "conflicting_historical_predictions",
+    "historical_prediction_key_columns",
     "PredictorSetupError",
     "mhcflurry_composite_version",
     "SelfProteome",

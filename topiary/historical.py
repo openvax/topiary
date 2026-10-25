@@ -1,759 +1,543 @@
-"""HistoricalPredictor — serve predictions from sparse historical tables.
+"""Read-only prediction sources for sparse, provenance-bearing historical tables."""
 
-Preserves input-table predictions as an alternative prediction source for
-Vaxrank and Topiary workflows (#368).
-
-Unlike CachedPredictor:
-1. Allows unknown / missing predictor versions (pd.NA, None, "") without
-   inferring them from installed packages or relabeling aggregates.
-2. Allows multiple prediction methods (e.g. NetMHCpan and MHCflurry) in the
-   same source.
-3. Supports sparse peptide-allele coverage without requiring or fabricating
-   a full peptide x allele Cartesian cross-product.
-4. Preserves all measurement values, kinds, flanks, genotype scopes and
-   comparators (wt_*).
-5. Detects conflicting predictions for the same logical query and raises
-   deterministically without silently averaging or arbitrarily choosing.
-6. Restricts live-model fallback so historical rows with unknown versions
-   never masquerade as hits for a current live model.
-"""
-
-from __future__ import annotations
-
-from collections.abc import Iterable, Mapping
-from numbers import Integral
+from copy import deepcopy
+from dataclasses import asdict
+import hashlib
+from numbers import Integral, Real
+import math
 from pathlib import Path
-from typing import Optional, Union
+from uuid import uuid4
 
-import pandas as pd
 import mhcgnomes
+import pandas as pd
 
-from .cached import (
-    CachedPredictorCoverageError,
-    PREDICTION_VALUE_COLUMNS,
-    PROTEIN_SCAN_COLUMNS,
-    _cache_comparison_frame,
-    _dependence_tag,
-    _flank_flag,
-    prediction_flanks_match,
-)
-from .predictor import _backfill_value_from_score
-from .ranking import (
-    KIND_MHC_DEPENDENCE,
-    format_allele_set,
-    is_stated,
-    mhc_dependence,
-    split_allele_set,
-    stated_values,
-)
+from .cached import CachedPredictorCoverageError, prediction_flanks_match, _flank_flag, _dependence_tag
+from .io import Metadata, read_csv, read_tsv, _decode_json, _encode_json, _json_columns
+from .ranking import format_allele_set, is_stated, mhc_dependence, split_allele_set
 from .result import TopiaryResult
+from .wide import _concat_frames, _group_token
+from .wide import SOURCE_PREDICTION_COLUMNS
 
 
+# Historical observations belong to their source and occurrence. Unlike a live
+# cache, they are not interchangeable merely because their peptide is the same.
 HISTORICAL_KEY_COLUMNS = (
-    "peptide",
-    "allele",
-    "peptide_length",
-    "kind",
-    "prediction_method_name",
-    "predictor_version",
-    "n_flank",
-    "c_flank",
-    "allele_set",
-    "prediction_flanks_supplied",
-    "prediction_mhc_dependence",
+    "historical_source_id", "source_label", "source_row", "source_observation_id",
+    "sample_name", "candidate_sample", "prediction_id", "source_sequence_name",
+    "peptide_offset", "gene_id", "transcript_id", "peptide", "allele",
+    "peptide_length", "kind", "prediction_method_name", "predictor_version",
+    "n_flank", "c_flank", "allele_set", "prediction_flanks_supplied",
+    "prediction_mhc_dependence", "wt_peptide", "wt_n_flank", "wt_c_flank",
+    "wt_peptide_offset",
 )
 
+_OCCURRENCE_COLUMNS = (
+    "source_observation_id", "prediction_id", "source_sequence_name", "peptide_offset",
+    "source_label", "source_row", "gene_id", "transcript_id",
+)
+_QUERY_INDEX = "historical_query_index"
 
-def conflicting_historical_predictions(df: pd.DataFrame) -> pd.DataFrame:
-    """Rows sharing a historical prediction key but disagreeing about values.
+
+def historical_prediction_key_columns(df):
+    """Return the columns identifying reported historical observations.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        Historical prediction rows.
+        Historical prediction rows; an empty schema is allowed.
+
+    Returns
+    -------
+    list of str
+        Standard identity axes followed by additional source annotations.
+        Primary/comparator measurements, units and measurement context are
+        values rather than identity. Different coding sequences or read
+        evidence describe distinct observations and must remain separate.
+    """
+    values = {"value", "score", "affinity", "percentile_rank", "value_unit", "measurement_context"}
+    values.update(f"{scope}_{field}" for scope in ("wt", "self", "self_nearest", "shuffled")
+                  for field in ("value", "score", "affinity", "percentile_rank", "value_unit",
+                                "measurement_context", "prediction_method_name", "predictor_version"))
+    base = [column for column in HISTORICAL_KEY_COLUMNS if column in df]
+    return base + [column for column in df if column not in base and column not in values]
+
+
+def _copy_frame(frame):
+    """Copy object cells too: pandas' deep copy does not copy nested containers."""
+    copied = frame.copy(deep=True)
+    for column in copied:
+        if pd.api.types.is_object_dtype(copied[column]):
+            copied[column] = copied[column].map(deepcopy)
+    copied.attrs = deepcopy(frame.attrs)
+    return copied
+
+
+def _comparison(frame):
+    return frame.map(_group_token)
+
+
+def conflicting_historical_predictions(df):
+    """Return distinct, contradictory rows for the same historical identity.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Normalized historical rows. Source, occurrence, context, model and
+        comparator identities follow ``historical_prediction_key_columns``.
 
     Returns
     -------
     pandas.DataFrame
-        The conflicting rows, empty when there are none.
+        Rows whose keys agree but whose remaining cells differ. All stored
+        measurements are compared exactly, including missing
+        values and nested containers. No tolerance or non-null preference is
+        applied. Empty input or a table without key columns returns no conflicts.
     """
-    if df.empty:
-        return df
-
-    key = [c for c in HISTORICAL_KEY_COLUMNS if c in df.columns]
-    value = [c for c in PREDICTION_VALUE_COLUMNS if c in df.columns]
-    if not key or not value:
-        return df.iloc[:0]
-
-    conflict_indices = set()
-    comparison = _cache_comparison_frame(df)
-    for _, group in comparison.groupby(key, dropna=False, sort=False):
-        if len(group) <= 1:
-            continue
-        has_conflict = False
-        for col in value:
-            if col in group.columns:
-                s = group[col].dropna()
-                if len(s) > 1:
-                    if pd.api.types.is_numeric_dtype(s):
-                        min_v = float(s.min())
-                        max_v = float(s.max())
-                        if (max_v - min_v) > 1e-9 * (abs(min_v) + 1.0):
-                            has_conflict = True
-                            break
-                    elif s.nunique() > 1:
-                        has_conflict = True
-                        break
-        if has_conflict:
-            conflict_indices.update(group.index)
-
-    if not conflict_indices:
-        return df.iloc[:0]
-    return df.loc[sorted(conflict_indices)]
+    key = historical_prediction_key_columns(df)
+    if df.empty or not key:
+        return df.iloc[:0].copy()
+    comparison = _comparison(df).reset_index(drop=True)
+    distinct = ~comparison.duplicated()
+    positions = comparison.loc[distinct].duplicated(subset=key, keep=False)
+    return df.iloc[positions.index[positions]]
 
 
-def _historical_conflict_message(where: str, conflicts: pd.DataFrame) -> str:
-    """Informative, deterministic message for conflicting predictions."""
-    key = [c for c in HISTORICAL_KEY_COLUMNS if c in conflicts.columns]
-    value = [c for c in PREDICTION_VALUE_COLUMNS if c in conflicts.columns]
-    groups = _cache_comparison_frame(conflicts).groupby(key, dropna=False, sort=False)
-    disagreed = sorted({
-        column
-        for _, group in groups
-        for column in value
-        if group[column].dropna().nunique() > 1
-    })
-    sample = conflicts[key].drop_duplicates().head(3).to_dict("records")
-    return (
-        f"{where}: {groups.ngroups} prediction key(s) with more than one "
-        f"answer. Disagreed on: {disagreed}. Sample key(s): {sample}. "
-        f"A historical prediction key with conflicting values has no defined result -- "
-        f"drop or reconcile the losing rows before loading."
-    )
+def _source_id(path):
+    return "sha256:" + hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def _coalesce_historical_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """Coalesce duplicate historical rows sharing the same key, keeping non-null values."""
-    if df.empty:
-        return df
-    key = [c for c in HISTORICAL_KEY_COLUMNS if c in df.columns]
-    val = [c for c in PREDICTION_VALUE_COLUMNS if c in df.columns]
-    if not key:
-        return df.drop_duplicates()
-    if val:
-        non_null_count = df[val].notna().sum(axis=1)
-        sorted_df = df.assign(_non_null_count=non_null_count).sort_values(
-            by="_non_null_count", ascending=False, kind="stable"
-        )
-        return sorted_df.drop_duplicates(subset=key, keep="first").drop(columns=["_non_null_count"])
-    return df.drop_duplicates(subset=key, keep="first")
+def _genotype(value):
+    return format_allele_set(mhcgnomes.parse(name).to_string() for name in split_allele_set(value)) if is_stated(value) else ""
+
+
+def _sample(row):
+    return next((row[column] for column in ("sample_name", "candidate_sample") if is_stated(row.get(column))), None)
 
 
 class HistoricalPredictor:
-    """Predictor that answers queries from pre-existing historical tables.
-
-    Implements the mhctools predictor protocol
-    (``predict_peptides_dataframe``, ``predict_proteins_dataframe``,
-     ``predict_contextual_peptides_dataframe``, ``predict_dataframe``,
-     ``alleles``, ``default_peptide_lengths``, ``kind_support``,
-     ``supported_kinds``) so it can drop into :class:`topiary.TopiaryPredictor`
-    as a model, or be passed to :func:`topiary.rescore_candidates` and
-    :func:`topiary.predict_peptide_occurrences`.
+    """A read-only source of reported predictions, with explicit sparse coverage.
 
     Parameters
     ----------
-    df : pandas.DataFrame, TopiaryResult, str, or Path, optional
-        Historical prediction rows. Can be loaded from pVACseq, LENS,
-        or generic Topiary output tables.
-    fallback : mhctools predictor or CachedPredictor, optional
-        If set, queries missing from the historical table can be computed by
-        the fallback predictor if compatible. Historical rows keep their true
-        historical provenance and never masquerade as fallback results.
+    df : pandas.DataFrame, TopiaryResult, path-like, or None
+        Long or wide historical rows. Paths name typed Topiary CSV/TSV
+        (including gzip) or Parquet. Use ``from_lens`` / ``from_pvacseq`` for
+        those report formats. Empty input is a valid empty source.
+    source_id : str, optional
+        Artifact identity for rows without ``historical_source_id``. File
+        loaders use the file's SHA-256; in-memory input receives an opaque UUID
+        unless supplied explicitly. Saved records retain their IDs on reload.
+        Existing stated IDs cannot be relabelled with this argument.
     alleles : iterable of str, optional
-        Restricts queries to a specific subset of alleles. By default (None),
-        all reported alleles present in the table are available.
+        Query selection. Per-allele rows are restricted to this set; a genotype
+        measurement requires an exact genotype match. Allele-free rows remain
+        available. This never creates a peptide/allele cross-product.
     default_peptide_lengths : iterable of int, optional
-        Selected protein-scan window lengths. By default uses all available
-        lengths found in the table.
-    missing : {'raise', 'ignore', 'omit'}
-        Policy when an exact queried sequence has no coverage in the table.
-        Default 'raise' raises :class:`CachedPredictorCoverageError`.
-        'ignore' or 'omit' omits missing predictions.
-    prediction_method_name : str, optional
-        Default prediction method name to assign if the input table omits it.
-    predictor_version : str, optional
-        Default predictor version to assign if explicitly supplied. If None,
-        unknown versions in the table remain unknown.
+        Query lengths, drawn from the stored lengths. No protein scanning runs.
+    missing : {'raise', 'omit', 'ignore'}
+        Raise on an entirely unreported query (the default), or omit it. Partial
+        model/allele coverage remains sparse in either mode. ``ignore`` is an
+        alias for ``omit``. Reapply query options when loading a saved source.
+
+    Notes
+    -----
+    Unknown versions remain unknown, including when another row names a version.
+    Exact duplicate records collapse; conflicting observations raise. Every
+    other column and result metadata is preserved. No live fallback is run.
+    Add fresh predictions explicitly with ``rescore_candidates`` or combine a
+    separately computed source with ``combine_sources``.
+
+    Use ``lookup_occurrences`` or ``rescore_candidates`` for scoped replay.
+    This is not a complete-coverage live mhctools model: ``TopiaryPredictor`` and
+    ``predict_peptide_occurrences`` accept live models, not this sparse source.
     """
 
-    def __init__(
-        self,
-        df: Optional[Union[pd.DataFrame, TopiaryResult, str, Path]] = None,
-        *,
-        fallback=None,
-        alleles: Optional[Iterable[str]] = None,
-        default_peptide_lengths: Optional[Iterable[int]] = None,
-        missing: str = "raise",
-        prediction_method_name: Optional[str] = None,
-        predictor_version: Optional[str] = None,
-    ):
-        if missing not in ("raise", "ignore", "omit"):
-            raise ValueError(f"Unknown missing policy {missing!r}; expected 'raise', 'ignore', or 'omit'")
-        self.missing = missing
-        self.fallback = fallback
-        self._default_method_name = prediction_method_name
-        self._default_predictor_version = predictor_version
+    def __init__(self, df=None, *, source_id=None, alleles=None,
+                 default_peptide_lengths=None, missing="raise"):
+        if missing not in {"raise", "omit", "ignore"}:
+            raise ValueError("missing must be 'raise' or 'omit' ('ignore' is an alias)")
+        if source_id is not None and (not isinstance(source_id, str) or not is_stated(source_id)):
+            raise ValueError("source_id must be a nonempty string")
+        self.missing = "omit" if missing == "ignore" else missing
+        if isinstance(df, (str, Path)):
+            path = Path(df)
+            result = self._read_table(path)
+            # Persisted IDs name the original artifact, not this later encoding.
+            if source_id is None and "historical_source_id" not in result.to_long().df:
+                source_id = _source_id(path)
+        elif isinstance(df, TopiaryResult):
+            result = df
+        elif df is None or isinstance(df, pd.DataFrame):
+            result = TopiaryResult(df if df is not None else pd.DataFrame(), form=None if df is not None else "long")
+        else:
+            raise TypeError("df must be a DataFrame, TopiaryResult, or file path")
+        self._metadata = deepcopy(result.metadata)
+        raw = result.to_long().df
+        self._df = self._normalize(raw, source_id)
+        conflicts = conflicting_historical_predictions(self._df)
+        if not conflicts.empty:
+            raise ValueError("HistoricalPredictor: more than one answer for a historical key; "
+                             "conflicting measurements or annotations must be reconciled")
+        self._df = self._df.loc[~_comparison(self._df).duplicated()].reset_index(drop=True)
+        self._annotation_keys = (set(historical_prediction_key_columns(self._df))
+                                 - set(HISTORICAL_KEY_COLUMNS)
+                                 - set(SOURCE_PREDICTION_COLUMNS.values()))
         self._requested_alleles = None
         self._requested_peptide_lengths = None
+        self.alleles = alleles
+        self.default_peptide_lengths = default_peptide_lengths
 
-        if df is None:
-            raw_df = pd.DataFrame(columns=list(HISTORICAL_KEY_COLUMNS))
-        elif isinstance(df, TopiaryResult):
-            raw_df = df.to_long().df if hasattr(df, "to_long") else df.df
-        elif isinstance(df, (str, Path)):
-            raw_df = self._load_file(df)
-        elif isinstance(df, pd.DataFrame):
-            raw_df = df
-        else:
-            raise TypeError(f"df must be a DataFrame, TopiaryResult, or file path, got {type(df).__name__}")
+    @staticmethod
+    def _read_table(path):
+        if str(path).endswith((".parquet", ".pq")):
+            frame = pd.read_parquet(path)
+            envelope = frame.attrs.pop("topiary_historical", None)
+            if envelope is None:
+                return TopiaryResult(frame)
+            if envelope.get("version") != 1:
+                raise ValueError("Unsupported historical Parquet metadata version")
+            for column in envelope["json_columns"]:
+                frame[column] = pd.Series([_decode_json(value, allow_scalar=True)
+                                           for value in frame[column]], dtype=object)
+            return TopiaryResult(frame, metadata=Metadata(**envelope["metadata"]))
+        if str(path).endswith((".tsv", ".tsv.gz", ".txt")):
+            return read_tsv(path)
+        if str(path).endswith((".csv", ".csv.gz")):
+            return read_csv(path)
+        raise ValueError("Historical tables must be CSV, TSV, or Parquet")
 
-        if raw_df.empty and fallback is None and df is not None:
-            # Empty table without fallback
-            self._df = pd.DataFrame(columns=list(HISTORICAL_KEY_COLUMNS))
-        elif raw_df.empty and fallback is not None:
-            self._df = pd.DataFrame(columns=list(HISTORICAL_KEY_COLUMNS))
-        else:
-            self._df = self._normalize(raw_df)
-            conflicts = conflicting_historical_predictions(self._df)
-            if not conflicts.empty:
-                raise ValueError(_historical_conflict_message("HistoricalPredictor", conflicts))
-            self._df = _coalesce_historical_rows(self._df).reset_index(drop=True)
-
-        if alleles is not None:
-            self.alleles = alleles
-        if default_peptide_lengths is not None:
-            self.default_peptide_lengths = default_peptide_lengths
-
-    @classmethod
-    def _load_file(cls, path: Union[str, Path]) -> pd.DataFrame:
-        path = Path(path)
-        if not path.exists():
-            raise FileNotFoundError(f"File not found: {path}")
-        suffix = path.suffix.lower()
-        if suffix in (".tsv", ".txt") or path.name.endswith(".tsv.gz"):
-            return pd.read_csv(path, sep="\t", comment="#")
-        elif suffix == ".csv" or path.name.endswith(".csv.gz"):
-            return pd.read_csv(path, sep=",", comment="#")
-        elif suffix in (".parquet", ".pq"):
-            return pd.read_parquet(path)
-        else:
-            return pd.read_csv(path, sep=None, engine="python", comment="#")
-
-    def _normalize(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Validate required fields and preserve original provenance without inventing data."""
-        out = df.copy()
-
-        if "peptide" not in out.columns:
-            raise ValueError("HistoricalPredictor rows missing required column: 'peptide'")
-        na_peptide = ~stated_values(out["peptide"])
-        if na_peptide.any():
-            raise ValueError(
-                f"HistoricalPredictor: column 'peptide' must be a non-empty string on every row "
-                f"(got {int(na_peptide.sum())} null/empty value(s))."
-            )
-        out["peptide"] = out["peptide"].astype(str)
-
-        if "kind" not in out.columns:
-            raise ValueError("HistoricalPredictor rows missing required column: 'kind'")
-        na_kind = ~stated_values(out["kind"])
-        if na_kind.any():
-            raise ValueError(
-                f"HistoricalPredictor: column 'kind' must be a non-empty string on every row "
-                f"(got {int(na_kind.sum())} null/empty value(s))."
-            )
-        out["kind"] = out["kind"].astype(str)
-
-        if "allele" not in out.columns:
+    def _normalize(self, frame, source_id):
+        if not frame.columns.is_unique:
+            raise ValueError("Historical columns must be unique")
+        if _QUERY_INDEX in frame:
+            raise ValueError(f"{_QUERY_INDEX} is reserved for lookup output")
+        out = _copy_frame(frame).reset_index(drop=True)
+        if out.empty:
+            for column in HISTORICAL_KEY_COLUMNS:
+                if column not in out:
+                    out[column] = pd.Series(dtype=object)
+            return out
+        for column in ("peptide", "kind"):
+            if column not in out or not out[column].map(lambda value: isinstance(value, str) and bool(value.strip())).all():
+                raise ValueError(f"Historical rows require nonempty string {column}")
+        if "peptide_length" in out and not out.peptide_length.map(
+                lambda value: not isinstance(value, bool) and isinstance(value, Integral)).all():
+            raise ValueError("peptide_length must contain integers")
+        if "peptide_length" in out and not out.peptide_length.eq(out.peptide.str.len()).all():
+            raise ValueError("peptide_length disagrees with peptide")
+        out["peptide_length"] = out.peptide.str.len()
+        if "source_sequence_name" not in out:
+            out["source_sequence_name"] = None
+        if "peptide_offset" not in out:
+            out["peptide_offset"] = pd.array([None] * len(out), dtype="Int64")
+        for column in ("peptide_offset", "wt_peptide_offset"):
+            if column in out and not out[column].dropna().map(
+                    lambda value: not isinstance(value, bool) and isinstance(value, Real)
+                    and math.isfinite(value) and value >= 0 and value == int(value)).all():
+                raise ValueError(f"{column} must be a nonnegative integer or missing")
+        for column in ("prediction_method_name", "predictor_version"):
+            if column not in out:
+                out[column] = None
+            out[column] = out[column].map(lambda value: str(value) if is_stated(value) else None)
+        if "allele" not in out:
             out["allele"] = ""
-        else:
-            # Canonicalize stated alleles through mhcgnomes where valid
-            out["allele"] = out["allele"].map(
-                lambda v: mhcgnomes.parse(str(v)).to_string() if is_stated(v) else ""
-            )
-
-        if "peptide_length" not in out.columns:
-            out["peptide_length"] = out["peptide"].str.len().astype(int)
-        else:
-            out["peptide_length"] = pd.to_numeric(out["peptide_length"], errors="coerce").fillna(
-                out["peptide"].str.len()
-            ).astype(int)
-
-        if "prediction_method_name" not in out.columns:
-            if self._default_method_name is not None:
-                out["prediction_method_name"] = str(self._default_method_name)
-            else:
-                out["prediction_method_name"] = "historical"
-        else:
-            if self._default_method_name is not None:
-                out["prediction_method_name"] = out["prediction_method_name"].fillna(self._default_method_name)
-            out["prediction_method_name"] = out["prediction_method_name"].map(
-                lambda v: str(v) if is_stated(v) else "historical"
-            )
-
-        if "predictor_version" not in out.columns:
-            if self._default_predictor_version is not None:
-                out["predictor_version"] = str(self._default_predictor_version)
-            else:
-                out["predictor_version"] = pd.NA
-        else:
-            if self._default_predictor_version is not None:
-                out["predictor_version"] = out["predictor_version"].fillna(self._default_predictor_version)
-            out["predictor_version"] = out["predictor_version"].map(
-                lambda v: str(v) if is_stated(v) else pd.NA
-            )
-
-        for col in ("score", "affinity", "percentile_rank", "value"):
-            if col in out.columns:
-                out[col] = pd.to_numeric(out[col], errors="coerce").astype("float64")
-
-        _backfill_value_from_score(out)
-
-        for col in ("wt_score", "wt_affinity", "wt_percentile_rank", "wt_value"):
-            if col in out.columns:
-                out[col] = pd.to_numeric(out[col], errors="coerce").astype("float64")
-
-        if "n_flank" in out.columns:
-            out["n_flank"] = out["n_flank"].map(lambda v: str(v) if is_stated(v) else None)
-        if "c_flank" in out.columns:
-            out["c_flank"] = out["c_flank"].map(lambda v: str(v) if is_stated(v) else None)
-
-        if "prediction_flanks_supplied" in out.columns:
-            out["prediction_flanks_supplied"] = out["prediction_flanks_supplied"].map(_flank_flag)
-
-        if "allele_set" in out.columns:
-            out["allele_set"] = out["allele_set"].map(
-                lambda v: format_allele_set(split_allele_set(v)) if is_stated(v) else ""
-            )
-
-        if "prediction_mhc_dependence" in out.columns:
-            out["prediction_mhc_dependence"] = out["prediction_mhc_dependence"].map(_dependence_tag)
-
+        out["allele"] = out.allele.map(lambda value: mhcgnomes.parse(str(value)).to_string() if is_stated(value) else "")
+        for column in ("n_flank", "c_flank", "wt_n_flank", "wt_c_flank"):
+            if column in out and not out[column].map(
+                    lambda value: isinstance(value, str) or pd.api.types.is_scalar(value) and pd.isna(value)).all():
+                raise ValueError(f"{column} must contain strings or missing values")
+        if "allele_set" in out:
+            out["allele_set"] = out.allele_set.map(_genotype)
+        if "prediction_flanks_supplied" in out:
+            out["prediction_flanks_supplied"] = out.prediction_flanks_supplied.map(_flank_flag)
+        if "prediction_mhc_dependence" in out:
+            out["prediction_mhc_dependence"] = out.prediction_mhc_dependence.map(_dependence_tag)
+        modes = []
+        for row in out.to_dict("records"):
+            mode = row.get("prediction_mhc_dependence")
+            source_mode = row.get("source_prediction_mhc_dependence")
+            if mode in {"none", "single_allele", "haplotype"}:
+                if source_mode in {"none", "single_allele", "haplotype"} and mode != source_mode:
+                    raise ValueError("Stored prediction and source MHC dependence disagree")
+                row["source_prediction_mhc_dependence"] = mode
+            modes.append(mhc_dependence(row["kind"], rows=pd.DataFrame([row])))
+        out["prediction_mhc_dependence"] = modes
+        measurement_columns = [f"{scope}{field}" for scope in ("", "wt_", "self_", "self_nearest_", "shuffled_")
+                               for field in ("value", "score", "affinity", "percentile_rank")]
+        for column in measurement_columns:
+            if column in out and not out[column].dropna().map(
+                    lambda value: isinstance(value, Real) and not isinstance(value, bool)).all():
+                raise ValueError(f"{column} must contain numeric measurements or missing values")
+        if "historical_source_id" not in out:
+            out["historical_source_id"] = source_id or "historical:" + str(uuid4())
+        elif source_id is not None and not out.historical_source_id.eq(source_id).all():
+            raise ValueError("source_id cannot relabel existing historical records")
+        if not out.historical_source_id.map(lambda value: isinstance(value, str) and is_stated(value)).all():
+            raise ValueError("Every historical row requires a source identity")
         return out
 
-    # --- Properties -------------------------------------------------
+    @property
+    def df(self):
+        """A detached copy of all records, including nested annotation cells."""
+        return _copy_frame(self._df)
 
     @property
-    def df(self) -> pd.DataFrame:
-        """The underlying historical DataFrame."""
-        return self._df.copy()
-
-    @property
-    def alleles(self) -> list[str]:
-        """Selected or available alleles in the historical source."""
+    def alleles(self):
+        """Selected alleles, or the reported union (never a coverage promise)."""
         if self._requested_alleles is not None:
             return list(self._requested_alleles)
-        column = self._df["allele"]
-        a = set(column[stated_values(column)].unique().tolist())
-        if "allele_set" in self._df:
-            for genotype in self._df["allele_set"]:
-                if is_stated(genotype):
-                    a.update(split_allele_set(genotype))
-        if self.fallback is not None:
-            a.update(getattr(self.fallback, "alleles", []))
-        return sorted(a)
+        alleles = {value for value in self._df.allele if is_stated(value)}
+        for value in self._df.get("allele_set", ()):
+            alleles.update(split_allele_set(value))
+        return sorted(alleles)
 
     @alleles.setter
     def alleles(self, values):
         if values is None:
             self._requested_alleles = None
-            return
-        if isinstance(values, str):
-            raise ValueError("alleles must be a sequence of strings, not a single string")
-        parsed = tuple(sorted({mhcgnomes.parse(str(v)).to_string() for v in values if is_stated(v)}))
-        if not parsed:
-            raise ValueError("alleles sequence cannot be empty; pass None to restore defaults")
-        self._requested_alleles = parsed
+        else:
+            if isinstance(values, str):
+                raise ValueError("alleles must be a sequence, not one string")
+            values = tuple(sorted({mhcgnomes.parse(str(value)).to_string() for value in values}))
+            if not values:
+                raise ValueError("alleles must be nonempty; use None for all reported alleles")
+            self._requested_alleles = values
 
     @property
-    def available_peptide_lengths(self) -> list[int]:
-        """Lengths present in the historical rows or fallback."""
-        lengths = set(int(x) for x in self._df["peptide_length"].unique().tolist() if pd.notna(x))
-        if self.fallback is not None:
-            lengths.update(getattr(self.fallback, "default_peptide_lengths", []))
-        return sorted(lengths)
+    def available_peptide_lengths(self):
+        """Lengths actually present in the source."""
+        return sorted(set(self._df.peptide_length.dropna()))
 
     @property
-    def default_peptide_lengths(self) -> list[int]:
-        """Selected lengths for protein scanning."""
-        if self._requested_peptide_lengths is None:
-            return self.available_peptide_lengths
-        return list(self._requested_peptide_lengths)
+    def default_peptide_lengths(self):
+        """Selected lengths, or all reported lengths."""
+        return self.available_peptide_lengths if self._requested_peptide_lengths is None else list(self._requested_peptide_lengths)
 
     @default_peptide_lengths.setter
-    def default_peptide_lengths(self, lengths):
-        if lengths is None:
+    def default_peptide_lengths(self, values):
+        if values is None:
             self._requested_peptide_lengths = None
             return
-        requested = list(lengths)
-        if not requested or any(
-            isinstance(l, bool) or not isinstance(l, Integral) or l <= 0 for l in requested
-        ):
-            raise ValueError("default_peptide_lengths must be a non-empty sequence of positive integers")
-        requested = sorted(set(int(l) for l in requested))
-        available = self.available_peptide_lengths
-        missing = sorted(set(requested) - set(available))
-        if missing:
-            raise ValueError(f"Requested peptide lengths {missing} are not covered by the historical table ({available})")
-        self._requested_peptide_lengths = tuple(requested)
+        values = list(values)
+        if not values or any(isinstance(value, bool) or not isinstance(value, Integral) or value <= 0 for value in values):
+            raise ValueError("Peptide lengths must be nonempty positive integers")
+        if set(values) - set(self.available_peptide_lengths):
+            raise ValueError("Requested lengths are not reported in the historical source")
+        self._requested_peptide_lengths = tuple(sorted(set(values)))
 
     @property
-    def prediction_method_names(self) -> list[str]:
-        """Unique prediction method names present in the table."""
-        return sorted(set(self._df["prediction_method_name"].dropna().unique().tolist()))
+    def prediction_method_names(self):
+        """Stated method names, preserving aggregate labels."""
+        return sorted(set(self._df.prediction_method_name.dropna()))
 
     @property
-    def predictor_name(self) -> str:
-        """Single method name or comma-separated summary."""
-        names = self.prediction_method_names
-        if len(names) == 1:
-            return names[0]
-        elif len(names) > 1:
-            return f"historical({','.join(names)})"
-        return "historical"
+    def predictor_versions(self):
+        """Stated versions; unknown rows remain present in the backing table."""
+        return sorted(set(self._df.predictor_version.dropna()))
 
     @property
-    def prediction_method_name(self) -> Optional[str]:
-        names = self.prediction_method_names
-        return names[0] if len(names) == 1 else None
+    def predictor_version(self):
+        """The version only when every row states that same version."""
+        return self.predictor_versions[0] if len(self.predictor_versions) == 1 and self._df.predictor_version.notna().all() else None
 
     @property
-    def predictor_version(self) -> Optional[str]:
-        """Predictor version if unique and stated; None otherwise."""
-        versions = self._df["predictor_version"].dropna().unique()
-        if len(versions) == 1 and is_stated(versions[0]):
-            return str(versions[0])
-        return None
+    def prediction_method_name(self):
+        """The method only when every row states that same method."""
+        return self.prediction_method_names[0] if len(self.prediction_method_names) == 1 and self._df.prediction_method_name.notna().all() else None
 
-    @property
-    def predictor_versions(self) -> list[str]:
-        """Unique stated predictor versions in the table."""
-        return sorted({str(v) for v in self._df["predictor_version"].dropna().unique() if is_stated(v)})
+    def kind_support(self):
+        """Describe homogeneous stored kinds; mixed scopes require row lookup.
 
-    def kind_support(self) -> dict[str, dict]:
-        """MHC context for kinds present in the historical source."""
+        This reports source metadata, not complete live-model coverage.
+        """
         support = {}
-        fallback_support = {}
-        if self.fallback is not None and hasattr(self.fallback, "kind_support"):
-            fallback_support = {
-                str(getattr(kind, "value", kind)): spec
-                for kind, spec in self.fallback.kind_support().items()
-            }
-
-        cached_kinds = sorted(self._df["kind"].dropna().unique().tolist())
-        for kind in sorted(set(cached_kinds) | set(fallback_support)):
-            rows = self._df.loc[self._df["kind"] == kind]
-            if "prediction_mhc_dependence" in rows and rows["prediction_mhc_dependence"].notna().any():
-                dependence = mhc_dependence(
-                    kind,
-                    rows=rows.rename(columns={"prediction_mhc_dependence": "source_prediction_mhc_dependence"}),
-                )
-            elif kind in fallback_support:
-                dependence = fallback_support[kind].get("mhc_dependence", "single_allele")
-            elif KIND_MHC_DEPENDENCE.get(kind) == "none":
-                dependence = "none"
-            elif "allele_set" in rows and stated_values(rows["allele_set"]).any():
-                dependence = "haplotype"
-            else:
-                dependence = "single_allele"
-
-            if dependence == "none":
-                mhc_class = "none"
-            elif kind in fallback_support:
-                mhc_class = fallback_support[kind].get("mhc_class", "I")
-            elif not rows.empty and rows["allele"].dropna().any():
-                from .io_pvacseq import _summarize_mhc_class
-                mhc_class = _summarize_mhc_class(rows["allele"])
-            else:
-                mhc_class = "I"
-
-            support[kind] = {
-                "mhc_dependence": dependence,
-                "mhc_class": mhc_class,
-            }
+        for kind, rows in self._df.groupby("kind", sort=False):
+            modes = rows.prediction_mhc_dependence.unique()
+            if len(modes) != 1:
+                raise ValueError("Historical kind has multiple MHC scopes; use lookup_occurrences")
+            support[kind] = {"mhc_dependence": modes[0]}
         return support
 
-    @property
-    def supported_kinds(self) -> tuple[str, ...]:
-        return tuple(self.kind_support())
-
-    # --- Query Methods ----------------------------------------------
-
-    def predict_peptides_dataframe(
-        self, peptides: Iterable[str],
-    ) -> pd.DataFrame:
-        """Query peptides from the historical table without forcing Cartesian product.
-
-        Parameters
-        ----------
-        peptides : iterable of str
-            Peptides to query.
-
-        Returns
-        -------
-        pandas.DataFrame
-            One row per reported (peptide, allele, kind, model) match.
-            Sparse coverage is respected: unmeasured combinations are neither
-            demanded nor fabricated.
-        """
-        peptides = [str(p) for p in peptides]
-        if not peptides:
-            return pd.DataFrame(columns=list(self._df.columns))
-
-        matched = self._df.loc[self._df["peptide"].isin(peptides)].copy()
-
-        if self._requested_alleles is not None:
-            matched = matched.loc[matched["allele"].isin(self._requested_alleles)]
-
+    def _selected(self):
+        rows = self._df
         if self._requested_peptide_lengths is not None:
-            matched = matched.loc[matched["peptide_length"].isin(self._requested_peptide_lengths)]
+            rows = rows.loc[rows.peptide_length.isin(self._requested_peptide_lengths)]
+        if self._requested_alleles is not None:
+            genotype = format_allele_set(self._requested_alleles)
+            rows = rows.loc[[row["prediction_mhc_dependence"] == "none" or (
+                _genotype(row.get("allele_set")) == genotype if row["prediction_mhc_dependence"] == "haplotype"
+                else row["allele"] in self._requested_alleles) for row in rows.to_dict("records")]]
+        return rows
 
-        found_peptides = set(matched["peptide"])
-        missing_peptides = [p for p in peptides if p not in found_peptides]
+    def _matches(self, row, query, *, use_flanks):
+        if row["peptide"] != query["peptide"]:
+            return False
+        for column in _OCCURRENCE_COLUMNS:
+            if is_stated(row.get(column)) and _group_token(row[column]) != _group_token(query.get(column)):
+                return False
+        if is_stated(_sample(row)) and _sample(row) != _sample(query):
+            return False
+        if is_stated(query.get("historical_source_id")) and query["historical_source_id"] != row["historical_source_id"]:
+            return False
+        if is_stated(query.get("allele")) and row["prediction_mhc_dependence"] != "none":
+            if row["prediction_mhc_dependence"] == "single_allele" and row["allele"] != mhcgnomes.parse(str(query["allele"])).to_string():
+                return False
+        genotype = _genotype(row.get("allele_set"))
+        if genotype and genotype != _genotype(query.get("allele_set")):
+            return False
+        if row["prediction_mhc_dependence"] == "haplotype" and not genotype:
+            return False  # Unknown genotype cannot establish a matching scope.
+        if use_flanks:
+            # Replay a reported occurrence, without claiming that the original
+            # model used its annotated flanks as inference inputs.
+            if any(_group_token(row.get(column)) != _group_token(query.get(column))
+                   for column in ("n_flank", "c_flank")):
+                return False
+        elif not prediction_flanks_match(row):
+            return False
+        if any(column in query and _group_token(row.get(column)) != _group_token(query[column])
+               for column in self._annotation_keys):
+            return False
+        for column in ("wt_peptide", "wt_n_flank", "wt_c_flank", "wt_peptide_offset"):
+            if column in query and _group_token(query[column]) != _group_token(row.get(column)):
+                return False
+        return True
 
-        if missing_peptides and self.fallback is not None:
-            fallback_res = self._fallback_predict_peptides(missing_peptides)
-            if not fallback_res.empty:
-                matched = pd.concat([matched, fallback_res], ignore_index=True)
-                found_peptides = set(matched["peptide"])
-                missing_peptides = [p for p in peptides if p not in found_peptides]
-
-        if missing_peptides and self.missing == "raise":
-            raise CachedPredictorCoverageError(
-                f"HistoricalPredictor: no coverage for peptide(s) {missing_peptides[:5]!r}"
-            )
-
-        return matched.reset_index(drop=True)
-
-    def predict_contextual_peptides_dataframe(
-        self, peptides: Iterable[str], *, n_flanks=None, c_flanks=None,
-    ) -> pd.DataFrame:
-        """Query exact peptides with contextual flanks from the historical table.
+    def lookup_occurrences(self, occurrences, *, use_flanks=True):
+        """Return exact historical matches and their zero-based query positions.
 
         Parameters
         ----------
-        peptides : iterable of str
-            Exact sequences to query.
-        n_flanks, c_flanks : sequence of str, optional
-            Parallel flanking contexts.
+        occurrences : DataFrame or iterable of mappings
+            Each query requires a nonempty peptide. Every known stored source
+            name, prediction ID, offset, sample, source label/row, gene and
+            transcript ID must be supplied and match.
+            Optional allele/source-ID selections narrow matches. Genotypes must
+            match exactly when recorded. Query measurements are ignored.
+        use_flanks : bool
+            Match the recorded occurrence's flank annotations exactly, without
+            inferring whether the original model used them. False explicitly
+            selects peptide-only predictions. Unknown context cannot satisfy
+            known flanks; existing prediction_flanks_supplied flags are retained.
 
         Returns
         -------
         pandas.DataFrame
-            Matching rows, preserving explicit context and reported scores.
+            Original records plus ``historical_query_index``. Duplicate queries
+            retain separate positions; unreported combinations are not invented.
+            Missing entire occurrences raise or are omitted according to
+            ``missing``. Empty queries return an empty frame without inference.
         """
-        peptides = list(peptides)
-        if not peptides:
-            return pd.DataFrame(columns=list(self._df.columns))
+        if not isinstance(use_flanks, bool):
+            raise TypeError("use_flanks must be a boolean")
+        queries = pd.DataFrame(occurrences).reset_index(drop=True)
+        if not queries.columns.is_unique:
+            raise ValueError("Occurrence columns must be unique")
+        if not queries.empty and ("peptide" not in queries or not queries.peptide.map(
+                lambda value: isinstance(value, str) and bool(value.strip())).all()):
+            raise ValueError("Occurrence queries require nonempty peptide strings")
+        for column in ("n_flank", "c_flank"):
+            if column in queries and not queries[column].map(
+                    lambda value: isinstance(value, str) or pd.api.types.is_scalar(value) and pd.isna(value)).all():
+                raise ValueError(f"{column} must contain strings or missing values")
+        frames, missing = [], []
+        selected = self._selected()
+        for index, query in enumerate(queries.to_dict("records")):
+            candidates = selected.loc[selected.peptide.eq(query["peptide"])]
+            matches = candidates.loc[[self._matches(row, query, use_flanks=use_flanks)
+                                      for row in candidates.to_dict("records")]].copy()
+            if matches.empty:
+                missing.append(index)
+            matches[_QUERY_INDEX] = index
+            frames.append(matches)
+        if missing and self.missing == "raise":
+            raise CachedPredictorCoverageError(f"Historical source has no matching reported occurrence at query positions {missing[:5]}")
+        if not frames:
+            return self.df.iloc[:0].assign(**{_QUERY_INDEX: pd.Series(dtype=int)})
+        return _copy_frame(_concat_frames(frames))
 
-        if (n_flanks is None) != (c_flanks is None):
-            raise ValueError("Supply both n_flanks and c_flanks or neither")
+    def predict_peptides_dataframe(self, peptides):
+        """Retrieve all reported records for sequences, without reassigning context.
 
-        supplied = n_flanks is not None
-        if supplied:
-            n_flanks = list(n_flanks)
-            c_flanks = list(c_flanks)
-            if len(n_flanks) != len(peptides) or len(c_flanks) != len(peptides):
-                raise ValueError("Flanks must align positionally with peptides")
-        else:
-            n_flanks = c_flanks = [None] * len(peptides)
+        Unlike occurrence lookup, this is an inventory query: all recorded
+        proteins, samples and flanks are returned unchanged. Missing sequences
+        raise or are omitted according to ``missing``; empty input is empty.
+        """
+        if isinstance(peptides, str):
+            raise ValueError("peptides must be a sequence of strings")
+        peptides = list(dict.fromkeys(peptides))
+        if any(not isinstance(value, str) or not value.strip() for value in peptides):
+            raise ValueError("peptides must contain nonempty strings")
+        rows = self._selected()
+        missing = set(peptides) - set(rows.peptide)
+        if missing and self.missing == "raise":
+            raise CachedPredictorCoverageError(f"Historical source has no reported peptide: {sorted(missing)[:5]}")
+        return _copy_frame(_concat_frames([rows.loc[rows.peptide.eq(peptide)] for peptide in peptides])) if peptides else self.df.iloc[:0]
 
-        output_rows = []
-        misses = []
+    def to_result(self):
+        """Return all backing rows and original result metadata, detached from this source."""
+        return TopiaryResult(self.df, metadata=deepcopy(self._metadata), form="long")
 
-        for p, nf, cf in zip(peptides, n_flanks, c_flanks):
-            candidates = self._df.loc[self._df["peptide"] == p]
-            if self._requested_alleles is not None:
-                candidates = candidates.loc[candidates["allele"].isin(self._requested_alleles)]
+    def to_dataframe(self, *, selected=False):
+        """Return detached records without changing their identities.
 
-            if candidates.empty:
-                misses.append((p, nf, cf))
-                continue
+        Parameters
+        ----------
+        selected : bool
+            False returns all backing rows. True applies configured allele
+            and peptide-length selections, including exact genotype scope.
 
-            matching = [
-                row for row in candidates.to_dict("records")
-                if prediction_flanks_match(row, n_flank=nf, c_flank=cf)
-            ]
-            if not matching:
-                misses.append((p, nf, cf))
-                continue
+        Returns
+        -------
+        pandas.DataFrame
+            A copy preserving original cells, possibly empty. Nested annotation
+            containers are copied too, so edits cannot mutate this source.
+        """
+        return _copy_frame(self._selected()) if selected else self.df
 
-            for m in matching:
-                row_copy = dict(m)
-                row_copy["n_flank"] = nf
-                row_copy["c_flank"] = cf
-                output_rows.append(row_copy)
+    def to_tsv(self, path):
+        """Save records and metadata through Topiary's typed TSV codec."""
+        self.to_result().to_tsv(path)
 
-        if misses and self.fallback is not None:
-            fallback_rows = self._fallback_predict_contextual(misses, supplied=supplied)
-            output_rows.extend(fallback_rows)
-            # Recheck remaining misses
-            covered_misses = {(r["peptide"], r.get("n_flank"), r.get("c_flank")) for r in fallback_rows}
-            misses = [m for m in misses if m not in covered_misses]
+    def to_csv(self, path):
+        """Save records and metadata through Topiary's typed CSV codec."""
+        self.to_result().to_csv(path)
 
-        if misses and self.missing == "raise":
-            raise CachedPredictorCoverageError(
-                f"HistoricalPredictor: no coverage for contextual query {misses[:5]!r}"
-            )
-
-        if not output_rows:
-            return pd.DataFrame(columns=list(self._df.columns))
-        return pd.DataFrame(output_rows).reset_index(drop=True)
-
-    def predict_dataframe(self, peptides: Iterable[str], **kwargs) -> pd.DataFrame:
-        """Generic prediction entry point conforming to mhctools protocol."""
-        if "n_flanks" in kwargs or "c_flanks" in kwargs:
-            return self.predict_contextual_peptides_dataframe(
-                peptides,
-                n_flanks=kwargs.get("n_flanks"),
-                c_flanks=kwargs.get("c_flanks"),
-            )
-        return self.predict_peptides_dataframe(peptides)
-
-    def predict_proteins_dataframe(self, proteins: Mapping[str, str]) -> pd.DataFrame:
-        """Scan sliding windows across proteins and look up in historical rows."""
-        lengths = self.default_peptide_lengths
-        if not lengths:
-            return pd.DataFrame(columns=list(PROTEIN_SCAN_COLUMNS))
-
-        scanned = []
-        for seq_name, seq in proteins.items():
-            for length in lengths:
-                if len(seq) < length:
-                    continue
-                for offset in range(len(seq) - length + 1):
-                    pep = seq[offset: offset + length]
-                    n_flank = seq[max(0, offset - 10): offset]
-                    c_flank = seq[offset + length: offset + length + 10]
-                    scanned.append({
-                        "source_sequence_name": seq_name,
-                        "peptide": pep,
-                        "offset": offset,
-                        "peptide_offset": offset,
-                        "n_flank": n_flank,
-                        "c_flank": c_flank,
-                    })
-
-        if not scanned:
-            return pd.DataFrame(columns=list(PROTEIN_SCAN_COLUMNS))
-
-        peptides = [s["peptide"] for s in scanned]
-        n_flanks = [s["n_flank"] for s in scanned]
-        c_flanks = [s["c_flank"] for s in scanned]
-
-        pred_df = self.predict_contextual_peptides_dataframe(
-            peptides, n_flanks=n_flanks, c_flanks=c_flanks,
-        )
-        if pred_df.empty:
-            return pred_df
-
-        # Merge with sequence coordinates
-        scan_df = pd.DataFrame(scanned)
-        merged = scan_df.merge(pred_df, on="peptide", how="inner", suffixes=("_scan", ""))
-        return merged.reset_index(drop=True)
-
-    # --- Fallback Handling ------------------------------------------
-
-    def _fallback_predict_peptides(self, peptides: list[str]) -> pd.DataFrame:
-        """Call fallback predictor, keeping fallback provenance distinct from historical rows."""
-        if hasattr(self.fallback, "predict_dataframe"):
-            res = self.fallback.predict_dataframe(peptides)
-        elif hasattr(self.fallback, "predict_peptides_dataframe"):
-            res = self.fallback.predict_peptides_dataframe(peptides)
-        else:
-            raise TypeError("Fallback must expose predict_dataframe or predict_peptides_dataframe")
-        return self._normalize(res)
-
-    def _fallback_predict_contextual(self, misses: list[tuple], supplied: bool) -> list[dict]:
-        """Call contextual fallback predictor, keeping fallback provenance distinct."""
-        peptides = [m[0] for m in misses]
-        n_flanks = [m[1] for m in misses] if supplied else None
-        c_flanks = [m[2] for m in misses] if supplied else None
-
-        if hasattr(self.fallback, "predict_contextual_peptides_dataframe"):
-            res = self.fallback.predict_contextual_peptides_dataframe(
-                peptides, n_flanks=n_flanks, c_flanks=c_flanks,
-            )
-        elif hasattr(self.fallback, "predict_dataframe"):
-            kwargs = {}
-            if supplied:
-                kwargs = dict(n_flanks=n_flanks, c_flanks=c_flanks)
-            res = self.fallback.predict_dataframe(peptides, **kwargs)
-        else:
-            raise TypeError("Fallback must expose predict_contextual_peptides_dataframe or predict_dataframe")
-
-        norm = self._normalize(res)
-        return norm.to_dict("records")
-
-    # --- Factory Classmethods ---------------------------------------
+    def to_parquet(self, path):
+        """Save records and metadata, encoding heterogeneous cells losslessly."""
+        frame = self.df
+        columns = _json_columns(frame)
+        for column in columns:
+            frame[column] = [_encode_json(value, column=column, allow_scalar=True) for value in frame[column]]
+        frame.attrs["topiary_historical"] = dict(version=1, metadata=asdict(self._metadata), json_columns=columns)
+        frame.to_parquet(path, index=False)
 
     @classmethod
-    def from_dataframe(cls, df: pd.DataFrame, **kwargs) -> HistoricalPredictor:
+    def from_dataframe(cls, df, **kwargs):
+        """Load normalized rows with the same validation as the constructor."""
         return cls(df, **kwargs)
 
     @classmethod
-    def from_table(cls, path_or_df: Union[str, Path, pd.DataFrame], **kwargs) -> HistoricalPredictor:
+    def from_table(cls, path_or_df, **kwargs):
+        """Load typed Topiary tables, preserving stored historical source IDs."""
         return cls(path_or_df, **kwargs)
 
+    from_topiary_output = from_table
+
     @classmethod
-    def from_topiary_output(cls, path_or_result: Union[str, Path, TopiaryResult], **kwargs) -> HistoricalPredictor:
+    def from_pvacseq(cls, path_or_result, **kwargs):
+        """Load pVACseq through its public reader, keeping aggregate identities."""
+        if isinstance(path_or_result, (str, Path)):
+            from .io_pvacseq import read_pvacseq
+            kwargs.setdefault("source_id", _source_id(path_or_result))
+            path_or_result = read_pvacseq(path_or_result)
         return cls(path_or_result, **kwargs)
 
     @classmethod
-    def from_pvacseq(cls, path_or_result: Union[str, Path, TopiaryResult], **kwargs) -> HistoricalPredictor:
-        """Construct HistoricalPredictor from a pVACseq report."""
-        if isinstance(path_or_result, (str, Path)):
-            from .io_pvacseq import read_pvacseq
-            res = read_pvacseq(path_or_result)
-            df = res.long_df if hasattr(res, "long_df") and not res.long_df.empty else res.df
-        elif isinstance(path_or_result, TopiaryResult):
-            df = path_or_result.long_df if hasattr(path_or_result, "long_df") and not path_or_result.long_df.empty else path_or_result.df
-        else:
-            df = path_or_result
-        return cls(df, **kwargs)
-
-    @classmethod
-    def from_lens(cls, path_or_result: Union[str, Path, TopiaryResult], **kwargs) -> HistoricalPredictor:
-        """Construct HistoricalPredictor from a LENS report."""
+    def from_lens(cls, path_or_result, **kwargs):
+        """Load LENS through its public reader, preserving model and source metadata."""
         if isinstance(path_or_result, (str, Path)):
             from .io_lens import read_lens
-            res = read_lens(path_or_result)
-            df = res.long_df if hasattr(res, "long_df") and not res.long_df.empty else res.df
-        elif isinstance(path_or_result, TopiaryResult):
-            df = path_or_result.long_df if hasattr(path_or_result, "long_df") and not path_or_result.long_df.empty else path_or_result.df
-        else:
-            df = path_or_result
-        return cls(df, **kwargs)
-
-    # --- Serialization ----------------------------------------------
-
-    def to_result(self, **metadata_extra) -> TopiaryResult:
-        """Wrap the historical table as a TopiaryResult."""
-        meta_extra = dict(metadata_extra)
-        meta_extra["historical_prediction_methods"] = self.prediction_method_names
-        meta_extra["historical_predictor_versions"] = self.predictor_versions
-        return TopiaryResult(self.df, form="long", extra=meta_extra)
-
-    def to_dataframe(self) -> pd.DataFrame:
-        """Return a copy of the backing DataFrame."""
-        return self.df
-
-    def to_tsv(self, path: Union[str, Path], **kwargs):
-        from .io import to_tsv
-        to_tsv(self.df, path, **kwargs)
-
-    def to_csv(self, path: Union[str, Path], **kwargs):
-        from .io import to_csv
-        to_csv(self.df, path, **kwargs)
-
-    def to_parquet(self, path: Union[str, Path], **kwargs):
-        self.df.to_parquet(path, **kwargs)
+            kwargs.setdefault("source_id", _source_id(path_or_result))
+            path_or_result = read_lens(path_or_result)
+        return cls(path_or_result, **kwargs)

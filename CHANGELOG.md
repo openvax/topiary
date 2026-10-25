@@ -18,10 +18,13 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 - Preserve all prediction values, kinds, flanks, genotype scopes, comparators
   (`wt_*`), and source artifact provenance; detect and reject conflicting
   predictions deterministically.
-- Keep live-model fallback distinct so historical records never masquerade as
-  hits for a live predictor.
-- Support round-trip persistence and composition through `combine_sources`,
-  `rescore_candidates`, and `TopiaryPredictor`.
+- Add exact occurrence lookup and sparse `rescore_candidates` features with
+  explicit source IDs. Fresh predictions use separate calls and prefixes;
+  historical sources never fill gaps by silently running a live model (#512).
+- Support typed CSV/TSV (including gzip) and Parquet persistence, result
+  metadata, and composition through `combine_sources`. Keep the complete
+  live-model coverage contract of `TopiaryPredictor` and `CachedPredictor`.
+- Verify downstream candidate workflows with Vaxrank 3.46.13.
 
 ## 5.95.3
 

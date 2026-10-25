@@ -59,6 +59,9 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
         No sliding windows, additional peptide sequences or source candidates
         are created. Model errors propagate; input tables are never mutated.
     """
+    from .historical import HistoricalPredictor
+    if isinstance(model, HistoricalPredictor):
+        raise TypeError("HistoricalPredictor is a sparse source; use lookup_occurrences or rescore_candidates")
     if not isinstance(use_flanks, bool) or not isinstance(predict_wt, bool):
         raise TypeError("use_flanks and predict_wt must be explicit booleans")
     if on_miss is not None and not callable(on_miss):
