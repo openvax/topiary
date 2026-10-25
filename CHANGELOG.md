@@ -7,13 +7,15 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
-## 5.95.2
+## 5.95.3
 
 - Require pandas 3.x (`pandas>=3,<4`) alongside Python 3.11+ (#496).
 - Test current pandas 3.x across Python 3.11–3.14 and the pandas 3.0.0 minimum
   on Python 3.11. Remove obsolete pandas 2 string-inference and Copy-on-Write
   test modes.
 - Verify downstream candidate workflows with Vaxrank 3.46.11.
+- Pass verified Ensembl references to PirlyGenes CI as a workflow artifact,
+  so cache eviction cannot break the required handoff between jobs (#510).
 
 ## 5.95.1
 
