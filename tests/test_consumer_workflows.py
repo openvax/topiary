@@ -187,7 +187,6 @@ def test_single_feature_expression_changes_selection_and_replays(tmp_path, suffi
 
 
 def test_cufflinks_replacement_changes_expression_selection_and_replays(tmp_path):
-    from contextlib import nullcontext
     from topiary import (SelectionPolicy, evaluate_selection_policy, join_annotations,
                          read_tsv, replay_selection_policy)
     from topiary.rna import load_cufflinks_dataframe
@@ -199,18 +198,15 @@ def test_cufflinks_replacement_changes_expression_selection_and_replays(tmp_path
                     "ENSG000002\t2.0\tOK\tchr1:11-20\tGENE2\n")
     predictions = source(gene_id=["ENSG000001", "ENSG000002"])
     policy = SelectionPolicy("expression-fixture", "expr_fpkm", min_score=10.)
-    context = (pd.option_context("mode.copy_on_write", True)
-               if int(pd.__version__.split(".")[0]) < 3 else nullcontext())
-    with context:
-        evaluations = []
-        for replacement in (None, 100.):
-            expression = load_cufflinks_dataframe(
-                path, sep="\t", drop_hidata=False, replace_hidata_fpkm_value=replacement)
-            annotated = join_annotations(
-                predictions, expression[["id", "fpkm"]].rename(columns={"id": "gene_id"}),
-                on="gene_id", prefix="expr", provenance=dict(
-                    source="synthetic-cufflinks", unit="FPKM", hidata_replacement=replacement))
-            evaluations.append(evaluate_selection_policy(annotated, policy))
+    evaluations = []
+    for replacement in (None, 100.):
+        expression = load_cufflinks_dataframe(
+            path, sep="\t", drop_hidata=False, replace_hidata_fpkm_value=replacement)
+        annotated = join_annotations(
+            predictions, expression[["id", "fpkm"]].rename(columns={"id": "gene_id"}),
+            on="gene_id", prefix="expr", provenance=dict(
+                source="synthetic-cufflinks", unit="FPKM", hidata_replacement=replacement))
+        evaluations.append(evaluate_selection_policy(annotated, policy))
     baseline, replaced = evaluations
     assert baseline.selected.empty
     assert replaced.selected.peptide.tolist() == ["SIINFEKL"]
@@ -543,7 +539,7 @@ PVACSEQ_PRESENTATION = (
 )
 
 
-def test_self_evidence_unknown_decisions_survive_policy_replay(tmp_path, pandas_string_inference):
+def test_self_evidence_unknown_decisions_survive_policy_replay(tmp_path):
     from dataclasses import replace
     from topiary import (SelfProteome, SelectionCriterion, SelectionPolicy, TopiaryResult, match_self_peptides,
                          evaluate_selection_policy, replay_selection_policy, from_predictions)
@@ -664,7 +660,7 @@ def test_explicit_occurrences_from_mixed_sources_rescore_and_replay(tmp_path, mo
 
 
 @pytest.mark.parametrize("wide", [False, True])
-def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, tmp_path, wide, pandas_string_inference):
+def test_source_tables_combine_rank_and_export_without_predicting(monkeypatch, tmp_path, wide):
     from topiary import (
         combine_sources, melt_pvacseq_algorithms, protein_evidence_view,
         rank_candidates, read_tsv, rescore_candidates,
@@ -3378,7 +3374,7 @@ def test_nearest_self_predictions_keep_allele_aggregation_after_combination_and_
 
 @pytest.mark.parametrize("versions", [("1", "2"), ("01", "1"), ("1.10", "1.1")])
 @pytest.mark.parametrize("wide", [False, True])
-def test_numeric_predictor_versions_are_opaque_through_files_and_ranking(tmp_path, versions, wide, pandas_string_inference):
+def test_numeric_predictor_versions_are_opaque_through_files_and_ranking(tmp_path, versions, wide):
     from topiary import combine_sources, rank_candidates
     from .test_twin_conformance import DELIMITED_IO_TWINS
 
@@ -3791,7 +3787,7 @@ def test_native_exacto_corpus_composes_with_lens_and_pvacseq_files(tmp_path, mon
     assert rank_candidates(restored, expression, **options).candidate_id.tolist() == pooled.candidate_id.tolist()
 
 
-def test_short_context_coverage_explains_changed_selection_and_replays(tmp_path, pandas_string_inference):
+def test_short_context_coverage_explains_changed_selection_and_replays(tmp_path):
     from dataclasses import replace
     from topiary import (SelectionCriterion, SelectionPolicy, evaluate_selection_policy, policy_coverage,
                          summarize_policy_coverage, compare_policy_evaluations, replay_selection_policy)

@@ -23,7 +23,7 @@ Documentation: [openvax.github.io/topiary](https://openvax.github.io/topiary/)
 
 ## Installation
 
-Topiary requires Python 3.11 or newer.
+Topiary requires Python 3.11 or newer and pandas 3.x (`pandas>=3,<4`).
 
 ```bash
 pip install topiary

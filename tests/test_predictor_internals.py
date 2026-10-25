@@ -265,7 +265,7 @@ def test_end_to_end_presentation_value_populated():
 
 
 @pytest.mark.parametrize("missing_state", ["missing", "blank", "na"])
-def test_result_attrs_fill_versions_per_missing_method(tmp_path, missing_state, pandas_string_inference):
+def test_result_attrs_fill_versions_per_missing_method(tmp_path, missing_state):
     from topiary import TopiaryResult, read_tsv
 
     predictor = TopiaryPredictor(models=[

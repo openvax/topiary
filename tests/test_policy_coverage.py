@@ -12,7 +12,6 @@ from topiary import (
 from .test_candidate_tables import source
 from .test_twin_conformance import DELIMITED_IO_TWINS
 
-pytestmark = pytest.mark.usefixtures("pandas_string_inference")
 
 KEYS = ["prediction_id", "peptide", "allele"]
 
@@ -165,7 +164,7 @@ def test_unknown_included_filter_is_not_fully_assessable():
 
 
 @pytest.mark.parametrize("suffix,writer,_,reader", DELIMITED_IO_TWINS)
-def test_coverage_and_comparison_roundtrip_replay(tmp_path, suffix, writer, _, reader, pandas_string_inference):
+def test_coverage_and_comparison_roundtrip_replay(tmp_path, suffix, writer, _, reader):
     evaluated = evaluation()
     requested = requests(evaluated)
     coverage = policy_coverage(evaluated, prediction_requests=requested)
@@ -313,7 +312,7 @@ def test_unnamed_versions_use_the_existing_public_identity_rule(version):
     assert policy_coverage(evaluated, prediction_requests=requested).df.query("level == 'prediction'").status.eq("missing").all()
 
 
-def test_absent_version_column_is_unnamed_and_duplicate_spellings_are_rejected(pandas_string_inference):
+def test_absent_version_column_is_unnamed_and_duplicate_spellings_are_rejected():
     original = evaluation(values=(0., 3.))
     evaluated = evaluate_selection_policy(TopiaryResult(original.evidence.df.drop(columns="predictor_version")),
                                            original.policy, group_keys=KEYS)

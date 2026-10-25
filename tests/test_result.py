@@ -359,7 +359,7 @@ class TestStackResults:
     @pytest.mark.parametrize("missing", [None, float("nan"), pd.NA])
     @pytest.mark.parametrize("empty", [False, True])
     def test_sparse_stack_preserves_values_schema_and_inputs(
-        self, missing, empty, pandas_string_inference,
+        self, missing, empty,
     ):
         measured = _sample_long_df()
         measured["predictor_version"] = "01.10"

@@ -2,6 +2,7 @@
 
 from importlib import import_module
 import os
+import warnings
 
 import pytest
 
@@ -18,7 +19,16 @@ def require_integration(dependency):
     integration job makes absence an error too.
     """
     try:
-        module = import_module(dependency)
+        with warnings.catch_warnings():
+            if dependency == "pirlygenes":
+                # Hitlist sets this pandas 2 option while PirlyGenes imports;
+                # pandas 3.1 warns because string inference is now the default.
+                # Keep this exact import warning local until Hitlist #815 ships.
+                warnings.filterwarnings(
+                    "ignore", message=r"The 'future\.infer_string' option is deprecated",
+                    module=r"hitlist(\..*)?$",
+                )
+            module = import_module(dependency)
     except ModuleNotFoundError as error:
         if error.name != dependency:
             raise
