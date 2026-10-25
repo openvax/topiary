@@ -257,3 +257,15 @@ def test_more_general_fallback_cannot_add_a_second_answer_to_an_existing_hit():
     with pytest.raises(ValueError, match="conflicts"):
         cache.predict_proteins_dataframe({"same": "MA" + PEPTIDE + "GG", "changed": "WW" + PEPTIDE + "CC"})
     pd.testing.assert_frame_equal(before, cache.to_dataframe())
+
+
+def test_peptide_only_allele_miss_cannot_mask_an_existing_flank_miss():
+    cache, _ = filled_cache()
+    model = ProteinModel(alleles=(A, B))
+    model.predict_proteins_dataframe = None
+    model.predict_dataframe = lambda peptides: pytest.fail("Must reject the incompatible context before peptide inference")
+    cache.fallback = model
+    before = cache.to_dataframe()
+    with pytest.raises(CachedPredictorCoverageError, match="flanking context"):
+        cache.predict_proteins_dataframe({"p": "WW" + PEPTIDE + "CC"})
+    pd.testing.assert_frame_equal(before, cache.to_dataframe())

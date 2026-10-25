@@ -1110,6 +1110,8 @@ class CachedPredictor:
         if not callable(scanner):
             # Keep the legacy peptide-only fallback contract, including strict
             # errors for stored context mismatches it cannot resolve.
+            expanded, unmatched, counts = self._scan_cached_occurrences(positions, name_to_sequence)
+            _raise_on_uncovered_occurrences(expanded, unmatched, counts)
             self.predict_peptides_dataframe(sorted(positions))
             expanded, unmatched, counts = self._scan_cached_occurrences(positions, name_to_sequence)
             _raise_on_uncovered_occurrences(expanded, unmatched, counts)
