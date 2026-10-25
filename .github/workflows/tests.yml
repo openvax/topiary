@@ -36,7 +36,7 @@ jobs:
           python-version: "3.12"
       - name: Install the released downstream consumer
         run: |
-          bash scripts/pip_install.sh pytest 'vaxrank==3.46.8' -e .
+          bash scripts/pip_install.sh pytest 'vaxrank==3.46.11' -e .
           python -m pip check
       - name: Verify table features through DSL scoring and vaccine construction
         run: python -m pytest scripts/check_vaxrank_candidates.py -q
@@ -58,8 +58,9 @@ jobs:
       fail-fast: true
       matrix:
         include:
+          # Test the declared pandas floor as well as current 3.x releases.
           - python-version: "3.11"
-            pandas: "pandas>=2.2.2,<3"
+            pandas: "pandas==3.0.0"
           - python-version: "3.11"
             pandas: "pandas>=3,<4"
           - python-version: "3.12"

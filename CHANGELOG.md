@@ -7,6 +7,19 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.95.2
+
+- Require pandas 3.x (`pandas>=3,<4`) alongside Python 3.11+ (#496).
+- Test current pandas 3.x across Python 3.11–3.14 and the pandas 3.0.0 minimum
+  on Python 3.11. Remove obsolete pandas 2 string-inference and Copy-on-Write
+  test modes.
+- Verify downstream candidate workflows with Vaxrank 3.46.11.
+
+## 5.95.1
+
+- Preserve typed JSON cells and unnamed model labels during CSV/TSV and wide
+  replay with pandas 3.1 (#507).
+
 ## 5.95.0
 
 - Add optional WEIRDO scoring through mhctools 4.3.0 and the explicit

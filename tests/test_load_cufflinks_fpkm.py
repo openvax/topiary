@@ -19,8 +19,6 @@ RNA-Seq reads).
 
 from __future__ import print_function, division, absolute_import
 
-from contextlib import nullcontext
-
 import pandas as pd
 import pytest
 
@@ -31,12 +29,11 @@ from .data import data_path
 from .test_twin_conformance import CUFFLINKS_FPKM_TWINS
 
 
-@pytest.mark.parametrize("mode", ["default", "copy_on_write"])
 @pytest.mark.parametrize("custom_columns", [False, True])
 @pytest.mark.parametrize("drop_hidata", [False, True])
 @pytest.mark.parametrize("replacement", [None, 0., 12.5, 100.])
 def test_hidata_replacement_agrees_across_public_readers(
-    tmp_path, mode, custom_columns, drop_hidata, replacement,
+    tmp_path, custom_columns, drop_hidata, replacement,
 ):
     frame = pd.DataFrame(dict(
         tracking_id=["ENSG000001", "ENSG000002", "ENSG000003", "ENSG000004", "ENSG000005"],
@@ -56,15 +53,10 @@ def test_hidata_replacement_agrees_across_public_readers(
     if not drop_hidata:
         expected.update(ENSG000002=0. if replacement is None else replacement,
                         ENSG000004=5. if replacement is None else replacement)
-    # pandas 3 always uses CoW; setting its deprecated option would itself warn.
-    context = (pd.option_context("mode.copy_on_write", True)
-               if mode == "copy_on_write" and int(pd.__version__.split(".")[0]) < 3
-               else nullcontext())
-    with context:
-        for name, read_values in CUFFLINKS_FPKM_TWINS:
-            actual = read_values(path, sep="\t", drop_hidata=drop_hidata,
-                                 replace_hidata_fpkm_value=replacement, **columns)
-            assert actual == expected, name
+    for name, read_values in CUFFLINKS_FPKM_TWINS:
+        actual = read_values(path, sep="\t", drop_hidata=drop_hidata,
+                             replace_hidata_fpkm_value=replacement, **columns)
+        assert actual == expected, name
 
 
 @pytest.mark.parametrize("fpkm_column", ["FPKM", "custom_fpkm"])

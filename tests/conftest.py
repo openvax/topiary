@@ -1,21 +1,8 @@
 """Shared pytest configuration."""
 
 import pytest
-import pandas as pd
 
 from tests.optional_dependencies import require_integration
-
-
-@pytest.fixture(params=[False, True], ids=["object-strings", "inferred-strings"])
-def pandas_string_inference(request):
-    """Exercise both 2.x string modes and the sole 3.x inferred mode."""
-    if int(pd.__version__.split(".")[0]) >= 3:
-        if not request.param:
-            pytest.skip("Pandas 3 cannot disable string inference")
-        yield
-        return
-    with pd.option_context("future.infer_string", request.param):
-        yield
 
 
 @pytest.fixture(scope="module")

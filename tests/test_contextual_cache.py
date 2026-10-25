@@ -12,8 +12,6 @@ from .test_candidate_tables import Model, MultiKindModel, source
 from .test_peptide_occurrences import occurrences
 from .test_twin_conformance import CACHE_FALLBACK_IDENTITY_TWINS, CACHE_PROVENANCE_TWINS
 
-pytestmark = pytest.mark.usefixtures("pandas_string_inference")
-
 
 @pytest.mark.parametrize("kind", ["unknown", "termini", "peptide_only", "supplied"])
 @pytest.mark.parametrize("suffix", [".tsv", ".parquet"])
