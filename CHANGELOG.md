@@ -25,6 +25,8 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   metadata, and composition through `combine_sources`. Keep the complete
   live-model coverage contract of `TopiaryPredictor` and `CachedPredictor`.
 - Verify downstream candidate workflows with Vaxrank 3.46.13.
+- Keep boolean and numeric provenance distinct during historical lookup,
+  duplicate detection, rescoring and wide-table grouping (#513).
 
 ## 5.95.3
 

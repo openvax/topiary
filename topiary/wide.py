@@ -171,6 +171,7 @@ def _parse_wide_column(col_name):
 #: Marks a stand-in built for a container cell, so it cannot collide
 #: with a string cell that happens to look like one.
 _GROUP_TOKEN_TAG = "__topiary_group_token__"
+_GROUP_BOOLEAN_TAG = object()
 
 #: One stand-in for every spelling of a missing value, so two rows that
 #: are both missing an annotation land in the same group. Comparing the
@@ -186,6 +187,8 @@ def _normalized_container(value):
     iteration order is not part of their value. Preserve the container
     kind at every depth: a mapping is not a sequence of key/value pairs.
     """
+    if isinstance(value, (bool, np.bool_)):
+        return (_GROUP_BOOLEAN_TAG, bool(value))
     if isinstance(value, dict):
         return ("mapping", tuple(sorted(
             (str(key), _normalized_container(item))
@@ -215,6 +218,9 @@ def _group_token(value):
     object is what reaches the output, so transcript identities survive
     and a list is still a list on the far side.
     """
+    if isinstance(value, (bool, np.bool_)):
+        # Boolean provenance must not compare equal to numeric zero or one.
+        return (_GROUP_BOOLEAN_TAG, bool(value))
     # pd.isna(None) is already True, so a separate `value is None` check
     # ahead of it would only re-decide a case this one already covers.
     try:
@@ -246,6 +252,10 @@ def _group_ids(df, group_cols):
     codes = []
     for column in group_cols:
         series = df[column]
+        if pd.api.types.is_object_dtype(series):
+            # Mixed scalar columns need the same typed comparison as nested
+            # annotations; pandas otherwise coalesces False/0 and True/1.
+            series = series.map(_group_token)
         try:
             column_codes, _ = pd.factorize(series, use_na_sentinel=True)
         except TypeError:

@@ -576,6 +576,13 @@ HISTORICAL_CONSTRUCTION_TWINS = (
     HistoricalPredictor.from_table, HistoricalPredictor.from_topiary_output,
 )
 
+# Both paths replay reported rows; typed source annotations must identify the
+# same distinct observations in historical storage and in wide-table grouping.
+ANNOTATION_REPLAY_TWINS = (
+    lambda frame: HistoricalPredictor(frame).to_dataframe(),
+    lambda frame: TopiaryResult(frame).to_wide().to_long().df,
+)
+
 
 def osteosarc_export_paths(manifest, directory, cache):
     from topiary import osteosarc_fixture_paths
@@ -1715,3 +1722,13 @@ def test_historical_constructors_preserve_unknown_provenance_and_reject_conflict
     assert source.df.iloc[0].historical_source_id == 'report'
     with pytest.raises(ValueError, match='conflicting'):
         construct(pd.DataFrame([row, dict(row, wt_value=31.)]), source_id='report')
+
+
+@pytest.mark.parametrize('replay', ANNOTATION_REPLAY_TWINS)
+@pytest.mark.parametrize('annotations', [(False, 0), (True, 1), ({'flag': False}, {'flag': 0}), ([True], [1])])
+def test_annotation_replay_doors_preserve_boolean_numeric_identity(replay, annotations):
+    rows = pd.DataFrame([_cache_row(annotation=value) for value in annotations])
+    output = replay(rows)
+    assert len(output) == 2
+    assert output.annotation.tolist() == list(annotations)
+    assert [type(value) for value in output.annotation] == [type(value) for value in annotations]

@@ -4052,3 +4052,32 @@ def test_historical_feature_context_labels_cannot_be_silently_combined():
     combined = combine_sources({'reported': source.to_result()}, sample_name='patient')
     with pytest.raises(ValueError, match='separate re-scoring prefixes'):
         rescore_candidates(combined, source, prefix='old', use_flanks=False)
+
+
+@pytest.mark.parametrize('annotations', [(False, 0), (True, 1), ({'flag': False}, {'flag': 0}), ([True], [1])])
+def test_typed_annotation_identity_survives_historical_wide_and_file_workflow(tmp_path, annotations):
+    from topiary import HistoricalPredictor
+    rows = [dict(peptide='SIINFEKL', allele='HLA-A*02:01', kind='pMHC_affinity',
+                 prediction_method_name='archive', value=10. + index, annotation=value)
+            for index, value in enumerate(annotations)]
+    source = HistoricalPredictor(pd.DataFrame(rows))
+    wide = source.to_result().to_wide()
+    assert len(wide.df) == 2
+    path = tmp_path / 'wide.tsv'
+    wide.to_tsv(path)
+    restored = HistoricalPredictor.from_table(path)
+    assert restored.df.value.tolist() == [10., 11.]
+    assert [type(value) for value in restored.df.annotation] == [type(value) for value in annotations]
+    queried = restored.lookup_occurrences(rows)
+    assert queried.historical_query_index.tolist() == [0, 1]
+    assert queried.value.tolist() == [10., 11.]
+
+
+def test_historical_feature_boolean_and_numeric_contexts_need_distinct_prefixes():
+    from topiary import HistoricalPredictor, combine_sources, rescore_candidates
+    row = dict(peptide='SIINFEKL', allele='HLA-A*02:01', kind='pMHC_affinity',
+               prediction_method_name='archive', value=10., measurement_context={'scale': False})
+    source = HistoricalPredictor(pd.DataFrame([row, dict(row, peptide='GILGFVFTL', measurement_context={'scale': 0})]))
+    combined = combine_sources({'reported': source.to_result()}, sample_name='patient')
+    with pytest.raises(ValueError, match='separate re-scoring prefixes'):
+        rescore_candidates(combined, source, prefix='old', use_flanks=False)

@@ -477,3 +477,21 @@ def test_selected_export_is_detached_and_does_not_change_backing_source():
     selected['value'] = 1.
     assert source.df.value.tolist() == [50., 50.]
     assert len(source.to_result().df) == 2
+
+
+@pytest.mark.parametrize('contexts', [(False, 0), (True, 1), ({'scale': False}, {'scale': 0}), ([True], [1])])
+def test_typed_context_conflicts_cannot_collapse(contexts):
+    rows = pd.DataFrame([_row(measurement_context=context) for context in contexts])
+    assert len(conflicting_historical_predictions(rows)) == 2
+    with pytest.raises(ValueError, match='conflicting'):
+        HistoricalPredictor(rows)
+
+
+@pytest.mark.parametrize('annotations', [(False, 0), (True, 1), ({'flag': False}, {'flag': 0}), ([True], [1])])
+def test_typed_annotation_identity_survives_construction_and_lookup(annotations):
+    rows = [_row(annotation=value, value=10. + index) for index, value in enumerate(annotations)]
+    source = HistoricalPredictor(pd.DataFrame(rows))
+    assert len(source.df) == 2
+    queried = source.lookup_occurrences(rows)
+    assert queried.historical_query_index.tolist() == [0, 1]
+    assert queried.value.tolist() == [10., 11.]
