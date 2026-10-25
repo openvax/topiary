@@ -570,6 +570,12 @@ def _normalize_prediction_frame(df):
     long form is, shared by the predictor and :func:`from_predictions`.
     """
     _reject_conflicting_offset_columns(df)
+    if "predictor_name" in df.columns and "prediction_method_name" in df.columns:
+        left, right = df["predictor_name"], df["prediction_method_name"]
+        equal = left.eq(right).fillna(False) | (left.isna() & right.isna())
+        if not equal.all():
+            raise ValueError("Prediction frame has conflicting model-name aliases")
+        df = df.drop(columns="predictor_name")
     df = df.rename(columns={
         "offset": "peptide_offset",
         "predictor_name": "prediction_method_name",

@@ -4081,3 +4081,23 @@ def test_historical_feature_boolean_and_numeric_contexts_need_distinct_prefixes(
     combined = combine_sources({'reported': source.to_result()}, sample_name='patient')
     with pytest.raises(ValueError, match='separate re-scoring prefixes'):
         rescore_candidates(combined, source, prefix='old', use_flanks=False)
+
+
+def test_protein_context_fallback_changes_filter_decision_and_replays_offline(tmp_path):
+    from topiary import Affinity
+    from .test_protein_fallback import PEPTIDE, filled_cache
+
+    cache, model = filled_cache()
+    inputs = {"original": "MA" + PEPTIDE + "GG", "new": "WW" + PEPTIDE + "CC"}
+    predictor = TopiaryPredictor(models=cache)
+    frame = predictor.predict_from_named_sequences(inputs)
+    target = frame[frame.peptide == PEPTIDE]
+    assert target.set_index("source_sequence_name").value.to_dict() == {"original": 384., "new": 408.}
+    kept = apply_filter(target, Affinity.value < 400)
+    assert kept.source_sequence_name.tolist() == ["original"]
+    path = tmp_path / "predictions.tsv"
+    cache.save(path)
+    replay = TopiaryPredictor(models=CachedPredictor.from_topiary_output(path)).predict_from_named_sequences(inputs)
+    pd.testing.assert_frame_equal(frame, replay, check_dtype=False)
+    assert len(model.scans) == 1
+    assert apply_filter(replay[replay.peptide == PEPTIDE], Affinity.value < 400).source_sequence_name.tolist() == ["original"]

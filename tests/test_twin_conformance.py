@@ -44,6 +44,7 @@ from topiary.rna import load_cufflinks_dataframe, load_cufflinks_dict, load_cuff
 from topiary.rna import load_transcript_fpkm_dict_from_gtf
 from topiary.rna.expression_loader import load_expression, load_expression_from_spec
 from topiary import (
+    prediction_flanks_match, prediction_matches_protein_context,
     APPROXIMATED, MEASURED, CachedPredictor, HistoricalPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
     read_fragments, read_pvacseq, write_fragments, unique_fragments,
     read_exacto, read_exacto_fragments,
@@ -1732,3 +1733,58 @@ def test_annotation_replay_doors_preserve_boolean_numeric_identity(replay, annot
     assert len(output) == 2
     assert output.annotation.tolist() == list(annotations)
     assert [type(value) for value in output.annotation] == [type(value) for value in annotations]
+
+
+# Exact occurrence queries and scans both preserve known inference inputs.
+# Unknown legacy context has intentionally different inventory semantics.
+PROTEIN_CONTEXT_TWINS = (
+    lambda row, n, c: prediction_flanks_match(
+        row, n_flank=None if row["prediction_flanks_supplied"] is False else n,
+        c_flank=None if row["prediction_flanks_supplied"] is False else c),
+    lambda row, n, c: prediction_matches_protein_context(
+        row, n + row["peptide"] + c, len(n)),
+)
+
+CONTEXTUAL_FALLBACK_TWINS = (
+    lambda cache, peptide: cache.predict_contextual_peptides_dataframe(
+        [peptide], n_flanks=["MA"], c_flanks=["GG"]),
+    lambda cache, peptide: cache.predict_proteins_dataframe({"p": "MA" + peptide + "GG"}),
+)
+
+def _prediction_frame_through_scan(frame):
+    model = RandomBindingPredictor(alleles=["HLA-A*02:01"], default_peptide_lengths=[9])
+    model.predict_proteins_dataframe = lambda sequences: frame
+    return TopiaryPredictor(models=model).predict_from_named_sequences({"query": "SIINFEKLA"})
+
+
+PREDICTION_SCHEMA_TWINS = (from_predictions, _prediction_frame_through_scan)
+
+
+@pytest.mark.parametrize("flag,n,c,requested_n,requested_c,expected", [
+    (True, "MA", "GG", "MA", "GG", True),
+    (True, "MA", "GG", "WW", "GG", False),
+    (True, "", "", "", "", True),
+    (True, "", "", "MA", "GG", False),
+    (True, "", "GG", "MA", "GG", False),
+    (True, "MA", "", "MA", "GG", False),
+    (False, "MA", "GG", "WW", "CC", True),
+    (False, "", "", "MA", "GG", True),
+])
+def test_protein_and_exact_context_agree_on_explicit_inference(flag, n, c, requested_n, requested_c, expected):
+    row = dict(peptide="SIINFEKLA", n_flank=n, c_flank=c, prediction_flanks_supplied=flag)
+    assert [door(row, requested_n, requested_c) for door in PROTEIN_CONTEXT_TWINS] == [expected, expected]
+
+
+@pytest.mark.parametrize("matching", [True, False])
+def test_prediction_schema_doors_validate_model_name_aliases(matching):
+    frame = pd.DataFrame([dict(peptide="SIINFEKLA", kind="pMHC_affinity", value=10.,
+                               predictor_name="test", prediction_method_name="test" if matching else "other",
+                               allele="HLA-A*02:01", predictor_version="1", source_sequence_name="query", offset=0)])
+    for door in PREDICTION_SCHEMA_TWINS:
+        if matching:
+            result = door(frame)
+            assert result.columns.is_unique
+            assert result.prediction_method_name.tolist() == ["test"]
+        else:
+            with pytest.raises(ValueError, match="model-name aliases"):
+                door(frame)

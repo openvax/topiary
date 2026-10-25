@@ -7,6 +7,19 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.97.0
+
+- Fill cached protein-scan context misses through a compatible fallback's
+  protein scanner, batching affected original proteins and preserving existing
+  measurements (#307).
+- Validate occurrence geometry, kinds, MHC scopes, model versions and complete
+  scanner coverage before atomic cache insertion. Persist fresh context keys
+  for subsequent offline replay.
+- Honor inference flags and known termini during protein scans; expose
+  `prediction_matches_protein_context` and `validate_protein_predictions` (#514).
+- Normalize matching model-name aliases once and reject contradictory aliases
+  in shared prediction-frame conversion (#515).
+
 ## 5.96.0
 
 - Add `HistoricalPredictor` to support sparse historical table predictions with
