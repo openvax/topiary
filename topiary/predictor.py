@@ -1083,6 +1083,8 @@ class TopiaryPredictor(object):
         model_df = predict_with_cache_miss_report(
             model.predict_proteins_dataframe, name_to_sequence_dict,
             on_miss=self.cache_miss_handler, context=self._cache_miss_context(model, model_key, stage))
+        from .protein_predictions import annotate_protein_prediction_context
+        model_df = annotate_protein_prediction_context(model_df, model)
         return self._attach_model_key(
             self._attach_allele_set(
                 self._format_prediction_df(model_df), model

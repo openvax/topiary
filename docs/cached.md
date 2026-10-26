@@ -414,7 +414,7 @@ one genotype; its default is the union of stored and fallback alleles. A
 haplotype fallback must be configured for that same genotype. Primary and
 explicit wild-type comparator occurrences use their own flanks.
 
-Two strings specify known flanks; `""` means a known molecular terminus.
+Two strings specify known inference inputs; `""` means an explicitly empty input.
 Missing legacy context cannot satisfy a known-context request. A blank legacy
 flank cannot establish a known terminus without `prediction_flanks_supplied=True`,
 even when the other flank is populated. Peptide-only
@@ -483,9 +483,41 @@ peptide API can fill ordinary peptide misses; it cannot repair stored inference
 flanks that disagree with the requested occurrence.
 
 `prediction_flanks_supplied=False` makes flanks source annotations, so scan
-output rebinds those annotations to the queried occurrence. With `True`, empty
-flanks specify actual protein termini. Legacy missing flanks remain unknown.
+output rebinds those annotations to the queried occurrence. With `True`, the
+flanks are inference inputs. `prediction_n_flank_limit` and
+`prediction_c_flank_limit` record the scanner's configured maximum windows.
+Topiary obtains them from mhctools' public `protein_flank_lengths()` method;
+MHCflurry resolves its limits from the loaded processing model. A short flank
+can reflect a protein boundary, so its observed length never establishes the
+window limit. Zero means that side supplies no residues, even inside a protein.
+
+For example, a five-residue N window may supply only `MA` for a peptide near
+the start of a protein. Extending that protein to `WWMA...` requires a fresh
+prediction. A complete five-residue window still matches further inside a
+protein when those five neighbours are unchanged. These limits describe
+protein scanning; exact peptide queries continue to compare explicit input
+strings without clipping them.
+
+Both limits are nullable integers and participate in cache identity and
+CSV/TSV/Parquet persistence. Wide output stores these declarations and the
+flank-supplied flag under each model/kind prefix (for example,
+`mhcflurry_affinity_n_flank_limit` and `mhcflurry_affinity_flanks_supplied`).
+A corresponding `*_present` column records which measurements actually existed,
+including rows with missing scores. Reading wide output restores each model's
+own declarations; legacy flat metadata columns remain readable. Conflicting
+input policies for one model/kind slot require long form or separate exports.
+Combined-source observations retain their source/flank identity while these
+model-specific declarations accompany their measurements.
+`PROTEIN_SCAN_METADATA_COLUMNS` lists the three declaration fields. Legacy files retain unknown limits. A populated
+legacy flank must match all available context on that side; a cache cannot
+safely use its length to clip a longer protein. Such a query needs a compatible
+fallback, a regenerated cache, or limits supplied from the original scanner's
+documented configuration. Empty explicit inputs require the corresponding
+boundary unless the limit is zero. Missing legacy annotations remain unknown.
 The public `prediction_matches_protein_context` predicate exposes this rule;
+`prediction_flank_limits` validates and decodes the nullable limits;
+`annotate_protein_prediction_context` attaches a producer's declared windows
+to fresh scanner output without changing the input frame.
 `validate_protein_predictions` validates a configured scanner's complete
 occurrence response for other consumers.
 

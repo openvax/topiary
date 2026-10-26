@@ -20,13 +20,13 @@ from .ranking import (
 )
 from .result import TopiaryResult, stack_results
 from .serialization import normalize_python_types
-from .wide import PREDICTION_COLUMNS, SOURCE_PREDICTION_COLUMNS, _group_token
+from .wide import PREDICTION_COLUMNS, SOURCE_PREDICTION_COLUMNS, PROTEIN_SCAN_METADATA_COLUMNS, _group_token
 
 
 # Comparator scores vary by model/kind/allele just like the primary scores.
 # Their peptides, genes and context remain observation identity; only the
 # explicitly named prediction fields belong to the measurement axes.
-_PREDICTION_MEASUREMENTS = PREDICTION_COLUMNS | {
+_PREDICTION_MEASUREMENTS = PREDICTION_COLUMNS | set(PROTEIN_SCAN_METADATA_COLUMNS) | {
     f"{scope}_{field}"
     for scope in ("wt", "self", "self_nearest", "shuffled")
     for field in ("value", "score", "percentile_rank", "affinity",

@@ -60,12 +60,12 @@ to repeat it locally:
 ```bash
 "$PYTHON" -m venv .venv/vaxrank-consumer
 VAXRANK_PYTHON="$PWD/.venv/vaxrank-consumer/bin/python"
-"$VAXRANK_PYTHON" -m pip install pytest 'vaxrank==3.46.13' -e .
+"$VAXRANK_PYTHON" -m pip install pytest 'vaxrank==3.46.15' -e .
 "$VAXRANK_PYTHON" -m pip check
 "$VAXRANK_PYTHON" -m pytest scripts/check_vaxrank_candidates.py -q
 ```
 
-Vaxrank 3.46.13 and PirlyGenes 6.0.18 both accept OncoRef 1.19.2, resolving
+Vaxrank 3.46.15 and PirlyGenes 6.0.18 both accept OncoRef 1.19.2, resolving
 the earlier joint-install conflict
 ([PirlyGenes #652](https://github.com/pirl-unc/pirlygenes/issues/652)).
 The separate consumer environment keeps this check independent of the release

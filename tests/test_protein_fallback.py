@@ -187,7 +187,8 @@ def test_peptide_only_fallback_handles_new_peptides_but_not_existing_flank_misse
 
 def test_explicit_peptide_only_annotations_rebind_without_changing_stored_inputs():
     cache, _ = filled_cache(sequences={"old": PEPTIDE})
-    frame = cache.to_dataframe().assign(n_flank="MA", c_flank="GG", prediction_flanks_supplied=False)
+    frame = cache.to_dataframe().assign(n_flank="MA", c_flank="GG", prediction_flanks_supplied=False,
+                                         prediction_n_flank_limit=None, prediction_c_flank_limit=None)
     cache = CachedPredictor(frame)
     # Other windows are absent: directly exercise the public context predicate.
     assert prediction_matches_protein_context(frame.iloc[0], "WW" + PEPTIDE + "CC", 2)
@@ -217,12 +218,12 @@ def test_contextual_fallback_doors_check_every_response(change):
         pd.testing.assert_frame_equal(cache.to_dataframe(), before)
 
 
-def test_nested_cache_preserves_legacy_context_metadata():
+def test_nested_cache_preserves_declared_context_metadata():
     model = ProteinModel()
     proteins = {"original": "MA" + PEPTIDE + "GG"}
     frame = from_predictions(model.predict_proteins_dataframe(proteins))
-    # Real archived scanner output predates explicit inference flags.
-    inner = CachedPredictor(frame)
+    from topiary import annotate_protein_prediction_context
+    inner = CachedPredictor(annotate_protein_prediction_context(frame, model))
     outer = CachedPredictor(fallback=inner)
     result = outer.predict_proteins_dataframe(proteins)
     assert result.loc[result.peptide == PEPTIDE, "prediction_flanks_supplied"].tolist() == [True]

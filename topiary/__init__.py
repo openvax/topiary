@@ -126,9 +126,10 @@ from .cached import (
     conflicting_predictions,
     prediction_flanks_match,
     prediction_matches_protein_context,
+    prediction_flank_limits,
     mhcflurry_composite_version,
 )
-from .protein_predictions import validate_protein_predictions
+from .protein_predictions import validate_protein_predictions, annotate_protein_prediction_context
 from .io_isovar import (
     DEFAULT_PROTEIN_SEQUENCE_LENGTH,
     describe_isovar_result,
@@ -205,7 +206,7 @@ from .result import (
     combine_predictions,
 )
 from .prediction_columns import PredictionMetric, parse_prediction_metric
-from .wide import detect_form, from_wide, to_wide
+from .wide import detect_form, from_wide, to_wide, PROTEIN_SCAN_METADATA_COLUMNS
 from .amino_acids import (
     AMINO_ACIDS,
     AMINO_ACID_INDEX,
@@ -217,9 +218,12 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.97.0"
+__version__ = "5.98.0"
 
 __all__ = [
+    "PROTEIN_SCAN_METADATA_COLUMNS",
+    "prediction_flank_limits",
+    "annotate_protein_prediction_context",
     "prediction_matches_protein_context",
     "validate_protein_predictions",
     "normalize_isovar_rna_support",

@@ -76,6 +76,7 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
             raise ValueError(f"Occurrences require nonempty string {column}")
     reserved = (PREDICTION_COLUMNS | {"allele", "value_unit", "measurement_context", "predictor_name",
                                     "offset", "prediction_mhc_dependence", "prediction_flanks_supplied",
+                                    "prediction_n_flank_limit", "prediction_c_flank_limit",
                                     "candidate_id", "candidate_allele", "candidate_mhc_class"}) & set(frame)
     if reserved:
         raise ValueError(f"Occurrence input contains prediction columns: {sorted(reserved)}")

@@ -26,6 +26,13 @@ PREDICTION_COLUMNS = frozenset({
     "wt_prediction_method_name", "wt_predictor_version", "wt_affinity",
 })
 
+#: Model/kind-specific scanner declarations, not source-occurrence annotations.
+#: Wide tables pivot these fields alongside each model's measurements. Actual
+#: n_flank/c_flank strings remain occurrence context.
+PROTEIN_SCAN_METADATA_COLUMNS = (
+    "prediction_flanks_supplied", "prediction_n_flank_limit", "prediction_c_flank_limit",
+)
+
 # Combined-source tables retain measurement identity even when all scores are
 # absent. These columns also prevent sparse unions from inventing model rows.
 SOURCE_PREDICTION_COLUMNS = {
@@ -48,10 +55,14 @@ LONG_TO_WIDE_FIELD = {
     "wt_percentile_rank": "wt_rank",
     "wt_prediction_method_name": "wt_method",
     "wt_predictor_version": "wt_version",
+    **{column: column.removeprefix("prediction_") for column in PROTEIN_SCAN_METADATA_COLUMNS},
 }
 
 # Wide field suffix → long column name.
 WIDE_TO_LONG_FIELD = {v: k for k, v in LONG_TO_WIDE_FIELD.items()}
+# A presence bit preserves rows whose scores and input declarations are all
+# missing, and distinguishes them from another model's absent measurement.
+WIDE_TO_LONG_FIELD["present"] = None
 
 
 def _concat_frames(frames):
@@ -316,6 +327,10 @@ def to_wide(df):
         ``{model_key}_{kind}_{field}`` columns. Wildtype fields use
         ``wt_value``, ``wt_score``, ``wt_rank``, ``wt_method``, and
         ``wt_version`` as their field suffixes.
+        Scanner declarations use per-model/kind fields and a ``present`` bit
+        so absent measurements cannot acquire another model's input policy.
+        Conflicting scanner policies for one slot raise ValueError; retain
+        long form or export those policies separately.
     """
     if hasattr(df, "wide_df") and hasattr(df, "metadata") and hasattr(df, "df"):
         return df.wide_df
@@ -325,7 +340,8 @@ def to_wide(df):
             "DataFrame is not in long form: missing 'kind' column"
         )
 
-    group_cols = [c for c in df.columns if c not in PREDICTION_COLUMNS]
+    group_cols = [c for c in df.columns
+                  if c not in PREDICTION_COLUMNS and c not in PROTEIN_SCAN_METADATA_COLUMNS]
 
     if df.empty:
         return _distinct_group_rows(df, group_cols)
@@ -412,6 +428,12 @@ def to_wide(df):
     # have to survive the trip.
     group_ids = _group_ids(work, group_cols)
     work["_topiary_group_id"] = group_ids
+    context_columns = [column for column in PROTEIN_SCAN_METADATA_COLUMNS if column in work]
+    if context_columns and work.groupby(
+            ["_topiary_group_id", "_model_key", "_kind_short"], dropna=False
+            )[context_columns].nunique(dropna=False).gt(1).any(axis=None):
+        raise ValueError("Conflicting scanner input policies for one wide model/kind slot; "
+                         "retain long form or convert each input policy separately")
     if group_cols:
         group_index = _distinct_group_rows(work, group_cols, ids=group_ids)
         group_index["_topiary_group_id"] = range(len(group_index))
@@ -421,6 +443,7 @@ def to_wide(df):
     # Melt each long field into wide column entries.
     carried = ["_topiary_group_id", "_model_key", "_kind_short"]
     records = []
+    context_wide_columns = set()
     for long_field, wide_field in LONG_TO_WIDE_FIELD.items():
         if long_field not in work.columns:
             continue
@@ -428,8 +451,16 @@ def to_wide(df):
         temp["_wide_col"] = (
             temp["_model_key"] + "_" + temp["_kind_short"] + "_" + wide_field
         )
+        if long_field in PROTEIN_SCAN_METADATA_COLUMNS:
+            context_wide_columns.update(temp["_wide_col"])
         temp = temp.rename(columns={long_field: "_wide_val"})
         records.append(temp[["_topiary_group_id", "_wide_col", "_wide_val"]])
+
+    if context_columns:
+        presence = work[carried].copy()
+        presence["_wide_col"] = presence["_model_key"] + "_" + presence["_kind_short"] + "_present"
+        presence["_wide_val"] = True
+        records.append(presence[["_topiary_group_id", "_wide_col", "_wide_val"]])
 
     if not records:
         return _distinct_group_rows(work, group_cols, ids=group_ids)
@@ -455,12 +486,18 @@ def to_wide(df):
         aggfunc="first",
     ).reset_index()
     wide_values.columns.name = None
+    # Unknown declarations are meaningful schema, even when every value is
+    # missing and pivot_table would otherwise drop the entire column.
+    for column in sorted(context_wide_columns - set(wide_values)):
+        wide_values[column] = np.nan
     # ``_wide_val`` becomes object-typed when numeric predictions and string
     # WT metadata share the melt. Restore the declared numeric prediction
     # fields after pivoting so callers can rank/filter without another cast.
     for column in wide_values.columns:
         parsed = _parse_wide_column(column)
-        if parsed is not None and parsed[2] not in {"wt_method", "wt_version"}:
+        if parsed is not None and parsed[2] in {"flanks_supplied", "present"}:
+            wide_values[column] = pd.array(wide_values[column], dtype="boolean")
+        elif parsed is not None and parsed[2] not in {"wt_method", "wt_version"}:
             wide_values[column] = pd.to_numeric(wide_values[column], errors="coerce")
     # An annotation column carried through from the long frame can be
     # named exactly like a column about to be generated. pandas would
@@ -516,6 +553,10 @@ def from_wide(df, metadata=None):
         ``percentile_rank``, ``prediction_method_name``, and
         ``predictor_version`` columns, plus the corresponding ``wt_*``
         prediction fields when the wide input states them.
+        Per-model scanner metadata and presence bits restore only recorded
+        measurements, including all-null scores. Legacy flat scanner metadata
+        remains readable; mixing flat and per-model declarations for the same
+        field raises ValueError instead of choosing one silently.
     """
     if hasattr(df, "long_df") and hasattr(df, "metadata") and hasattr(df, "df"):
         return df.long_df
@@ -587,9 +628,13 @@ def from_wide(df, metadata=None):
         chunk["predictor_version"] = version
 
         for wide_field, long_col in WIDE_TO_LONG_FIELD.items():
+            if long_col is None:
+                continue
             if wide_field in field_map:
+                if long_col in PROTEIN_SCAN_METADATA_COLUMNS and long_col in group_cols:
+                    raise ValueError(f"Both flat and model-specific scanner metadata supplied for {long_col}")
                 chunk[long_col] = df[field_map[wide_field]].values
-            else:
+            elif long_col not in PROTEIN_SCAN_METADATA_COLUMNS:
                 chunk[long_col] = np.nan
 
         # Old wide frames have only numeric WT fields. Preserve their
@@ -618,6 +663,9 @@ def from_wide(df, metadata=None):
             chunk = chunk.loc[mask].copy()
             for column, source_column in SOURCE_PREDICTION_COLUMNS.items():
                 chunk[column] = chunk[source_column]
+        elif "present" in field_map:
+            present = pd.Series(pd.array(df[field_map["present"]], dtype="boolean"), index=df.index)
+            chunk = chunk.loc[present.fillna(False)].copy()
         long_rows.append(chunk)
 
     if source_identity:

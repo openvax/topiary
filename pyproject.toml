@@ -36,7 +36,7 @@ namespaces = false
 topiary = "topiary.cli.script:main"
 
 [project.optional-dependencies]
-weirdo = ["mhctools[weirdo]>=4.3.0"]
+weirdo = ["mhctools[weirdo]>=4.5.0"]
 isovar = ["isovar>=1.39.5,<2"]
 pirlygenes = ["pirlygenes>=5.1.0"]
 oncoref = ["oncoref>=1.8.150"]

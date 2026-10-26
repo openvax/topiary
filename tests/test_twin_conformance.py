@@ -1788,3 +1788,17 @@ def test_prediction_schema_doors_validate_model_name_aliases(matching):
         else:
             with pytest.raises(ValueError, match="model-name aliases"):
                 door(frame)
+
+
+# The direct producer and a cache miss must retain the same scan-window policy.
+PROTEIN_SCAN_PRODUCER_TWINS = (
+    lambda model, proteins: TopiaryPredictor(models=model).predict_from_named_sequences(proteins),
+    lambda model, proteins: CachedPredictor(fallback=model).predict_proteins_dataframe(proteins),
+)
+
+
+# Serialization must preserve each producer's inference inputs and row presence.
+PROTEIN_SCAN_REPLAY_TWINS = (
+    lambda frame: frame.copy(),
+    lambda frame: TopiaryResult(frame).to_wide().long_df,
+)

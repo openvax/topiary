@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import re
 from copy import copy
+from decimal import Decimal, InvalidOperation
 import inspect
 from collections import Counter
 from itertools import repeat
@@ -74,6 +75,7 @@ _CACHE_COLUMNS = (
     # a prediction for its deconvolved best allele.
     "allele_set",
     "prediction_flanks_supplied", "prediction_mhc_dependence",
+    "prediction_n_flank_limit", "prediction_c_flank_limit",
     "measurement_context",
 )
 
@@ -98,6 +100,9 @@ PROTEIN_SCAN_COLUMNS = tuple(
 # - kind: distinguishes affinity / presentation / processing / stability
 #   — needed because mhcflurry's class1_presentation pipeline and
 #   NetMHCpan's -BA flag emit multiple kinds per (peptide, allele).
+# - prediction_n_flank_limit, prediction_c_flank_limit: declared scanner
+#   windows distinguish a complete bounded input from one shortened by a protein
+#   boundary. Missing limits stay unknown; observed strings cannot supply them.
 # - n_flank, c_flank: some predictors (mhcflurry's antigen_processing,
 #   mhcflurry's pMHC_presentation) take flanking residues as input, so
 #   the same peptide at two different protein contexts produces
@@ -161,7 +166,42 @@ PREDICTION_KEY_COLUMNS = (
     "peptide", "allele", "peptide_length", "kind",
     "n_flank", "c_flank", "allele_set",
     "prediction_flanks_supplied", "prediction_mhc_dependence",
+    "prediction_n_flank_limit", "prediction_c_flank_limit",
 )
+
+
+def prediction_flank_limits(prediction):
+    """Return the declared N/C protein-scan window limits for a prediction.
+
+    Parameters
+    ----------
+    prediction : mapping
+        Optional ``prediction_n_flank_limit`` / ``prediction_c_flank_limit``
+        fields. Each limit is a nonnegative integer; integral numeric values
+        and their CSV spellings are accepted. Missing means unknown, not zero.
+
+    Returns
+    -------
+    tuple of int or None
+        The maximum upstream/downstream context supplied by the original
+        scanner. Zero means that side supplied no residues. Observed strings,
+        source names and coordinates never establish a missing limit. Invalid
+        or negative values raise ValueError.
+    """
+    limits = []
+    for column in ("prediction_n_flank_limit", "prediction_c_flank_limit"):
+        value = prediction.get(column)
+        if not is_stated(value):
+            limits.append(None)
+            continue
+        try:
+            number = Decimal(str(value))
+        except InvalidOperation as error:
+            raise ValueError(f"{column} must be a nonnegative integer or missing") from error
+        if isinstance(value, bool) or not number.is_finite() or number < 0 or number != number.to_integral_value():
+            raise ValueError(f"{column} must be a nonnegative integer or missing")
+        limits.append(int(number))
+    return tuple(limits)
 
 
 def prediction_flanks_match(prediction, *, n_flank=None, c_flank=None):
@@ -522,6 +562,22 @@ class CachedPredictor:
         flags = flags.map(_flank_flag)
         inferred = out.n_flank.ne("") & out.c_flank.ne("")
         out["prediction_flanks_supplied"] = pd.array(flags.where(flags.notna(), inferred.where(inferred)), dtype="boolean")
+        limits = []
+        for n_flank, c_flank, flag, n_limit, c_limit in zip(
+                out.n_flank, out.c_flank, out.prediction_flanks_supplied,
+                out.get("prediction_n_flank_limit", repeat(None, len(out))),
+                out.get("prediction_c_flank_limit", repeat(None, len(out)))):
+            pair = prediction_flank_limits(dict(prediction_n_flank_limit=n_limit,
+                                                prediction_c_flank_limit=c_limit))
+            flag = _flank_flag(flag)
+            for flank, limit in zip((n_flank, c_flank), pair):
+                if limit is not None and flag is not True:
+                    raise ValueError("Protein flank limits require explicitly supplied inference flanks")
+                if limit is not None and len(flank) > limit:
+                    raise ValueError("Stored inference flank exceeds its declared protein window limit")
+            limits.append(pair)
+        for index, column in enumerate(("prediction_n_flank_limit", "prediction_c_flank_limit")):
+            out[column] = pd.array([pair[index] for pair in limits], dtype="Int64")
         modes = out.get("prediction_mhc_dependence", pd.Series(None, index=out.index, dtype=object))
         out["prediction_mhc_dependence"] = modes.map(_dependence_tag).astype("string")
         # allele_set is part of the key for the same reason and gets the
@@ -607,6 +663,8 @@ class CachedPredictor:
         allele_set=None,
         prediction_flanks_supplied=None,
         prediction_mhc_dependence=None,
+        prediction_n_flank_limit=None,
+        prediction_c_flank_limit=None,
     ):
         """Composite cache key from already-extracted row values.
 
@@ -626,6 +684,8 @@ class CachedPredictor:
             _allele_set_key(allele_set),
             _flank_flag(prediction_flanks_supplied),
             _dependence_tag(prediction_mhc_dependence) or "",
+            *prediction_flank_limits(dict(prediction_n_flank_limit=prediction_n_flank_limit,
+                                          prediction_c_flank_limit=prediction_c_flank_limit)),
         )
 
     @classmethod
@@ -665,6 +725,8 @@ class CachedPredictor:
             allele_sets,
             flank_flags,
             modes,
+            df["prediction_n_flank_limit"].to_numpy(copy=False) if "prediction_n_flank_limit" in df else repeat(None, n),
+            df["prediction_c_flank_limit"].to_numpy(copy=False) if "prediction_c_flank_limit" in df else repeat(None, n),
         ):
             yield cls._row_key_from_values(*values)
 
@@ -2030,8 +2092,9 @@ def prediction_matches_protein_context(row, sequence, offset) -> bool:
     row : mapping
         Prediction with a peptide, optional inference flanks and
         ``prediction_flanks_supplied``. False means annotated flanks were not
-        model inputs; True distinguishes known empty termini from unknown legacy
-        context. Legacy nonempty flanks still constrain the occurrence.
+        model inputs; True records explicit inference inputs. Optional
+        ``prediction_n_flank_limit`` / ``prediction_c_flank_limit`` declare the
+        scanner's maximum input windows, including zero for an unused side.
     sequence : str
         Requested original protein sequence. No padding or context is invented.
     offset : int
@@ -2041,8 +2104,12 @@ def prediction_matches_protein_context(row, sequence, offset) -> bool:
     -------
     bool
         True only when the peptide and recorded inference context apply here.
-        Nonempty flanks match bounded upstream/downstream neighbours. Explicit
-        empty inference flanks require the corresponding protein terminus.
+        Declared limits select bounded upstream/downstream neighbours; shorter
+        strings must reach the corresponding protein boundary. Without a limit,
+        a populated flank must match all available context on that side: its
+        length cannot establish whether the old input reached a boundary or a
+        configured limit. Explicit empty flanks require that boundary unless
+        the declared limit is zero.
         Missing legacy flanks are unconstrained, not evidence of a terminus.
         Model/version and MHC scope must be matched separately by the caller.
     """
@@ -2055,33 +2122,24 @@ def prediction_matches_protein_context(row, sequence, offset) -> bool:
     if sequence[offset:offset + length] != peptide:
         return False
     supplied = _flank_flag(row.get("prediction_flanks_supplied"))
+    limits = prediction_flank_limits(row)
     if supplied is False:
         return True
-    cached_n = _flank_key(row.get("n_flank"))
-    cached_c = _flank_key(row.get("c_flank"))
-    if supplied is True:
-        if not all(isinstance(row.get(column), str) for column in ("n_flank", "c_flank")):
+    flanks = tuple(_flank_key(row.get(column)) for column in ("n_flank", "c_flank"))
+    if supplied is True and not all(isinstance(row.get(column), str) for column in ("n_flank", "c_flank")):
+        return False
+    available = (offset, len(sequence) - offset - length)
+    for side, (flank, limit, count) in enumerate(zip(flanks, limits, available)):
+        if supplied is None and not flank:
+            # Missing legacy context does not declare a terminus.
+            continue
+        # Unknown limits cannot justify clipping a longer protein context.
+        expected_length = count if limit is None else min(limit, count)
+        if len(flank) != expected_length:
             return False
-        if not cached_n and offset != 0 or not cached_c and offset + length != len(sequence):
-            return False
-    if not cached_n and not cached_c:
-        return True
-    # Bounded to the cached flank's own length: only that many residues
-    # can ever match it, so slicing and upper-casing the rest of the
-    # sequence -- unbounded in offset for n_flank, in remaining sequence
-    # length for c_flank -- would be pure waste on every (row,
-    # occurrence) pair a large protein scan checks. A slice shorter than
-    # the flank (near a sequence edge) still fails endswith/startswith
-    # correctly, matching the documented "longer than available" case.
-    if cached_n:
-        upstream = str(sequence[max(0, offset - len(cached_n)):offset]).upper()
-        if not upstream.endswith(cached_n):
-            return False
-    if cached_c:
-        downstream = str(
-            sequence[offset + length:offset + length + len(cached_c)]
-        ).upper()
-        if not downstream.startswith(cached_c):
+        observed = (sequence[offset - expected_length:offset] if side == 0
+                    else sequence[offset + length:offset + length + expected_length])
+        if observed.upper() != flank:
             return False
     return True
 
@@ -2149,25 +2207,23 @@ def _raise_on_uncovered_occurrences(
     if not uncovered:
         return
     peptide, allele, kind, allele_set, _mode, name, offset = uncovered[0]
-    # The cache's own uniqueness invariant keys on flanks alongside
-    # (peptide, allele, kind, allele_set), so every stored row under one
-    # coverage key is a genuinely distinct flanking context -- none of
-    # these can be the same pair twice.
+    # Distinct cache keys can share strings but declare different window limits.
     stored_rows = unmatched_context[uncovered[0]]
     contexts = [
         f"n_flank={_flank_key(row.get('n_flank'))!r}, "
-        f"c_flank={_flank_key(row.get('c_flank'))!r}"
+        f"c_flank={_flank_key(row.get('c_flank'))!r}, "
+        f"window_limits={prediction_flank_limits(row)!r}"
         for row in stored_rows
     ]
     contexts_extra = _more_suffix(
         unmatched_counts[uncovered[0]], len(contexts),
     )
     if len(contexts) == 1:
-        context_clause = f"a different flanking context ({contexts[0]})"
+        context_clause = f"an incompatible flanking context ({contexts[0]})"
     else:
         joined = "; ".join(contexts)
         context_clause = (
-            f"different flanking contexts ({joined}){contexts_extra}"
+            f"incompatible flanking contexts ({joined}){contexts_extra}"
         )
     occurrences_extra = _more_suffix(len(uncovered), 1)
     genotype_clause = f" (genotype {allele_set!r})" if allele_set else ""
@@ -2176,8 +2232,9 @@ def _raise_on_uncovered_occurrences(
         f"{offset}, but the only cached {kind!r} prediction(s) for it and "
         f"allele {allele!r}{genotype_clause} were made in {context_clause}, "
         f"so their scores are not predictions about this "
-        f"occurrence{occurrences_extra}.  Re-predict these sequences, or "
-        f"use a cache built without flank context."
+        f"occurrence{occurrences_extra}. Unknown window limits cannot justify "
+        f"clipping longer context. Re-predict these sequences, or supply the "
+        f"original scanner's documented window limits."
     )
 
 

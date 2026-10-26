@@ -1,6 +1,7 @@
 """Validate protein-scan output before using its occurrence predictions."""
 
 from numbers import Integral, Real
+from itertools import repeat
 import math
 from collections.abc import Mapping
 
@@ -9,6 +10,61 @@ import pandas as pd
 
 from .predictor import from_predictions
 from .ranking import format_allele_set, is_stated, prediction_mhc_scope
+
+
+def annotate_protein_prediction_context(predictions, model):
+    """Record the configured scanner window without inferring it from rows.
+
+    Parameters
+    ----------
+    predictions : pandas.DataFrame
+        Fresh output from this model's protein scanner. Existing explicit
+        inference flags are retained. The input frame is not modified.
+    model : predictor
+        A producer exposing ``protein_flank_lengths()`` and
+        ``uses_flanking_sequences``. Legacy producers without that public
+        declaration retain unknown limits; cached producers preserve their
+        original row metadata instead of relabelling it.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Rows with declared N/C window limits on flank-supplied predictions.
+        A returned limit contradicting the configured producer raises
+        ValueError. Explicit peptide-only rows carry no inference window.
+        Empty frames retain the same declared metadata columns.
+    """
+    from .cached import _flank_flag, prediction_flank_limits
+
+    frame = predictions.copy()
+    resolver = getattr(model, "protein_flank_lengths", None)
+    supplied = getattr(model, "uses_flanking_sequences", None)
+    if not callable(resolver) or supplied is None:
+        return frame
+    declared = tuple(resolver())
+    columns = ("prediction_n_flank_limit", "prediction_c_flank_limit")
+    if len(declared) != 2:
+        raise ValueError("protein_flank_lengths must return two nonnegative integers")
+    limits = prediction_flank_limits(dict(zip(columns, declared)))
+    if any(limit is None for limit in limits):
+        raise ValueError("protein_flank_lengths must declare both window limits")
+    flags = frame.get("prediction_flanks_supplied", pd.Series(None, index=frame.index, dtype=object)).map(_flank_flag)
+    flags = flags.where(flags.notna(), bool(supplied))
+    frame["prediction_flanks_supplied"] = pd.array(flags, dtype="boolean")
+    values = []
+    for flag, n_limit, c_limit in zip(
+            frame.prediction_flanks_supplied,
+            frame.get(columns[0], repeat(None, len(frame))),
+            frame.get(columns[1], repeat(None, len(frame)))):
+        expected = limits if flag else (None, None)
+        recorded_limits = prediction_flank_limits(dict(zip(columns, (n_limit, c_limit))))
+        for recorded, limit in zip(recorded_limits, expected):
+            if recorded is not None and recorded != limit:
+                raise ValueError("Returned protein flank limit differs from the configured scanner")
+        values.append(expected)
+    for index, column in enumerate(columns):
+        frame[column] = pd.array([pair[index] for pair in values], dtype="Int64")
+    return frame
 
 
 def validate_protein_predictions(predictions, sequences, model, *, peptide_lengths):
@@ -92,7 +148,7 @@ def validate_protein_predictions(predictions, sequences, model, *, peptide_lengt
         for column in ("peptide_length", "length"):
             if column in row and (isinstance(row[column], bool) or row[column] != len(peptide)):
                 raise ValueError("Protein fallback peptide length disagrees with its sequence")
-    frame = from_predictions(raw)
+    frame = annotate_protein_prediction_context(from_predictions(raw), model)
     frame["allele"] = frame.allele.map(lambda value: mhcgnomes.parse(str(value)).to_string() if is_stated(value) else "")
     actual, records = set(), []
     for row in frame.to_dict("records"):
@@ -147,4 +203,5 @@ def validate_protein_predictions(predictions, sequences, model, *, peptide_lengt
     if actual != expected:
         raise ValueError(f"Protein fallback lacks complete kind/allele/occurrence coverage ({len(expected - actual)} missing)")
     return pd.DataFrame(records, columns=list(dict.fromkeys([*frame.columns, "prediction_mhc_dependence",
-                                                          "prediction_flanks_supplied", "allele_set"])))
+                                                          "prediction_flanks_supplied", "allele_set",
+                                                          "prediction_n_flank_limit", "prediction_c_flank_limit"])))

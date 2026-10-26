@@ -4101,3 +4101,37 @@ def test_protein_context_fallback_changes_filter_decision_and_replays_offline(tm
     pd.testing.assert_frame_equal(frame, replay, check_dtype=False)
     assert len(model.scans) == 1
     assert apply_filter(replay[replay.peptide == PEPTIDE], Affinity.value < 400).source_sequence_name.tolist() == ["original"]
+
+
+def test_boundary_extension_changes_selection_then_replays_after_save(tmp_path):
+    from topiary import Affinity
+    from .test_protein_fallback import PEPTIDE, ProteinModel, filled_cache
+    model = ProteinModel()
+    model.flank_length = 5
+    cache, model = filled_cache(model)
+    proteins = {"original": "MA" + PEPTIDE + "GG", "extended": "WWMA" + PEPTIDE + "GG"}
+    frame = TopiaryPredictor(models=cache).predict_from_named_sequences(proteins)
+    target = frame[frame.peptide == PEPTIDE]
+    assert target.set_index("source_sequence_name").value.to_dict() == {"original": 384., "extended": 558.}
+    assert apply_filter(target, Affinity.value < 400).source_sequence_name.tolist() == ["original"]
+    path = tmp_path / "boundary.tsv"
+    cache.save(path)
+    replay = TopiaryPredictor(models=CachedPredictor.from_topiary_output(path)).predict_from_named_sequences(proteins)
+    pd.testing.assert_frame_equal(frame, replay, check_dtype=False)
+    assert apply_filter(replay[replay.peptide == PEPTIDE], Affinity.value < 400).source_sequence_name.tolist() == ["original"]
+
+
+def test_mixed_scanner_windows_compose_with_source_filtering_before_and_after_widening():
+    from topiary import Affinity, combine_sources
+    from .test_scan_context_serialization import mixed_scan
+    from .test_twin_conformance import PROTEIN_SCAN_REPLAY_TWINS
+    from .test_protein_fallback import PEPTIDE
+
+    frame, _ = mixed_scan()
+    for replay in PROTEIN_SCAN_REPLAY_TWINS:
+        combined = combine_sources({"scan": replay(frame)}, sample_name="sample")
+        target = combined.long_df[combined.long_df.peptide == PEPTIDE]
+        original = target[target.source_sequence_name == "original"]
+        assert original.source_observation_id.nunique() == 1
+        selected = apply_filter(target, (Affinity["window2"].value < 400) & (Affinity["window5"].value < 400))
+        assert selected.source_sequence_name.tolist() == ["original", "original"]

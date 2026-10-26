@@ -63,7 +63,7 @@ def test_reporting_preserves_protein_context_and_skips_whole_affected_sequence()
         result = predictor.predict_from_named_sequences({"covered": covered, "wrong_flanks": mismatched})
     expected = TopiaryPredictor(models=[model]).predict_from_named_sequences({"covered": covered})
     pd.testing.assert_frame_equal(result, expected)
-    assert "different flanking context" in failures[0]["message"]
+    assert "incompatible flanking context" in failures[0]["message"]
     assert failures[0]["source_sequence_name"] == "wrong_flanks"
 
 
