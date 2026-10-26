@@ -4101,3 +4101,21 @@ def test_protein_context_fallback_changes_filter_decision_and_replays_offline(tm
     pd.testing.assert_frame_equal(frame, replay, check_dtype=False)
     assert len(model.scans) == 1
     assert apply_filter(replay[replay.peptide == PEPTIDE], Affinity.value < 400).source_sequence_name.tolist() == ["original"]
+
+
+def test_boundary_extension_changes_selection_then_replays_after_save(tmp_path):
+    from topiary import Affinity
+    from .test_protein_fallback import PEPTIDE, ProteinModel, filled_cache
+    model = ProteinModel()
+    model.flank_length = 5
+    cache, model = filled_cache(model)
+    proteins = {"original": "MA" + PEPTIDE + "GG", "extended": "WWMA" + PEPTIDE + "GG"}
+    frame = TopiaryPredictor(models=cache).predict_from_named_sequences(proteins)
+    target = frame[frame.peptide == PEPTIDE]
+    assert target.set_index("source_sequence_name").value.to_dict() == {"original": 384., "extended": 558.}
+    assert apply_filter(target, Affinity.value < 400).source_sequence_name.tolist() == ["original"]
+    path = tmp_path / "boundary.tsv"
+    cache.save(path)
+    replay = TopiaryPredictor(models=CachedPredictor.from_topiary_output(path)).predict_from_named_sequences(proteins)
+    pd.testing.assert_frame_equal(frame, replay, check_dtype=False)
+    assert apply_filter(replay[replay.peptide == PEPTIDE], Affinity.value < 400).source_sequence_name.tolist() == ["original"]

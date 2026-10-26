@@ -1,6 +1,6 @@
 numpy>=2.0.0,<3.0.0
 pandas>=3,<4
-mhctools>=4.3.0
+mhctools>=4.5.0
 varcode>=4.18.0
 gtfparse>=3.0.2,<4.0.0
 mhcgnomes>=3.4.0

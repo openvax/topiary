@@ -36,7 +36,7 @@ jobs:
           python-version: "3.12"
       - name: Install the released downstream consumer
         run: |
-          bash scripts/pip_install.sh pytest 'vaxrank==3.46.13' -e .
+          bash scripts/pip_install.sh pytest 'vaxrank==3.46.15' -e .
           python -m pip check
       - name: Verify table features through DSL scoring and vaccine construction
         run: python -m pytest scripts/check_vaxrank_candidates.py -q

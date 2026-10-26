@@ -7,6 +7,18 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.98.0
+
+- Preserve declared protein-scan flank window limits in cache identity and
+  persistence. Boundary-shortened nonempty flanks no longer reuse scores when
+  the protein gains additional context (#517).
+- Resolve windows through mhctools 4.5.0's public `protein_flank_lengths()` API.
+  Honor zero-sided windows and retain unknown limits in legacy files; ambiguous
+  legacy matches require re-prediction or documented original limits.
+- Expose `prediction_flank_limits` and `annotate_protein_prediction_context`;
+  keep exact peptide input matching independent of scan-window generation.
+- Verify downstream workflows with Vaxrank 3.46.15.
+
 ## 5.97.0
 
 - Fill cached protein-scan context misses through a compatible fallback's

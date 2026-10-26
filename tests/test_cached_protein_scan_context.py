@@ -238,7 +238,7 @@ def test_flankless_cache_rows_apply_at_any_occurrence():
     assert (out["source_sequence_name"] == "prot").all()
 
 
-def _flanked_cache(*proteins, n_flank, c_flank):
+def _flanked_cache(*proteins, n_flank, c_flank, **context):
     """Cache covering every window of *proteins*, PEPTIDE's row flanked.
 
     Every protein a test scans has to be covered, or the scan misses on
@@ -250,7 +250,7 @@ def _flanked_cache(*proteins, n_flank, c_flank):
         for offset in range(len(protein) - 9 + 1):
             peptide = protein[offset:offset + 9]
             rows[peptide] = _row(peptide)
-    rows[PEPTIDE] = _row(PEPTIDE, n_flank=n_flank, c_flank=c_flank)
+    rows[PEPTIDE] = _row(PEPTIDE, n_flank=n_flank, c_flank=c_flank, **context)
     return CachedPredictor.from_dataframe(pd.DataFrame(list(rows.values())))
 
 
@@ -277,7 +277,7 @@ def test_flanked_row_is_not_reused_at_a_differently_flanked_occurrence():
         cached_protein, other, n_flank="MA", c_flank="GG",
     )
 
-    with pytest.raises(KeyError, match="different flanking context"):
+    with pytest.raises(KeyError, match="incompatible flanking context"):
         cache.predict_proteins_dataframe({"other": other})
 
 
@@ -299,11 +299,12 @@ def test_flank_mismatch_error_names_the_occurrence_and_the_stored_context():
 
 
 def test_a_shorter_stored_flank_matches_the_tail_of_the_real_context():
-    # Predictors store a bounded number of flanking residues, so a
-    # one-residue stored flank is the tail of what really precedes the
-    # peptide, not a claim that nothing else does.
+    # This producer declares a one-residue window. Its complete stored
+    # flank can therefore match within a longer protein; the declaration,
+    # rather than the observed string length, establishes that limit.
     protein = "WMA" + PEPTIDE + "GGT"
-    cache = _flanked_cache(protein, n_flank="A", c_flank="G")
+    cache = _flanked_cache(protein, n_flank="A", c_flank="G",
+                           prediction_n_flank_limit=1, prediction_c_flank_limit=1)
 
     out = cache.predict_proteins_dataframe({"prot": protein})
 
@@ -314,7 +315,7 @@ def test_a_stored_flank_longer_than_the_sequence_provides_does_not_apply():
     protein = "A" + PEPTIDE + "G"
     cache = _flanked_cache(protein, n_flank="MMMA", c_flank="G")
 
-    with pytest.raises(KeyError, match="different flanking context"):
+    with pytest.raises(KeyError, match="incompatible flanking context"):
         cache.predict_proteins_dataframe({"prot": protein})
 
 
@@ -374,7 +375,7 @@ def test_a_kind_that_applies_does_not_vouch_for_one_that_does_not():
         n_flank="WW", c_flank="CC",
     )
 
-    with pytest.raises(KeyError, match="different flanking context"):
+    with pytest.raises(KeyError, match="incompatible flanking context"):
         cache.predict_proteins_dataframe({"prot": protein})
 
 
@@ -513,7 +514,7 @@ def test_a_genotype_that_applies_does_not_vouch_for_one_that_does_not():
         covered_flank=("MA", "GG"), uncovered_flank=("WW", "CC"),
     )
 
-    with pytest.raises(KeyError, match="different flanking context"):
+    with pytest.raises(KeyError, match="incompatible flanking context"):
         cache.predict_proteins_dataframe({"prot": protein})
 
 
@@ -648,7 +649,7 @@ def test_a_single_mismatched_context_keeps_the_singular_wording():
         n_flank="MA", c_flank="GG",
     )
 
-    with pytest.raises(KeyError, match=r"a different flanking context \("):
+    with pytest.raises(KeyError, match=r"an incompatible flanking context \("):
         cache.predict_proteins_dataframe({"prot": protein})
 
 
