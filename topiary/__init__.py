@@ -206,7 +206,7 @@ from .result import (
     combine_predictions,
 )
 from .prediction_columns import PredictionMetric, parse_prediction_metric
-from .wide import detect_form, from_wide, to_wide
+from .wide import detect_form, from_wide, to_wide, PROTEIN_SCAN_METADATA_COLUMNS
 from .amino_acids import (
     AMINO_ACIDS,
     AMINO_ACID_INDEX,
@@ -221,6 +221,7 @@ from .amino_acids import (
 __version__ = "5.98.0"
 
 __all__ = [
+    "PROTEIN_SCAN_METADATA_COLUMNS",
     "prediction_flank_limits",
     "annotate_protein_prediction_context",
     "prediction_matches_protein_context",

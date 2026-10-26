@@ -17,6 +17,9 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   legacy matches require re-prediction or documented original limits.
 - Expose `prediction_flank_limits` and `annotate_protein_prediction_context`;
   keep exact peptide input matching independent of scan-window generation.
+- Preserve scanner declarations per model/kind in wide output and record
+  measurement presence, preventing invented rows with another model's limits.
+  Keep mixed-model source filtering consistent through replay (#519).
 - Verify downstream workflows with Vaxrank 3.46.15.
 
 ## 5.97.0

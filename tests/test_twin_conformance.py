@@ -1795,3 +1795,10 @@ PROTEIN_SCAN_PRODUCER_TWINS = (
     lambda model, proteins: TopiaryPredictor(models=model).predict_from_named_sequences(proteins),
     lambda model, proteins: CachedPredictor(fallback=model).predict_proteins_dataframe(proteins),
 )
+
+
+# Serialization must preserve each producer's inference inputs and row presence.
+PROTEIN_SCAN_REPLAY_TWINS = (
+    lambda frame: frame.copy(),
+    lambda frame: TopiaryResult(frame).to_wide().long_df,
+)

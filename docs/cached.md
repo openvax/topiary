@@ -499,7 +499,16 @@ protein scanning; exact peptide queries continue to compare explicit input
 strings without clipping them.
 
 Both limits are nullable integers and participate in cache identity and
-CSV/TSV/Parquet persistence. Legacy files retain unknown limits. A populated
+CSV/TSV/Parquet persistence. Wide output stores these declarations and the
+flank-supplied flag under each model/kind prefix (for example,
+`mhcflurry_affinity_n_flank_limit` and `mhcflurry_affinity_flanks_supplied`).
+A corresponding `*_present` column records which measurements actually existed,
+including rows with missing scores. Reading wide output restores each model's
+own declarations; legacy flat metadata columns remain readable. Conflicting
+input policies for one model/kind slot require long form or separate exports.
+Combined-source observations retain their source/flank identity while these
+model-specific declarations accompany their measurements.
+`PROTEIN_SCAN_METADATA_COLUMNS` lists the three declaration fields. Legacy files retain unknown limits. A populated
 legacy flank must match all available context on that side; a cache cannot
 safely use its length to clip a longer protein. Such a query needs a compatible
 fallback, a regenerated cache, or limits supplied from the original scanner's
