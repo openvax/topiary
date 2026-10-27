@@ -13,7 +13,8 @@
     "source/bam.receipt.json": "f03c7405efa9eb794dd3a917384bacb2cf0f7a160b3ec72bc350f790204c3abf",
     "source/vafs-columns.tsv": "935507a2cf33688243b92285e5107c6e814aee635c5ce5f8963f2b8f3ec0535f",
     "source/vafs.tsv.gz": "c20330f27e7bf182db4185d67b41ca75cf6825211b2abe572ccebf1e80d3c82d",
-    "source/variants.html.gz": "625e302b77f651919baa344045943296545a37bd057408dbdead7109ec4d9e3f"
+    "source/variants.html.gz": "625e302b77f651919baa344045943296545a37bd057408dbdead7109ec4d9e3f",
+    "deletion-label-replay.json": "c97c757d6ba12abfe2b51b08cd3efefa12796f0daf650750d7678812439b30a5"
   },
   "sample": "January 2025 UCLA resection (T2); public collection-label pairing",
   "scope": "All 182 website entries plus two additional exact indels; T2 STAR RNA only"

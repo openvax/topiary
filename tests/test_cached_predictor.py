@@ -1209,20 +1209,11 @@ class TestMultiAlleleFixtures:
 
 
 # ---------------------------------------------------------------------------
-# value-from-score backfill (issue #165) for cached.py helpers
+# Score-only values and unit-aware conversion (issue #521)
 # ---------------------------------------------------------------------------
 
 
-class _Stub:
-    """Minimal duck-typed stand-in for mhctools BindingPrediction /
-    Prediction objects, just enough for the conversion helpers."""
-
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-
-def test_bindings_to_dataframe_backfills_presentation_value():
+def test_bindings_to_dataframe_preserves_score_only_presentation():
     from mhctools import BindingPrediction
     from topiary.cached import _bindings_to_dataframe
 
@@ -1234,7 +1225,7 @@ def test_bindings_to_dataframe_backfills_presentation_value():
         ),
     ]
     df = _bindings_to_dataframe(preds, kind="pMHC_presentation")
-    assert df.iloc[0]["value"] == 0.42
+    assert pd.isna(df.iloc[0]["value"])
     assert df.iloc[0]["score"] == 0.42
 
 
@@ -1254,16 +1245,17 @@ def test_bindings_to_dataframe_preserves_affinity_unit():
     assert df.iloc[0]["affinity"] == 120.0
 
 
-def test_predictions_to_dataframe_backfills_presentation_value():
+def test_predictions_to_dataframe_preserves_typed_quantities():
+    from mhctools import Prediction
     from topiary.cached import _predictions_to_dataframe
 
     preds = [
-        _Stub(
+        Prediction(
             peptide="SIINFEKL", allele="HLA-A*02:01", kind="pMHC_presentation",
             score=0.33, value=None, percentile_rank=3.0,
             source_sequence_name=None, offset=0, n_flank="", c_flank="",
         ),
-        _Stub(
+        Prediction(
             peptide="SIINFEKL", allele="HLA-A*02:01", kind="pMHC_affinity",
             score=0.8, value=120.0, percentile_rank=0.5,
             source_sequence_name=None, offset=0, n_flank="", c_flank="",
@@ -1272,6 +1264,9 @@ def test_predictions_to_dataframe_backfills_presentation_value():
     df = _predictions_to_dataframe(preds)
     pres = df[df["kind"] == "pMHC_presentation"].iloc[0]
     aff = df[df["kind"] == "pMHC_affinity"].iloc[0]
-    assert pres["value"] == 0.33
+    assert pd.isna(pres["value"])
+    assert pres["score"] == 0.33
+    assert pres["measurement_context"]["unit"] is None
+    assert aff["measurement_context"]["unit"] == "nM"
     assert aff["value"] == 120.0
     assert aff["affinity"] == 120.0

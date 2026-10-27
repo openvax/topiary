@@ -43,7 +43,7 @@ import pandas as pd
 import mhcgnomes
 
 from .io import _float_precision_kwargs
-from .predictor import _backfill_value_from_score
+from .predictor import from_predictions
 from .wide import _group_token
 from .ranking import (
     KIND_MHC_DEPENDENCE, is_stated, stated_values, mhc_dependence,
@@ -1741,7 +1741,7 @@ class CachedPredictor:
                 f"from {sorted(parsers)}."
             )
         text = _read_text(path)
-        preds = parsers[version](text)
+        preds = parsers[version](text, prediction_method_name="netmhc")
         if predictor_version is None:
             predictor_version = _version_from_header(text) or version
         return cls.from_dataframe(
@@ -2261,24 +2261,7 @@ def _predictions_to_dataframe(preds) -> pd.DataFrame:
     naturally produces affinity + presentation rows interleaved.
     ``n_flank`` / ``c_flank`` are carried through when present.
     """
-    rows = [
-        {
-            "peptide": p.peptide,
-            "allele": p.allele,
-            "peptide_length": len(p.peptide),
-            "kind": str(p.kind),
-            "score": p.score,
-            "affinity": getattr(p, "value", None) if p.kind == "pMHC_affinity" else None,
-            "percentile_rank": p.percentile_rank,
-            "value": p.value,
-            "source_sequence_name": getattr(p, "source_sequence_name", None),
-            "peptide_offset": getattr(p, "offset", None),
-            "n_flank": getattr(p, "n_flank", None),
-            "c_flank": getattr(p, "c_flank", None),
-        }
-        for p in preds
-    ]
-    return _backfill_value_from_score(pd.DataFrame(rows))
+    return from_predictions(preds)
 
 
 # NetMHC-family tools embed their version in the stdout preamble,

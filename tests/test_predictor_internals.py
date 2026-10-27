@@ -139,10 +139,10 @@ def test_format_empty_df():
     assert len(result) == 0
 
 
-def test_format_value_backfilled_from_score_when_nan():
+def test_format_preserves_missing_value_on_score_only_prediction():
     df = _raw_df(kind="pMHC_presentation", value=np.nan, score=0.42)
     result = _make_predictor()._format_prediction_df(df)
-    assert result.iloc[0]["value"] == 0.42
+    assert pd.isna(result.iloc[0]["value"])
     assert result.iloc[0]["score"] == 0.42
     assert np.isnan(result.iloc[0]["affinity"])
 
@@ -154,7 +154,7 @@ def test_format_value_preserved_when_already_set():
     assert result.iloc[0]["affinity"] == 120.0
 
 
-def test_format_value_backfill_mixed_kinds():
+def test_format_preserves_value_semantics_for_mixed_kinds():
     df = pd.DataFrame([
         dict(
             peptide="SIINFEKL", allele="HLA-A*02:01", kind="pMHC_affinity",
@@ -172,7 +172,7 @@ def test_format_value_backfill_mixed_kinds():
     pres = result[result["kind"] == "pMHC_presentation"].iloc[0]
     assert aff["value"] == 120.0
     assert aff["affinity"] == 120.0
-    assert pres["value"] == 0.42
+    assert pd.isna(pres["value"])
     assert np.isnan(pres["affinity"])
 
 
@@ -246,9 +246,9 @@ class _ToyVersionModel:
         return df
 
 
-def test_end_to_end_presentation_value_populated():
+def test_end_to_end_presentation_score_preserved_without_value():
     # Public-API check: presentation rows produced through
-    # predict_from_named_sequences must report value == score (not NaN),
+    # predict_from_named_sequences must preserve a missing value,
     # while affinity rows keep IC50 in value/affinity.
     model = _AffinityPlusPresentationModel(alleles=["HLA-A*02:01"])
     predictor = TopiaryPredictor(models=[model])
@@ -257,8 +257,8 @@ def test_end_to_end_presentation_value_populated():
     aff = df[df["kind"] == "pMHC_affinity"]
     assert not pres.empty
     assert not aff.empty
-    assert not pres["value"].isna().any()
-    assert (pres["value"] == pres["score"]).all()
+    assert pres["value"].isna().all()
+    assert pres["score"].eq(0.7).all()
     assert pres["affinity"].isna().all()
     assert not aff["value"].isna().any()
     assert (aff["value"] == aff["affinity"]).all()

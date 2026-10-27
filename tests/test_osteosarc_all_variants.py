@@ -30,6 +30,40 @@ def pinned_outcomes():
     return {r["input"]["variant_id"]: r for r in json.loads((ROOT / "expected.json").read_text())}
 
 
+@lru_cache(maxsize=None)
+def deletion_label_replay():
+    return json.loads((ROOT / "deletion-label-replay.json").read_text())
+
+
+def pinned_rna_outcome(variant_id, varcode_version):
+    """Keep historical biology, choosing the documented annotation vocabulary."""
+    from packaging.version import Version
+
+    expected = dict(pinned_outcomes()[variant_id]["rna"])
+    expected["transcript_ids"] = sorted(expected["transcript_ids"])
+    if Version(varcode_version) >= Version("10.21.2"):
+        for change in deletion_label_replay()["changes"]:
+            if change["variant_id"] == variant_id:
+                assert expected["predicted_effect"] == change["before"]
+                field = "after" if Version(varcode_version) >= Version("10.21.3") else "range"
+                expected["predicted_effect"] = change[field]
+    return expected
+
+
+@pytest.mark.parametrize("varcode_version,field", [
+    ("10.17.3", "before"), ("10.21.1", "before"),
+    ("10.21.2", "range"), ("10.21.3", "after"), ("10.22.0", "after"),
+])
+def test_pinned_deletion_vocabularies_preserve_every_other_field(varcode_version, field):
+    for change in deletion_label_replay()["changes"]:
+        expected = pinned_rna_outcome(change["variant_id"], varcode_version)
+        assert expected["predicted_effect"] == change[field]
+        historical = dict(pinned_outcomes()[change["variant_id"]]["rna"])
+        historical["transcript_ids"] = sorted(historical["transcript_ids"])
+        assert {k: v for k, v in expected.items() if k != "predicted_effect"} == {
+            k: v for k, v in historical.items() if k != "predicted_effect"}
+
+
 @pytest.fixture(scope="module")
 def all_variant_reference(tmp_path_factory):
     from .osteosarc_all_helpers import reference_models
@@ -121,6 +155,7 @@ def test_the_translation_oracle_places_edits_by_varcodes_convention(strand, exon
 def test_every_literal_allele_has_a_checked_rna_and_consumer_outcome(entry, all_variant_reference, tmp_path):
     import isovar
     import pysam
+    from importlib.metadata import version
     from mhctools import RandomBindingPredictor
     from topiary import (
         TopiaryPredictor, fragments_from_variants,
@@ -151,11 +186,10 @@ def test_every_literal_allele_has_a_checked_rna_and_consumer_outcome(entry, all_
     # installed release can legitimately change them; say so rather than
     # letting an upstream change read as a Topiary regression.
     run = json.loads((ROOT / "run.json").read_text())
-    pinned = pinned_outcomes()[entry["variant_id"]]["rna"]
-    # Supporting transcripts are an unordered set upstream; outcomes sort them.
-    assert observed == dict(pinned, transcript_ids=sorted(pinned["transcript_ids"])), (
+    pinned = pinned_rna_outcome(entry["variant_id"], version("varcode"))
+    assert observed == pinned, (
         f"Differs from the outcome pinned with Isovar {run['isovar_version']} (installed "
-        f"{isovar.__version__}). If the installed release changed this evidence, re-run the "
+        f"{isovar.__version__}, Varcode {version('varcode')}). If the installed release changed this evidence, re-run the "
         "audit and re-pin; otherwise Topiary regressed.")
     validate_rna_protein(result, models)
     # Both doors receive the SAME policy, including the normal result filters.

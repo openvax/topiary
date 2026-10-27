@@ -4135,3 +4135,34 @@ def test_mixed_scanner_windows_compose_with_source_filtering_before_and_after_wi
         assert original.source_observation_id.nunique() == 1
         selected = apply_filter(target, (Affinity["window2"].value < 400) & (Affinity["window5"].value < 400))
         assert selected.source_sequence_name.tolist() == ["original", "original"]
+
+
+def test_netmhcpan_cache_import_and_replay_preserve_score_only_units(tmp_path):
+    """A real tool-output import must survive table replay and typed consumption."""
+    from mhctools import Prediction
+    from topiary import read_tsv, to_tsv
+    from .test_cached_predictor import _FIXTURE_DIR
+
+    cache = CachedPredictor.from_netmhcpan_stdout(
+        _FIXTURE_DIR / 'netmhcpan_41_SLLQHLIGL.out')
+    frame = cache.predict_dataframe(['SLLQHLIGL'])
+    path = tmp_path / 'netmhcpan.tsv'
+    to_tsv(frame, path)
+    restored = read_tsv(path).df
+    for table in [frame, restored]:
+        kinds = set()
+        for row in table.itertuples():
+            prediction = Prediction(
+                kind=row.kind, peptide=row.peptide, allele=row.allele,
+                value=None if pd.isna(row.value) else row.value, score=row.score,
+                percentile_rank=row.percentile_rank,
+                measurement_context=row.measurement_context,
+                predictor_name=row.prediction_method_name, predictor_version=row.predictor_version)
+            kinds.add(prediction.kind)
+            if prediction.kind == 'pMHC_presentation':
+                assert prediction.value is None
+                assert prediction.score is not None
+                assert prediction.measurement_context.unit is None
+            else:
+                assert prediction.measurement_context.unit == 'nM'
+        assert kinds == {'pMHC_affinity', 'pMHC_presentation'}

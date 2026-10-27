@@ -1,0 +1,63 @@
+{
+  "dependency_versions": {
+    "isovar": "1.62.0",
+    "varcode": "10.22.0",
+    "pyensembl": "2.32.3",
+    "pysam": "0.24.1"
+  },
+  "entries_checked": 174,
+  "historical_run_sha256": "5260ecd5e698d7cd20a53784d84ee5675b935c383704d30d7694710b6833e587",
+  "historical_expected_sha256": "2228645766d20930e12063bed559e73604369a4a9d2b050b0b95411fb3e22bcc",
+  "exported_bam_sha256": "212e2e95b9070e68ceaf0baec8d261bc6e3b3f52a83ca4b2e06ec0548289e900",
+  "historical_bam_sha256": "1787492e8a67f214711f5fe0a8f79bd6e3442e48e7b3a9ebfebb520e87037e0c",
+  "sam_records_sha256": "c9bb1eccafa90d304c5485cfb11928303da050d3a76d06993fda89341335f0e1",
+  "selected_records": 55610,
+  "bundle": "openvax-v1",
+  "reference_sha256": "cd74762f076032480d7c600ca2064aeeb1d8d87ba9ee730465544b3e786a2647",
+  "inventory_sha256": "e61c71dda2e6d390e579de8d475f1f072d832badb06ad185a18a20be03e8526e",
+  "observations_sha256": "fcd6763054663b68500792f42438afa759625fd03a78f673ebda2af7f362d9c3",
+  "collection_policy": {
+    "use_secondary_alignments": false,
+    "use_duplicate_reads": false,
+    "min_mapping_quality": 20,
+    "use_soft_clipped_bases": false,
+    "merge_overlapping_fragments": true
+  },
+  "protein_context_peptide_length": 25,
+  "variant_sequence_assembly": true,
+  "changes": [
+    {
+      "variant_id": "GTF3C5-chr9-133057893",
+      "before": "p.EEEE502del",
+      "after": "p.EEEE503del",
+      "range": "p.E503_E506del"
+    },
+    {
+      "variant_id": "H1_2-chr6-26055824",
+      "before": "p.AAKPK196del",
+      "after": "p.AAKPK197del",
+      "range": "p.A197_K201del"
+    },
+    {
+      "variant_id": "NNT-chr5-43612993",
+      "before": "p.NLVKQ80del",
+      "after": "p.NLVKQ81del",
+      "range": "p.N81_Q85del"
+    },
+    {
+      "variant_id": "RNF213-chr17-80327830",
+      "before": "p.L1119del",
+      "after": "p.L1120del",
+      "range": "p.L1120del"
+    }
+  ],
+  "checks": [
+    "all other RNA/outcome fields identical",
+    "independent raw-reference RNA translation and edit-interval oracle"
+  ],
+  "scope": "Published openvax-v1 selected records; exported BAM bytes differ from the historical source file. Original selected SAM record multiplicities were verified.",
+  "annotation_changes": [
+    "https://github.com/openvax/varcode/pull/644",
+    "https://github.com/openvax/varcode/pull/647"
+  ]
+}
