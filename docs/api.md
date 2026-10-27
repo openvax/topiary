@@ -438,6 +438,9 @@ df = from_predictions(
 
 It renames to topiary's column vocabulary, fills the context columns a producer may not have set, derives `peptide_length`, and backfills `affinity` for affinity rows — the same normalization `TopiaryPredictor` applies to its own output, so both paths produce one long form. A hand-written builder is a copy of that schema topiary can't see and can't migrate: a column added here never reaches it.
 
+`value` remains absent for score-only outputs such as presentation and processing. Read their `score` or percentile rank (`presentation.score`, `presentation.rank` in the DSL); Topiary does not copy a score into a quantitative value or invent a measurement unit. Supplied values and their measurement context are preserved. This applies equally to live predictions, `from_predictions`, cached tool-output imports and replay. Missing values remain missing through the typed CSV/TSV codec; they are not zero.
+
+
 ## Filter expressions
 
 | Expression | Creates |

@@ -59,35 +59,6 @@ _MODEL_KEY_COLUMN = "_topiary_model_key"
 _WT_OFFSET_COLUMN = "_topiary_wt_peptide_offset"
 
 
-def _backfill_value_from_score(df):
-    """Populate ``value`` from ``score`` for kinds whose primary output
-    *is* the [0, 1] score (presentation, antigen_processing, ...).
-
-    mhctools sets ``value`` only when the kind has a distinct unit
-    (IC50 nM for affinity, half-life for stability — anything in
-    ``mhctools.VALUE_BEST_DIRECTIONS``). For other kinds it leaves
-    ``value=None``, which arrives as ``NaN`` in the DataFrame and trips
-    downstream consumers reading ``value`` uniformly: strict
-    ``simplejson.dumps`` rejects NaN, ``sorted()`` is undefined on it,
-    and arithmetic silently propagates. Unit-bearing kinds are
-    intentionally left alone: a NaN ``value`` there means the unit is
-    genuinely unknown, not "fall back to the score". Foreignness is also
-    score-only: its versioned category policy defines no physical value.
-
-    Mutates ``df`` in place and returns it for chaining.
-    """
-    if df.empty or "value" not in df.columns or "score" not in df.columns:
-        return df
-    if "kind" not in df.columns:
-        return df
-    from mhctools import Kind, VALUE_BEST_DIRECTIONS
-    preserve_value_kinds = set(VALUE_BEST_DIRECTIONS) | {Kind.foreignness}
-    needs_backfill = df["value"].isna() & ~df["kind"].isin(preserve_value_kinds)
-    if needs_backfill.any():
-        df.loc[needs_backfill, "value"] = df.loc[needs_backfill, "score"]
-    return df
-
-
 def _unique_model_keys(models):
     """Readable, unique internal names for configured model instances."""
     bases = []
@@ -597,7 +568,7 @@ def _normalize_prediction_frame(df):
         df["affinity"] = np.where(
             df["kind"] == "pMHC_affinity", df["value"], np.nan
         )
-    return _backfill_value_from_score(df)
+    return df
 
 
 def from_predictions(predictions, *, sample_name="", allele_set=None,

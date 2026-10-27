@@ -1802,3 +1802,31 @@ PROTEIN_SCAN_REPLAY_TWINS = (
     lambda frame: frame.copy(),
     lambda frame: TopiaryResult(frame).to_wide().long_df,
 )
+
+
+@pytest.mark.parametrize('kind,allele,value,score', [
+    ('pMHC_presentation', 'HLA-A*02:01', None, 0.42),
+    ('antigen_processing', '', None, 0.63),
+    ('pMHC_affinity', 'HLA-A*02:01', 120.0, 0.8),
+])
+def test_prediction_schema_doors_preserve_typed_measurements(kind, allele, value, score):
+    """A score-only output must remain reconstructible as the producer's type."""
+    from mhctools import Prediction
+
+    original = Prediction(kind=kind, peptide='SIINFEKLA', allele=allele,
+                          value=value, score=score, percentile_rank=2.0,
+                          predictor_name='test', predictor_version='1',
+                          source_sequence_name='query', offset=0)
+    raw = pd.DataFrame([original.to_row()])
+    for door in PREDICTION_SCHEMA_TWINS:
+        frame = door(raw)
+        row = frame.iloc[0]
+        restored = Prediction(
+            kind=row.kind, peptide=row.peptide, allele=row.allele,
+            value=None if pd.isna(row.value) else row.value, score=row.score,
+            percentile_rank=row.percentile_rank,
+            measurement_context=row.measurement_context,
+            predictor_name=row.prediction_method_name, predictor_version=row.predictor_version,
+            source_sequence_name=row.source_sequence_name, offset=int(row.peptide_offset))
+        assert restored == original
+        assert pd.isna(row.value) if value is None else row.value == value
