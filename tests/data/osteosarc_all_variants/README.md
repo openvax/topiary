@@ -30,3 +30,15 @@ For scope, outcomes, limitations and the other original-read indel/fusion
 fixtures, see `docs/osteosarc-variant-outcomes.md` and
 `docs/osteosarc-rna-audit.md`. No result here pools samples or declares a peptide
 clinically suitable. Source: https://osteosarc.com/variants/.
+
+The historical `expected.json` and `run.json` remain unchanged.
+`deletion-label-replay.json` records a complete 174-allele replay with Isovar
+1.62.0 and Varcode 10.22.0, checking the published selected-read multiset and
+independent raw-reference translation oracle. Only four annotation labels
+changed: Varcode 10.21.2 corrected one-based deletion positions and used endpoint
+notation; 10.21.3 restored full-sequence notation while retaining the correction
+([#644](https://github.com/openvax/varcode/pull/644),
+[#647](https://github.com/openvax/varcode/pull/647)). Tests select those recorded
+label vocabularies by Varcode version and still compare every other RNA, filter,
+sequence and interval field exactly. `replay_deletion_labels.py NEW_OUTPUT_DIR`
+reproduces the comparison without rewriting the historical evidence.
