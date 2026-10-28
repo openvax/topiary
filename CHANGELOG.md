@@ -7,6 +7,14 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.100.1
+
+- Define `logistic_normalized` as value-at-zero normalization for nonnegative,
+  lower-is-better inputs, correcting inaccurate range, asymptote and midpoint
+  documentation without changing Vaxrank-compatible scoring behavior (#474).
+- Verify the same mathematical contract through the Python API and parsed
+  string DSL.
+
 ## 5.100.0
 
 - Distinguish Isovar's resolved RNA-protein mutation interval from its
