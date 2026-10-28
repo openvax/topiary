@@ -3466,6 +3466,49 @@ def test_reported_wt_peptides_reach_optional_wt_predictions(tmp_path):
         assert rows.wt_value.notna().all()
 
 
+def test_length_changing_variants_use_nearest_self_not_an_invented_wt():
+    from topiary import SelfProteome
+
+    fragments = [
+        ProteinFragment(
+            fragment_id="substitution",
+            source_type="variant:substitution",
+            sequence="SIINFEKLK",
+            reference_sequence="SIINFEKLA",
+            target_intervals=[(8, 9)],
+        ),
+        ProteinFragment(
+            fragment_id="insertion",
+            source_type="variant:insertion",
+            sequence="ACDEFGHIK",
+            reference_sequence="ACDEFGHI",
+            target_intervals=[(8, 9)],
+        ),
+    ]
+    model = RandomBindingPredictor(
+        alleles=["HLA-A*02:01"], default_peptide_lengths=[9],
+    )
+    self_proteome = SelfProteome.from_peptides(
+        {"healthy-self": "ACDEFGHIA"}, peptide_lengths=[9],
+    )
+
+    rows = TopiaryPredictor(
+        models=model,
+        predict_wt=True,
+        self_proteome=self_proteome,
+        predict_self_nearest=True,
+        only_novel_epitopes=True,
+    ).predict_from_fragments(fragments).set_index("fragment_id")
+
+    assert rows.loc["substitution", "wt_peptide"] == "SIINFEKLA"
+    assert pd.notna(rows.loc["substitution", "wt_value"])
+    assert pd.isna(rows.loc["insertion", "wt_peptide"])
+    assert pd.isna(rows.loc["insertion", "wt_value"])
+    assert rows.loc["insertion", "self_nearest_peptide"] == "ACDEFGHIA"
+    assert rows.loc["insertion", "self_nearest_edit_distance"] == 1
+    assert pd.notna(rows.loc["insertion", "self_nearest_value"])
+
+
 def test_cache_miss_reporting_preserves_fragment_targets_and_separates_wt_failures():
     from topiary import CachedPredictorCoverageError, PartialPredictionWarning
     from tests.test_cached_protein_scan_context import _covering_cache, PEPTIDE

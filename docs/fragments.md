@@ -46,7 +46,7 @@ Output DataFrame columns, beyond the standard prediction fields:
 | `gene_expression`, `transcript_expression` | Propagated from the fragment |
 | `overlaps_target` | `True` / `False` / NaN — whether the peptide overlaps any of the fragment's target intervals |
 | `contains_mutant_residues` | Backwards-compat alias — `True` iff `source_type.startswith("variant")` AND `overlaps_target` is True |
-| `wt_peptide`, `wt_peptide_length` | Derived by slicing `effective_baseline` at the peptide's offset. Only populated for substitution-compatible fragments (baseline and `sequence` the same length); `None` otherwise or when no baseline exists. |
+| `wt_peptide`, `wt_peptide_length` | The direct, unmutated counterpart, derived by slicing `effective_baseline` at the peptide's offset. Only populated when the producer supplies a same-length baseline with coordinates aligned 1:1 to `sequence`; `None` otherwise or when no baseline exists. |
 | `wt_value`, `wt_score`, `wt_affinity`, `wt_percentile_rank`, `wt_prediction_method_name`, `wt_predictor_version` | Populated when `TopiaryPredictor(predict_wt=True)` scores non-null `wt_peptide` values with the configured MHC model(s). Rows without a length-compatible WT peptide keep NaN values. |
 | *(each annotation key)* | Flattened from every fragment's `annotations` dict. Underscore-prefixed keys (e.g. `_subsequence_offset`) are reserved for internal plumbing and never surface as columns. |
 
@@ -66,6 +66,28 @@ Two rules worth knowing before you rely on it:
 - `reference_sequence` is populated **only** when the pre- and post-mutation proteins are the same length. An indel or frameshift shifts every downstream residue, so the window sliced at the same offsets would be a different piece of protein presented as a comparator — the same restriction `wt_peptide` applies.
 
 It returns `None` when the effect has no mutant protein sequence at all (silent, non-coding, untranslatable). That is an absence, not an error.
+
+### Direct WT versus nearest self
+
+`wt_peptide` has one deliberately narrow meaning: the same peptide window in a
+same-length, coordinate-aligned unmutated baseline. This is the mutant/WT pairing used by the
+[original differential agretopicity study](https://pubmed.ncbi.nlm.nih.gov/25245761/).
+For a length-changing insertion, deletion or frameshift, slicing the baseline at
+the mutant offset would not identify a homologous peptide. Topiary therefore
+leaves `wt_peptide` and its prediction columns empty; it does not guess a
+coordinate remapping.
+
+This follows published
+[neoantigen-characterization best practices](https://pmc.ncbi.nlm.nih.gov/articles/PMC6714459/),
+which treat a same-length, no-substitution counterpart as natural for amino-acid
+substitutions but generally report agretopicity as not applicable when a
+frameshift, fusion or splice event creates sequence without an obvious WT
+counterpart.
+
+`self_nearest_*` answers a different question: which same-length peptide in a
+chosen healthy reference proteome is most similar, and does that peptide bind
+the same MHC? Use that namespace for cross-reactivity or distance-from-self
+analysis. A nearest-self hit is not relabeled as a WT peptide.
 
 ## Building fragments from variants, with or without RNA
 
@@ -337,7 +359,10 @@ Topiary computes these when you give it a reference proteome: `TopiaryPredictor(
 
 The self peptide is scored **without flanking context**: it comes from the reference proteome, and `nearest()` reports its gene, transcript and offset but not the residues either side. Kinds that read flanks — antigen processing, and presentation where its model uses them — are therefore scored on the peptide alone; affinity and stability are unaffected.
 
-Without `predict_self_nearest`, or for producers populating externally (via BLAST / edit distance against a healthy-tissue proteome with their own definition of "self"). The DSL scope just reads `self_nearest_*` columns. When columns are absent, `self_nearest.*` returns NaN.
+Without `predict_self_nearest`, producers may populate the columns externally
+(via BLAST or edit distance against a healthy-tissue proteome with their own
+definition of "self"). The DSL scope just reads `self_nearest_*` columns. When
+columns are absent, `self_nearest.*` returns NaN.
 
 Reserved column namespace:
 
@@ -464,7 +489,6 @@ Acquisition errors must be reported separately, never as biological negatives.
 
 ## What's not in this release
 
-- **Indel / frameshift `wt_peptide`** — `wt_peptide` is only populated when the baseline is the same length as the mutant sequence (substitution-compatible). Length-changing edits yield `None`. Whether to define a remapped comparator remains an open design question ([#411](https://github.com/openvax/topiary/issues/411)).
 - **Binding-aware cross-reactivity axes** (`self_mimic_*`, `self_strongest_nearby_*`, `self_nearest_candidates`) — the sequence-level `self_nearest_*` columns are computed by `SelfProteome` / `predict_self_nearest`; the axes that also require MHC prediction on each candidate are not implemented ([#412](https://github.com/openvax/topiary/issues/412)).
 - **Dedicated Isovar fragment-file loader** (`read_isovar_fragments`) — separate
   work. Existing in-memory results compose through `fragment_from_isovar_result`.

@@ -651,7 +651,7 @@ class TestSelfNearestScope:
             fragment_id="x__00000000", sequence="MAAVTDVGMAV",
         )
         df = _predictor().predict_from_fragments([f])
-        # self_nearest_* columns aren't emitted by PR A
+        # Without a reference proteome, no nearest-self columns are emitted.
         assert "self_nearest_score" not in df.columns
         # But the DSL scope evaluates to NaN silently
         from topiary.ranking import EvalContext
