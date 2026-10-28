@@ -111,12 +111,26 @@ topiary \
 ```
 
 The `variant` column is empty for these rows: no genomic position was named, so
-none is invented. Read-level DNA/RNA evidence therefore cannot attach to them,
-which is why this is a separate input mode. Passing it together with `--vcf`,
-`--maf`, `--variant` or `--json-variants` is refused rather than mixing rows
-whose evidence differs. Run each mode separately and combine the results with
-`combine_sources`, which keeps each source labelled
-([#421](https://github.com/openvax/topiary/issues/421)).
+none is invented. Read-level DNA/RNA and variant-expression evidence therefore
+cannot attach to them. Gene- and transcript-expression evidence can attach
+because the selected transcript supplies those identities.
+
+Protein changes can be named beside `--vcf`, `--maf`, `--variant` or
+`--json-variants` in one run. The output column `mutation_input` is
+`genomic_variant` for coordinate-bearing rows and `protein_change` for direct
+changes. This column is available to `--filter-by` and `--sort-by`, so a filter
+requiring variant-only evidence can state what should happen to protein changes:
+
+```bash
+--variant-expression isovar.tsv \
+--filter-by "mutation_input == 'protein_change' | variant_n_alt >= 3"
+```
+
+Every configured mutation shares one effect-selection, prediction, filter and
+sort pass. Distinct `--protein-change` flags remain independent inputs; they are
+not treated as transcript alternatives merely because all lack a genomic
+variant ([#421](https://github.com/openvax/topiary/issues/421)). Exact duplicate
+fragments still follow the pipeline's normal deduplication.
 
 Where several transcripts match, topiary takes the one with the longest protein
 sequence, breaking ties on transcript length and then name. A change can

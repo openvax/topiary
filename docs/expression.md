@@ -15,10 +15,17 @@ topiary \
   --output-csv results.csv
 ```
 
-Expression flags only work with the variant pipeline (`--vcf`, `--maf`,
-`--variant`). They are rejected for direct sequence inputs (`--fasta`,
-`--peptide-csv`) because that output has no `gene_id`, `transcript_id` or
-`variant` column to join on.
+Expression flags only work with the mutation pipeline (`--vcf`, `--maf`,
+`--variant`, `--json-variants`, or `--protein-change`). They are rejected for
+direct sequence inputs (`--fasta`, `--peptide-csv`) because that output has no
+`gene_id`, `transcript_id` or `variant` column to join on.
+
+In a run mixing genomic variants and protein changes, gene and transcript files
+can annotate both input forms. Variant files annotate only rows whose
+`mutation_input` is `genomic_variant`; protein-change rows have a null `variant`
+and null variant-expression values. This is absence of a coordinate, not zero
+support. Use `mutation_input` when a filter must give the two input forms
+different admission rules.
 
 ## How a file becomes columns
 
@@ -98,6 +105,18 @@ topiary \
   --transcript-expression kallisto/abundance.tsv \
   --variant-expression isovar_output.tsv \
   --filter-by "ba <= 500 & gene_tpm >= 5 & variant_num_alt_reads >= 3" \
+  --output-csv results.csv
+
+# Genomic variants plus a coordinate-free hotspot. The evidence threshold
+# applies to genomic rows; the explicit first clause retains the hotspot.
+topiary \
+  --variant 7 55259515 T G \
+  --protein-change EGFR T790M \
+  --genome grch37 \
+  --mhc-predictor netmhcpan \
+  --mhc-alleles HLA-A*02:01 \
+  --variant-expression isovar.tsv \
+  --filter-by "mutation_input == 'protein_change' | variant_num_alt_reads >= 3" \
   --output-csv results.csv
 
 # Explicit spec instead of auto-detection

@@ -43,6 +43,7 @@ Output DataFrame columns, beyond the standard prediction fields:
 |---|---|
 | `fragment_id` | Source identity — threads back to `ProteinFragment.fragment_id` |
 | `source_type`, `variant`, `effect`, `effect_type`, `gene`, `gene_id`, `transcript_id`, `transcript_name` | Propagated from the fragment |
+| `mutation_input` | For fragments built from mutation effects, `genomic_variant` when the effect has a coordinate-bearing variant or `protein_change` when it does not. Available to the DSL before filtering. |
 | `gene_expression`, `transcript_expression` | Propagated from the fragment |
 | `overlaps_target` | `True` / `False` / NaN — whether the peptide overlaps any of the fragment's target intervals |
 | `contains_mutant_residues` | Backwards-compat alias — `True` iff `source_type.startswith("variant")` AND `overlaps_target` is True |
@@ -64,6 +65,7 @@ Two rules worth knowing before you rely on it:
 
 - The window is clipped at the protein's **first stop codon**, so a mutation near the end yields a shorter fragment rather than a padded one. If the stop falls before the reported mutation, there is nothing to present and the function returns `None`.
 - `reference_sequence` is populated **only** when the pre- and post-mutation proteins are the same length. An indel or frameshift shifts every downstream residue, so the window sliced at the same offsets would be a different piece of protein presented as a comparator — the same restriction `wt_peptide` applies.
+- `annotations["mutation_input"]` records whether the effect has a genomic variant (`genomic_variant`) or is a coordinate-free named protein change (`protein_change`). The annotation becomes an output column before filtering, so variant-only evidence policies can remain explicit in mixed runs.
 
 It returns `None` when the effect has no mutant protein sequence at all (silent, non-coding, untranslatable). That is an absence, not an error.
 

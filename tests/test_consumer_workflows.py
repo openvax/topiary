@@ -1461,6 +1461,43 @@ def test_cli_distinguishes_empty_input_from_filtered_results(
     assert "No prediction rows" in capsys.readouterr().err
 
 
+def test_cli_mixes_genomic_and_protein_change_inputs_with_explicit_evidence_scope(
+    tmp_path, capsys,
+):
+    """One run keeps coordinate-bearing and coordinate-free mutations honest."""
+    from topiary.cli.script import main
+
+    expression = tmp_path / "variant-expression.tsv"
+    expression.write_text(
+        "variant\tn_alt\n"
+        "chr7 g.55259515T>G\t7\n"
+    )
+    output = tmp_path / "mixed.csv"
+    main([
+        "--mhc-predictor", "random", "--mhc-alleles", "HLA-A*02:01",
+        "--mhc-peptide-lengths", "9", "--genome", "grch37",
+        "--variant", "7", "55259515", "T", "G",
+        "--protein-change", "EGFR", "T790M",
+        "--variant-expression", str(expression),
+        "--filter-by",
+        "mutation_input == 'protein_change' | variant_n_alt >= 5",
+        "--output-csv", str(output),
+    ])
+    capsys.readouterr()
+    frame = pd.read_csv(output)
+
+    assert frame.groupby("effect").size().to_dict() == {
+        "p.L858R": 9,
+        "p.T790M": 9,
+    }
+    genomic = frame[frame.mutation_input == "genomic_variant"]
+    direct = frame[frame.mutation_input == "protein_change"]
+    assert genomic.variant.notna().all()
+    assert genomic.variant_n_alt.eq(7).all()
+    assert direct.variant.isna().all()
+    assert direct.variant_n_alt.isna().all()
+
+
 def test_cli_csv_can_be_consumed_by_another_process(cli_output_request):
     import subprocess
     import sys
