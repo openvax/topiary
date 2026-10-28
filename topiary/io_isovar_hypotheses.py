@@ -28,7 +28,8 @@ _COLUMNS = (
 )
 _PATIENT_BACKGROUND_COLUMNS = (
     "sample_name", "event_id", "pair_id", "hypothesis_id", "translation_id",
-    "transcript_id", "baseline_policy", "pair_state", "pair_reason", "strand",
+    "transcript_id", "baseline_policy", "pair_state", "pair_reason",
+    "patient_background_protein_comparison", "strand",
     "translation_table", "protein_hypotheses_complete", "protein_sequence_limit",
     "phased_variants_in_supporting_reads", "isovar_variant", "isovar_source",
     "nucleotide_sequence_id", "nucleotide_sequence", "mutant_coding_interval",
@@ -353,9 +354,11 @@ def read_isovar_patient_background_pairs(data, *, tag=None):
         One comparison observation per exact Isovar pair identity. Mutant and
         patient-background cDNA/protein windows remain separately named.
         ``pair_state`` preserves paired, zero-length and unavailable outcomes;
-        unavailable baselines stay null with ``pair_reason``. Construction,
-        observation and phase fields distinguish a computed counterfactual
-        from separately spanning reference-allele RNA.
+        unavailable baselines stay null with ``pair_reason``.
+        ``patient_background_protein_comparison`` classifies the exact bounded
+        windows as ``identical``, ``amino_acid_divergent`` or ``unavailable``.
+        Construction, observation and phase fields distinguish a computed
+        counterfactual from separately spanning reference-allele RNA.
 
         These are bounded coding windows, not necessarily full proteins or
         aligned fixed-length peptides. The reader therefore does not populate
@@ -643,12 +646,20 @@ def read_isovar_patient_background_pairs(data, *, tag=None):
                         raise ValueError(
                             "Isovar removed edits do not reproduce patient-background sequence")
 
+                if baseline is None:
+                    protein_comparison = "unavailable"
+                elif mutant["protein_sequence"] == baseline["protein_sequence"]:
+                    protein_comparison = "identical"
+                else:
+                    protein_comparison = "amino_acid_divergent"
+
                 rows.append(dict(
                     sample_name=sample, event_id=event_id, pair_id=pair_id,
                     hypothesis_id=_named(pair["hypothesis_id"], "hypothesis_id"),
                     translation_id=_named(pair["translation_id"], "translation_id"),
                     transcript_id=_named(pair["transcript_id"], "transcript_id"),
                     baseline_policy=policy, pair_state=state, pair_reason=reason,
+                    patient_background_protein_comparison=protein_comparison,
                     strand=strand, translation_table=table,
                     protein_hypotheses_complete=complete, protein_sequence_limit=limit,
                     phased_variants_in_supporting_reads=deepcopy(phased),
