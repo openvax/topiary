@@ -362,7 +362,7 @@ def audit(root):
     collector = isovar.ReadCollector(**POLICY)
     run = dict(isovar_version=isovar.__version__, collection_policy=POLICY,
                dependency_versions={name: version(name) for name in ("varcode", "pyensembl", "pysam")},
-               audit_schema_version=2,
+               audit_schema_version=3,
                protein_context_peptide_length=25, variant_sequence_assembly=True,
                bam_sha256=receipt["sha256"],
                inventory_sha256=digest(root / "checked-inventory.json"),

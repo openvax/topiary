@@ -100,7 +100,8 @@ def _fragment_from_extracted(isovar_result, extracted, *, gene_expression, trans
     provenance = {
         name: "measured" for name, value in counts.items() if value is not None
     }
-    start, end = extracted["mutation_start"], extracted["mutation_end"]
+    start = extracted["protein_sequence_mutation_start_idx"]
+    end = extracted["protein_sequence_mutation_end_idx"]
     transcript_ids = extracted["transcript_ids"]
     transcript_names = extracted["transcript_names"]
     variant = getattr(isovar_result, "variant", None)
@@ -160,7 +161,13 @@ def describe_isovar_result(isovar_result):
     -------
     dict
         JSON-compatible variant identity, native RNA counts, protein sequence,
-        mutation interval, transcript IDs, named failed filters and ``status``.
+        RNA-local mutation interval, DNA-effect mutation offsets, transcript
+        IDs, named failed filters and ``status``. The explicit
+        ``protein_sequence_mutation_*`` fields describe the assembled protein;
+        ``predicted_effect_aa_mutation_*`` describes the separately predicted
+        DNA effect and remains null when that effect has no single offset.
+        ``mutation_start`` and ``mutation_end`` are compatibility aliases for
+        the RNA-local interval.
         Status distinguishes ``passing``, ``filtered``, ``no_usable_reads``,
         ``no_alt_reads``, ``no_predicted_coding_change`` and
         ``no_protein_sequence``; a protein with unknown filter disposition has
@@ -195,6 +202,10 @@ def describe_isovar_result(isovar_result):
     else:
         status = "no_protein_sequence"
     filters = extracted["filter_values"]
+    rna_start = extracted["protein_sequence_mutation_start_idx"]
+    rna_end = extracted["protein_sequence_mutation_end_idx"]
+    dna_start = extracted["predicted_effect_aa_mutation_start_offset"]
+    dna_end = extracted["predicted_effect_aa_mutation_end_offset"]
     return normalize_python_types(dict(
         status=status,
         variant=str(variant) if variant is not None else None,
@@ -210,8 +221,14 @@ def describe_isovar_result(isovar_result):
         predicted_effect_class=type(effect).__name__ if effect is not None else None,
         predicted_effect=getattr(effect, "short_description", None),
         protein_sequence=extracted["protein_sequence"],
-        mutation_start=extracted["mutation_start"],
-        mutation_end=extracted["mutation_end"],
+        protein_sequence_mutation_start_idx=rna_start,
+        protein_sequence_mutation_end_idx=rna_end,
+        predicted_effect_aa_mutation_start_offset=dna_start,
+        predicted_effect_aa_mutation_end_offset=dna_end,
+        # Compatibility aliases: these have always described the interval in
+        # top_protein_sequence, never the separately predicted DNA effect.
+        mutation_start=rna_start,
+        mutation_end=rna_end,
         transcript_ids=extracted["transcript_ids"],
         protein_supporting_reads=extracted["protein_supporting_reads"],
         protein_supporting_fragments=extracted["protein_supporting_fragments"],
@@ -249,18 +266,21 @@ def _extract_isovar_result(result):
     Attributes are read by name, so duck-typed results work; a missing
     attribute is ``None`` (unknown), never zero.
 
-    The mutation interval is clamped to the sequence, and dropped when
-    either end is missing. Supporting transcripts are sorted by ID
-    (Isovar keeps them as a set, whose order varies between processes),
-    with each name kept parallel to its ID (``None`` when unavailable). Filter disposition is Isovar's
-    ``passes_all_filters`` when the result states it, otherwise Isovar's
-    own rule over a recorded ``filter_values`` (every filter passed), and
-    ``None`` (unknown) when neither is available or a recorded outcome is
-    unknown. Only booleans (and NumPy booleans, and 0/1) are outcomes;
-    NaN and ``None`` are unknown, and anything else, such as the string
-    ``"False"``, raises rather than being read by its truthiness.
+    The RNA-derived mutation interval is clamped to the assembled sequence and
+    dropped when either end is missing. DNA-effect offsets are kept separate
+    and remain ``None`` when the effect has no single protein location; they
+    are not replaced with the RNA interval. Supporting transcripts are sorted
+    by ID (Isovar keeps them as a set, whose order varies between processes),
+    with each name kept parallel to its ID (``None`` when unavailable). Filter
+    disposition is Isovar's ``passes_all_filters`` when the result states it,
+    otherwise Isovar's own rule over a recorded ``filter_values`` (every filter
+    passed), and ``None`` (unknown) when neither is available or a recorded
+    outcome is unknown. Only booleans (and NumPy booleans, and 0/1) are
+    outcomes; NaN and ``None`` are unknown, and anything else, such as the
+    string ``"False"``, raises rather than being read by its truthiness.
     """
     protein = getattr(result, "top_protein_sequence", None)
+    effect = getattr(result, "predicted_effect", None)
     sequence = getattr(protein, "amino_acids", None) or None
     start = getattr(protein, "mutation_start_idx", None)
     end = getattr(protein, "mutation_end_idx", None)
@@ -285,8 +305,14 @@ def _extract_isovar_result(result):
         {key: _as_count(getattr(result, key, None)) for key in _ISOVAR_COUNT_KEYS},
         protein_sequence=sequence,
         gene=getattr(protein, "gene_name", None),
-        mutation_start=start,
-        mutation_end=end,
+        protein_sequence_mutation_start_idx=start,
+        protein_sequence_mutation_end_idx=end,
+        predicted_effect_aa_mutation_start_offset=(
+            getattr(effect, "aa_mutation_start_offset", None)
+        ),
+        predicted_effect_aa_mutation_end_offset=(
+            getattr(effect, "aa_mutation_end_offset", None)
+        ),
         transcript_ids=[transcript_id for transcript_id, _ in transcripts],
         transcript_names=[name for _, name in transcripts],
         protein_supporting_reads=_as_count(getattr(protein, "num_supporting_reads", None)),

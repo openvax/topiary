@@ -45,7 +45,9 @@ def regenerate(destination):
     if fragment is None:
         raise ValueError("No reconstructed protein; investigate instead of inventing a fixture")
     translated = dict(
-        schema_version=1, data_version="translation-v1", parent_dataset_sha256=digest(source / "manifest.json"),
+        schema_version=2,
+        data_version="translation-v1",
+        parent_dataset_sha256=digest(source / "manifest.json"),
         case_id=case["case_id"], species=manifest["species"], taxon_id=manifest["taxon_id"],
         isovar_version=isovar.__version__, read_collector=POLICY, protein_sequence_creator=options,
         reference_manifest_sha256=digest(reference / "reference/manifest.json"),

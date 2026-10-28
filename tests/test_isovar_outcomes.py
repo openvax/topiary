@@ -49,9 +49,54 @@ def test_filtered_sequences_remain_visible_without_becoming_passing(passing):
     assert actual["status"] == ("passing" if passing else "filtered")
     assert actual["protein_sequence"] == "KRFHATISF"
     assert (actual["mutation_start"], actual["mutation_end"]) == (3, 4)
+    assert (
+        actual["protein_sequence_mutation_start_idx"],
+        actual["protein_sequence_mutation_end_idx"],
+    ) == (3, 4)
     assert actual["failed_filters"] == ([] if passing else ["min_ratio_alt_to_other_fragments"])
     assert (actual["protein_supporting_reads"], actual["protein_supporting_fragments"]) == (6, 3)
     assert json.loads(json.dumps(actual, allow_nan=False)) == actual
+
+
+def test_rna_interval_is_distinct_from_unresolved_dna_effect_offsets():
+    upstream = result(
+        top_protein_sequence=SimpleNamespace(
+            amino_acids="KRFHATISF", mutation_start_idx=3, mutation_end_idx=4,
+        ),
+        predicted_effect=SimpleNamespace(
+            short_description="splice alternatives",
+            aa_mutation_start_offset=None,
+            aa_mutation_end_offset=None,
+        ),
+    )
+
+    actual = describe_isovar_result(upstream)
+
+    assert (
+        actual["protein_sequence_mutation_start_idx"],
+        actual["protein_sequence_mutation_end_idx"],
+    ) == (3, 4)
+    assert actual["mutation_start"] == actual["protein_sequence_mutation_start_idx"]
+    assert actual["mutation_end"] == actual["protein_sequence_mutation_end_idx"]
+    assert actual["predicted_effect_aa_mutation_start_offset"] is None
+    assert actual["predicted_effect_aa_mutation_end_offset"] is None
+    assert json.loads(json.dumps(actual, allow_nan=False)) == actual
+
+
+def test_dna_effect_offsets_are_not_clamped_to_the_rna_protein_sequence():
+    actual = describe_isovar_result(result(
+        top_protein_sequence=SimpleNamespace(
+            amino_acids="KRFHATISF", mutation_start_idx=3, mutation_end_idx=4,
+        ),
+        predicted_effect=SimpleNamespace(
+            aa_mutation_start_offset=np.int64(40),
+            aa_mutation_end_offset=np.int64(41),
+        ),
+    ))
+
+    assert actual["protein_sequence_mutation_start_idx"] == 3
+    assert actual["predicted_effect_aa_mutation_start_offset"] == 40
+    assert actual["predicted_effect_aa_mutation_end_offset"] == 41
 
 
 def test_absent_counts_are_not_reported_as_zero_coverage():

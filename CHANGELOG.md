@@ -7,6 +7,16 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.100.0
+
+- Distinguish Isovar's resolved RNA-protein mutation interval from its
+  separately predicted DNA-effect offsets in outcome reports; ambiguous splice
+  and start-loss effects keep null DNA offsets instead of borrowing the RNA
+  coordinates (#528, [openvax/isovar#81](https://github.com/openvax/isovar/issues/81)).
+- Retain `mutation_start` / `mutation_end` as documented compatibility aliases
+  for the RNA-local interval, and verify that interval drives fragment
+  prediction end to end.
+
 ## 5.99.1
 
 - Define `wt_peptide` as a direct same-length unmutated counterpart and keep it
