@@ -125,7 +125,6 @@ _TCR_POSITIONS = {
 }
 
 _DIFFICULT_NTERM = {"Q", "E", "C"}
-_DIFFICULT_CTERM = {"P", "C"}
 
 
 # ---------------------------------------------------------------------------
@@ -218,8 +217,27 @@ def _compute_difficult_nterm(peptides):
     return peptides.str[0].isin(_DIFFICULT_NTERM)
 
 
+def _compute_c_terminal_cysteine(peptides):
+    return peptides.str[-1].eq("C")
+
+
+def _compute_c_terminal_proline(peptides):
+    return peptides.str[-1].eq("P")
+
+
 def _compute_difficult_cterm(peptides):
-    return peptides.str[-1].isin(_DIFFICULT_CTERM)
+    return (
+        _compute_c_terminal_cysteine(peptides)
+        | _compute_c_terminal_proline(peptides)
+    )
+
+
+def _compute_n_terminal_asparagine(peptides):
+    return peptides.str[0].eq("N")
+
+
+def _compute_n_terminal_methionine(peptides):
+    return peptides.str[0].eq("M")
 
 
 def _compute_asp_pro_bonds(peptides):
@@ -256,6 +274,10 @@ _PROPERTIES = {
     "cterm_7mer_hydrophobicity": (_compute_cterm_7mer_hydrophobicity, {"manufacturability"}),
     "difficult_nterm":           (_compute_difficult_nterm, {"manufacturability"}),
     "difficult_cterm":           (_compute_difficult_cterm, {"manufacturability"}),
+    "c_terminal_cysteine":       (_compute_c_terminal_cysteine, {"manufacturability"}),
+    "c_terminal_proline":        (_compute_c_terminal_proline, {"manufacturability"}),
+    "n_terminal_asparagine":     (_compute_n_terminal_asparagine, {"manufacturability"}),
+    "n_terminal_methionine":     (_compute_n_terminal_methionine, {"manufacturability"}),
     "asp_pro_bonds":             (_compute_asp_pro_bonds, {"manufacturability"}),
     "tcr_charge":                (_compute_tcr_charge, {"immunogenicity"}),
     "tcr_aromaticity":           (_compute_tcr_aromaticity, {"immunogenicity"}),
@@ -360,6 +382,10 @@ Max7merHydrophobicity = _singleton("max_7mer_hydrophobicity")
 Cterm7merHydrophobicity = _singleton("cterm_7mer_hydrophobicity")
 DifficultNterm = _singleton("difficult_nterm")
 DifficultCterm = _singleton("difficult_cterm")
+CTerminalCysteine = _singleton("c_terminal_cysteine")
+CTerminalProline = _singleton("c_terminal_proline")
+NTerminalAsparagine = _singleton("n_terminal_asparagine")
+NTerminalMethionine = _singleton("n_terminal_methionine")
 AspProBonds = _singleton("asp_pro_bonds")
 TcrCharge = _singleton("tcr_charge")
 TcrAromaticity = _singleton("tcr_aromaticity")
