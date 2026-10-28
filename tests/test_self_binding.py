@@ -178,3 +178,28 @@ def test_raw_value_comparison_needs_matching_units_and_changes_the_axis(evidence
     wrong_units = evidence(reference(), [QUERY], alleles=["A0201"], max_mismatches=1,
                            predictions=records, binding_metric="value", value_unit="uM", lower_is_better=True, **MODEL)
     assert wrong_units.df.self_mimic_status.tolist() == ["unassessed"]
+
+
+@pytest.mark.parametrize("evidence", SELF_BINDING_TWINS)
+def test_mixed_hit_and_no_hit_queries_do_not_invent_nan_candidates(evidence, tmp_path):
+    result = evidence(reference(), [QUERY, "AAAAAAAA"], alleles=["A0201", "A0201"],
+                      max_mismatches=1, predictions=[prediction(QUERY, 1), prediction(NEAR, .1),
+                                                   prediction("AAAAAAAA", 1)], **MODEL)
+    assert result.df.self_mimic_status.tolist() == ["matched", "no_match_within_scope"]
+    assert result.df.self_mimic_complete.tolist() == [True, True]
+    assert result.df.self_nearest_candidates.iloc[1] == []
+    path = tmp_path / "no-hit.tsv"
+    result.to_tsv(path)
+    restored = read_tsv(path)
+    assert restored.df.self_nearest_candidates.iloc[1] == []
+
+
+@pytest.mark.parametrize("evidence", SELF_BINDING_TWINS)
+def test_missing_allele_measurements_never_supply_a_same_allele_match(evidence):
+    with pytest.warns(UserWarning, match="carry no allele"):
+        result = evidence(reference(), [QUERY, QUERY], alleles=["A0201", None],
+                          max_mismatches=1, predictions=[prediction(QUERY, 1), prediction(NEAR, .1),
+                                                       prediction(QUERY, 1, None), prediction(NEAR, .1, None)], **MODEL)
+    assert result.df.self_mimic_status.tolist() == ["matched", "unassessed"]
+    assert result.df.self_strongest_nearby_status.tolist() == ["matched", "unassessed"]
+    assert result.df.self_prediction_complete.tolist() == [True, False]

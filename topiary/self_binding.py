@@ -97,6 +97,7 @@ def binding_aware_self_evidence(reference, peptides, *, alleles, predictions,
                 and record["predictor_version"] == predictor_version
                 and record["kind"] == kind
                 and record["prediction_mhc_dependence"] == "single_allele"
+                and is_stated(record["allele"])
                 and _digest(record.get("measurement_context")) == context_key
                 and (value_unit is None or record.get("value_unit") == value_unit)):
             selected.setdefault((record["peptide"], record["allele"]), []).append(record)
@@ -104,21 +105,24 @@ def binding_aware_self_evidence(reference, peptides, *, alleles, predictions,
     rows = []
     for query_index, group in matches.df.groupby("query_index", sort=False):
         query = group.iloc[0]
+        allele = query.allele if is_stated(query.allele) else None
         measurement, query_status = _measurement(
-            selected.get((query.peptide, query.allele), []), binding_metric)
+            selected.get((query.peptide, allele), []), binding_metric)
         candidates = []
         for row in group.to_dict("records"):
-            if row["self_peptide"] is None:
+            if not is_stated(row["self_peptide"]):
                 continue
+            row = {key: None if pd.api.types.is_scalar(value) and pd.isna(value) else value
+                   for key, value in row.items()}
             evidence, status = _measurement(
-                selected.get((row["self_peptide"], query.allele), []), binding_metric)
+                selected.get((row["self_peptide"], allele), []), binding_metric)
             # Structured facts are copied, including every origin and observation.
             candidate = {key: value for key, value in row.items() if key.startswith("self_")}
             candidate.update(binding_status=status, binding_measurement=evidence)
             candidates.append(candidate)
         in_scope = [c for c in candidates if c["self_in_scope"] is True]
         measured = [c for c in in_scope if c["binding_status"] == "reported"]
-        complete = (bool(query.self_search_complete) and query.allele is not None
+        complete = (bool(query.self_search_complete) and allele is not None
                     and all(c["self_in_scope"] is not None for c in candidates)
                     and len(measured) == len(in_scope))
         mimic = []
@@ -135,7 +139,7 @@ def binding_aware_self_evidence(reference, peptides, *, alleles, predictions,
             best = (min if lower_is_better else max)(c["binding_measurement"][binding_metric] for c in measured)
             strongest = [c for c in measured if c["binding_measurement"][binding_metric] == best]
         result = dict(query_index=int(query_index), peptide=query.peptide,
-                      peptide_length=len(query.peptide), allele=query.allele, kind=kind,
+                      peptide_length=len(query.peptide), allele=allele, kind=kind,
                       prediction_method_name=prediction_method_name, predictor_version=predictor_version,
                       prediction_mhc_dependence="single_allele", measurement_context=measurement_context,
                       self_reference_version=query.self_reference_version,
