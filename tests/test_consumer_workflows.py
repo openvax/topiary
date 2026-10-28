@@ -999,17 +999,25 @@ def test_isovar_label_completeness_controls_filtering_after_reload(tmp_path, wid
 
 
 @pytest.mark.isovar
-def test_current_isovar_sv_producers_compose_with_report_api_and_cli(tmp_path):
+def test_released_isovar_sv_producers_compose_with_report_api_and_cli(tmp_path):
+    from copy import deepcopy
+    from importlib.metadata import version
     import json
 
     from isovar import export_sv_rna_orfs, compare_sv_rna_predictions
+    from packaging.version import Version
     from topiary import build_sv_interest_report, write_sv_interest_report
     from .test_twin_conformance import SV_INTEREST_REPORT_TWINS
 
     root = Path(__file__).parent / "data" / "isovar_exports"
     orfs = export_sv_rna_orfs(json.loads((root / "orfs-input.json").read_text()))
     comparison = compare_sv_rna_predictions(*json.loads((root / "comparison-input.json").read_text()))
-    assert orfs == json.loads((root / "orfs-v4.json").read_text())
+    expected_orfs = json.loads((root / "orfs-v4.json").read_text())
+    occurrence_support_released = Version(version("isovar")) >= Version("1.62.2")
+    if not occurrence_support_released:
+        expected_orfs = deepcopy(expected_orfs)
+        expected_orfs["candidates"][0]["occurrences"][0].pop("rna_support")
+    assert orfs == expected_orfs
     assert comparison == json.loads((root / "comparison-v3.json").read_text())
     catalogue = dict(targets={orfs["event_id"]: {}, comparison["event_id"]: {}})
     api, cli = SV_INTEREST_REPORT_TWINS
@@ -1025,9 +1033,12 @@ def test_current_isovar_sv_producers_compose_with_report_api_and_cli(tmp_path):
     assert {p["kind"] for p in expected["protein_hypotheses"]} == {"exploratory_orf", "annotated_frame"}
     assert all(p["translation_observed"] is False for p in expected["protein_hypotheses"])
     exploratory, = [p for p in expected["protein_hypotheses"] if p["kind"] == "exploratory_orf"]
-    occurrence_support = exploratory["source_observations"][0]["candidate"]["occurrences"][0]["rna_support"]
-    assert occurrence_support == orfs["candidates"][0]["occurrences"][0]["rna_support"]
-    assert occurrence_support["scope"] == "full_interval_junction_linked_witnesses_for_occurrence"
+    occurrence = exploratory["source_observations"][0]["candidate"]["occurrences"][0]
+    if occurrence_support_released:
+        assert occurrence["rna_support"] == orfs["candidates"][0]["occurrences"][0]["rna_support"]
+        assert occurrence["rna_support"]["scope"] == "full_interval_junction_linked_witnesses_for_occurrence"
+    else:
+        assert "rna_support" not in occurrence
 
 
 def test_isovar_v2_zero_and_unknown_labels_and_missing_identity_survive_reload(tmp_path):
