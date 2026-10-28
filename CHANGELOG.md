@@ -7,6 +7,17 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.103.0
+
+- Add `describe_prediction_models` as one JSON-compatible inventory of the
+  configured class, stated method/version, alleles, peptide domain, flank
+  limits and per-kind MHC scope already owned by `TopiaryPredictor` (#538).
+- Keep duplicate logical models distinct and unknown metadata explicit across
+  live and cached predictors, without treating the inventory as replay
+  configuration, endpoint policy or observed coverage.
+- Demonstrate candidate and junction stages sharing model facts while retaining
+  separate, explicit selection and endpoint policies (openvax/vaxrank#718).
+
 ## 5.102.0
 
 - Add `read_isovar_patient_background_pairs` for Isovar's versioned

@@ -4335,3 +4335,44 @@ def test_vaxrank_manufacturability_properties_compose_without_losing_detail():
     )
     assert result["cterm_7mer_hydrophobicity"].iloc[-1] == pytest.approx(1.8)
     assert result["max_7mer_hydrophobicity"].iloc[-1] == pytest.approx(1.8)
+
+
+def test_prediction_stages_share_model_inventory_without_sharing_policy():
+    """Vaxrank-style stages cite one model inventory but retain distinct intent."""
+    import json
+
+    from topiary import (
+        SelectionPolicy, describe_prediction_models, evaluate_selection_policy,
+    )
+    from .test_candidate_tables import Model
+
+    predictor = TopiaryPredictor(models=Model())
+    inventory = describe_prediction_models(predictor)
+    candidates = predictor.predict_from_named_peptides({"candidate": "SIINFEKL"})
+    junctions = predictor.predict_from_peptide_occurrences([{
+        "prediction_id": "junction:1", "peptide": "SIINFEKL",
+        "peptide_offset": 3, "n_flank": "AAA", "c_flank": "GGG",
+    }])
+
+    candidate_policy = SelectionPolicy("candidate-v1", "1 / affinity.value")
+    evaluated = evaluate_selection_policy(
+        TopiaryResult(candidates), candidate_policy,
+        group_keys=["source_sequence_name", "peptide", "peptide_offset", "allele"],
+        kind_support=predictor.kind_support,
+    )
+    junction_policy = {
+        "endpoint": "pMHC_affinity.percentile_rank",
+        "strong_threshold": 0.5,
+        "mild_threshold": 2.0,
+        "fallback": None,
+    }
+    summary = {
+        "candidate": {"models": inventory, "selection_policy": candidate_policy.to_dict()},
+        "junction": {"models": inventory, "endpoint_policy": junction_policy},
+    }
+
+    assert evaluated.occurrences.score.tolist() == [pytest.approx(1 / 800)]
+    assert junctions.percentile_rank.tolist() == [2.0]
+    assert summary["candidate"]["models"] == summary["junction"]["models"]
+    assert summary["candidate"]["selection_policy"]["score_by"] != junction_policy["endpoint"]
+    assert json.loads(json.dumps(summary)) == summary

@@ -21,6 +21,7 @@ from .prediction_batch import predict_with_cache_miss_report, PartialPredictionW
 from .peptide_occurrences import predict_peptide_occurrences
 from .predictor import (
     TopiaryPredictor,
+    describe_prediction_models,
     fragment_from_effect,
     from_predictions,
 )
@@ -221,7 +222,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.102.0"
+__version__ = "5.103.0"
 
 __all__ = [
     "PROTEIN_SCAN_METADATA_COLUMNS",
@@ -275,6 +276,7 @@ __all__ = [
     "osteosarc_fixture_paths",
     "normalize_python_types",
     "TopiaryPredictor",
+    "describe_prediction_models",
     "predict_with_cache_miss_report",
     "PartialPredictionWarning",
     "AMINO_ACIDS",
