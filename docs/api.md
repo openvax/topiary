@@ -30,8 +30,15 @@ qualifiers=[...])` hashes any further values a producer groups records by.
 
 `describe_isovar_result(result)` returns a JSON-compatible outcome dictionary
 for a completed Isovar result: variant, separate native read/template counts,
-protein and edit interval, transcript IDs, filter values and failed-filter
-names. Missing counts stay null. Status is `passing`, `filtered`,
+protein, transcript IDs, filter values and failed-filter names. Its coordinate
+names distinguish two answers: `protein_sequence_mutation_start_idx` /
+`protein_sequence_mutation_end_idx` locate the edit in Isovar's RNA-assembled
+`protein_sequence`, while `predicted_effect_aa_mutation_start_offset` /
+`predicted_effect_aa_mutation_end_offset` describe the separately predicted
+DNA effect. An ambiguous splice or start-loss effect therefore keeps null DNA
+offsets even when RNA assembly resolved a local interval. The shorter
+`mutation_start` / `mutation_end` names remain compatibility aliases for the
+RNA-local interval. Missing counts stay null. Status is `passing`, `filtered`,
 `filter_status_unavailable`, `no_usable_reads`, `no_alt_reads`,
 `no_predicted_coding_change` or `no_protein_sequence`. This reports recorded
 filters, not clinical suitability. Acquisition failures are not biological

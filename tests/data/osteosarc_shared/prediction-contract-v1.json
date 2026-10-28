@@ -1,7 +1,7 @@
 {
   "data_version": "prediction-contract-v1",
   "interpretation": "Synthetic numeric scores for cache, coverage and ranking regressions; not biological binding predictions.",
-  "parent_translation_sha256": "f6bfc70c1b1630f37ae5986955599caace84795951dc3e67893c006ff73c5b9b",
+  "parent_translation_sha256": "4bfcf51a3f895644025766846806f845c06c9655b371b666c201760192d64e0e",
   "rows": [
     {
       "affinity": 10.0,

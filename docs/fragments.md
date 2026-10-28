@@ -480,12 +480,18 @@ silent last-record overwrites.
 
 `describe_isovar_result(result)` returns a JSON-compatible diagnostic record for
 every completed upstream result, including empty or filtered reconstructions.
-It preserves separate read/template counts, unknowns as null, sequence/edit
-interval, transcript IDs and named failed filters. `passing` means the supplied
-result has a protein and passes its recorded filters, not clinical eligibility
-or proof that default filters were used. Fragment adapters remain diagnostic:
-do not promote a reconstructed but filtered sequence into accepted inputs.
-Acquisition errors must be reported separately, never as biological negatives.
+It preserves separate read/template counts, unknowns as null, transcript IDs
+and named failed filters. It also names the two coordinate systems explicitly:
+`protein_sequence_mutation_*` is the interval in the RNA-assembled sequence
+used by `fragment_from_isovar_result`, whereas
+`predicted_effect_aa_mutation_*` is the DNA-only effect offset and stays null
+when splice alternatives or start-loss do not determine one protein location.
+`mutation_start` / `mutation_end` remain compatibility aliases for the former;
+they are never fallback DNA offsets. `passing` means the supplied result has a
+protein and passes its recorded filters, not clinical eligibility or proof that
+default filters were used. Fragment adapters remain diagnostic: do not promote
+a reconstructed but filtered sequence into accepted inputs. Acquisition errors
+must be reported separately, never as biological negatives.
 
 ## What's not in this release
 

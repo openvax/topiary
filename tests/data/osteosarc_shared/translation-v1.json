@@ -35,8 +35,12 @@
     "num_total_reads": 14,
     "passes_all_filters": true,
     "predicted_effect": "p.K69R",
+    "predicted_effect_aa_mutation_end_offset": 69,
+    "predicted_effect_aa_mutation_start_offset": 68,
     "predicted_effect_class": "Substitution",
     "protein_sequence": "NKLSKQMVDVSENYQSTLPK",
+    "protein_sequence_mutation_end_idx": 11,
+    "protein_sequence_mutation_start_idx": 10,
     "protein_supporting_fragments": 9,
     "protein_supporting_reads": 9,
     "ref": "A",
@@ -116,7 +120,7 @@
     "use_soft_clipped_bases": false
   },
   "reference_manifest_sha256": "cd74762f076032480d7c600ca2064aeeb1d8d87ba9ee730465544b3e786a2647",
-  "schema_version": 1,
+  "schema_version": 2,
   "species": "Homo sapiens",
   "taxon_id": 9606
 }

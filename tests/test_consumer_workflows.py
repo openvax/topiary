@@ -35,6 +35,7 @@ from topiary import (
     apply_sort,
     attach_dna_evidence,
     attach_rna_evidence,
+    describe_isovar_result,
     describe_read_evidence,
     evaluate_scores,
     fragment_from_effect,
@@ -2167,8 +2168,16 @@ class _ProteinSequence:
     num_supporting_reads = 52
 
 
+class _UnresolvedEffect:
+    short_description = "splice alternatives"
+    modifies_protein_sequence = True
+    aa_mutation_start_offset = None
+    aa_mutation_end_offset = None
+
+
 class _IsovarResult:
     top_protein_sequence = _ProteinSequence()
+    predicted_effect = _UnresolvedEffect()
     variant = "chr7 g.140453136 A>T"
     num_total_fragments = 61
     num_total_reads = 118
@@ -2176,6 +2185,28 @@ class _IsovarResult:
     num_alt_reads = 58
     num_ref_fragments = 31
     num_ref_reads = 60
+
+
+def test_isovar_rna_interval_drives_predictions_when_dna_offset_is_unresolved():
+    result = _IsovarResult()
+    outcome = describe_isovar_result(result)
+    fragment = fragment_from_isovar_result(result)
+
+    assert outcome["predicted_effect_aa_mutation_start_offset"] is None
+    assert outcome["predicted_effect_aa_mutation_end_offset"] is None
+    assert (
+        outcome["protein_sequence_mutation_start_idx"],
+        outcome["protein_sequence_mutation_end_idx"],
+    ) == (4, 6)
+    assert list(fragment.target_intervals) == [(4, 6)]
+
+    frame = TopiaryPredictor(models=RandomBindingPredictor(
+        alleles=["HLA-A*02:01"], default_peptide_lengths=[9],
+    )).predict_from_fragments([fragment])
+    peptide_starts = frame.peptide.map(fragment.sequence.index)
+    expected = (peptide_starts < 6) & (peptide_starts + frame.peptide.str.len() > 4)
+    assert expected.any() and (~expected).any()
+    assert frame.overlaps_target.tolist() == expected.tolist()
 
 
 class _Effect:
