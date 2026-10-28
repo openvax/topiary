@@ -1024,6 +1024,10 @@ def test_current_isovar_sv_producers_compose_with_report_api_and_cli(tmp_path):
     assert json.loads((tmp_path / "cli.json").read_text()) == json.loads(json.dumps(expected))
     assert {p["kind"] for p in expected["protein_hypotheses"]} == {"exploratory_orf", "annotated_frame"}
     assert all(p["translation_observed"] is False for p in expected["protein_hypotheses"])
+    exploratory, = [p for p in expected["protein_hypotheses"] if p["kind"] == "exploratory_orf"]
+    occurrence_support = exploratory["source_observations"][0]["candidate"]["occurrences"][0]["rna_support"]
+    assert occurrence_support == orfs["candidates"][0]["occurrences"][0]["rna_support"]
+    assert occurrence_support["scope"] == "full_interval_junction_linked_witnesses_for_occurrence"
 
 
 def test_isovar_v2_zero_and_unknown_labels_and_missing_identity_survive_reload(tmp_path):

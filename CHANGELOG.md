@@ -15,6 +15,8 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 - Direct distance-from-self and cross-reactivity workflows to the separate
   `self_nearest_*` contract, with an end-to-end regression test covering both
   comparison paths.
+- Track Isovar 1.62.2's occurrence-level SV RNA-support provenance through the
+  exact producer, report API and CLI compatibility workflow (#527).
 
 ## 5.99.0
 
