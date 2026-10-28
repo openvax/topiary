@@ -28,7 +28,7 @@ from .wide import PREDICTION_COLUMNS, SOURCE_PREDICTION_COLUMNS, PROTEIN_SCAN_ME
 # explicitly named prediction fields belong to the measurement axes.
 _PREDICTION_MEASUREMENTS = PREDICTION_COLUMNS | set(PROTEIN_SCAN_METADATA_COLUMNS) | {
     f"{scope}_{field}"
-    for scope in ("wt", "self", "self_nearest", "shuffled")
+    for scope in ("wt", "self", "self_nearest", "self_mimic", "self_strongest_nearby", "shuffled")
     for field in ("value", "score", "percentile_rank", "affinity",
                   "prediction_method_name", "predictor_version", "value_unit", "measurement_context")
 }

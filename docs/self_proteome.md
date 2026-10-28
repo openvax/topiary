@@ -9,13 +9,66 @@ Use [all-match evidence](#all-match-evidence) for complete vaccine-window search
 or multiple similar candidates. The existing `nearest()` and `self_nearest_*`
 predictor columns remain a single-nearest-sequence view.
 
-> **Status.** `SelfProteome` currently exposes the sequence-nearest
-> axis: substitutions plus 1aa indel neighbors against a scoped self
-> proteome (`include="all"`, `"non_cta"`, `"protected_tissues"`, or a
-> callable). Binding-aware axes (`self_mimic_*`, `self_strongest_nearby_*`)
-> remain [#412](https://github.com/openvax/topiary/issues/412).
-> All-match evidence accepts supplied observations and predictions; it does not
-> run models, rank by binding or infer TCR recognition.
+Use [`binding_aware_self_evidence`](#binding-conditioned-evidence) to compare
+supplied query and self measurements from one explicitly selected model,
+version, endpoint and measurement context. This produces the `self_mimic_*`
+and `self_strongest_nearby_*` axes while preserving every candidate and origin.
+It does not run predictors or infer TCR recognition.
+
+## Binding-conditioned evidence
+
+```python
+from topiary import binding_aware_self_evidence
+
+evidence = binding_aware_self_evidence(
+    reference, query_peptides, alleles=query_alleles,
+    predictions=query_and_self_predictions,
+    prediction_method_name="netmhcpan", predictor_version="4.2c",
+    kind="pMHC_affinity", binding_metric="percentile_rank",
+    max_mismatches=2, excluded_gene_ids=cta_gene_ids)
+```
+
+`predictions` uses the long-form schema of `match_self_peptides`. Supply both
+query and nearby self measurements; this API never fills a missing measurement
+by borrowing another allele, model, version, endpoint or measurement context.
+`measurement_context=None` selects unstated contexts only. Raw `value`
+comparisons additionally require `value_unit` and `lower_is_better`; `score`
+requires an explicit direction. Percentile ranks default to lower-is-better,
+but still must come from the same selected model/version/endpoint. Ranks are
+not pooled across tools.
+
+Each query occurrence and allele receives:
+
+- `self_nearest_candidates`: all bounded matches and all origins, including
+  excluded origins and the supplied observation/prediction records.
+- `self_mimic_candidates`: every nearest in-scope match with a selected metric
+  at least as strong as the query, retaining all ties.
+- `self_strongest_nearby_candidates`: every strongest in-scope match within
+  the radius, regardless of whether the query's own score is available.
+- Separate axis `*_status` and `*_complete` fields. A match can be known while
+  coverage is incomplete. `no_match_within_scope` requires complete bounded
+  search and selected prediction coverage; otherwise the status is `unassessed`.
+
+With incomplete coverage, the nearest/strongest match is only the best among
+available selected measurements. An unmeasured candidate could change the answer.
+
+Scalar fields such as `self_mimic_peptide` and `self_mimic_percentile_rank`
+are present only when all tied candidates agree. Read them through the DSL as
+`self_mimic.affinity.rank` or
+`self_strongest_nearby.affinity.rank`. Unknown scalars remain unknown;
+inspect the structured candidate lists to resolve ties. Typed CSV/TSV preserves
+these lists and the comparison policy in `result.extra['self_binding']`.
+For DSL evaluation on this standalone table, pass
+`group_keys=['query_index', 'peptide', 'allele']`; `query_index` preserves
+repeated queries and is not a fabricated source-protein offset.
+
+No universal anchor-versus-TCR-facing position weights are imposed. An anchor
+change can alter the bound structure and TCR interaction ([primary structural
+study](https://www.nature.com/articles/s41467-023-37532-7)). Even sequence and
+binding concordance do not establish native tissue presentation or recognition
+([molecular mimicry study](https://pmc.ncbi.nlm.nih.gov/articles/PMC4725365/)).
+These outputs organize evidence for review; they are not a calibrated
+cross-reactivity probability or a vaccine-safety declaration.
 
 ## All-match evidence
 
@@ -245,6 +298,12 @@ when enabled.
 - Lookup: vectorized comparisons are chunked to bound temporary memory.
   Runtime depends on the corpus and query count; exact matching reuses a hash index.
 
-The existing `nearest()` path checks one-residue indel neighbors. The new
-all-match API is limited to same-length Hamming candidates; broader candidate
-search and binding-ranked axes remain [#412](https://github.com/openvax/topiary/issues/412).
+The existing `nearest()` path checks one-residue indel neighbors. The all-match
+and binding-conditioned APIs default to same-length Hamming candidates.
+Use `max_edits=2` (instead of `max_mismatches`) to enumerate every candidate
+within a Levenshtein radius, including substitutions, insertions and deletions.
+Index all positive lengths from query-length minus radius through query-length
+plus radius; absent lengths and unsupported residues make coverage incomplete.
+`self_edit_distance` records the chosen search distance; `self_mismatches` is
+defined only for equal-length sequences. The dynamic-programming search is
+chunked, but broader radii and more query/reference sequences increase runtime.

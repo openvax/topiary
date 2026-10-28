@@ -27,6 +27,8 @@ from .predictor import (
 )
 from .ranking import (
     self_nearest,
+    self_mimic,
+    self_strongest_nearby,
     Affinity,
     BinOp,
     BoolOp,
@@ -156,6 +158,7 @@ from .protein_fragment import (
 )
 from .self_proteome import SelfProteome
 from .self_evidence import match_self_peptides, self_matches_in_windows
+from .self_binding import binding_aware_self_evidence
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
 from .io_protein_fragment import read_fragments, write_fragments, iter_fragments
 from .io_lens import detect_lens_version, read_lens
@@ -222,7 +225,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.104.0"
+__version__ = "5.105.0"
 
 __all__ = [
     "PROTEIN_SCAN_METADATA_COLUMNS",
@@ -370,6 +373,9 @@ __all__ = [
     "prediction_field_values",
     "split_allele_set",
     "self_nearest",
+    "self_mimic",
+    "self_strongest_nearby",
+    "binding_aware_self_evidence",
     "self_scope",
     "shuffled",
     "wt",

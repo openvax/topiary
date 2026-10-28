@@ -7,7 +7,7 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
-## 5.104.0
+## 5.105.0
 
 - Classify each bounded Isovar patient-background protein pair as `identical`,
   `amino_acid_divergent` or `unavailable`, so missing baselines cannot be
@@ -15,6 +15,19 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 - Keep the comparison scoped to the exact exported coding windows, without
   implying whole-protein identity, a unique reference isoform, expression or
   safety evidence.
+
+## 5.104.0
+
+- Add `binding_aware_self_evidence` / `SelfProteome.binding_evidence` with
+  explicit model/version/endpoint/context/metric selection and separate
+  nearest equally-or-stronger (`self_mimic`) and strongest nearby axes (#412).
+- Preserve every tied candidate and origin, supplied observations, missing or
+  conflicting measurements and bounded search/prediction completeness through
+  the DSL and typed CSV/TSV; do not infer tissue presentation or TCR recognition.
+- Extend the all-origin search with an opt-in bounded Levenshtein radius,
+  recording missing reference lengths and unsupported sequences explicitly.
+- Accept explicitly unknown model lengths when constructing a predictor for
+  the public model inventory, retaining None versus empty distinctions (#541).
 
 ## 5.103.0
 

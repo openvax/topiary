@@ -35,10 +35,11 @@ edit_distance=1 beats a same-length substitution match at
 edit_distance≥2.
 
 ``match_candidates()`` retains all candidates within a same-length Hamming
-radius, their origins and supplied observation/prediction evidence. Binding-ranked
-axes (``self_mimic_*``, ``self_strongest_nearby_*``) still require an explicit
-model-selection and ranking contract, separate from sequence matching. See
-`#412 <https://github.com/openvax/topiary/issues/412>`_.
+radius (or an explicit Levenshtein radius), their origins and supplied evidence.
+``binding_evidence()`` summarizes ``self_mimic_*`` and
+``self_strongest_nearby_*`` under an explicit model/version/endpoint/metric
+selection. These are sequence and predicted-binding evidence, not proof of
+healthy-tissue presentation, TCR recognition or absence of biological risk.
 
 Algorithm
 ---------
@@ -179,7 +180,7 @@ class SelfProteome:
 
     # --- lookup ---
 
-    def match_candidates(self, peptides, *, max_mismatches=0, alleles=None,
+    def match_candidates(self, peptides, *, max_mismatches=0, max_edits=None, alleles=None,
                          excluded_gene_ids=(), observations=None, predictions=None):
         """Return all bounded self matches with origins and supplied evidence.
 
@@ -189,6 +190,8 @@ class SelfProteome:
             Query sequences, preserving order and repeats.
         max_mismatches : int
             Nonnegative same-length Hamming radius. Defaults to exact matches.
+        max_edits : int or None
+            Explicit Levenshtein radius, as in :func:`match_self_peptides`.
         alleles : iterable of str or None, optional
             One explicit allele per query; missing remains unknown.
         excluded_gene_ids : iterable of str
@@ -206,8 +209,30 @@ class SelfProteome:
         """
         from .self_evidence import match_self_peptides
         return match_self_peptides(
-            self, peptides, max_mismatches=max_mismatches, alleles=alleles,
+            self, peptides, max_mismatches=max_mismatches, max_edits=max_edits, alleles=alleles,
             excluded_gene_ids=excluded_gene_ids, observations=observations, predictions=predictions)
+
+    def binding_evidence(self, peptides, **options):
+        """Return binding-conditioned self evidence through the shared API.
+
+        Parameters
+        ----------
+        peptides : iterable of str
+            Query sequences, preserving order and repeats.
+        **options
+            Explicit alleles, supplied predictions, model/version/endpoint,
+            metric and bounded search arguments accepted by
+            :func:`topiary.binding_aware_self_evidence`.
+
+        Returns
+        -------
+        TopiaryResult
+            The shared function's all-origin candidate lists, tied axes and
+            separate search/prediction completeness. No model is run and no
+            tissue presentation or TCR recognition is inferred.
+        """
+        from .self_binding import binding_aware_self_evidence
+        return binding_aware_self_evidence(self, peptides, **options)
 
     def nearest(
         self,

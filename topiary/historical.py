@@ -55,7 +55,7 @@ def historical_prediction_key_columns(df):
         evidence describe distinct observations and must remain separate.
     """
     values = {"value", "score", "affinity", "percentile_rank", "value_unit", "measurement_context"}
-    values.update(f"{scope}_{field}" for scope in ("wt", "self", "self_nearest", "shuffled")
+    values.update(f"{scope}_{field}" for scope in ("wt", "self", "self_nearest", "self_mimic", "self_strongest_nearby", "shuffled")
                   for field in ("value", "score", "affinity", "percentile_rank", "value_unit",
                                 "measurement_context", "prediction_method_name", "predictor_version"))
     base = [column for column in HISTORICAL_KEY_COLUMNS if column in df]
@@ -262,7 +262,7 @@ class HistoricalPredictor:
                 row["source_prediction_mhc_dependence"] = mode
             modes.append(mhc_dependence(row["kind"], rows=pd.DataFrame([row])))
         out["prediction_mhc_dependence"] = modes
-        measurement_columns = [f"{scope}{field}" for scope in ("", "wt_", "self_", "self_nearest_", "shuffled_")
+        measurement_columns = [f"{scope}{field}" for scope in ("", "wt_", "self_", "self_nearest_", "self_mimic_", "self_strongest_nearby_", "shuffled_")
                                for field in ("value", "score", "affinity", "percentile_rank")]
         for column in measurement_columns:
             if column in out and not out[column].dropna().map(
