@@ -7,6 +7,16 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.101.0
+
+- Accept direct `--protein-change` mutations alongside VCF, MAF, inline or
+  JSON genomic variants in one prediction/filter/sort pass (#421).
+- Add the DSL-visible `mutation_input` column so mixed rows state whether
+  genomic evidence can attach, and document explicit evidence policies.
+- Preserve every independent variantless mutation effect instead of collapsing
+  multiple direct protein changes into one `variant=None` group (#534).
+- Register genomic-variant and mutation-effect prediction as conformance twins.
+
 ## 5.100.3
 
 - Remove Topiary's last undeclared `typechecks` import and validate mutation

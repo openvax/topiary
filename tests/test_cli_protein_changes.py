@@ -94,21 +94,27 @@ def test_protein_change_predicts_peptides_tiling_the_substitution(tmp_path, caps
     # No genomic variant was named, so the column stays empty rather than
     # carrying an invented coordinate.
     assert df.variant.isna().all()
+    assert set(df.mutation_input) == {"protein_change"}
 
 
-def test_protein_change_is_refused_beside_a_genomic_input(capsys):
-    import pytest
-
+def test_multiple_protein_changes_are_not_collapsed(tmp_path, capsys):
+    import pandas as pd
     from topiary.cli.script import main
 
-    with pytest.raises(SystemExit) as exit_info:
-        main([
-            "--mhc-predictor", "random", "--mhc-alleles", "HLA-A*02:01",
-            "--protein-change", "EGFR", "T790M",
-            "--variant", "7", "55259515", "T", "G", "--genome", "grch37",
-        ])
-    # A malformed command line, so argparse's status and usage block.
-    assert exit_info.value.code == 2
-    message = capsys.readouterr().err
-    assert "--protein-change is a separate input mode from --variant" in message
-    assert "combine_sources" in message
+    out = tmp_path / "named-changes.csv"
+    main([
+        "--mhc-predictor", "random", "--mhc-alleles", "HLA-A*02:01",
+        "--mhc-peptide-lengths", "9", "--genome", "grch37",
+        "--protein-change", "EGFR", "T790M",
+        "--protein-change", "KRAS", "G10D",
+        "--output-csv", str(out),
+    ])
+    capsys.readouterr()
+    df = pd.read_csv(out)
+
+    assert df.groupby("effect").size().to_dict() == {
+        "p.G10D": 9,
+        "p.T790M": 9,
+    }
+    assert set(df.gene) == {"EGFR", "KRAS"}
+    assert set(df.mutation_input) == {"protein_change"}

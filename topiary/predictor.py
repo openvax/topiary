@@ -437,6 +437,14 @@ def fragment_from_effect(
             _SUBSEQ_OFFSET_KEY: seq_start,
             _MUTATION_START_KEY: mut_start,
             _MUTATION_END_KEY: mut_end,
+            # A genomic coordinate can carry variant-level expression and
+            # read evidence; a named protein change cannot. Keep that
+            # distinction on every output row and make it available to the
+            # ranking DSL before filtering.
+            "mutation_input": (
+                "genomic_variant" if effect.variant is not None
+                else "protein_change"
+            ),
             # Translated from the reference, not assembled from reads:
             # this sequence carries the reference everywhere except the
             # variant itself, which is the difference a consumer
@@ -1795,7 +1803,13 @@ class TopiaryPredictor(object):
             gene_expression_threshold=self.min_gene_expression,
         )
 
-        variant_effect_groups = effects.groupby_variant()
+        variant_effect_groups = effects.groupby(
+            key_fn=lambda effect: (
+                ("variant", effect.variant)
+                if effect.variant is not None
+                else ("variantless_effect", id(effect))
+            )
+        )
 
         if len(variant_effect_groups) == 0:
             logging.warning("No candidates for MHC binding prediction")
@@ -1862,7 +1876,7 @@ class TopiaryPredictor(object):
 
     def predict_from_variants(
         self, variants, transcript_expression_dict=None, gene_expression_dict=None,
-        expression_data=None,
+        expression_data=None, additional_effects=None,
     ):
         """
         Predict epitopes from a Variant collection, filtering options, and
@@ -1884,6 +1898,14 @@ class TopiaryPredictor(object):
             From expression_data_from_args(). Keys: 'gene', 'transcript',
             'variant', each mapping to list of (name, id_col, DataFrame).
 
+        additional_effects : varcode.EffectCollection, optional
+            Explicit protein changes to predict alongside the genomic
+            variants. These effects bypass variant-level expression filters
+            because they have no genomic coordinate, then share the ordinary
+            effect filtering, model execution, row filtering and sorting.
+            Output column ``mutation_input`` identifies their rows as
+            ``"protein_change"`` rather than ``"genomic_variant"``.
+
         Returns
         -------
         pandas.DataFrame
@@ -1897,6 +1919,10 @@ class TopiaryPredictor(object):
         )
 
         effects = variants.effects(raise_on_error=self.raise_on_error)
+        if additional_effects is not None:
+            effects = effects.clone_with_new_elements(
+                [*effects, *additional_effects]
+            )
 
         return self.predict_from_mutation_effects(
             effects=effects,

@@ -276,6 +276,67 @@ NAMED_OCCURRENCE_TWINS = (
                       for name, peptide in names.items()]), model, use_flanks=False),
 )
 
+# Genomic variants and already-resolved mutation effects must make the same
+# prediction/filtering decisions for the same biological change. Identity and
+# input provenance legitimately differ; their measurements must not.
+MUTATION_PREDICTION_TWINS = (
+    (
+        "variant",
+        lambda predictor, variants, effects, **kwargs: (
+            predictor.predict_from_variants(variants, **kwargs)
+        ),
+    ),
+    (
+        "effect",
+        lambda predictor, variants, effects, **kwargs: (
+            predictor.predict_from_mutation_effects(effects, **kwargs)
+        ),
+    ),
+)
+
+
+def test_variant_and_effect_prediction_doors_agree_on_shared_mutation():
+    from pyensembl import ensembl_grch37
+    from varcode import Variant, VariantCollection
+
+    from topiary.cli.args import arg_parser
+    from topiary.cli.protein_changes import protein_change_effects_from_args
+    from .test_protein_fallback import ProteinModel
+
+    effects = protein_change_effects_from_args(arg_parser.parse_args([
+        "--protein-change", "EGFR", "T790M", "--genome", "grch37",
+    ]))
+    variants = VariantCollection([
+        Variant("7", 55249071, "C", "T", ensembl_grch37),
+    ])
+    expression = {effects[0].transcript_id: 2.0}
+    frames = []
+    for _, door in MUTATION_PREDICTION_TWINS:
+        predictor = TopiaryPredictor(
+            models=ProteinModel(),
+            min_transcript_expression=1.0,
+        )
+        frame = door(
+            predictor,
+            variants,
+            effects,
+            transcript_expression_dict=expression,
+        ).sort_values(["peptide", "allele"]).reset_index(drop=True)
+        frames.append(frame)
+
+    legitimate_differences = {
+        "fragment_id", "source_sequence_name", "variant", "mutation_input",
+    }
+    assert {
+        column for column in frames[0]
+        if not frames[0][column].equals(frames[1][column])
+    } == legitimate_differences
+    pd.testing.assert_frame_equal(
+        frames[0].drop(columns=legitimate_differences),
+        frames[1].drop(columns=legitimate_differences),
+    )
+
+
 # Both comparator paths must match measurements by their declared MHC scope,
 # including haplotypes whose MT/WT deconvolved presenter differs (#453).
 WILDTYPE_SCOPE_TWINS = (
