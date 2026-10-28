@@ -621,10 +621,14 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
 
     @property
     def effective_baseline(self) -> Optional[str]:
-        """Sequence the DSL's ``wt.*`` scope reads.
+        """Candidate baseline for the DSL's ``wt.*`` scope.
 
         Resolution order: ``germline_sequence`` if populated, else
-        ``reference_sequence``, else ``None``.
+        ``reference_sequence``, else ``None``. Per-peptide WT values are
+        derived only when this sequence has the same length as
+        :attr:`sequence`; callers supplying a baseline must ensure its
+        coordinates align 1:1. Length-changing edits have no direct WT
+        peptide.
         """
         if self.germline_sequence is not None:
             return self.germline_sequence

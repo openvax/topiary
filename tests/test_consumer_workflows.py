@@ -999,17 +999,25 @@ def test_isovar_label_completeness_controls_filtering_after_reload(tmp_path, wid
 
 
 @pytest.mark.isovar
-def test_current_isovar_sv_producers_compose_with_report_api_and_cli(tmp_path):
+def test_released_isovar_sv_producers_compose_with_report_api_and_cli(tmp_path):
+    from copy import deepcopy
+    from importlib.metadata import version
     import json
 
     from isovar import export_sv_rna_orfs, compare_sv_rna_predictions
+    from packaging.version import Version
     from topiary import build_sv_interest_report, write_sv_interest_report
     from .test_twin_conformance import SV_INTEREST_REPORT_TWINS
 
     root = Path(__file__).parent / "data" / "isovar_exports"
     orfs = export_sv_rna_orfs(json.loads((root / "orfs-input.json").read_text()))
     comparison = compare_sv_rna_predictions(*json.loads((root / "comparison-input.json").read_text()))
-    assert orfs == json.loads((root / "orfs-v4.json").read_text())
+    expected_orfs = json.loads((root / "orfs-v4.json").read_text())
+    occurrence_support_released = Version(version("isovar")) >= Version("1.62.2")
+    if not occurrence_support_released:
+        expected_orfs = deepcopy(expected_orfs)
+        expected_orfs["candidates"][0]["occurrences"][0].pop("rna_support")
+    assert orfs == expected_orfs
     assert comparison == json.loads((root / "comparison-v3.json").read_text())
     catalogue = dict(targets={orfs["event_id"]: {}, comparison["event_id"]: {}})
     api, cli = SV_INTEREST_REPORT_TWINS
@@ -1024,6 +1032,13 @@ def test_current_isovar_sv_producers_compose_with_report_api_and_cli(tmp_path):
     assert json.loads((tmp_path / "cli.json").read_text()) == json.loads(json.dumps(expected))
     assert {p["kind"] for p in expected["protein_hypotheses"]} == {"exploratory_orf", "annotated_frame"}
     assert all(p["translation_observed"] is False for p in expected["protein_hypotheses"])
+    exploratory, = [p for p in expected["protein_hypotheses"] if p["kind"] == "exploratory_orf"]
+    occurrence = exploratory["source_observations"][0]["candidate"]["occurrences"][0]
+    if occurrence_support_released:
+        assert occurrence["rna_support"] == orfs["candidates"][0]["occurrences"][0]["rna_support"]
+        assert occurrence["rna_support"]["scope"] == "full_interval_junction_linked_witnesses_for_occurrence"
+    else:
+        assert "rna_support" not in occurrence
 
 
 def test_isovar_v2_zero_and_unknown_labels_and_missing_identity_survive_reload(tmp_path):
@@ -3464,6 +3479,49 @@ def test_reported_wt_peptides_reach_optional_wt_predictions(tmp_path):
         rows = TopiaryPredictor(models=model, predict_wt=True, only_novel_epitopes=True).predict_from_fragments(fragments)
         assert set(rows.wt_peptide) == {"ACDEFGHI", "CDEFGHIK"}
         assert rows.wt_value.notna().all()
+
+
+def test_length_changing_variants_use_nearest_self_not_an_invented_wt():
+    from topiary import SelfProteome
+
+    fragments = [
+        ProteinFragment(
+            fragment_id="substitution",
+            source_type="variant:substitution",
+            sequence="SIINFEKLK",
+            reference_sequence="SIINFEKLA",
+            target_intervals=[(8, 9)],
+        ),
+        ProteinFragment(
+            fragment_id="insertion",
+            source_type="variant:insertion",
+            sequence="ACDEFGHIK",
+            reference_sequence="ACDEFGHI",
+            target_intervals=[(8, 9)],
+        ),
+    ]
+    model = RandomBindingPredictor(
+        alleles=["HLA-A*02:01"], default_peptide_lengths=[9],
+    )
+    self_proteome = SelfProteome.from_peptides(
+        {"healthy-self": "ACDEFGHIA"}, peptide_lengths=[9],
+    )
+
+    rows = TopiaryPredictor(
+        models=model,
+        predict_wt=True,
+        self_proteome=self_proteome,
+        predict_self_nearest=True,
+        only_novel_epitopes=True,
+    ).predict_from_fragments(fragments).set_index("fragment_id")
+
+    assert rows.loc["substitution", "wt_peptide"] == "SIINFEKLA"
+    assert pd.notna(rows.loc["substitution", "wt_value"])
+    assert pd.isna(rows.loc["insertion", "wt_peptide"])
+    assert pd.isna(rows.loc["insertion", "wt_value"])
+    assert rows.loc["insertion", "self_nearest_peptide"] == "ACDEFGHIA"
+    assert rows.loc["insertion", "self_nearest_edit_distance"] == 1
+    assert pd.notna(rows.loc["insertion", "self_nearest_value"])
 
 
 def test_cache_miss_reporting_preserves_fragment_targets_and_separates_wt_failures():

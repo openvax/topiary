@@ -1705,9 +1705,9 @@ class TopiaryPredictor(object):
             base = fragments[row[_RECORD_COLUMN]].effective_baseline
             if base is None:
                 return None
-            # Only meaningful when mutant and baseline coordinates align
-            # 1:1 — indels / frameshifts need explicit remapping, which
-            # PR A does not do.
+            # A direct WT counterpart requires 1:1 mutant/baseline
+            # coordinates. Length-changing edits deliberately have no WT;
+            # nearest-self comparison is represented separately.
             if len(base) != len(fragments[row[_RECORD_COLUMN]].sequence):
                 return None
             start = int(row["peptide_offset"])

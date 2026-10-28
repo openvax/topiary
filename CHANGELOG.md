@@ -7,6 +7,17 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.99.1
+
+- Define `wt_peptide` as a direct same-length unmutated counterpart and keep it
+  empty for length-changing indels and frameshifts instead of inventing a
+  coordinate-remapped comparator (#411).
+- Direct distance-from-self and cross-reactivity workflows to the separate
+  `self_nearest_*` contract, with an end-to-end regression test covering both
+  comparison paths.
+- Track Isovar 1.62.2's occurrence-level SV RNA-support provenance through the
+  exact producer, report API and CLI compatibility workflow (#527).
+
 ## 5.99.0
 
 - Expose separate C-terminal cysteine/proline and N-terminal
