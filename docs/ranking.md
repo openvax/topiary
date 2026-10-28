@@ -116,6 +116,9 @@ Presentation.score.ascending_cdf(mean=0.5, std=0.3)  # higher score → higher o
 # 1 / (1 + exp((x - midpoint) / width))
 Affinity.logistic(midpoint=350, width=150)
 
+# The same sigmoid divided by its value at x=0
+Affinity.logistic_normalized(midpoint=350, width=150)
+
 # Other transforms
 Affinity.value.clip(lo=1, hi=50000)    # clamp to range
 Affinity.value.log()                    # natural log
@@ -124,6 +127,13 @@ Affinity.value.sqrt()                   # square root
 abs(Affinity.value)                     # absolute value
 Affinity.value ** 2                     # power
 ```
+
+`logistic_normalized` preserves Vaxrank's historical scoring convention for
+nonnegative, lower-is-better inputs such as IC50: with a positive width, zero
+maps to 1 and larger values decrease toward zero. Its formula is
+`logistic(x, m, w) / logistic(0, m, w)`. This is value-at-zero normalization,
+not an asymptotic rescaling: the value at `x = m` is
+`0.5 / logistic(0, m, w)`, and negative inputs can exceed 1.
 
 In string expressions, transform parameters are scalar literals. For example,
 `column(review_score).clip(-1, 1)` clamps scores to that interval, and

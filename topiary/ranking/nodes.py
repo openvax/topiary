@@ -1646,15 +1646,19 @@ class DSLNode:
     def logistic(self, midpoint=0.0, width=1.0):
         """Logistic sigmoid: lower input → higher output.
 
-        Returns the raw sigmoid ``1/(1+exp((x-m)/w))`` whose max
-        approaches 1 only as ``x → -∞``. Use
-        :meth:`logistic_normalized` when you want a proper ``[0, 1]``
-        binder-quality score that reaches 1 for arbitrarily good inputs.
+        Returns the raw sigmoid ``1/(1+exp((x-m)/w))``. Use
+        :meth:`logistic_normalized` for nonnegative inputs when the score
+        should equal 1 at the best possible input, ``x = 0``.
         """
         return LogisticExpr(self, midpoint, width)
 
     def logistic_normalized(self, midpoint=0.0, width=1.0):
-        """Logistic rescaled to ``[0, 1]``: reaches 1 as ``x → -∞``."""
+        """Divide the logistic sigmoid by its value at ``x = 0``.
+
+        With positive ``width`` and nonnegative inputs, the result decreases
+        from 1 toward 0 and stays in ``(0, 1]``. Negative inputs can produce
+        values greater than 1.
+        """
         return LogisticNormalizedExpr(self, midpoint, width)
 
     def clip(self, lo=None, hi=None):
@@ -3422,16 +3426,24 @@ class LogisticExpr(DSLNode):
 
 
 class LogisticNormalizedExpr(DSLNode):
-    """Logistic sigmoid rescaled so the range is [0, 1].
+    """Value-at-zero-normalized logistic for nonnegative inputs.
 
-    Standard logistic ``1/(1+exp((x-m)/w))`` caps below 1 at the
-    asymptote — at ``(m=350, w=150)`` the max is ~0.912, only reaching
-    1 as ``x → -∞``.  This node divides by that cap so the output
-    approaches 1 as the input approaches ``-∞`` and is exactly
-    ``0.5`` at ``x = m`` (as with the raw logistic), giving a proper
-    binder-quality score in ``[0, 1]``.
+    This transform evaluates
+    ``raw_logistic(x, m, w) / raw_logistic(0, m, w)``. It preserves
+    Vaxrank's IC50 scoring convention: with positive ``width``, zero maps to
+    1 and nonnegative values map to ``(0, 1]``. At ``x = m`` the result is
+    ``0.5 / raw_logistic(0, m, w)``, not 0.5. Negative inputs are outside the
+    intended domain and can produce values greater than 1.
 
-    Equivalent to: ``raw_logistic(x, m, w) / raw_logistic(-∞, m, w)``.
+    Parameters
+    ----------
+    inner : DSLNode
+        Expression producing the values to transform.
+    midpoint : float
+        Input where the unnormalized logistic equals 0.5.
+    width : float
+        Scale and direction of the sigmoid. The normalized scoring contract
+        assumes a positive value.
     """
 
     __slots__ = ("inner", "midpoint", "width")
@@ -3452,8 +3464,7 @@ class LogisticNormalizedExpr(DSLNode):
         z_clipped = z.clip(lower=-700, upper=700)
         with np.errstate(over="ignore"):
             raw = 1.0 / (1.0 + np.exp(z_clipped))
-            # Normalizer: the raw logistic's asymptotic maximum.
-            # raw(-inf, m, w) = 1 / (1 + exp(-m/w)).
+            # Normalize at the best input in the intended x >= 0 domain.
             norm = 1.0 / (1.0 + math.exp(-self.midpoint / self.width))
         return raw / norm
 

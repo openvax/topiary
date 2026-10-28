@@ -344,17 +344,35 @@ class TestTransforms:
     def test_logistic_normalized(self):
         _assert_roundtrips(Affinity.logistic_normalized(350, 150))
 
-    def test_logistic_normalized_reaches_one(self):
-        """Normalized variant approaches 1 for arbitrarily good (low IC50)."""
+    @pytest.mark.parametrize(
+        "node",
+        [
+            Affinity.logistic_normalized(350, 150),
+            parse("affinity.logistic_normalized(350, 150)"),
+        ],
+        ids=["python-api", "string-dsl"],
+    )
+    def test_logistic_normalized_contract(self, node):
+        """Both public doors implement value-at-zero normalization."""
+        values = [-100.0, 0.0, 350.0, 1000.0]
         df = pd.DataFrame([
-            dict(source_sequence_name="s", peptide="A", peptide_offset=0,
+            dict(source_sequence_name=f"s{i}", peptide="A", peptide_offset=0,
                  allele="A", kind="pMHC_affinity",
-                 score=0.9, value=0.0, percentile_rank=0.0),
+                 score=0.9, value=value, percentile_rank=0.0)
+            for i, value in enumerate(values)
         ])
-        raw = Affinity.logistic(350, 150).evaluate(df)
-        normed = Affinity.logistic_normalized(350, 150).evaluate(df)
-        assert raw < 0.92   # raw sigmoid caps below 1
-        assert normed == pytest.approx(1.0)
+        actual = node.eval(EvalContext(df)).to_numpy()
+        raw_at_zero = 1.0 / (1.0 + math.exp(-350 / 150))
+        expected = np.array([
+            1.0 / (1.0 + math.exp((value - 350) / 150)) / raw_at_zero
+            for value in values
+        ])
+
+        assert actual == pytest.approx(expected)
+        assert actual[0] > 1.0  # negative input is outside the intended domain
+        assert actual[1] == pytest.approx(1.0)
+        assert actual[2] == pytest.approx(0.5 / raw_at_zero)
+        assert np.all((actual[1:] > 0.0) & (actual[1:] <= 1.0))
 
     def test_logistic_vs_normalized_ratio_is_constant(self):
         """normalized(x) / raw(x) is the normalizer, independent of x."""
@@ -369,8 +387,8 @@ class TestTransforms:
         normed = Affinity.logistic_normalized(350, 150).eval(ctx).to_numpy()
         ratios = normed / raw
         assert np.allclose(ratios, ratios[0])
-        expected_cap = 1.0 / (1.0 + math.exp(-350 / 150))
-        assert ratios[0] == pytest.approx(1.0 / expected_cap)
+        raw_at_zero = 1.0 / (1.0 + math.exp(-350 / 150))
+        assert ratios[0] == pytest.approx(1.0 / raw_at_zero)
 
     def test_parse_logistic_normalized(self):
         from topiary.ranking import LogisticNormalizedExpr
