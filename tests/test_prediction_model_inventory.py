@@ -10,6 +10,21 @@ from mhctools import RandomBindingPredictor
 from topiary import CachedPredictor, TopiaryPredictor, describe_prediction_models
 
 
+@pytest.mark.parametrize('lengths', [None, []])
+def test_base_predictor_unknown_lengths_can_be_described_without_inference(lengths):
+    from mhctools.base_predictor import BasePredictor
+
+    class NoInference(BasePredictor):
+        def predict(self, *args, **kwargs):
+            raise AssertionError('Inventory must not run inference')
+
+    model = NoInference(alleles=['A0201'])
+    model.default_peptide_lengths = lengths
+    record, = describe_prediction_models(TopiaryPredictor(models=[model]))
+    assert record['default_peptide_lengths'] == lengths
+    assert model.default_peptide_lengths == lengths
+
+
 def test_real_duplicate_models_have_distinct_keys_and_json_facts():
     predictor = TopiaryPredictor(models=[
         RandomBindingPredictor(alleles=["A0201"], default_peptide_lengths=[9]),

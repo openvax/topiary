@@ -867,7 +867,8 @@ class TopiaryPredictor(object):
         # Whole-peptide models have no scanning window or flanking requirement.
         all_lengths = set()
         for m in self.models:
-            all_lengths.update(getattr(m, "default_peptide_lengths", ()))
+            lengths = getattr(m, "default_peptide_lengths", ())
+            all_lengths.update(lengths if lengths is not None else ())
         self.padding_around_mutation = check_padding_around_mutation(
             given_padding=padding_around_mutation,
             epitope_lengths=sorted(all_lengths),
@@ -1290,11 +1291,11 @@ class TopiaryPredictor(object):
     def _maybe_predict_self_nearest(self, df):
         """Score each ``self_nearest_peptide`` at the row's own allele.
 
-        The similarity columns say *which* healthy peptide a candidate
-        resembles; this says whether that peptide is presented by the
-        same allele — which is the question a cross-reactivity judgement
-        actually turns on. A near-identical self peptide the patient's
-        MHC never presents is not the same risk as one it does.
+        The similarity columns identify one reference peptide; this adds
+        a model prediction at the same allele. Neither comparison proves
+        tissue presentation, TCR recognition or absence of biological risk.
+        Use binding_aware_self_evidence for all bounded candidates and origins
+        under an explicit measurement selection and coverage contract.
 
         Runs a second prediction pass, as ``predict_wt`` does, and joins
         each result back to the mutant row it belongs to by allele,

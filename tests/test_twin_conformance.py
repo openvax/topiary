@@ -59,6 +59,7 @@ from topiary import (
     EvalContext, evaluate_filter, policy_coverage, compare_policy_evaluations,
     predict_peptide_occurrences,
     match_self_peptides, self_matches_in_windows,
+    binding_aware_self_evidence,
     Affinity, Column, apply_filter, apply_sort,
     Foreignness, peptide_view,
     parse as parse_dsl,
@@ -76,6 +77,10 @@ from topiary.cli.sv_interest import main as sv_interest_main
 SELF_MATCH_TWINS = (
     match_self_peptides,
     lambda reference, peptides, **options: reference.match_candidates(peptides, **options),
+)
+SELF_BINDING_TWINS = (
+    binding_aware_self_evidence,
+    lambda reference, peptides, **options: reference.binding_evidence(peptides, **options),
 )
 SELF_WINDOW_TWINS = (
     lambda reference, peptides, **options: match_self_peptides(reference, peptides, **options),
