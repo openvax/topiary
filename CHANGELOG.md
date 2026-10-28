@@ -7,6 +7,14 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.100.3
+
+- Remove Topiary's last undeclared `typechecks` import and validate mutation
+  padding directly at the public API boundary (#488).
+- Reject falsy non-integer padding instead of treating it as absent, and add an
+  annotated NumPy-style contract for automatic and explicit padding. Track
+  package-wide checked typing separately in #532.
+
 ## 5.100.2
 
 - Verify exact release-tag push access before any PyPI request, lint, test,

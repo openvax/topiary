@@ -10,7 +10,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typechecks import require_integer
+from collections.abc import Iterable
 
 
 def protein_subsequences_around_mutations(effects, padding_around_mutation):
@@ -45,26 +45,51 @@ def protein_subsequences_around_mutations(effects, padding_around_mutation):
     return protein_subsequences, protein_subsequence_start_offsets
 
 
-def check_padding_around_mutation(given_padding, epitope_lengths):
-    """
-    If user doesn't provide any padding around the mutation we need
-    to at least include enough of the surrounding non-mutated
-    residues to construct candidate epitopes of the specified lengths.
-    An empty collection (whole-peptide models with no scanning windows)
-    requires no padding.
+def check_padding_around_mutation(
+    given_padding: int | None,
+    epitope_lengths: Iterable[int],
+) -> int:
+    """Resolve the protein padding needed around a mutation.
+
+    Parameters
+    ----------
+    given_padding : int or None
+        Explicit number of residues to retain on each side of the mutation.
+        ``None`` or integer zero selects the minimum required by
+        ``epitope_lengths``.
+    epitope_lengths : iterable of int
+        Peptide lengths that will be scanned. An empty iterable represents a
+        whole-peptide model and requires no automatic padding.
+
+    Returns
+    -------
+    int
+        The explicit padding, or one less than the longest epitope length when
+        automatic padding is selected.
+
+    Raises
+    ------
+    TypeError
+        If ``given_padding`` is neither an integer nor ``None``.
+    ValueError
+        If explicit padding cannot contain an epitope of every requested
+        length around the mutation.
     """
     min_required_padding = max((length - 1 for length in epitope_lengths), default=0)
+    if given_padding is not None and not isinstance(given_padding, int):
+        raise TypeError(
+            "Padding around mutation must be an integer or None, "
+            f"got {given_padding!r} ({type(given_padding).__name__})"
+        )
     if not given_padding:
         return min_required_padding
-    else:
-        require_integer(given_padding, "Padding around mutation")
-        if given_padding < min_required_padding:
-            raise ValueError(
-                "Padding around mutation %d cannot be less than %d "
-                "for epitope lengths %s"
-                % (given_padding, min_required_padding, epitope_lengths)
-            )
-        return given_padding
+    if given_padding < min_required_padding:
+        raise ValueError(
+            "Padding around mutation %d cannot be less than %d "
+            "for epitope lengths %s"
+            % (given_padding, min_required_padding, epitope_lengths)
+        )
+    return given_padding
 
 
 def contains_mutant_residues(
