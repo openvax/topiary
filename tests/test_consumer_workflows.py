@@ -540,6 +540,32 @@ PVACSEQ_PRESENTATION = (
 )
 
 
+def test_binding_self_axes_change_dsl_selection_and_replay_all_ties(tmp_path):
+    from topiary import binding_aware_self_evidence, SelfProteome, self_mimic, self_strongest_nearby
+    from .test_self_binding import QUERY, NEAR, FAR, MODEL, prediction
+    from .test_twin_conformance import DELIMITED_IO_TWINS
+
+    ref = SelfProteome.from_peptides({"cta": NEAR, "normal": NEAR, "distant": FAR}, peptide_lengths=[8])
+    result = binding_aware_self_evidence(ref, [QUERY, QUERY], alleles=["A0201", "B0702"],
+        max_mismatches=2, excluded_gene_ids=["cta"], predictions=[
+            prediction(QUERY, 2), prediction(NEAR, 2), prediction(FAR, .1),
+            prediction(QUERY, 2, "B0702"), prediction(NEAR, .1, "B0702"), prediction(FAR, 4, "B0702")], **MODEL)
+    # The same evidence gives different answers to nearest-mimic versus
+    # strongest-nearby questions. This is a review criterion, not a safety rule.
+    nearest = self_mimic.Affinity.rank < 1
+    strongest = self_strongest_nearby.Affinity.rank < 1
+    keys = ["query_index", "peptide", "allele"]
+    assert apply_filter(result.df, nearest, group_keys=keys).allele.tolist() == ["HLA-B*07:02"]
+    assert apply_filter(result.df, strongest, group_keys=keys).allele.tolist() == ["HLA-A*02:01", "HLA-B*07:02"]
+    for suffix, writer, _, reader in DELIMITED_IO_TWINS:
+        path = tmp_path / ("binding." + suffix)
+        writer(result, path)
+        replay = reader(path)
+        assert apply_filter(replay.df, parse("self_mimic.affinity.rank < 1"), group_keys=keys).allele.tolist() == ["HLA-B*07:02"]
+        assert replay.df.self_nearest_candidates.tolist() == result.df.self_nearest_candidates.tolist()
+        assert replay.extra == result.extra
+
+
 def test_self_evidence_unknown_decisions_survive_policy_replay(tmp_path):
     from dataclasses import replace
     from topiary import (SelfProteome, SelectionCriterion, SelectionPolicy, TopiaryResult, match_self_peptides,

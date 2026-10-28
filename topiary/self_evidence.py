@@ -14,7 +14,7 @@ from .result import TopiaryResult
 from .serialization import normalize_python_types
 
 
-def match_self_peptides(reference, peptides, *, max_mismatches=0, alleles=None,
+def match_self_peptides(reference, peptides, *, max_mismatches=0, max_edits=None, alleles=None,
                         excluded_gene_ids=(), observations=None, predictions=None):
     """Return every bounded self match, its origins and supplied evidence.
 
@@ -30,6 +30,12 @@ def match_self_peptides(reference, peptides, *, max_mismatches=0, alleles=None,
         Nonnegative same-length Hamming radius; zero means exact matching.
         Indels and TCR recognition are not evaluated. Reference comparisons
         are chunked, without a query-by-whole-proteome distance matrix.
+    max_edits : int or None
+        Opt into a bounded Levenshtein search across lengths L-radius through
+        L+radius, allowing substitutions, insertions and deletions. Cannot be
+        combined with a nonzero max_mismatches. Every requested positive length
+        must be indexed for complete search coverage. Larger radii cost more;
+        reference comparisons are chunked. No TCR-position weights are applied.
     alleles : iterable of str or None, optional
         One allele per query, parsed with mhcgnomes. Missing alleles remain
         unknown; no genotype is borrowed from predictions or other queries.
@@ -75,6 +81,10 @@ def match_self_peptides(reference, peptides, *, max_mismatches=0, alleles=None,
         raise ValueError("Query peptides must be nonempty strings")
     if type(max_mismatches) is not int or max_mismatches < 0:
         raise ValueError("max_mismatches must be a nonnegative integer")
+    if max_edits is not None and (type(max_edits) is not int or max_edits < 0):
+        raise ValueError("max_edits must be a nonnegative integer or None")
+    if max_edits is not None and max_mismatches != 0:
+        raise ValueError("Choose max_edits or max_mismatches, not both")
     if isinstance(alleles, str):
         raise TypeError("alleles must supply one allele per query")
     alleles = [None] * len(peptides) if alleles is None else list(alleles)
@@ -96,7 +106,10 @@ def match_self_peptides(reference, peptides, *, max_mismatches=0, alleles=None,
     supported = set(AMINO_ACIDS)
     excluded = set(excluded)
     reference_coverage = {}
-    for length in sorted({len(peptide) for peptide in peptides}):
+    lengths = {length for peptide in peptides for length in (
+        range(max(1, len(peptide) - max_edits), len(peptide) + max_edits + 1)
+        if max_edits is not None else [len(peptide)])}
+    for length in sorted(lengths):
         array = reference._reference_arrays.get(length, [])
         unsupported = sum(int((array[start:start + 65536] >= len(AMINO_ACIDS)).any(axis=1).sum())
                           for start in range(0, len(array), 65536))
@@ -104,8 +117,10 @@ def match_self_peptides(reference, peptides, *, max_mismatches=0, alleles=None,
     searches, rows = {}, []
     for query_index, (peptide, allele) in enumerate(zip(peptides, alleles)):
         if peptide not in searches:
-            searches[peptide] = _search(reference, peptide, max_mismatches, supported,
-                                        reference_coverage[str(len(peptide))]["n_unsupported"])
+            searches[peptide] = (_search_edits(reference, peptide, max_edits, supported, reference_coverage)
+                                if max_edits is not None else _search(
+                                    reference, peptide, max_mismatches, supported,
+                                    reference_coverage[str(len(peptide))]["n_unsupported"]))
         matches, complete, reason = searches[peptide]
         status = "matched" if matches else "no_match_in_scope" if complete else "unassessed"
         origins = [(match, distance, origin) for match, distance in matches
@@ -121,7 +136,10 @@ def match_self_peptides(reference, peptides, *, max_mismatches=0, alleles=None,
             identity = None if match is None else _digest([reference.reference_version, match, gene, transcript, offset])
             rows.append(dict(
                 query_index=query_index, peptide=peptide, peptide_length=len(peptide), allele=allele,
-                self_match_id=identity, self_peptide=match, self_mismatches=distance,
+                self_match_id=identity, self_peptide=match,
+                self_edit_distance=distance,
+                self_mismatches=(sum(a != b for a, b in zip(peptide, match))
+                                 if match is not None and len(peptide) == len(match) else None),
                 self_gene_id=gene, self_transcript_id=transcript, self_reference_offset=offset,
                 self_in_scope=None if gene is None else gene not in excluded,
                 self_reference_version=reference.reference_version,
@@ -137,14 +155,17 @@ def match_self_peptides(reference, peptides, *, max_mismatches=0, alleles=None,
                 self_observations=observed, self_predictions=predicted, self_same_allele_predictions=same_allele,
             ))
     columns = ["query_index", "peptide", "peptide_length", "allele", "self_match_id", "self_peptide", "self_mismatches",
+               "self_edit_distance",
                "self_gene_id", "self_transcript_id", "self_reference_offset", "self_in_scope",
                "self_reference_version", "self_search_status", "self_search_complete", "self_search_reason",
                "self_observation_status", "self_observed", "self_observed_confirmed_same_allele",
                "self_observed_predicted_same_allele", "self_prediction_status", "self_observations",
                "self_predictions", "self_same_allele_predictions"]
-    scope = dict(reference_version=reference.reference_version, search="same_length_hamming",
+    scope = dict(reference_version=reference.reference_version,
+                 search="bounded_levenshtein" if max_edits is not None else "same_length_hamming",
                  reference_coverage=reference_coverage,
-                 max_mismatches=max_mismatches, include_indels=False, excluded_gene_ids=sorted(excluded),
+                 max_mismatches=max_mismatches if max_edits is None else None,
+                 max_edits=max_edits, include_indels=max_edits is not None, excluded_gene_ids=sorted(excluded),
                  observation_input="not_supplied" if observations is None else "supplied",
                  observation_sha256=_digest(observation_records), prediction_input="not_supplied"
                  if predictions is None else "supplied", prediction_sha256=_digest(prediction_records))
@@ -285,3 +306,35 @@ def _search(reference, peptide, radius, supported, unsupported):
                 continue
             matches.append((candidate, int(distances[index])))
     return matches, complete, reason
+
+
+def _search_edits(reference, peptide, radius, supported, coverage):
+    if not set(peptide) <= supported:
+        return [], False, "query_sequence_unsupported"
+    matches, reasons = [], set()
+    query = encode_amino_acids([peptide], len(peptide))[0]
+    for length in range(max(1, len(peptide) - radius), len(peptide) + radius + 1):
+        facts = coverage[str(length)]
+        if not facts["n_peptides"]:
+            reasons.add("reference_length_unavailable")
+            continue
+        if facts["n_unsupported"]:
+            reasons.add("unsupported_reference_sequences")
+        array = reference._reference_arrays[length]
+        candidates = reference._reference_peptides[length]
+        for start in range(0, len(array), 65536):
+            chunk = array[start:start + 65536]
+            previous = np.broadcast_to(np.arange(length + 1), (len(chunk), length + 1)).copy()
+            current = np.empty_like(previous)
+            for i, residue in enumerate(query, 1):
+                current[:, 0] = i
+                for j in range(1, length + 1):
+                    current[:, j] = np.minimum(np.minimum(previous[:, j] + 1, current[:, j - 1] + 1),
+                                               previous[:, j - 1] + (chunk[:, j - 1] != residue))
+                previous, current = current, previous
+            distances = previous[:, -1]
+            for index in np.flatnonzero(distances <= radius):
+                candidate = candidates[start + int(index)]
+                if set(candidate) <= supported:
+                    matches.append((candidate, int(distances[index])))
+    return matches, not reasons, ";".join(sorted(reasons)) or None

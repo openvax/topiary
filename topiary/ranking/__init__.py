@@ -86,6 +86,8 @@ from .nodes import (
     peptide_view,
     prediction_field_values,
     self_nearest,
+    self_mimic,
+    self_strongest_nearby,
     self_scope,
     shuffled,
     wt,
@@ -133,6 +135,8 @@ __all__ = [
     "shuffled",
     "self_scope",
     "self_nearest",
+    "self_mimic",
+    "self_strongest_nearby",
     # Aggregations
     "mean",
     "geomean",

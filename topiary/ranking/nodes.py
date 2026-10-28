@@ -4056,7 +4056,7 @@ class_ii = IsIn("mhc_class", ["II"])
 # Scope — alternate peptide context (wt, shuffled, self)
 # =============================================================================
 
-_CONTEXT_KEYWORDS = {"wt", "shuffled", "self", "self_nearest"}
+_CONTEXT_KEYWORDS = {"wt", "shuffled", "self", "self_nearest", "self_mimic", "self_strongest_nearby"}
 
 
 class Scope:
@@ -4115,6 +4115,8 @@ self_scope = Scope("self")
 # ``self_nearest_*`` columns; when absent, evaluates to NaN.
 # See docs/self_proteome.md, and docs/fragments.md for the column namespace.
 self_nearest = Scope("self_nearest")
+self_mimic = Scope("self_mimic")
+self_strongest_nearby = Scope("self_strongest_nearby")
 
 
 # =============================================================================
