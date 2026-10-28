@@ -7,6 +7,13 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.100.2
+
+- Verify exact release-tag push access before any PyPI request, lint, test,
+  build, or upload, and refuse pre-existing local or remote release tags (#434).
+- Push only the intended release tag after upload, leaving unrelated local tags
+  untouched, and document conservative recovery from a post-upload tag failure.
+
 ## 5.100.1
 
 - Define `logistic_normalized` as value-at-zero normalization for nonnegative,
