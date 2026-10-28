@@ -150,15 +150,70 @@ def _deploy(repo, env_updates):
     return _run(["bash", "deploy.sh"], repo, env)
 
 
-def _assert_release_stopped(repo):
-    """Failure must precede every gate, build, upload and tag mutation."""
+def _assert_release_pipeline_not_started(repo):
+    """Failure must precede every gate, build and upload."""
     assert not (repo.parent / "gate-python.log").exists()
     invocations = (repo.parent / "python-invocations.log").read_text()
     assert "-m build" not in invocations
     assert "-m twine" not in invocations
     assert not (repo / "dist").exists()
+
+
+def _assert_release_stopped(repo):
+    """Failure must also precede any tag mutation."""
+    _assert_release_pipeline_not_started(repo)
     assert not _git(repo, "tag", "--list").stdout
     assert not _git(repo, "ls-remote", "--tags", "origin").stdout
+
+
+def test_push_preflight_stops_before_release_pipeline(tmp_path):
+    repo = _release_repo(tmp_path)
+    missing_push_target = tmp_path / "missing-origin.git"
+    _git(repo, "remote", "set-url", "--push", "origin", str(missing_push_target))
+
+    result = _deploy(repo, {
+        "PYTHON": str(_fake_python(tmp_path / "selected python")),
+    })
+
+    assert result.returncode != 0
+    assert str(missing_push_target) in result.stderr
+    assert not (tmp_path / "pypi-requests.log").exists()
+    _assert_release_stopped(repo)
+
+
+@pytest.mark.parametrize("location", ("local", "remote"))
+def test_preflight_refuses_existing_release_tag(tmp_path, location):
+    repo = _release_repo(tmp_path)
+    if location == "local":
+        _git(repo, "tag", "v5.52.5")
+    else:
+        push_origin = tmp_path / "push-origin.git"
+        _git(repo, "init", "--bare", str(push_origin))
+        _git(repo, "remote", "set-url", "--push", "origin", str(push_origin))
+        _git(repo, "push", str(push_origin), "HEAD:refs/tags/v5.52.5")
+
+    result = _deploy(repo, {
+        "PYTHON": str(_fake_python(tmp_path / "selected python")),
+    })
+
+    assert result.returncode != 0
+    assert f"ERROR: {location.capitalize()} tag v5.52.5 already exists" in result.stdout
+    assert not (tmp_path / "pypi-requests.log").exists()
+    _assert_release_pipeline_not_started(repo)
+
+
+def test_release_pushes_only_its_exact_tag(tmp_path):
+    repo = _release_repo(tmp_path)
+    _git(repo, "tag", "unrelated-local-tag")
+
+    result = _deploy(repo, {
+        "PYTHON": str(_fake_python(tmp_path / "selected python")),
+    })
+
+    assert result.returncode == 0, result.stderr
+    remote_tags = _git(repo, "ls-remote", "--tags", "origin").stdout
+    assert "refs/tags/v5.52.5" in remote_tags
+    assert "refs/tags/unrelated-local-tag" not in remote_tags
 
 
 @pytest.mark.parametrize("error, diagnostic", [

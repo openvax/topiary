@@ -10,14 +10,46 @@
 ## What deploy.sh does
 
 1. Verifies you're on master with a clean working tree
-2. Checks the version isn't already published on PyPI
+2. Refuses an existing local or remote release tag, then verifies push access
+   with a dry run of that exact tag ref
+3. Checks the version isn't already published on PyPI
    (`scripts/check_pypi_release.py`; fail-closed, so an unreachable or
    malformed PyPI response stops the release)
-3. Runs `./lint.sh` (ruff)
-4. Runs `./test.sh` (pytest with coverage)
-5. Builds sdist and wheel via `python -m build`
-6. Uploads to PyPI via twine
-7. Creates a git tag (`v{version}`) and pushes it
+4. Runs `./lint.sh` (ruff)
+5. Runs `./test.sh` (pytest with coverage)
+6. Builds sdist and wheel via `python -m build`
+7. Uploads to PyPI via twine
+8. Creates the git tag (`v{version}`) and pushes only that exact tag ref
+
+The dry run exercises the authenticated push path and catches unavailable
+endpoints, common credential failures, and obvious ref conflicts before
+publication. It cannot guarantee that the network, remote permissions, or
+server-side rules will remain unchanged through the later real push.
+
+## Recovering a tag after publication
+
+If the PyPI upload succeeds but the final tag push fails, do not rerun
+`deploy.sh`: the already-published-version guard will stop it. Preserve the
+local `dist/` directory and recover conservatively:
+
+1. Check the release's PyPI JSON response and compare the SHA-256 digest of
+   every published wheel and source distribution with the corresponding local
+   file in `dist/`.
+2. Verify that clean local `master`, `origin/master`, and the intended merge
+   commit are identical. Inspect the commit instead of assuming the checkout
+   remained unchanged after the upload.
+3. Verify that `v{version}` is absent remotely. Create it locally at the
+   verified merge commit only if the failed deploy did not already create it.
+4. Confirm `git rev-list -n1 v{version}` prints that exact merge commit, then
+   push only the release ref:
+
+   ```bash
+   git push origin refs/tags/v{version}:refs/tags/v{version}
+   ```
+
+Do not force a conflicting remote tag or replace a published artifact. File an
+issue with the artifact hashes, commit, tag state, and failed command if any
+check is ambiguous.
 
 ## Development and release environment
 
