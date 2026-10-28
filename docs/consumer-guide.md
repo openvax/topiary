@@ -215,6 +215,16 @@ an older release can import cleanly and still return wrong evidence (1.17.x
 miscounts reads at insertion boundaries), so Topiary refuses it with an
 upgrade instruction. Upgrade with `pip install --upgrade 'topiary[isovar]'`.
 
+Reading an existing versioned Isovar comparison export does not require the
+Isovar extra. `read_isovar_hypotheses` imports all protein hypotheses, while
+`read_isovar_patient_background_pairs` imports the corresponding bounded
+mutant/patient-background windows. Join the two on `event_id`, `hypothesis_id`
+and `translation_id`; `pair_id` and `transcript_id` preserve each distinct
+comparison. These readers retain provenance and unavailable outcomes but do not
+construct candidates or select a ranking policy. See
+[Isovar hypotheses and patient-background pairs](combined-sources.md#isovar-hypotheses-for-comparison)
+for the full contract.
+
 ### RNA context for ligands versus vaccine peptides
 
 Tell Topiary how long the peptide of interest is. For ligand-only workflows,

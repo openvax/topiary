@@ -7,6 +7,17 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.102.0
+
+- Add `read_isovar_patient_background_pairs` for Isovar's versioned
+  patient-background comparison export, preserving exact event, hypothesis,
+  translation, transcript and pair identities (#536).
+- Keep bounded mutant and counterfactual coding windows separate from full
+  proteins and prediction candidates, with explicit paired, zero-length and
+  unavailable states and no automatic ranking policy.
+- Validate construction, observation, phase, edit, interval and RNA evidence
+  provenance consistently across mapping, JSON and JSON.gz input doors.
+
 ## 5.101.0
 
 - Accept direct `--protein-change` mutations alongside VCF, MAF, inline or

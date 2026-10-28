@@ -1094,6 +1094,29 @@ def test_isovar_comparison_import_does_not_change_default_fragment_selection(mon
         assert creator.min_protein_sequence_support_fraction == 0.85
 
 
+def test_isovar_patient_background_pairs_match_exact_hypothesis_translation():
+    from topiary import read_isovar_hypotheses, read_isovar_patient_background_pairs
+    from .test_isovar_hypotheses import hypothesis_export
+    from .test_isovar_patient_background import patient_background_export
+
+    hypotheses = read_isovar_hypotheses(hypothesis_export("protein-v2")).df
+    pairs = read_isovar_patient_background_pairs(patient_background_export()).df
+    keys = ["event_id", "hypothesis_id", "translation_id"]
+    joined = pairs.merge(hypotheses, on=keys, suffixes=("_pair", "_hypothesis"),
+                         validate="one_to_one")
+
+    assert len(joined) == 1
+    row = joined.iloc[0]
+    assert row.nucleotide_sequence_pair == row.nucleotide_sequence_hypothesis
+    assert (row.protein_hypothesis_sequence_pair
+            == row.protein_hypothesis_sequence_hypothesis)
+    assert row.patient_background_sequence != row.protein_hypothesis_sequence_pair
+    assert row.patient_background_construction == "transcript_cdna_somatic_reversion"
+    assert row.patient_background_observation == "computed_only"
+    assert row.transcript_id == "tx-1"
+    assert "protein_sequence" not in pairs
+
+
 @pytest.mark.parametrize("form", ["native", "long", "wide"])
 @pytest.mark.parametrize("sample", ["001", "NA"])
 def test_isovar_comparison_roundtrip_preserves_literal_identity_and_sequence(tmp_path, form, sample):
