@@ -4184,5 +4184,5 @@ def test_vaxrank_manufacturability_properties_compose_without_losing_detail():
     assert result["difficult_cterm"].equals(
         result["c_terminal_cysteine"] | result["c_terminal_proline"]
     )
-    assert result["cterm_7mer_hydrophobicity"].iloc[-1] == 1.8
-    assert result["max_7mer_hydrophobicity"].iloc[-1] == 1.8
+    assert result["cterm_7mer_hydrophobicity"].iloc[-1] == pytest.approx(1.8)
+    assert result["max_7mer_hydrophobicity"].iloc[-1] == pytest.approx(1.8)
