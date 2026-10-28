@@ -7,6 +7,23 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.99.0
+
+- Expose separate C-terminal cysteine/proline and N-terminal
+  asparagine/methionine manufacturability properties so Vaxrank can reuse
+  Topiary's peptide-property computation without losing scoring-policy detail.
+- Derive the existing combined `difficult_cterm` property from its two
+  fine-grained terminal flags and verify the shared consumer workflow.
+
+## 5.98.1
+
+- Preserve score-only presentation and processing measurements without
+  inventing a raw value during prediction-table normalization, cached import,
+  TSV replay or typed reconstruction (#521).
+- Record a complete current-dependency replay for four renamed deletion
+  effects while preserving the checked historical RNA evidence and outcomes
+  (#523).
+
 ## 5.98.0
 
 - Preserve declared protein-scan flank window limits in cache identity and

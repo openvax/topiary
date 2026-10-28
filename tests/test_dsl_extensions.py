@@ -570,6 +570,10 @@ class TestProperties:
         assert "cysteine_count" in result.columns
         assert "asp_pro_bonds" in result.columns
         assert "difficult_nterm" in result.columns
+        assert "c_terminal_cysteine" in result.columns
+        assert "c_terminal_proline" in result.columns
+        assert "n_terminal_asparagine" in result.columns
+        assert "n_terminal_methionine" in result.columns
         # core is included
         assert "charge" in result.columns
         # immunogenicity-only excluded
@@ -655,6 +659,25 @@ class TestProperties:
         ])
         result = add_peptide_properties(df, include=["difficult_cterm"])
         assert list(result["difficult_cterm"]) == [True, True, False]
+
+    def test_fine_grained_terminal_manufacturability(self):
+        from topiary.properties import add_peptide_properties
+        df = _make_df([
+            dict(peptide="NAAAC"),
+            dict(peptide="MAAAP"),
+            dict(peptide="AAAAA"),
+        ])
+        names = [
+            "c_terminal_cysteine",
+            "c_terminal_proline",
+            "n_terminal_asparagine",
+            "n_terminal_methionine",
+        ]
+        result = add_peptide_properties(df, include=names)
+        assert list(result["c_terminal_cysteine"]) == [True, False, False]
+        assert list(result["c_terminal_proline"]) == [False, True, False]
+        assert list(result["n_terminal_asparagine"]) == [True, False, False]
+        assert list(result["n_terminal_methionine"]) == [False, True, False]
 
     def test_tcr_properties_9mer(self):
         from topiary.properties import add_peptide_properties

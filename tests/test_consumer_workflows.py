@@ -4166,3 +4166,23 @@ def test_netmhcpan_cache_import_and_replay_preserve_score_only_units(tmp_path):
             else:
                 assert prediction.measurement_context.unit == 'nM'
         assert kinds == {'pMHC_affinity', 'pMHC_presentation'}
+
+
+def test_vaxrank_manufacturability_properties_compose_without_losing_detail():
+    """Topiary exposes every terminal flag used by Vaxrank selection."""
+    from topiary import add_peptide_properties
+
+    peptides = pd.DataFrame({
+        "peptide": ["QAAAAAC", "EAAAAAP", "NAAAAAA", "MAAAAAA", "AAAAAAA"],
+    })
+    result = add_peptide_properties(peptides, groups=["manufacturability"])
+
+    assert result["c_terminal_cysteine"].tolist() == [True, False, False, False, False]
+    assert result["c_terminal_proline"].tolist() == [False, True, False, False, False]
+    assert result["n_terminal_asparagine"].tolist() == [False, False, True, False, False]
+    assert result["n_terminal_methionine"].tolist() == [False, False, False, True, False]
+    assert result["difficult_cterm"].equals(
+        result["c_terminal_cysteine"] | result["c_terminal_proline"]
+    )
+    assert result["cterm_7mer_hydrophobicity"].iloc[-1] == 1.8
+    assert result["max_7mer_hydrophobicity"].iloc[-1] == 1.8

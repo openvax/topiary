@@ -45,9 +45,17 @@ Includes all core properties, plus:
 | `cterm_7mer_hydrophobicity` | Mean hydropathy of C-terminal 7 residues | Medium |
 | `difficult_nterm` | N-terminal Q, E, or C (problematic for synthesis) | Medium |
 | `difficult_cterm` | C-terminal P or C (blocks coupling / aggregation) | Medium |
+| `c_terminal_cysteine` | C-terminal C, retained separately for synthesis policy | Medium |
+| `c_terminal_proline` | C-terminal P, retained separately for synthesis policy | Medium |
+| `n_terminal_asparagine` | N-terminal N | Low |
+| `n_terminal_methionine` | N-terminal M (oxidation risk) | Low |
 | `asp_pro_bonds` | Count of Asp-Pro dipeptides (hydrolysis-prone) | Low |
 
-These mirror the manufacturability criteria used by [Vaxrank](https://github.com/openvax/vaxrank) for vaccine peptide selection.
+These mirror the per-peptide manufacturability criteria used by
+[Vaxrank](https://github.com/openvax/vaxrank) for vaccine peptide selection.
+Topiary reports the C-terminal cysteine and proline flags both separately and
+as their combined `difficult_cterm` value; Vaxrank retains the separate values
+when applying its scoring policy.
 
 ### `"immunogenicity"` — TCR recognition signals
 

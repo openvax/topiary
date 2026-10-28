@@ -193,7 +193,9 @@ from topiary.properties import add_peptide_properties
 df = add_peptide_properties(df, groups=["manufacturability"])
 # Adds: charge, hydrophobicity, aromaticity, molecular_weight,
 #   cysteine_count, instability_index, max_7mer_hydrophobicity,
-#   cterm_7mer_hydrophobicity, difficult_nterm, difficult_cterm, asp_pro_bonds
+#   cterm_7mer_hydrophobicity, difficult_nterm, difficult_cterm,
+#   c_terminal_cysteine, c_terminal_proline, n_terminal_asparagine,
+#   n_terminal_methionine, asp_pro_bonds
 ```
 
 See [Peptide Properties](properties.md) for all available properties and groups.
