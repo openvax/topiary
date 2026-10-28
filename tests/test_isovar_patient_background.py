@@ -146,6 +146,8 @@ def test_reader_twins_preserve_pair_identity_state_and_provenance(tmp_path, unav
     for result in outputs:
         row = result.df.iloc[0]
         assert row.pair_state == ("unavailable" if unavailable else "paired")
+        assert row.patient_background_protein_comparison == (
+            "unavailable" if unavailable else "amino_acid_divergent")
         assert row.baseline_policy == "focal"
         assert row.mutant_phase == "single_original_read_span"
         assert row.mutant_fragments == 1
@@ -206,6 +208,7 @@ def test_zero_length_baseline_is_an_explicit_available_outcome(
     for result in read_all(export, tmp_path):
         row = result.df.iloc[0]
         assert row.pair_state == "zero_length_baseline"
+        assert row.patient_background_protein_comparison == "amino_acid_divergent"
         assert row.patient_background_sequence == ""
         assert row.patient_background_coding_interval == [start, start + coding_length]
         assert row.patient_background_available_coding_interval == [start, available_end]
@@ -226,6 +229,7 @@ def test_unavailable_after_replay_retains_reference_and_edit_provenance(tmp_path
     for result in read_all(export, tmp_path):
         row = result.df.iloc[0]
         assert row.pair_state == "unavailable"
+        assert row.patient_background_protein_comparison == "unavailable"
         assert row.reference_nucleotide_sequence == pair["reference"]["nucleotide_sequence"]
         assert row.removed_edits[0]["origin"] == "nominated_variant"
         assert pd.isna(row.patient_background_sequence)
@@ -240,11 +244,34 @@ def test_supplied_somatic_haplotype_policy_is_preserved(tmp_path):
         assert result.df.iloc[0].baseline_policy == "supplied_somatic_haplotype"
 
 
+def test_synonymous_reversion_has_identical_bounded_proteins(tmp_path):
+    export = patient_background_export()
+    pair = export["events"][0]["pairs"][0]
+    mutant_sequence = pair["mutant"]["nucleotide_sequence"]
+    baseline_sequence = mutant_sequence[:10] + "G" + mutant_sequence[11:]
+    pair["baseline"].update(
+        nucleotide_sequence=baseline_sequence,
+        protein_sequence=pair["mutant"]["protein_sequence"],
+    )
+    pair["reference"].update(nucleotide_sequence=baseline_sequence)
+    pair["removed_edits"] = [dict(
+        origin="nominated_variant", cdna_interval=[110, 111],
+        observed_interval=[10, 11], alt_bases="A", reference_bases="G",
+    )]
+
+    for result in read_all(export, tmp_path):
+        row = result.df.iloc[0]
+        assert row.patient_background_protein_comparison == "identical"
+        assert row.patient_background_sequence == row.protein_hypothesis_sequence
+
+
 def test_structured_pair_fields_round_trip_through_typed_tsv(tmp_path):
     result = read_isovar_patient_background_pairs(patient_background_export())
     path = tmp_path / "pairs.tsv"
     result.to_tsv(path)
     restored = read_tsv(path)
+    assert (restored.df.at[0, "patient_background_protein_comparison"]
+            == "amino_acid_divergent")
     for field in (
         "mutant_rna_support", "mutant_coding_support",
         "patient_background_reference_allele_coding_support",

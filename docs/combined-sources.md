@@ -516,6 +516,11 @@ fixed-length peptides, so the reader deliberately supplies no generic
 `pair_state` distinguishes `paired`, `zero_length_baseline` and `unavailable`.
 An unavailable baseline remains null and retains `pair_reason`; an available
 baseline translating to no amino acids remains the empty string, not missing.
+`patient_background_protein_comparison` makes the safe three-way comparison
+explicit: `identical`, `amino_acid_divergent` or `unavailable`. It compares only
+the exact bounded protein strings in that pair; it does not assert whole-protein
+identity, choose a unique reference isoform, or establish normal-tissue,
+translated-protein expression or safety evidence.
 `patient_background_construction` records transcript-cDNA somatic reversion.
 `patient_background_observation="computed_only"` is a counterfactual, not
 normal-tissue RNA, protein expression or immunogenicity. A

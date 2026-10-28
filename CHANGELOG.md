@@ -7,6 +7,15 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.105.0
+
+- Classify each bounded Isovar patient-background protein pair as `identical`,
+  `amino_acid_divergent` or `unavailable`, so missing baselines cannot be
+  mistaken for observed differences (#540).
+- Keep the comparison scoped to the exact exported coding windows, without
+  implying whole-protein identity, a unique reference isoform, expression or
+  safety evidence.
+
 ## 5.104.0
 
 - Add `binding_aware_self_evidence` / `SelfProteome.binding_evidence` with

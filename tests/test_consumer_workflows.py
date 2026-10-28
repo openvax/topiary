@@ -1136,7 +1136,7 @@ def test_isovar_patient_background_pairs_match_exact_hypothesis_translation():
     assert row.nucleotide_sequence_pair == row.nucleotide_sequence_hypothesis
     assert (row.protein_hypothesis_sequence_pair
             == row.protein_hypothesis_sequence_hypothesis)
-    assert row.patient_background_sequence != row.protein_hypothesis_sequence_pair
+    assert row.patient_background_protein_comparison == "amino_acid_divergent"
     assert row.patient_background_construction == "transcript_cdna_somatic_reversion"
     assert row.patient_background_observation == "computed_only"
     assert row.transcript_id == "tx-1"
