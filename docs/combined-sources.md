@@ -692,6 +692,34 @@ evaluation = evaluate_selection_policy(
 evaluation.evidence.to_tsv("occurrence-evidence.tsv")
 ```
 
+When several consumer stages reuse that configured predictor, serialize one
+model inventory instead of rebuilding names and endpoint scope from model
+attributes:
+
+```python
+from topiary import describe_prediction_models
+
+models = describe_prediction_models(predictor)
+effective_summary = {
+    "candidate": {
+        "models": models,
+        "selection_policy": evaluation.policy.to_dict(),
+    },
+    "junction": {
+        "models": models,
+        "endpoint_policy": {
+            "endpoint": "pMHC_affinity.percentile_rank",
+            "fallback": None,
+        },
+    },
+}
+```
+
+The shared inventory describes model facts only. Keep candidate selection and
+junction burden/threshold intent separate and explicit; do not infer endpoint
+fallback from whichever rows happen to be returned. Runtime coverage still
+comes from result rows and cache-miss reports, not from configuration metadata.
+
 The model scores only the supplied peptides against its configured alleles.
 Within a shared sample/flank/genotype context, distinct peptides are batched and
 identical inference inputs are scored once, then linked to each original

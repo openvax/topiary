@@ -128,6 +128,17 @@ Missing required identity returns `None`, which must remain unmatchable.
 Comparator joins use this public rule in both fragment and occurrence prediction;
 a haplotype's selected presenter is not its genotype identity.
 
+`describe_prediction_models(predictor)` returns one JSON-compatible record per
+configured model. It gives duplicate model instances distinct `model_key` values
+and reports the configured class, stated method/version, alleles, peptide-length
+domain, flank use and every declared kind's MHC dependence/class. Predictors that
+name their method only in returned rows keep `prediction_method_name=None` until
+there is observed evidence; the class is never relabelled as an observed method.
+Other unknown optional facts also remain `None`, and no model is run. This is a
+reviewable inventory, not replay configuration or observed result coverage:
+constructor settings, cache contents, stage status, endpoint choice, thresholds
+and selection policy remain explicit elsewhere.
+
 ## TopiaryResult
 
 `TopiaryResult` is the semantic result object for Topiary prediction tables.

@@ -32,6 +32,7 @@ from .ranking import (
     apply_sort,
     as_dsl_node,
     as_dsl_nodes,
+    is_stated,
     mhc_dependence,
     prediction_mhc_scope,
 )
@@ -59,17 +60,23 @@ _MODEL_KEY_COLUMN = "_topiary_model_key"
 _WT_OFFSET_COLUMN = "_topiary_wt_peptide_offset"
 
 
+def _stated_model_metadata_name(model):
+    """The model's stated logical name, without a class-name guess."""
+    return next((
+        str(value) for attribute in (
+            "prediction_method_name", "predictor_name", "name",
+        )
+        if is_stated(value := getattr(model, attribute, None))
+    ), None)
+
+
+def _model_metadata_name(model):
+    return _stated_model_metadata_name(model) or type(model).__name__
+
+
 def _unique_model_keys(models):
     """Readable, unique internal names for configured model instances."""
-    bases = []
-    for model in models:
-        base = (
-            getattr(model, "prediction_method_name", None)
-            or getattr(model, "predictor_name", None)
-            or getattr(model, "name", None)
-            or type(model).__name__
-        )
-        bases.append(str(base) or type(model).__name__)
+    bases = [str(_model_metadata_name(model)) for model in models]
 
     totals = Counter(bases)
     seen = Counter()
@@ -81,15 +88,6 @@ def _unique_model_keys(models):
         else:
             keys.append(f"{base}__{seen[base]}")
     return keys
-
-
-def _model_metadata_name(model):
-    return (
-        getattr(model, "prediction_method_name", None)
-        or getattr(model, "predictor_name", None)
-        or getattr(model, "name", None)
-        or type(model).__name__
-    )
 
 
 def _model_metadata_versions(models):
@@ -1930,3 +1928,140 @@ class TopiaryPredictor(object):
             gene_expression_dict=gene_expression_dict,
             expression_data=expression_data,
         )
+
+
+def _model_integer(value, label, *, positive=False):
+    """Normalize one optional integer declared by a prediction model."""
+    if value is None:
+        return None
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+        raise ValueError(f"{label} must be an integer or None")
+    value = int(value)
+    if value < (1 if positive else 0):
+        qualifier = "positive" if positive else "nonnegative"
+        raise ValueError(f"{label} must be {qualifier}")
+    return value
+
+
+def describe_prediction_models(predictor):
+    """Describe the configured models of a :class:`TopiaryPredictor`.
+
+    Parameters
+    ----------
+    predictor : TopiaryPredictor
+        Configured predictor whose model facts should be reported. Models are
+        not loaded, called for predictions, or otherwise changed.
+
+    Returns
+    -------
+    list of dict
+        One JSON-compatible record per configured model, in configuration
+        order. ``model_key`` remains unique when logical method names repeat.
+        Each record reports the configured class, stated method/version,
+        alleles, peptide-length domain, flank use and per-kind MHC scope.
+        Undeclared optional facts are ``None``; an explicitly empty allele or
+        length list remains empty.
+
+    Notes
+    -----
+    This is an inventory of facts Topiary uses, not reconstructable model
+    configuration or observed prediction coverage. Arbitrary constructor
+    settings, cache contents, stage enablement, endpoint choice, thresholds
+    and selection policy remain explicit consumer configuration. Invalid
+    declared lengths or kind metadata raise instead of producing a misleading
+    summary.
+    """
+    if not isinstance(predictor, TopiaryPredictor):
+        raise TypeError("predictor must be a TopiaryPredictor")
+
+    missing = object()
+    inventory = []
+    for model_key, model in zip(predictor._model_keys, predictor.models):
+        stated_method = _stated_model_metadata_name(model)
+        declared_alleles = getattr(model, "alleles", missing)
+        if declared_alleles is missing or declared_alleles is None:
+            alleles = None
+        elif isinstance(declared_alleles, str):
+            alleles = [declared_alleles]
+        else:
+            alleles = [str(allele) for allele in declared_alleles]
+
+        declared_lengths = getattr(model, "default_peptide_lengths", missing)
+        if declared_lengths is missing or declared_lengths is None:
+            default_lengths = None
+        elif isinstance(declared_lengths, (str, bytes)):
+            raise ValueError("default_peptide_lengths must be an iterable of integers")
+        else:
+            default_lengths = [
+                _model_integer(length, "default_peptide_lengths", positive=True)
+                for length in declared_lengths
+            ]
+
+        uses_flanks = getattr(model, "uses_flanking_sequences", missing)
+        if uses_flanks is missing or uses_flanks is None:
+            uses_flanks = None
+        elif isinstance(uses_flanks, (bool, np.bool_)):
+            uses_flanks = bool(uses_flanks)
+        else:
+            raise ValueError("uses_flanking_sequences must be a boolean or None")
+
+        flank_resolver = getattr(model, "protein_flank_lengths", None)
+        if callable(flank_resolver):
+            declared_flanks = tuple(flank_resolver())
+            if len(declared_flanks) != 2:
+                raise ValueError("protein_flank_lengths must return two integers")
+            flank_lengths = {
+                side: _model_integer(value, f"protein_flank_lengths.{side}")
+                for side, value in zip(("n", "c"), declared_flanks)
+            }
+            if any(value is None for value in flank_lengths.values()):
+                raise ValueError("protein_flank_lengths must declare both limits")
+        else:
+            flank_lengths = None
+
+        support = getattr(model, "kind_support", None)
+        if callable(support):
+            reported = support()
+            if not isinstance(reported, Mapping):
+                raise ValueError("kind_support must return a mapping")
+            kinds = []
+            for kind, metadata in reported.items():
+                if not isinstance(metadata, Mapping):
+                    raise ValueError("kind_support values must be mappings")
+                kinds.append({
+                    "kind": str(getattr(kind, "value", kind)),
+                    "mhc_dependence": (
+                        None if metadata.get("mhc_dependence") is None
+                        else str(getattr(metadata["mhc_dependence"], "value", metadata["mhc_dependence"]))
+                    ),
+                    "mhc_class": (
+                        None if metadata.get("mhc_class") is None
+                        else str(getattr(metadata["mhc_class"], "value", metadata["mhc_class"]))
+                    ),
+                })
+            kinds.sort(key=lambda record: record["kind"])
+        else:
+            kinds = None
+
+        inventory.append({
+            "model_key": str(model_key),
+            "model_class": type(model).__name__,
+            "prediction_method_name": stated_method,
+            "predictor_version": _model_version_str(
+                getattr(model, "predictor_version", None)
+            ) or None,
+            "alleles": alleles,
+            "default_peptide_lengths": default_lengths,
+            "min_peptide_length": _model_integer(
+                getattr(model, "min_peptide_length", None), "min_peptide_length",
+                positive=True,
+            ),
+            "max_peptide_length": _model_integer(
+                getattr(model, "max_peptide_length", None), "max_peptide_length",
+                positive=True,
+            ),
+            "uses_flanking_sequences": uses_flanks,
+            "protein_flank_lengths": flank_lengths,
+            "kinds": kinds,
+        })
+    return inventory
