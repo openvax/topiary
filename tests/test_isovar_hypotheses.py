@@ -48,7 +48,8 @@ def test_reader_twins_keep_synonymous_alternative_and_partial_observations(tmp_p
         assert combined.df.candidate_id.isna().all()
         assert len(protein_evidence_view(combined)) == 2
         assert pd.isna(combined.df.iloc[-1].protein_sequence_id)
-    pd.testing.assert_frame_equal(outputs[0].df, outputs[1].df)
+    for result in outputs[1:]:
+        pd.testing.assert_frame_equal(outputs[0].df, result.df)
     outputs[0].extra["isovar_hypotheses"]["events"].clear()
     assert outputs[1].extra["isovar_hypotheses"] == original
     assert export == original

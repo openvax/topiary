@@ -23,7 +23,9 @@ variant, a format branch, a second constructor -- add the pair to
 
 import dataclasses
 from dataclasses import dataclass, field
+import gzip
 from importlib.metadata import requires
+import json
 from types import SimpleNamespace
 from typing import Callable, Dict, Tuple
 
@@ -51,6 +53,7 @@ from topiary import (
     describe_isovar_result, fragment_from_isovar_result, TopiaryResult,
     to_tsv, to_csv, read_tsv, read_csv,
     read_isovar_hypotheses,
+    read_isovar_patient_background_pairs,
     combine_sources, rank_candidates, rank_with_policy, evaluate_scores,
     SelectionPolicy, resolve_selection_policy, evaluate_selection_policy,
     EvalContext, evaluate_filter, policy_coverage, compare_policy_evaluations,
@@ -200,10 +203,28 @@ def test_short_expression_input_doors_agree(tmp_path, suffix, separator, n_rows,
         pd.testing.assert_frame_equal(*results)
 
 
-# Drive both input forms through the same hypothesis validation battery.
+# Drive mapping, JSON and gzip-compressed JSON through the same hypothesis
+# validation battery.
+def _read_isovar_hypotheses_gzip(export, path):
+    gzip_path = path.with_suffix(path.suffix + ".gz")
+    with gzip.open(gzip_path, "wt", encoding="utf-8") as handle:
+        json.dump(export, handle)
+    return read_isovar_hypotheses(gzip_path, tag="hypotheses")
+
+
 ISOVAR_HYPOTHESIS_INPUT_TWINS = (
     ("mapping", lambda export, path: read_isovar_hypotheses(export, tag="hypotheses")),
     ("json", lambda export, path: read_isovar_hypotheses(path, tag="hypotheses")),
+    ("gzip", _read_isovar_hypotheses_gzip),
+)
+
+# Mapping, JSON and the producer CLI's default JSON.gz output must retain the
+# same patient-background identities, unavailable states and evidence records.
+ISOVAR_PATIENT_BACKGROUND_INPUT_TWINS = (
+    ("mapping", lambda export, path, gzip_path: read_isovar_patient_background_pairs(
+        export, tag="pairs")),
+    ("json", lambda export, path, gzip_path: read_isovar_patient_background_pairs(path)),
+    ("gzip", lambda export, path, gzip_path: read_isovar_patient_background_pairs(gzip_path)),
 )
 
 

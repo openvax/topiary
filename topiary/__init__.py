@@ -158,7 +158,10 @@ from .self_evidence import match_self_peptides, self_matches_in_windows
 from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
 from .io_protein_fragment import read_fragments, write_fragments, iter_fragments
 from .io_lens import detect_lens_version, read_lens
-from .io_isovar_hypotheses import read_isovar_hypotheses
+from .io_isovar_hypotheses import (
+    read_isovar_hypotheses,
+    read_isovar_patient_background_pairs,
+)
 from .io_exacto import read_exacto, read_exacto_fragments, EXACTO_SCHEMAS, EXACTO_SCHEMA_COMMIT
 from .isovar_rna_support import normalize_isovar_rna_support
 from .io_pvacseq import (
@@ -218,7 +221,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.101.0"
+__version__ = "5.102.0"
 
 __all__ = [
     "PROTEIN_SCAN_METADATA_COLUMNS",
@@ -228,6 +231,7 @@ __all__ = [
     "validate_protein_predictions",
     "normalize_isovar_rna_support",
     "read_isovar_hypotheses",
+    "read_isovar_patient_background_pairs",
     "read_exacto",
     "read_exacto_fragments",
     "EXACTO_SCHEMAS",

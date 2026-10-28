@@ -407,9 +407,9 @@ predictions per algorithm. Preserve these distinctions when defining a policy.
 ## Isovar hypotheses for comparison
 
 `read_isovar_hypotheses` reads `isovar.protein_hypotheses.v1` and `v2`
-JSON exports or the mapping returned by `export_protein_hypotheses`. Version 2
-is produced by Isovar 1.37+. The companion
-Isovar TSV lacks the evidence sets and full provenance; supply JSON here.
+JSON/JSON.gz exports or the mapping returned by `export_protein_hypotheses`.
+Version 2 is produced by Isovar 1.37+. The companion Isovar TSV lacks the
+evidence sets and full provenance; supply JSON here.
 
 ```python
 from topiary import read_isovar_hypotheses, combine_sources, rank_candidates
@@ -485,6 +485,50 @@ UMI/cell counts: exports do not include the label identities needed for that.
 Missing evidence-set
 IDs cannot be resolved or safely combined from counts alone. The comparison
 reader itself does not import Isovar or run any reconstruction or predictor.
+
+### Patient-background pairs
+
+`read_isovar_patient_background_pairs` reads
+`isovar.patient_background_pairs.v1` JSON/JSON.gz or its in-memory mapping
+without importing Isovar:
+
+```python
+from topiary import read_isovar_hypotheses, read_isovar_patient_background_pairs
+
+hypotheses = read_isovar_hypotheses("tumor-1.hypotheses.json.gz")
+pairs = read_isovar_patient_background_pairs("tumor-1.patient-background.json.gz")
+comparison = pairs.df.merge(
+    hypotheses.df,
+    on=["event_id", "hypothesis_id", "translation_id"],
+    suffixes=("_pair", "_hypothesis"),
+    validate="many_to_one",
+)
+```
+
+Each row is one exact event/hypothesis/translation/transcript/pair identity.
+`nucleotide_sequence` and `protein_hypothesis_sequence` are the mutant window;
+`patient_background_nucleotide_sequence` and `patient_background_sequence` are
+the separately constructed baseline. Their coding intervals and lengths may
+differ. They are bounded coding windows, not asserted full proteins or aligned
+fixed-length peptides, so the reader deliberately supplies no generic
+`protein_sequence`, candidate, peptide, mapping or ranking policy.
+
+`pair_state` distinguishes `paired`, `zero_length_baseline` and `unavailable`.
+An unavailable baseline remains null and retains `pair_reason`; an available
+baseline translating to no amino acids remains the empty string, not missing.
+`patient_background_construction` records transcript-cDNA somatic reversion.
+`patient_background_observation="computed_only"` is a counterfactual, not
+normal-tissue RNA, protein expression or immunogenicity. A
+`reference_allele_rna_span` observation records separately spanning RNA while
+`patient_background_reference_allele_phase` states its phase tier.
+
+The structured mutant and reference-allele coding-support fields retain exact
+per-base depth, span support and evidence-set references. Their overlapping
+counts are not additive. `removed_edits`, `retained_edits`, the local reference
+window, phased variant IDs, completeness and cap fields preserve how the pair
+was formed. The complete source export remains in
+`pairs.extra['isovar_patient_background_pairs']`, including empty and
+unavailable events.
 
 ## Full ORFs and RNA-only tables
 
