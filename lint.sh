@@ -7,5 +7,6 @@ resolve_topiary_python
 unset SCRIPT_DIR
 
 "${PYTHON}" -m ruff check topiary/ tests/
+"${PYTHON}" -m mypy
 
-echo 'Passes ruff check'
+echo 'Passes ruff and the declared public-API type checks'

@@ -27,7 +27,7 @@ exit 0
 def _path_traps(tmp_path):
     trap_dir = tmp_path / "path-traps"
     trap_dir.mkdir()
-    for name in ("python", "python3", "pytest", "ruff"):
+    for name in ("python", "python3", "pytest", "ruff", "mypy"):
         path = trap_dir / name
         path.write_text("""#!/bin/sh
 printf '%s\\n' "$0 $*" >> "$PATH_TRAP_LOG"
@@ -78,11 +78,11 @@ def _run_gate(tmp_path, script_name, *args, env_updates=None):
     return result, invocations, tmp_path / "path-trap.log"
 
 
-def test_lint_uses_selected_python_module_not_path_ruff(tmp_path):
+def test_lint_uses_selected_python_for_ruff_and_mypy(tmp_path):
     result, invocations, trap_log = _run_gate(tmp_path, "lint.sh")
 
     assert result.returncode == 0, result.stderr
-    assert invocations == ["-m ruff check topiary/ tests/"]
+    assert invocations == ["-m ruff check topiary/ tests/", "-m mypy"]
     assert not trap_log.exists()
 
 
@@ -103,7 +103,7 @@ def test_gate_resolves_virtualenv_python_when_python_is_unset(
     )
 
     assert result.returncode == 0, result.stderr
-    expected = ["-m ruff check topiary/ tests/"]
+    expected = ["-m ruff check topiary/ tests/", "-m mypy"]
     if script_name == "test.sh":
         expected = [
             "-c import xdist",

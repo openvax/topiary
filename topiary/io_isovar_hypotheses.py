@@ -5,6 +5,8 @@ from copy import deepcopy
 import gzip
 import json
 from pathlib import Path
+from os import PathLike
+from typing import Any
 
 import pandas as pd
 
@@ -179,7 +181,9 @@ def _edit_interval(value, field):
     return value
 
 
-def read_isovar_hypotheses(data, *, tag=None):
+def read_isovar_hypotheses(
+    data: str | PathLike[str] | Mapping[str, Any], *, tag: str | None = None,
+) -> TopiaryResult:
     """Import all exported Isovar hypotheses as comparison observations.
 
     Parameters
@@ -292,7 +296,7 @@ def read_isovar_hypotheses(data, *, tag=None):
                     passes_all_filters=passing, isovar_source=source,
                     **_support_columns(protein["rna_support"], "protein", export),
                 )
-                translation_records = {}
+                translation_records: dict[str, str] = {}
                 stop = _flag(protein["ends_with_stop_codon"], "ends_with_stop_codon")
                 if not isinstance(protein["translations"], list):
                     raise ValueError("Isovar translations must be a list")
@@ -304,7 +308,7 @@ def read_isovar_hypotheses(data, *, tag=None):
                         raise ValueError("Isovar translation must be a nonempty mapping")
                     identity = translation.get("translation_id")
                     if translations:
-                        _named(identity, "translation_id")
+                        identity = _named(identity, "translation_id")
                         # Compare the complete wire record, including metadata
                         # not projected into columns. JSON keeps true distinct
                         # from 1 and makes mapping key order irrelevant.
@@ -334,7 +338,9 @@ def read_isovar_hypotheses(data, *, tag=None):
                          extra={"isovar_hypotheses": export})
 
 
-def read_isovar_patient_background_pairs(data, *, tag=None):
+def read_isovar_patient_background_pairs(
+    data: str | PathLike[str] | Mapping[str, Any], *, tag: str | None = None,
+) -> TopiaryResult:
     """Import Isovar's paired patient-background coding windows.
 
     Parameters
@@ -507,7 +513,7 @@ def read_isovar_patient_background_pairs(data, *, tag=None):
                         reference_cdna_interval=reference_interval,
                     )
 
-                background_values = dict(
+                background_values: dict[str, Any] = dict(
                     patient_background_nucleotide_sequence_id=None,
                     patient_background_nucleotide_sequence=None,
                     patient_background_coding_interval=None,

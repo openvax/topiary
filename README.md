@@ -139,6 +139,7 @@ full grammar.
 
 ## Contributing
 
+Install development tools with `pip install -r requirements-dev.txt`.
 Run `./lint.sh` and `./test.sh` before submitting changes. The full suite uses
 real Ensembl annotations and external MHC predictors; collecting tests does not
 load either:

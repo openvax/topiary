@@ -87,7 +87,7 @@ def check_distributions(dist_dir, source_root):
         }
         required = runtime_files | source_resources | {
             "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml",
-            "requirements.txt", "mkdocs.yml", "lint.sh", "test.sh", "deploy.sh",
+            "requirements.txt", "requirements-dev.txt", "mkdocs.yml", "lint.sh", "test.sh", "deploy.sh",
         }
         assert required <= relative_names, f"Missing source files: {required - relative_names}"
         manifest_path = f"{root}/tests/data/manifest.json"

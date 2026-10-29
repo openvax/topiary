@@ -7,6 +7,18 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.107.1
+
+- Add a reproducible mypy gate for result tables, cache interfaces, native
+  TSV/CSV readers and Isovar comparison readers (#532).
+- Correct nullable metadata and cache-container annotations, and annotate
+  public return values directly on existing APIs. Check a composed static
+  consumer with both accepted and rejected inputs; retain runtime validation.
+- Keep the remaining typing scope explicit and defer `py.typed` until the
+  installed package has a checked package-wide contract.
+- Prepare selected read fixtures before network-isolated tests so empty CI
+  caches do not make their outcome depend on test order (#555).
+
 ## 5.107.0
 
 - Install Isovar, PirlyGenes, OncoRef and WEIRDO as core dependencies (#520).

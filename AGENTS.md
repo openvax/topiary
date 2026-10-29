@@ -27,7 +27,7 @@ Before telling the user a change is "complete":
 ## Scripts
 
 - `./develop.sh` — editable install (dev mode)
-- `./lint.sh` — ruff check
+- `./lint.sh` — ruff and declared mypy scope
 - `./test.sh` — pytest (with coverage where configured)
 - `./deploy.sh` — takes no arguments. Reads `topiary.__version__`, refuses an already-released version, then lint → test → build → twine upload → tag → push the tag.
 

@@ -5,9 +5,16 @@ Filter/sort state is stored in both string form (for serialization) and
 AST form (for programmatic use without re-parsing).
 """
 
+from __future__ import annotations
+
 import warnings
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Mapping, Iterable, Iterator
+from os import PathLike
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .ranking import DSLNode, KindAccessor
 
 import pandas as pd
 
@@ -16,7 +23,7 @@ from .wide import detect_form, _concat_frames
 
 
 class _MissingIdentityValue:
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "<NA>"
 
 
@@ -39,7 +46,7 @@ def _dataframe_fingerprint(df):
     columns = tuple(str(column) for column in df.columns)
     dtypes = tuple(str(dtype) for dtype in df.dtypes)
     try:
-        value_hash = int(pd.util.hash_pandas_object(df, index=True).sum())
+        value_hash: int | None = int(pd.util.hash_pandas_object(df, index=True).sum())
     except (TypeError, ValueError):
         # Some object columns may carry unhashable values. Fall back to a
         # stringified hash so converted views are still invalidated for common
@@ -98,21 +105,21 @@ class TopiaryResult:
 
     def __init__(
         self,
-        df,
-        metadata=None,
+        df: pd.DataFrame,
+        metadata: Metadata | None = None,
         *,
-        topiary_version=None,
-        form=None,
-        models=None,
-        sources=None,
-        filter_by_str=None,
-        filter_by_ast=None,
-        sort_by_str=None,
-        sort_by_ast=None,
-        extra=None,
-        _long_df=None,
-        _wide_df=None,
-    ):
+        topiary_version: str | None = None,
+        form: str | None = None,
+        models: Mapping[str, str] | None = None,
+        sources: Iterable[str] | None = None,
+        filter_by_str: str | None = None,
+        filter_by_ast: DSLNode | None = None,
+        sort_by_str: str | None = None,
+        sort_by_ast: DSLNode | list[DSLNode] | None = None,
+        extra: Mapping[str, Any] | None = None,
+        _long_df: pd.DataFrame | None = None,
+        _wide_df: pd.DataFrame | None = None,
+    ) -> None:
         # Compat: accept a Metadata positionally and unpack its fields.
         if metadata is not None:
             topiary_version = topiary_version or metadata.topiary_version
@@ -131,7 +138,7 @@ class TopiaryResult:
         if input_form not in {"long", "wide", "unknown"}:
             raise ValueError(f"Unknown TopiaryResult form: {input_form!r}")
         self._df = df
-        self._unknown_df = None
+        self._unknown_df: pd.DataFrame | None = None
         self._long_df = _long_df
         self._wide_df = _wide_df
         if input_form == "long":
@@ -140,8 +147,8 @@ class TopiaryResult:
             self._wide_df = df
         else:
             self._unknown_df = df
-        self._long_source_fingerprint = None
-        self._wide_source_fingerprint = None
+        self._long_source_fingerprint: tuple | None = None
+        self._wide_source_fingerprint: tuple | None = None
         if self._df is self._long_df and self._wide_df is not None:
             self._wide_source_fingerprint = _dataframe_fingerprint(self._long_df)
         if self._df is self._wide_df and self._long_df is not None:
@@ -157,7 +164,7 @@ class TopiaryResult:
     # -- DataFrame delegation ---------------------------------------------
 
     @property
-    def form(self):
+    def form(self) -> str:
         """Form of the active ``.df`` view."""
         if self._df is self._long_df:
             return "long"
@@ -168,7 +175,7 @@ class TopiaryResult:
         return detect_form(self._df)
 
     @form.setter
-    def form(self, value):
+    def form(self, value: str | None) -> None:
         value = value or "unknown"
         if value == self.form:
             return
@@ -190,12 +197,12 @@ class TopiaryResult:
         raise ValueError(f"Unknown TopiaryResult form: {value!r}")
 
     @property
-    def df(self):
+    def df(self) -> pd.DataFrame:
         """Active DataFrame view for pandas-style access."""
         return self._df
 
     @df.setter
-    def df(self, value):
+    def df(self, value: pd.DataFrame) -> None:
         """Replace the active DataFrame and invalidate converted views."""
         detected = detect_form(value)
         self._df = value
@@ -207,53 +214,53 @@ class TopiaryResult:
         self._long_source_fingerprint = None
         self._wide_source_fingerprint = None
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.df)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Any]:
         return iter(self.df)
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: Any) -> pd.Series | TopiaryResult:
         result = self.df[key]
         if isinstance(result, pd.DataFrame):
             return TopiaryResult(result, **self._field_kwargs())
         return result
 
-    def __contains__(self, key):
+    def __contains__(self, key: Any) -> bool:
         return key in self.df
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         n = len(self.df)
         sources = ", ".join(self.sources) if self.sources else "<none>"
         return f"<TopiaryResult form={self.form} rows={n} sources=[{sources}]>"
 
     @property
-    def columns(self):
+    def columns(self) -> pd.Index:
         return self.df.columns
 
     @property
-    def shape(self):
+    def shape(self) -> tuple[int, int]:
         return self.df.shape
 
     @property
-    def empty(self):
+    def empty(self) -> bool:
         return self.df.empty
 
-    def head(self, n=5):
+    def head(self, n: int = 5) -> TopiaryResult:
         return TopiaryResult(self.df.head(n), **self._field_kwargs())
 
-    def tail(self, n=5):
+    def tail(self, n: int = 5) -> TopiaryResult:
         return TopiaryResult(self.df.tail(n), **self._field_kwargs())
 
-    def iterrows(self):
+    def iterrows(self) -> Iterator[tuple[Any, pd.Series]]:
         return self.df.iterrows()
 
-    def itertuples(self, *args, **kwargs):
+    def itertuples(self, *args: Any, **kwargs: Any) -> Iterator[Any]:
         return self.df.itertuples(*args, **kwargs)
 
     # -- Form conversion --------------------------------------------------
 
-    def to_wide(self):
+    def to_wide(self) -> TopiaryResult:
         wide_df = self.wide_df.copy()
         long_df = self.long_df.copy() if self._long_df is not None else None
         kwargs = self._field_kwargs()
@@ -265,7 +272,7 @@ class TopiaryResult:
             _wide_df=wide_df,
         )
 
-    def to_long(self):
+    def to_long(self) -> TopiaryResult:
         long_df = self.long_df.copy()
         wide_df = self.wide_df.copy() if self._wide_df is not None else None
         kwargs = self._field_kwargs()
@@ -278,7 +285,7 @@ class TopiaryResult:
         )
 
     @property
-    def long_df(self):
+    def long_df(self) -> pd.DataFrame:
         """Long-form DataFrame view, computed lazily when needed."""
         if (
             self._df is self._wide_df
@@ -300,7 +307,7 @@ class TopiaryResult:
         return self._long_df
 
     @property
-    def wide_df(self):
+    def wide_df(self) -> pd.DataFrame:
         """Wide-form DataFrame view, computed lazily when needed."""
         if (
             self._df is self._long_df
@@ -334,7 +341,9 @@ class TopiaryResult:
         kind_support = self.extra.get("kind_support")
         return kind_support if isinstance(kind_support, Mapping) else None
 
-    def filter_by(self, expr, *, default_methods=None, group_keys=None):
+    def filter_by(self, expr: str | DSLNode | KindAccessor, *,
+                  default_methods: Mapping[str, str] | None = None,
+                  group_keys: list[str] | None = None) -> TopiaryResult:
         """Apply a filter expression. ANDs with any existing filter.
 
         Parameters
@@ -384,7 +393,9 @@ class TopiaryResult:
         kwargs["filter_by_ast"] = combined_ast
         return TopiaryResult(filtered_df, **kwargs)
 
-    def sort_by(self, expr, *, default_methods=None, group_keys=None):
+    def sort_by(self, expr: str | DSLNode | KindAccessor | list[str | DSLNode | KindAccessor] | tuple[str | DSLNode | KindAccessor, ...], *,
+                  default_methods: Mapping[str, str] | None = None,
+                  group_keys: list[str] | None = None) -> TopiaryResult:
         """Sort rows by an expression. Replaces any previous sort.
 
         Parameters
@@ -409,7 +420,7 @@ class TopiaryResult:
 
         if isinstance(expr, (list, tuple)):
             sort_nodes = as_dsl_nodes(expr)
-            new_ast = sort_nodes
+            new_ast: DSLNode | list[DSLNode] = sort_nodes
             new_str = ", ".join(n.to_expr_string() for n in sort_nodes)
         else:
             new_ast = as_dsl_node(expr)
@@ -433,7 +444,7 @@ class TopiaryResult:
 
     # -- Result merging ----------------------------------------------------
 
-    def stack_with(self, *others):
+    def stack_with(self, *others: TopiaryResult | list[TopiaryResult] | tuple[TopiaryResult, ...]) -> TopiaryResult:
         """Stack independent TopiaryResults as more result rows.
 
         This is the object-oriented form of :func:`stack_results`.
@@ -441,8 +452,10 @@ class TopiaryResult:
         return stack_results(_with_self(self, others))
 
     def combine_predictions(
-        self, *others, on=("peptide", "allele"), coverage="complete",
-    ):
+        self, *others: TopiaryResult | pd.DataFrame | list[TopiaryResult | pd.DataFrame] | tuple[TopiaryResult | pd.DataFrame, ...],
+        on: str | Iterable[str] = ("peptide", "allele"),
+        coverage: str | bool = "complete",
+    ) -> TopiaryResult:
         """Combine complementary predictor outputs for the same identity grid.
 
         This is the object-oriented form of :func:`combine_predictions`.
@@ -453,18 +466,18 @@ class TopiaryResult:
 
     # -- Serialization -----------------------------------------------------
 
-    def to_tsv(self, path):
+    def to_tsv(self, path: str | PathLike[str]) -> None:
         from .io import to_tsv as _to_tsv
         _to_tsv(self, path)
 
-    def to_csv(self, path):
+    def to_csv(self, path: str | PathLike[str]) -> None:
         from .io import to_csv as _to_csv
         _to_csv(self, path)
 
     # -- Accessors / helpers ----------------------------------------------
 
     @property
-    def metadata(self):
+    def metadata(self) -> Metadata:
         """A fresh :class:`Metadata` built from this result's fields.
 
         Useful for passing to functions that expect a ``Metadata`` (e.g.
@@ -481,7 +494,7 @@ class TopiaryResult:
             extra=OrderedDict(self.extra),
         )
 
-    def _field_kwargs(self):
+    def _field_kwargs(self) -> dict[str, Any]:
         """Return kwargs dict for reconstructing a copy."""
         return dict(
             topiary_version=self.topiary_version,
@@ -521,7 +534,7 @@ def _with_self(result, others):
     return [result, *others]
 
 
-def stack_results(results):
+def stack_results(results: Iterable[TopiaryResult]) -> TopiaryResult:
     """Stack independent TopiaryResults as more result rows.
 
     Parameters
@@ -557,7 +570,7 @@ def stack_results(results):
     form = results[0].form if len(forms) == 1 else "long"
 
     # Merge models with conflict detection.
-    merged_models = OrderedDict()
+    merged_models: OrderedDict[str, str] = OrderedDict()
     for r in results:
         for model, version in r.models.items():
             if model in merged_models and merged_models[model] != version:
@@ -574,7 +587,7 @@ def stack_results(results):
     for r in results:
         merged_sources.extend(r.sources)
 
-    merged_extra = OrderedDict()
+    merged_extra: OrderedDict[str, Any] = OrderedDict()
     for r in results:
         merged_extra.update(r.extra)
 
@@ -644,7 +657,11 @@ def stack_results(results):
     )
 
 
-def combine_predictions(results, on=("peptide", "allele"), coverage="complete"):
+def combine_predictions(
+    results: Iterable[TopiaryResult | pd.DataFrame],
+    on: str | Iterable[str] = ("peptide", "allele"),
+    coverage: str | bool = "complete",
+) -> TopiaryResult:
     """Combine complementary predictor outputs into one prediction result.
 
     This is stricter than :func:`stack_results`: duplicate predictions are
@@ -677,23 +694,23 @@ def combine_predictions(results, on=("peptide", "allele"), coverage="complete"):
     TopiaryResult
         Combined long-form result with merged model metadata.
     """
-    results = [_as_topiary_result(r) for r in results]
-    results = [r for r in results if not r.df.empty]
-    if not results:
+    normalized_results = [_as_topiary_result(r) for r in results]
+    normalized_results = [r for r in normalized_results if not r.df.empty]
+    if not normalized_results:
         return TopiaryResult(pd.DataFrame())
-    results = [r.to_long() for r in results]
+    normalized_results = [r.to_long() for r in normalized_results]
 
     if isinstance(on, str):
         on = (on,)
     on = tuple(on)
     coverage = _normalize_coverage_mode(coverage)
 
-    for i, result in enumerate(results):
+    for i, result in enumerate(normalized_results):
         _validate_predictor_result(result, i, on)
 
-    results = [_drop_non_identity_source(result, on) for result in results]
-    identity_columns = _identity_columns(results, on)
-    combined = stack_results(results)
+    normalized_results = [_drop_non_identity_source(result, on) for result in normalized_results]
+    identity_columns = _identity_columns(normalized_results, on)
+    combined = stack_results(normalized_results)
     _validate_no_duplicate_predictions(combined.df, identity_columns)
     if coverage == "complete":
         _validate_complete_prediction_coverage(combined.df, identity_columns)

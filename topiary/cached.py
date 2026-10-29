@@ -37,10 +37,12 @@ from collections import Counter
 from itertools import repeat
 from numbers import Integral
 from pathlib import Path
-from typing import Callable, Iterable, List, Mapping, Optional, Union
+from os import PathLike
+from typing import Any, Callable, Iterable, List, Mapping, Optional, Union
 
+import numpy as np
 import pandas as pd
-import mhcgnomes
+import mhcgnomes  # type: ignore[import-untyped]  # Upstream does not publish types.
 
 from .io import _float_precision_kwargs
 from .predictor import from_predictions
@@ -170,7 +172,7 @@ PREDICTION_KEY_COLUMNS = (
 )
 
 
-def prediction_flank_limits(prediction):
+def prediction_flank_limits(prediction: Mapping[Any, Any] | pd.Series) -> tuple[int | None, int | None]:
     """Return the declared N/C protein-scan window limits for a prediction.
 
     Parameters
@@ -188,7 +190,7 @@ def prediction_flank_limits(prediction):
         source names and coordinates never establish a missing limit. Invalid
         or negative values raise ValueError.
     """
-    limits = []
+    limits: list[int | None] = []
     for column in ("prediction_n_flank_limit", "prediction_c_flank_limit"):
         value = prediction.get(column)
         if not is_stated(value):
@@ -201,10 +203,13 @@ def prediction_flank_limits(prediction):
         if isinstance(value, bool) or not number.is_finite() or number < 0 or number != number.to_integral_value():
             raise ValueError(f"{column} must be a nonnegative integer or missing")
         limits.append(int(number))
-    return tuple(limits)
+    return limits[0], limits[1]
 
 
-def prediction_flanks_match(prediction, *, n_flank=None, c_flank=None):
+def prediction_flanks_match(
+    prediction: Mapping[Any, Any] | pd.Series, *,
+    n_flank: str | None = None, c_flank: str | None = None,
+) -> bool:
     """Whether a cached measurement has the requested inference context.
 
     Parameters
@@ -455,13 +460,13 @@ class CachedPredictor:
     def __init__(
         self,
         df: Optional[pd.DataFrame] = None,
-        fallback=None,
+        fallback: Any = None,
         *,
         also_accept_versions: Optional[Iterable[str]] = None,
-    ):
+    ) -> None:
         self.fallback = fallback
-        self._requested_peptide_lengths = None
-        self._requested_alleles = None
+        self._requested_peptide_lengths: tuple[int, ...] | None = None
+        self._requested_alleles: tuple[str, ...] | None = None
         self.also_accept_versions = (
             frozenset(also_accept_versions) if also_accept_versions else frozenset()
         )
@@ -478,8 +483,8 @@ class CachedPredictor:
             self._df = pd.DataFrame(columns=list(_CACHE_COLUMNS))
             self.prediction_method_name = None
             self.predictor_version = None
-            self._index = {}
-            self._prefix_index = {}
+            self._index: dict[tuple, int] = {}
+            self._prefix_index: dict[tuple, list[int]] = {}
             return
 
         self._df = self._normalize(df)
@@ -561,7 +566,7 @@ class CachedPredictor:
         flags = out.get("prediction_flanks_supplied", pd.Series(None, index=out.index, dtype=object))
         flags = flags.map(_flank_flag)
         inferred = out.n_flank.ne("") & out.c_flank.ne("")
-        out["prediction_flanks_supplied"] = pd.array(flags.where(flags.notna(), inferred.where(inferred)), dtype="boolean")
+        out["prediction_flanks_supplied"] = pd.Series(flags.where(flags.notna(), inferred.where(inferred)), dtype="boolean")
         limits = []
         for n_flank, c_flank, flag, n_limit, c_limit in zip(
                 out.n_flank, out.c_flank, out.prediction_flanks_supplied,
@@ -747,7 +752,7 @@ class CachedPredictor:
         index = {}
         for pos, key in enumerate(cls._row_keys_from_frame(df)):
             index[key] = pos
-        prefix_index = {}
+        prefix_index: dict[tuple, list[int]] = {}
         for key, pos in index.items():
             prefix_index.setdefault(key[:3], []).append(pos)
         return index, prefix_index
@@ -755,7 +760,7 @@ class CachedPredictor:
     # --- mhctools protocol ------------------------------------------
 
     @property
-    def alleles(self):
+    def alleles(self) -> list[str]:
         """Alleles selected for contextual occurrence queries.
 
         Returns
@@ -786,7 +791,7 @@ class CachedPredictor:
         return sorted(a)
 
     @alleles.setter
-    def alleles(self, values):
+    def alleles(self, values: Iterable[str] | None) -> None:
         """Select query alleles/genotype; None restores the available union."""
         if values is None:
             self._requested_alleles = None
@@ -799,7 +804,7 @@ class CachedPredictor:
         self._requested_alleles = parsed
 
     @property
-    def available_peptide_lengths(self):
+    def available_peptide_lengths(self) -> list[int]:
         """Lengths stored in the cache or advertised by its fallback.
 
         Returns
@@ -816,7 +821,7 @@ class CachedPredictor:
         return sorted(lengths)
 
     @property
-    def default_peptide_lengths(self):
+    def default_peptide_lengths(self) -> list[int]:
         """Selected protein-window lengths, initially all available lengths.
 
         Returns
@@ -839,7 +844,7 @@ class CachedPredictor:
         return list(self._requested_peptide_lengths)
 
     @default_peptide_lengths.setter
-    def default_peptide_lengths(self, lengths):
+    def default_peptide_lengths(self, lengths: Iterable[int] | None) -> None:
         if lengths is None:
             self._requested_peptide_lengths = None
             return
@@ -861,7 +866,7 @@ class CachedPredictor:
             )
         self._requested_peptide_lengths = tuple(requested)
 
-    def kind_support(self):
+    def kind_support(self) -> dict[str, dict[str, Any]]:
         """MHC context for kinds present in the cache.
 
         Mirrors ``mhctools.BasePredictor.kind_support()``. If a fallback is
@@ -897,7 +902,7 @@ class CachedPredictor:
         return support
 
     @property
-    def supported_kinds(self):
+    def supported_kinds(self) -> tuple[str, ...]:
         return tuple(self.kind_support())
 
     def _cache_alleles(self):
@@ -1008,7 +1013,11 @@ class CachedPredictor:
     # mhctools compat: some code paths probe for ``predict_dataframe``.
     predict_dataframe = predict_peptides_dataframe
 
-    def predict_contextual_peptides_dataframe(self, peptides, *, n_flanks=None, c_flanks=None):
+    def predict_contextual_peptides_dataframe(
+        self, peptides: Iterable[str], *,
+        n_flanks: Iterable[str] | None = None,
+        c_flanks: Iterable[str] | None = None,
+    ) -> pd.DataFrame:
         """Query exact peptides at one explicitly selected prediction context.
 
         Parameters
@@ -1047,16 +1056,18 @@ class CachedPredictor:
         if (n_flanks is None) != (c_flanks is None):
             raise ValueError("Supply both n_flanks and c_flanks or neither")
         supplied = n_flanks is not None
-        if supplied:
+        n_contexts: list[str | None]
+        c_contexts: list[str | None]
+        if n_flanks is not None and c_flanks is not None:
             if isinstance(n_flanks, str) or isinstance(c_flanks, str):
                 raise ValueError("Flanks must be parallel sequences of strings")
-            n_flanks, c_flanks = list(n_flanks), list(c_flanks)
-            if len(n_flanks) != len(peptides) or len(c_flanks) != len(peptides):
+            n_contexts, c_contexts = list(n_flanks), list(c_flanks)
+            if len(n_contexts) != len(peptides) or len(c_contexts) != len(peptides):
                 raise ValueError("Flanks must align positionally with peptides")
-            if not all(isinstance(v, str) for v in n_flanks + c_flanks):
+            if not all(isinstance(v, str) for v in n_contexts + c_contexts):
                 raise ValueError("Known flanks must be strings; empty strings mean termini")
         else:
-            n_flanks = c_flanks = [None] * len(peptides)
+            n_contexts = c_contexts = [None] * len(peptides)
         if not peptides:
             return pd.DataFrame(columns=list(_CACHE_COLUMNS))
         support = self.kind_support()
@@ -1066,7 +1077,7 @@ class CachedPredictor:
         alleles = self.alleles
         if any(spec["mhc_dependence"] != "none" for spec in support.values()) and not alleles:
             raise ValueError("Allele-dependent cache queries require configured alleles")
-        requests = list(zip(peptides, n_flanks, c_flanks))
+        requests = list(zip(peptides, n_contexts, c_contexts))
 
         def contextual_rows(peptide, n_flank, c_flank):
             rows = pd.DataFrame(
@@ -1114,7 +1125,7 @@ class CachedPredictor:
                     None, dependence="haplotype", allele_set=fallback_alleles) != prediction_mhc_scope(
                         None, dependence="haplotype", allele_set=alleles):
                     raise ValueError("Fallback genotype differs from the requested genotype")
-            batches = {}
+            batches: dict[tuple[str | None, str | None], list[str]] = {}
             for peptide, n_flank, c_flank in missing:
                 batches.setdefault((n_flank, c_flank), []).append(peptide)
             for (n_flank, c_flank), batch in batches.items():
@@ -1185,7 +1196,7 @@ class CachedPredictor:
                 not isinstance(name, str) or not name or not isinstance(sequence, str)
                 for name, sequence in name_to_sequence.items()):
             raise ValueError("Protein inputs must map nonempty names to sequence strings")
-        positions = {}
+        positions: dict[str, list[tuple[str, int, int]]] = {}
         lengths = self.default_peptide_lengths
         for name, sequence in name_to_sequence.items():
             for length in lengths:
@@ -1271,7 +1282,7 @@ class CachedPredictor:
             raise CachedPredictorCoverageError("Protein fallback did not cover every requested kind, allele and occurrence")
         # A newly inserted general prediction must not introduce a conflicting
         # answer at an occurrence already covered by a more specific cache row.
-        original = {}
+        original: dict[tuple, list[dict[str, Any]]] = {}
         for row in expanded:
             original.setdefault(_coverage_key(row, row["source_sequence_name"], row["offset"]), []).append(row)
         for row in result:
@@ -1298,7 +1309,7 @@ class CachedPredictor:
         # while the coordinate and flanks still described the protein the
         # cache was built from.
         expanded = []
-        unmatched_context = {}
+        unmatched_context: dict[tuple, list[pd.Series]] = {}
         # How many mismatched rows exist per key, independent of how
         # many :data:`_MAX_STORED_MISMATCHES_PER_KEY` actually keeps --
         # the cache's own uniqueness invariant makes every row under one
@@ -1307,7 +1318,7 @@ class CachedPredictor:
         # count of distinct contexts that failed to match, and the raised
         # error can say "(and N more)" truthfully even once the cap
         # drops the rows themselves.
-        unmatched_counts = Counter()
+        unmatched_counts: Counter[tuple] = Counter()
         for _, row in df.iterrows():
             positions = per_peptide_positions.get(row["peptide"], [])
             for (name, offset, length) in positions:
@@ -1459,7 +1470,7 @@ class CachedPredictor:
         """Return a copy of the cache as a DataFrame (cache schema)."""
         return self._df.copy()
 
-    def save(self, path) -> None:
+    def save(self, path: str | PathLike[str]) -> None:
         """Write Parquet or typed Topiary TSV/CSV, optionally gzip-compressed.
 
         Structured measurement contexts retain their original dictionary
@@ -1497,7 +1508,7 @@ class CachedPredictor:
         *,
         prediction_method_name: Optional[str] = None,
         predictor_version: Optional[str] = None,
-        fallback=None,
+        fallback: Any = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Construct a cache, filling missing provenance without relabeling it.
@@ -1554,7 +1565,7 @@ class CachedPredictor:
 
     @classmethod
     def from_topiary_output(
-        cls, path, *, fallback=None,
+        cls, path: str | PathLike[str], *, fallback: Any = None,
         prediction_method_name: Optional[str] = None,
         predictor_version: Optional[str] = None,
         also_accept_versions: Optional[Iterable[str]] = None,
@@ -1604,13 +1615,13 @@ class CachedPredictor:
     @classmethod
     def from_tsv(
         cls,
-        path,
+        path: str | PathLike[str],
         *,
         columns: Optional[Mapping[str, str]] = None,
         sep: str = "\t",
         prediction_method_name: Optional[str] = None,
         predictor_version: Optional[str] = None,
-        fallback=None,
+        fallback: Any = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Generic tab- or comma-delimited loader for third-party
@@ -1661,10 +1672,10 @@ class CachedPredictor:
     @classmethod
     def from_mhcflurry(
         cls,
-        path,
+        path: str | PathLike[str],
         *,
         predictor_version: Optional[str] = None,
-        fallback=None,
+        fallback: Any = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Load mhcflurry-predict CSV output.
@@ -1714,10 +1725,10 @@ class CachedPredictor:
     @classmethod
     def from_netmhcpan_stdout(
         cls,
-        path,
+        path: str | PathLike[str],
         *,
         predictor_version: Optional[str] = None,
-        fallback=None,
+        fallback: Any = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Load a NetMHCpan stdout capture (2.8 / 3 / 4 / 4.1).
@@ -1732,7 +1743,7 @@ class CachedPredictor:
         When ``predictor_version`` is omitted, the version string is
         parsed from the stdout preamble (e.g. ``"4.1b"``).
         """
-        from mhctools.parsing import parse_netmhcpan_to_preds
+        from mhctools.parsing import parse_netmhcpan_to_preds  # type: ignore[import-untyped]
         text = _read_text(path)
         if predictor_version is None:
             predictor_version = _version_from_header(text) or "unknown"
@@ -1752,18 +1763,18 @@ class CachedPredictor:
     @classmethod
     def from_netmhc_stdout(
         cls,
-        path,
+        path: str | PathLike[str],
         *,
         version: str = "4",
         predictor_version: Optional[str] = None,
-        fallback=None,
+        fallback: Any = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Load a classic NetMHC stdout capture (3 / 4 / 4.1).
 
         ``version`` selects the parser: ``"3"``, ``"4"``, or ``"4.1"``.
         """
-        from mhctools import parsing as _p
+        from mhctools import parsing as _p  # type: ignore[import-untyped]
         parsers = {
             "3": _p.parse_netmhc3_stdout,
             "4": _p.parse_netmhc4_stdout,
@@ -1789,10 +1800,10 @@ class CachedPredictor:
     @classmethod
     def from_netmhcpan_cons_stdout(
         cls,
-        path,
+        path: str | PathLike[str],
         *,
         predictor_version: Optional[str] = None,
-        fallback=None,
+        fallback: Any = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Load a NetMHCcons stdout capture (consensus of multiple
@@ -1813,12 +1824,12 @@ class CachedPredictor:
     @classmethod
     def from_netmhciipan_stdout(
         cls,
-        path,
+        path: str | PathLike[str],
         *,
         version: str = "4.3",
         mode: str = "elution_score",
         predictor_version: Optional[str] = None,
-        fallback=None,
+        fallback: Any = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Load a NetMHCIIpan stdout capture (class II).
@@ -1868,7 +1879,7 @@ class CachedPredictor:
         caches: List["CachedPredictor"],
         *,
         on_overlap: Union[str, Callable] = "raise",
-        fallback=None,
+        fallback: Any = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Merge several CachedPredictors into one.
@@ -1979,11 +1990,11 @@ class CachedPredictor:
     @classmethod
     def from_directory(
         cls,
-        path,
+        path: str | PathLike[str],
         *,
         pattern: str = "*",
         on_overlap: Union[str, Callable] = "raise",
-        fallback=None,
+        fallback: Any = None,
         prediction_method_name: Optional[str] = None,
         predictor_version: Optional[str] = None,
         also_accept_versions: Optional[Iterable[str]] = None,
@@ -2042,10 +2053,10 @@ class CachedPredictor:
     @classmethod
     def from_netmhcstabpan_stdout(
         cls,
-        path,
+        path: str | PathLike[str],
         *,
         predictor_version: Optional[str] = None,
-        fallback=None,
+        fallback: Any = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
         """Load a NetMHCstabpan stdout capture (pMHC stability)."""
@@ -2118,7 +2129,9 @@ def _allele_set_key(value):
 _MAX_STORED_MISMATCHES_PER_KEY = 5
 
 
-def prediction_matches_protein_context(row, sequence, offset) -> bool:
+def prediction_matches_protein_context(
+    row: Mapping[Any, Any] | pd.Series, sequence: str, offset: int | np.integer,
+) -> bool:
     """Whether a measurement applies to a peptide occurrence in a protein.
 
     Parameters
@@ -2152,6 +2165,7 @@ def prediction_matches_protein_context(row, sequence, offset) -> bool:
     peptide = row.get("peptide")
     if not isinstance(peptide, str) or not peptide:
         raise ValueError("Protein context requires a nonempty peptide")
+    offset = int(offset)
     length = len(peptide)
     if sequence[offset:offset + length] != peptide:
         return False

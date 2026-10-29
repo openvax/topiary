@@ -1,0 +1,9 @@
+build
+twine
+ruff
+pytest
+pytest-cov
+pytest-xdist
+mkdocs-material
+mypy==2.4.0
+pandas-stubs==3.0.5.260914

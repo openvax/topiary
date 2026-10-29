@@ -226,7 +226,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.107.0"
+__version__ = "5.107.1"
 
 __all__ = [
     "PROTEIN_SCAN_METADATA_COLUMNS",

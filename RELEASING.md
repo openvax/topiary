@@ -15,7 +15,7 @@
 3. Checks the version isn't already published on PyPI
    (`scripts/check_pypi_release.py`; fail-closed, so an unreachable or
    malformed PyPI response stops the release)
-4. Runs `./lint.sh` (ruff)
+4. Runs `./lint.sh` (ruff and the declared mypy scope)
 5. Runs `./test.sh` (pytest with coverage)
 6. Builds sdist and wheel via `python -m build`
 7. Uploads to PyPI via twine
@@ -61,7 +61,7 @@ interpreter. From the Topiary checkout:
 ```bash
 python3 -m venv .venv
 export PYTHON="$PWD/.venv/bin/python"
-"$PYTHON" -m pip install -e . build twine ruff pytest pytest-cov pytest-xdist
+"$PYTHON" -m pip install -e . -r requirements-dev.txt
 "$PYTHON" -m pip check
 "$PYTHON" -m pip inspect > .venv/environment.json
 ./lint.sh
