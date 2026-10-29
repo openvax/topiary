@@ -7,6 +7,15 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.108.0
+
+- Add `from_cleavage_results` to carry native MHCTools site evidence into
+  pandas tables and typed TSV/CSV files, with bond coordinates, exact peptide
+  chemistry, occurrence identity, assay/model provenance and unavailable states.
+- Preserve native quantitative scores, motif decisions and whole-substrate
+  observations separately. Verify real DPP4 output, changed termini and repeated
+  occurrences through conversion and reload (#288); no ranking defaults change.
+
 ## 5.107.1
 
 - Add a reproducible mypy gate for result tables, cache interfaces, native

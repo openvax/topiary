@@ -312,6 +312,8 @@ PlifePred2 had upstream
 addressed in mhctools 3.39.0 (included in Topiary's current minimum). Its native
 output is not a verified half-life in hours by default.
 
-Neither model supplies per-bond extracellular peptidase maps. Site-level
-cleavage, full assay/chemistry provenance and configuration-aware cache identity
-remain tracked in [Topiary #288](https://github.com/openvax/topiary/issues/288).
+Neither half-life model supplies per-bond extracellular peptidase maps.
+MHCTools' separate native cleavage results can be carried through Topiary with
+[`from_cleavage_results`](cleavage.md), preserving sites, chemistry and reasons
+for unavailable evidence. Configuration-aware peptide-cache queries and further
+processing integration remain tracked in [Topiary #288](https://github.com/openvax/topiary/issues/288).

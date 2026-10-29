@@ -22,6 +22,7 @@ import pandas as pd
 import pytest
 from mhctools import RandomBindingPredictor
 
+
 from topiary import (
     CachedPredictor,
     DEFAULT_PROTEIN_SEQUENCE_LENGTH,
@@ -4448,3 +4449,61 @@ def test_prediction_stages_share_model_inventory_without_sharing_policy():
     assert summary["candidate"]["models"] == summary["junction"]["models"]
     assert summary["candidate"]["selection_policy"]["score_by"] != junction_policy["endpoint"]
     assert json.loads(json.dumps(summary)) == summary
+
+
+def test_native_cleavage_evidence_keeps_occurrences_chemistry_and_unknowns(tmp_path):
+    from dataclasses import replace
+    import json
+    from mhctools import DPP4, PeptideContext, PeptideInput
+    from topiary import read_csv, read_tsv, to_csv, to_tsv
+    from topiary.serialization import normalize_python_types
+    from .test_twin_conformance import CLEAVAGE_RESULT_TWINS
+
+    first = PeptideInput(
+        "APAA", occurrence_id="first", source_sequence_name="source",
+        source_start=10, context=PeptideContext(study_id="transport-fixture"))
+    inputs = [first, replace(first, occurrence_id="repeat", source_start=40),
+              replace(first, occurrence_id="modified", n_term="acetylated")]
+    model = DPP4()
+    results = [result for peptide in inputs
+               for result in model.predict(peptide).cleavage_results]
+    frames = [door(results) for _, door in CLEAVAGE_RESULT_TWINS]
+    pd.testing.assert_frame_equal(*frames)
+    frame = frames[0]
+    scored = frame[frame.status == "scored"]
+    assert scored.source_bond.tolist() == [12, 42]
+    assert scored.bond.tolist() == [2, 2]
+    assert scored.score.tolist() == [result.sites[0].score for result in results
+                                      if result.sites and result.model.evidence == "quantitative_model"]
+    motifs = frame[frame.evidence_type == "motif_rule"]
+    assert motifs.score.isna().all()
+    assert motifs[motifs.status == "matched"]["match"].eq(1).all()
+    unavailable = frame[frame.occurrence_id == "modified"]
+    assert unavailable.status.eq("unsupported").all()
+    assert unavailable[["bond", "source_bond", "match", "score"]].isna().all().all()
+    assert unavailable.reason.notna().all()
+    assert unavailable.peptide_input.map(lambda value: value["n_term"]).eq("acetylated").all()
+
+    for suffix, writer, reader in (("tsv", to_tsv, read_tsv), ("csv", to_csv, read_csv)):
+        path = tmp_path / ("cleavage." + suffix)
+        writer(frame, path)
+        restored = reader(path).df
+        structured = ["peptide_input", "model_metadata", "conditions"]
+        scalar_columns = frame.columns.difference(structured)
+        pd.testing.assert_frame_equal(
+            restored[scalar_columns].astype(object).where(restored[scalar_columns].notna(), None),
+            frame[scalar_columns].astype(object).where(frame[scalar_columns].notna(), None),
+            check_dtype=False)
+        # JSON arrays use lists; the native MHCTools records also accept tuples.
+        for column in structured:
+            expected = json.loads(json.dumps(normalize_python_types(frame[column].tolist())))
+            assert restored[column].tolist() == expected
+        first_sites = restored[(restored.occurrence_id == "first") & restored.bond.notna()]
+        # Same evidence, different candidate windows: an internal bond of
+        # [11, 14) is the N boundary of [12, 14). Other occurrences stay out.
+        internal = first_sites[(first_sites.source_bond > 11) & (first_sites.source_bond < 14)]
+        boundary = first_sites[first_sites.source_bond == 12]
+        assert len(internal) == len(boundary) == 3
+        assert first_sites[(first_sites.source_bond > 12) & (first_sites.source_bond < 14)].empty
+        assert restored[restored.occurrence_id == "repeat"].source_bond.eq(42).all()
+

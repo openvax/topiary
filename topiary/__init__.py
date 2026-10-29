@@ -19,6 +19,7 @@ from .reconciliation import (
 )
 from .prediction_batch import predict_with_cache_miss_report, PartialPredictionWarning
 from .peptide_occurrences import predict_peptide_occurrences
+from .cleavage import from_cleavage_results
 from .predictor import (
     TopiaryPredictor,
     describe_prediction_models,
@@ -226,7 +227,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.107.1"
+__version__ = "5.108.0"
 
 __all__ = [
     "PROTEIN_SCAN_METADATA_COLUMNS",
@@ -294,6 +295,7 @@ __all__ = [
     "encode_amino_acids",
     "PredictionMetric",
     "from_predictions",
+    "from_cleavage_results",
     "fragment_from_effect",
     "CachedPredictor",
     "CachedPredictorCoverageError",
