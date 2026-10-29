@@ -7,6 +7,14 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.108.4
+
+- Accept Isovar's unlimited protein-hypothesis limit (`0`) in patient-background
+  exports, preserving its distinction from unknown settings (`null`). Dictionary,
+  JSON and JSON.gz readers retain the producer's completeness evidence (#561).
+- Coalesce identical repeated pair observations from Isovar without summing
+  shared RNA support; retain the original export and reject conflicts (#562).
+
 ## 5.108.3
 
 - Declare Topiary's own `varcode<11` bound while candidate traversal is

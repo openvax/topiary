@@ -229,7 +229,11 @@ assembly. `read_isovar_hypotheses` imports all protein hypotheses, while
 mutant/patient-background windows. Join the two on `event_id`, `hypothesis_id`
 and `translation_id`; `pair_id` and `transcript_id` preserve each distinct
 comparison. These readers retain provenance and unavailable outcomes but do not
-construct candidates or select a ranking policy. See
+construct candidates or select a ranking policy. A protein-hypothesis limit of
+`0` means unlimited; `null` means the producer settings were not recorded.
+Identical repeated pair observations are coalesced without summing shared RNA
+support, while the complete original export remains in result metadata.
+Conflicting records with the same pair identity are rejected. See
 [Isovar hypotheses and patient-background pairs](combined-sources.md#isovar-hypotheses-for-comparison)
 for the full contract.
 
