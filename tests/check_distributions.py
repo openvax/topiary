@@ -30,7 +30,7 @@ def check_runtime_metadata(metadata):
     assert metadata["Requires-Python"] == ">=3.11"
     requirements = [value.replace(" ", "") for value in metadata.get_all("Requires-Dist", [])]
     assert any(value in ("pandas>=3,<4", "pandas<4,>=3") for value in requirements)
-    assert any(value in ("osteosarc>=0.14.0,<0.16", "osteosarc<0.16,>=0.14.0")
+    assert any(value in ("osteosarc>=0.15.5,<0.16", "osteosarc<0.16,>=0.15.5")
                for value in requirements)
     for name in ("isovar", "pirlygenes", "oncoref", "weirdo"):
         assert any(value.startswith(name + ">=") or value.startswith(name + "<")

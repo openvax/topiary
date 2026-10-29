@@ -205,8 +205,10 @@ def support(fragment):
 Isovar is installed with Topiary. `fragments_from_variants` imports it when
 given an `alignment_file`; other inputs retain lazy startup.
 
-Topiary requires `isovar>=1.39.5,<2` and accepts Osteosarc 0.14 and 0.15;
-Isovar 1.45.0 requires Osteosarc >=0.15.4,<0.16. Historical shared bundles and
+Topiary requires `isovar>=1.54.3,<2` and `osteosarc>=0.15.5,<0.16`.
+The Isovar minimum includes its output-preserving high-depth read-support
+optimization ([Isovar #507](https://github.com/openvax/isovar/pull/507)); it
+does not bound assembly time for every input. Historical shared bundles and
 their producer versions remain pinned independently of these runtime versions.
 The Isovar range is enforced at run time as well as at install time:
 an older release can import cleanly and still return wrong evidence (1.17.x

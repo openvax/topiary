@@ -7,6 +7,13 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.108.2
+
+- Require Isovar 1.54.3 or newer so every supported installation includes its
+  output-preserving high-depth MT-ND5 support-reconciliation improvement (#556).
+- Align the Osteosarc runtime floor with Isovar and test the new minimum and
+  latest compatible release. Historical evidence producer pins remain intact.
+
 ## 5.108.1
 
 - Use one public `iter_fasta_records` parser for FASTA mapping readers and
