@@ -964,6 +964,18 @@ def test_real_repeated_isovar_translations_survive_import_and_reload(tmp_path):
         export = isovar.export_protein_hypotheses(
             [upstream], sample_id="Sid-T2-UCLA-2025-01-06",
             source="osteosarc-0.7.0-repeat-fixture", alignment_header=bam.header)
+    # Both released producer exports preserve 0 as unlimited. Import the
+    # comparison through every file/mapping door without changing its settings.
+    from .test_isovar_patient_background import read_all
+    pairs = isovar.export_patient_background_pairs(
+        [upstream], sample_id="Sid-T2-UCLA-2025-01-06",
+        source="osteosarc-0.7.0-repeat-fixture")
+    for document in (export, pairs):
+        assert document["events"][0]["protein_sequence_limit"] == 0
+        assert document["events"][0]["protein_hypotheses_complete"] is True
+    for imported_pairs in read_all(pairs, tmp_path):
+        assert len(imported_pairs) > 0
+        assert imported_pairs.extra["isovar_patient_background_pairs"] == pairs
     proteins = export["events"][0]["protein_hypotheses"]
     counts = [Counter(t["translation_id"] for t in p["translations"]) for p in proteins]
     assert sorted(n for c in counts for n in c.values() if n > 1) == [3, 3, 3]

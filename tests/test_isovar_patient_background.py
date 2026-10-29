@@ -138,6 +138,49 @@ def read_all(export, tmp_path):
             for _, reader in ISOVAR_PATIENT_BACKGROUND_INPUT_TWINS]
 
 
+@pytest.mark.parametrize("limit,complete", [(0, True), (1, False), (2, True), (None, None)])
+def test_reader_twins_preserve_unlimited_capped_and_unknown_settings(tmp_path, limit, complete):
+    export = patient_background_export()
+    event = export["events"][0]
+    event.update(protein_sequence_limit=limit, protein_hypotheses_complete=complete)
+    for result in read_all(export, tmp_path):
+        assert result.extra["isovar_patient_background_pairs"] == export
+        row = result.df.iloc[0]
+        assert pd.isna(row.protein_sequence_limit) if limit is None else row.protein_sequence_limit == limit
+        assert pd.isna(row.protein_hypotheses_complete) if complete is None else row.protein_hypotheses_complete == complete
+
+
+@pytest.mark.parametrize("limit", [-1, False, True, 0.0, "0"])
+def test_reader_twins_reject_malformed_limits(tmp_path, limit):
+    export = patient_background_export()
+    export["events"][0]["protein_sequence_limit"] = limit
+    path, compressed = tmp_path / "pairs.json", tmp_path / "pairs.json.gz"
+    path.write_text(json.dumps(export))
+    with gzip.open(compressed, "wt", encoding="utf-8") as handle:
+        json.dump(export, handle)
+    for _, reader in ISOVAR_PATIENT_BACKGROUND_INPUT_TWINS:
+        with pytest.raises(ValueError, match="protein_sequence_limit"):
+            reader(export, path, compressed)
+
+
+def test_reader_twins_coalesce_exact_pairs_without_summing_support(tmp_path):
+    export = patient_background_export()
+    event = export['events'][0]
+    event['pairs'] *= 3
+    original = deepcopy(export)
+    for result in read_all(export, tmp_path):
+        assert len(result) == 1
+        assert result.extra['isovar_patient_background_pairs'] == original
+        row = result.df.iloc[0]
+        assert row.mutant_rna_support == event['pairs'][0]['mutant']['rna_support']
+    assert export == original
+    other = deepcopy(event)
+    other['event_id'] = 'different-event'
+    export['events'].append(other)
+    with pytest.raises(ValueError, match='Conflicting Isovar pair_id'):
+        read_all(export, tmp_path)
+
+
 @pytest.mark.parametrize("unavailable", [False, True])
 def test_reader_twins_preserve_pair_identity_state_and_provenance(tmp_path, unavailable):
     export = patient_background_export(unavailable=unavailable)
@@ -285,7 +328,7 @@ def test_structured_pair_fields_round_trip_through_typed_tsv(tmp_path):
     ("scope", "evidence_scope"),
     ("policy", "baseline_policy"),
     ("event", "Duplicate Isovar event_id"),
-    ("pair", "Duplicate Isovar pair_id"),
+    ("pair", "Conflicting Isovar pair_id"),
     ("state", "pair state"),
     ("translation", "translation length"),
     ("coding", "fragment_depth"),
@@ -313,6 +356,7 @@ def test_reader_twins_reject_inconsistent_pair_exports(tmp_path, fault, match):
         export["events"].append(deepcopy(event))
     elif fault == "pair":
         event["pairs"].append(deepcopy(pair))
+        event["pairs"][-1]["hypothesis_id"] = "contradictory-hypothesis"
     elif fault == "state":
         pair["state"] = "fallback"
     elif fault == "translation":
@@ -338,7 +382,7 @@ def test_reader_twins_reject_inconsistent_pair_exports(tmp_path, fault, match):
         pair["baseline"]["nucleotide_sequence"] = (
             "T" + pair["baseline"]["nucleotide_sequence"][1:])
     else:
-        event["protein_sequence_limit"] = 0
+        event["protein_sequence_limit"] = -1
     for name, reader in ISOVAR_PATIENT_BACKGROUND_INPUT_TWINS:
         with pytest.raises(ValueError, match=match):
             if name == "mapping":

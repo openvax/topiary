@@ -370,7 +370,10 @@ def read_isovar_patient_background_pairs(
         aligned fixed-length peptides. The reader therefore does not populate
         ``protein_sequence``, construct fragments, map peptides or select a
         comparator policy. The complete independent export remains in
-        ``extra['isovar_patient_background_pairs']``.
+        ``extra['isovar_patient_background_pairs']``. Exact repeated pair
+        records produce one observation without summing shared RNA support;
+        the complete original export retains those repetitions. Conflicting
+        records with the same pair identity are rejected.
 
     Raises
     ------
@@ -406,7 +409,8 @@ def read_isovar_patient_background_pairs(
             "Isovar patient-background export requires events, evidence_sets "
             "and supplied_variants")
 
-    rows, event_ids, pair_ids = [], set(), set()
+    rows, event_ids = [], set()
+    pair_ids: dict[str, tuple[str, Mapping[str, Any]]] = {}
     try:
         for event in export["events"]:
             if not isinstance(event, Mapping):
@@ -424,8 +428,10 @@ def read_isovar_patient_background_pairs(
             complete = _flag(
                 event["protein_hypotheses_complete"], "protein_hypotheses_complete")
             limit = event["protein_sequence_limit"]
-            if limit is not None and (type(limit) is not int or limit < 1):
-                raise ValueError("Isovar protein_sequence_limit must be positive or null")
+            # Isovar records 0 for an unlimited creator; None means the
+            # creator settings were not recorded. Preserve that distinction.
+            if limit is not None and (type(limit) is not int or limit < 0):
+                raise ValueError("Isovar protein_sequence_limit must be nonnegative or null")
             phased = event["phased_variants_in_supporting_reads"]
             if (not isinstance(phased, list)
                     or any(not isinstance(value, str) or not value for value in phased)
@@ -440,8 +446,10 @@ def read_isovar_patient_background_pairs(
                     raise ValueError("Isovar patient-background pair must be a mapping")
                 pair_id = _named(pair["pair_id"], "pair_id")
                 if pair_id in pair_ids:
-                    raise ValueError(f"Duplicate Isovar pair_id: {pair_id!r}")
-                pair_ids.add(pair_id)
+                    if pair_ids[pair_id] != (event_id, pair):
+                        raise ValueError(f"Conflicting Isovar pair_id: {pair_id!r}")
+                    continue
+                pair_ids[pair_id] = (event_id, pair)
                 if pair["baseline_policy"] != policy:
                     raise ValueError("Inconsistent Isovar patient-background baseline_policy")
                 state = pair["state"]
