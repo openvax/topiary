@@ -61,7 +61,7 @@ interpreter. From the Topiary checkout:
 ```bash
 python3 -m venv .venv
 export PYTHON="$PWD/.venv/bin/python"
-"$PYTHON" -m pip install -e . build twine ruff pytest pytest-cov pytest-xdist
+"$PYTHON" -m pip install -e . -r requirements-dev.txt
 "$PYTHON" -m pip check
 "$PYTHON" -m pip inspect > .venv/environment.json
 ./lint.sh

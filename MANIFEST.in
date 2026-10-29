@@ -4,6 +4,7 @@ include README.md
 include CHANGELOG.md
 include LICENSE
 include requirements.txt
+include requirements-dev.txt
 include mkdocs.yml
 include *.sh
 recursive-include docs *.md

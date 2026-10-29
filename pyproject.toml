@@ -52,3 +52,12 @@ markers = [
     "osteosarc: exercises Osteosarc data acquisition and shared fixtures",
     "netmhc: requires the private NetMHC bundle executables",
 ]
+
+[tool.mypy]
+files = ["topiary/io.py", "topiary/result.py", "topiary/cached.py", "topiary/io_isovar_hypotheses.py", "tests/typing/public_tables.py"]
+python_version = "3.11"
+follow_imports = "silent"
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true

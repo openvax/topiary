@@ -39,6 +39,8 @@ inference. Values follow JSON's data model:
 tuples come back as lists and non-string keys as strings.
 """
 
+from __future__ import annotations
+
 import ast
 import gzip
 import json
@@ -46,6 +48,11 @@ from collections import OrderedDict
 from dataclasses import dataclass, field as dataclass_field, replace
 from io import StringIO
 from pathlib import Path
+from os import PathLike
+from typing import Any, TYPE_CHECKING, TextIO, cast
+
+if TYPE_CHECKING:
+    from .result import TopiaryResult
 
 import pandas as pd
 
@@ -93,16 +100,16 @@ class Metadata:
     ``topiary_json_encoding`` for columns of dicts and lists.
     """
 
-    topiary_version: str = None
-    form: str = None
-    models: dict = dataclass_field(default_factory=OrderedDict)
-    sources: list = dataclass_field(default_factory=list)
-    filter_by: str = None
-    sort_by: str = None
-    extra: dict = dataclass_field(default_factory=OrderedDict)
-    topiary_flank_encoding: str = None
-    topiary_text_encoding: dict = None
-    topiary_json_encoding: dict = None
+    topiary_version: str | None = None
+    form: str | None = None
+    models: dict[str, str] = dataclass_field(default_factory=OrderedDict)
+    sources: list[str] = dataclass_field(default_factory=list)
+    filter_by: str | None = None
+    sort_by: str | None = None
+    extra: dict[str, Any] = dataclass_field(default_factory=OrderedDict)
+    topiary_flank_encoding: str | None = None
+    topiary_text_encoding: dict[str, Any] | None = None
+    topiary_json_encoding: dict[str, Any] | None = None
 
 
 # -- Comment block parsing / formatting ------------------------------------
@@ -385,14 +392,14 @@ def _declared_columns(encoding, *, version, label):
     return columns
 
 
-def _read_delimited(path, sep, tag=None):
+def _read_delimited(path: str | PathLike[str], sep: str, tag: str | None = None) -> TopiaryResult:
     from .result import TopiaryResult
     from .wide import _parse_wide_column
 
     path = Path(path)
     opener = gzip.open if path.suffix == ".gz" else open
     with opener(path, "rt" if path.suffix == ".gz" else "r") as f:
-        all_lines = f.readlines()
+        all_lines = cast(TextIO, f).readlines()
 
     meta, n_comment = _parse_comment_block(all_lines)
     if meta.topiary_flank_encoding not in (None, _TEXT_ENCODING):
@@ -463,7 +470,7 @@ def _read_delimited(path, sep, tag=None):
     return TopiaryResult(df, meta)
 
 
-def read_tsv(path, tag=None):
+def read_tsv(path: str | PathLike[str], tag: str | None = None) -> TopiaryResult:
     """Read a topiary TSV file with comment-block metadata.
 
     Decode explicitly marked flank columns so empty strings remain known
@@ -487,7 +494,7 @@ def read_tsv(path, tag=None):
     return _read_delimited(path, sep="\t", tag=tag)
 
 
-def read_csv(path, tag=None):
+def read_csv(path: str | PathLike[str], tag: str | None = None) -> TopiaryResult:
     """Read a topiary CSV file with comment-block metadata.
 
     Decode explicitly marked flank columns so empty strings remain known
@@ -633,7 +640,8 @@ def _write_delimited(df, path, sep, metadata, index):
         df.to_csv(f, sep=sep, index=index)
 
 
-def to_tsv(df, path, metadata=None, index=False):
+def to_tsv(df: pd.DataFrame | TopiaryResult, path: str | PathLike[str],
+           metadata: Metadata | None = None, index: bool = False) -> None:
     """Write a topiary DataFrame to TSV with comment-block metadata.
 
     Canonical flank columns preserve empty strings versus missing context
@@ -654,7 +662,8 @@ def to_tsv(df, path, metadata=None, index=False):
     _write_delimited(df, path, sep="\t", metadata=metadata, index=index)
 
 
-def to_csv(df, path, metadata=None, index=False):
+def to_csv(df: pd.DataFrame | TopiaryResult, path: str | PathLike[str],
+           metadata: Metadata | None = None, index: bool = False) -> None:
     """Write a topiary DataFrame to CSV with comment-block metadata.
 
     Canonical flank columns preserve empty strings versus missing context
