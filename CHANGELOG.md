@@ -7,6 +7,14 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.108.1
+
+- Use one public `iter_fasta_records` parser for FASTA mapping readers and
+  `SelfProteome.from_fasta`. Reject empty headers and sequence-before-header
+  consistently, with actionable errors (#549).
+- Retain all self-reference records and document mapping readers' existing
+  last-record-wins duplicate-ID policy; add paired and composed regressions.
+
 ## 5.108.0
 
 - Add `from_cleavage_results` to carry native MHCTools site evidence into

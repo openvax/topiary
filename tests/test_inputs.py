@@ -4,6 +4,8 @@ import os
 import tempfile
 
 import pytest
+from topiary import iter_fasta_records
+from .test_twin_conformance import FASTA_INPUT_TWINS
 
 from topiary.inputs import (
     exclude_by,
@@ -119,6 +121,38 @@ def test_peptide_fasta():
     result = read_peptide_fasta(path)
     os.unlink(path)
     assert result == {"pep1": "SIINFEKL", "pep2": "ELAGIGIL"}
+
+
+@pytest.mark.parametrize("contents", ["ACDE\n>id\nGGHH\n", ">\nACDE\n",
+                                      ">  \t\n", ">first\nACDE\n>\nGGHH\n"])
+def test_fasta_inputs_share_malformed_record_errors(tmp_path, contents):
+    path = tmp_path / "invalid.fa"
+    path.write_text(contents)
+    errors = []
+    for _, reader in FASTA_INPUT_TWINS:
+        with pytest.raises(ValueError) as error:
+            reader(path)
+        errors.append(str(error.value))
+    assert len(set(errors)) == 1
+
+
+@pytest.mark.parametrize("contents", ["", "\n \t\n", ">empty\n",
+                                      ">first description\nACDE\n>second\nGGHH\n"])
+def test_fasta_inputs_accept_the_same_record_shapes(tmp_path, contents):
+    path = tmp_path / "valid.fa"
+    path.write_text(contents)
+    results = {name: reader(path) for name, reader in FASTA_INPUT_TWINS}
+    assert results["proteins"] == results["peptides"] == dict(results["records"])
+    assert results["self_proteome"].n_reference_peptides == 0  # all shorter than 8
+
+
+def test_fasta_records_preserve_duplicate_ids_and_sequence_text(tmp_path):
+    path = tmp_path / "repeated.fa"
+    path.write_text("\n > same description\n aX* \n C D \n>same\nGGHH\n>empty\n")
+    records = list(iter_fasta_records(path))
+    assert records == [("same", "aX*C D"), ("same", "GGHH"), ("empty", "")]
+    for reader in (read_fasta, read_peptide_fasta):
+        assert reader(path) == {"same": "GGHH", "empty": ""}
 
 
 # ---------------------------------------------------------------------------

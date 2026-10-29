@@ -118,8 +118,10 @@ different record shapes (a named sequence mapping versus all provenance
 records), while self matching and peptide properties have explicit I/L,
 unknown-residue and mass conventions. Dependency consolidation does not
 change those contracts or add an unused Biotite/scikit-bio backend.
-The readers' inconsistent malformed-input handling is tracked in
-[Topiary #549](https://github.com/openvax/topiary/issues/549).
+The readers now share `iter_fasta_records` validation while retaining their
+distinct duplicate-ID contracts: mapping readers keep the last record and
+self-reference indexing retains every record
+([Topiary #549](https://github.com/openvax/topiary/issues/549)).
 
 ## Version scheme
 

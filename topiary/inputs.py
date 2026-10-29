@@ -33,6 +33,8 @@ Example — CTA-like targets with vital-organ exclusion::
 """
 
 import logging
+from collections.abc import Iterator
+from os import PathLike
 
 import pandas as pd
 
@@ -81,7 +83,7 @@ def read_sequence_csv(path):
 # ---------------------------------------------------------------------------
 
 
-def read_fasta(path):
+def read_fasta(path: str | PathLike[str]) -> dict[str, str]:
     """Read a FASTA file of protein/amino acid sequences.
 
     Use this for full-length protein sequences that will be scanned
@@ -90,14 +92,17 @@ def read_fasta(path):
     Returns
     -------
     dict : name -> amino acid sequence
+        Empty files return an empty mapping. For duplicate identifiers the
+        last record wins; use :func:`iter_fasta_records` to retain every record.
+        Parsing and malformed-input errors follow that shared record reader.
     """
-    sequences = _parse_fasta(path)
+    sequences = dict(iter_fasta_records(path))
     if not sequences:
         logging.warning("No sequences found in FASTA file: %s", path)
     return sequences
 
 
-def read_peptide_fasta(path):
+def read_peptide_fasta(path: str | PathLike[str]) -> dict[str, str]:
     """Read a FASTA file where each entry is a single peptide.
 
     Unlike :func:`read_fasta`, these are predicted as-is (no sliding
@@ -106,16 +111,42 @@ def read_peptide_fasta(path):
     Returns
     -------
     dict : name -> peptide sequence
+        Empty files return an empty mapping. For duplicate identifiers the
+        last record wins; use :func:`iter_fasta_records` to retain every record.
+        Parsing and malformed-input errors follow that shared record reader.
     """
-    sequences = _parse_fasta(path)
+    sequences = dict(iter_fasta_records(path))
     if not sequences:
         logging.warning("No peptides found in FASTA file: %s", path)
     return sequences
 
 
-def _parse_fasta(path):
-    """Low-level FASTA parser. Returns dict of name -> sequence."""
-    sequences = {}
+def iter_fasta_records(path: str | PathLike[str]) -> Iterator[tuple[str, str]]:
+    """Yield FASTA identifiers and sequences without collapsing repeated IDs.
+
+    Parameters
+    ----------
+    path : str or path-like
+        Text FASTA file. The first whitespace-delimited header token is the
+        identifier. Blank lines and surrounding line whitespace are ignored;
+        wrapped sequence lines are joined. Internal whitespace, case and
+        residue symbols are preserved without biological normalization.
+
+    Yields
+    ------
+    tuple of (str, str)
+        Identifier and sequence in file order, including repeated identifiers
+        and records with empty sequences. Empty files yield no records.
+        This iterator retains records for provenance-aware consumers; mapping
+        readers can explicitly choose their duplicate-ID policy.
+
+    Raises
+    ------
+    ValueError
+        While iterating, if sequence data precedes the first header or a
+        header has no identifier. The file closes when iteration completes
+        or the generator is closed.
+    """
     current_name = None
     current_seq = []
     with open(path) as f:
@@ -125,7 +156,7 @@ def _parse_fasta(path):
                 continue
             if line.startswith(">"):
                 if current_name is not None:
-                    sequences[current_name] = "".join(current_seq)
+                    yield current_name, "".join(current_seq)
                 header = line[1:].strip()
                 if not header:
                     raise ValueError(
@@ -140,8 +171,7 @@ def _parse_fasta(path):
                     )
                 current_seq.append(line)
     if current_name is not None:
-        sequences[current_name] = "".join(current_seq)
-    return sequences
+        yield current_name, "".join(current_seq)
 
 
 # ---------------------------------------------------------------------------

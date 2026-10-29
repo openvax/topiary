@@ -4506,3 +4506,19 @@ def test_native_cleavage_evidence_keeps_occurrences_chemistry_and_unknowns(tmp_p
         assert len(internal) == len(boundary) == 3
         assert first_sites[(first_sites.source_bond > 12) & (first_sites.source_bond < 14)].empty
         assert restored[restored.occurrence_id == "repeat"].source_bond.eq(42).all()
+
+
+def test_self_reference_keeps_sequences_with_repeated_fasta_ids(tmp_path):
+    from topiary import SelfProteome, iter_fasta_records
+    from topiary.inputs import read_fasta
+
+    path = tmp_path / "reference.fa"
+    path.write_text(">shared first record\nACDE\n>shared second record\nGGHH\n")
+    assert list(iter_fasta_records(path)) == [("shared", "ACDE"), ("shared", "GGHH")]
+    assert read_fasta(path) == {"shared": "GGHH"}
+    reference = SelfProteome.from_fasta(path, peptide_lengths=[4])
+    assert reference.n_reference_peptides == 2
+    result = reference.nearest(["ACDE", "GGHH"], include_indels=False)
+    assert result.self_nearest_peptide.tolist() == ["ACDE", "GGHH"]
+    assert result.self_nearest_edit_distance.eq(0).all()
+    assert result.self_nearest_gene_id.eq("shared").all()

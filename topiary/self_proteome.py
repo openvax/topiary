@@ -59,6 +59,8 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from .inputs import iter_fasta_records
+
 from .amino_acids import (
     AMINO_ACIDS,
     blosum62_distance_matrix,
@@ -516,8 +518,13 @@ class SelfProteome:
         ``"non_cta"`` and ``"protected_tissues"`` require gene-metadata
         that FASTA doesn't provide, so use :meth:`from_ensembl` for
         those.
+
+        All records are retained, including repeated identifiers. Parsing and
+        malformed-input errors follow :func:`topiary.iter_fasta_records`.
+        Empty files produce an empty reference.
         """
-        records = list(_parse_fasta(path))
+        records = [(name, name, name, sequence)
+                   for name, sequence in iter_fasta_records(path)]
         include_label, records = _apply_fasta_scope(include, records)
         reference_arrays, reference_peptides, provenance, digest = _build_index(
             records, peptide_lengths,
@@ -613,27 +620,6 @@ class SelfProteome:
 # ---------------------------------------------------------------------------
 # FASTA + Ensembl helpers
 # ---------------------------------------------------------------------------
-
-
-def _parse_fasta(path):
-    """Yield ``(source_id, source_id, source_id, sequence)`` tuples."""
-    current_id = None
-    buf: List[str] = []
-    with open(path, "r") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            if line.startswith(">"):
-                if current_id is not None:
-                    yield current_id, current_id, current_id, "".join(buf)
-                header = line[1:].split()[0]
-                current_id = header
-                buf = []
-            else:
-                buf.append(line)
-    if current_id is not None:
-        yield current_id, current_id, current_id, "".join(buf)
 
 
 def _apply_fasta_scope(include, records):
