@@ -4506,4 +4506,3 @@ def test_native_cleavage_evidence_keeps_occurrences_chemistry_and_unknowns(tmp_p
         assert len(internal) == len(boundary) == 3
         assert first_sites[(first_sites.source_bond > 12) & (first_sites.source_bond < 14)].empty
         assert restored[restored.occurrence_id == "repeat"].source_bond.eq(42).all()
-
