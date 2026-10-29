@@ -452,7 +452,7 @@ class TopiaryResult:
         return stack_results(_with_self(self, others))
 
     def combine_predictions(
-        self, *others: TopiaryResult | pd.DataFrame | list[TopiaryResult | pd.DataFrame],
+        self, *others: TopiaryResult | pd.DataFrame | list[TopiaryResult | pd.DataFrame] | tuple[TopiaryResult | pd.DataFrame, ...],
         on: str | Iterable[str] = ("peptide", "allele"),
         coverage: str | bool = "complete",
     ) -> TopiaryResult:

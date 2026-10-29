@@ -15,7 +15,7 @@
 3. Checks the version isn't already published on PyPI
    (`scripts/check_pypi_release.py`; fail-closed, so an unreachable or
    malformed PyPI response stops the release)
-4. Runs `./lint.sh` (ruff)
+4. Runs `./lint.sh` (ruff and the declared mypy scope)
 5. Runs `./test.sh` (pytest with coverage)
 6. Builds sdist and wheel via `python -m build`
 7. Uploads to PyPI via twine

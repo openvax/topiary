@@ -31,6 +31,7 @@ def table_workflow(path: Path) -> None:
     assert_type(result.sort_by(["affinity.value"]), TopiaryResult)
     assert_type(stack_results([result]), TopiaryResult)
     assert_type(combine_predictions([result, result.df]), TopiaryResult)
+    assert_type(result.combine_predictions((result, result.df)), TopiaryResult)
     assert_type(read_isovar_hypotheses(path), TopiaryResult)
     assert_type(read_isovar_patient_background_pairs({}), TopiaryResult)
 
