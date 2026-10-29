@@ -46,11 +46,11 @@ annotation database:
 pyensembl install --release "$(python -c 'from pyensembl import ensembl_grch38; print(ensembl_grch38.release)')" --species human
 ```
 
-Two optional extras add input sources: `pip install 'topiary[pirlygenes]'` for
-cancer-testis antigens and tissue expression, and
-`pip install 'topiary[isovar]'` for protein fragments assembled from RNA reads.
+The normal install includes Isovar for RNA-derived protein fragments,
+PirlyGenes and OncoRef for cancer-testis antigens and tissue expression,
+and WEIRDO for peptide foreignness. No installation extras are needed.
 See [installation details](https://openvax.github.io/topiary/cli/#installation-details)
-for choosing a different Ensembl release and for the optional-package versions.
+for choosing a different Ensembl release and compatible package versions.
 
 ## Predict binding for a few peptides
 
@@ -147,10 +147,10 @@ load either:
 python -m pytest tests --collect-only
 ```
 
-The synthetic Isovar integration tests need only the optional package:
+Run the synthetic Isovar integration tests without downloading Ensembl data:
 
 ```bash
-pip install '.[isovar]' pytest pytest-cov pytest-xdist
+pip install . pytest pytest-cov pytest-xdist
 ./test.sh -m isovar --strict-markers
 ```
 

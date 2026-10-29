@@ -7,6 +7,16 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.107.0
+
+- Install Isovar, PirlyGenes, OncoRef and WEIRDO as core dependencies (#520).
+  RNA assembly, CTA/expression sources and foreignness no longer require
+  installation extras; model selection remains explicit.
+- Remove optional-integration skipping and test normal installed-wheel
+  workflows. Keep lazy input imports and actionable diagnostics for stale or
+  broken installations, using the core dependency version requirements.
+- Document the upstream PirlyGenes pin that currently selects OncoRef 1.19.2.
+
 ## 5.106.0
 
 - Add `peptide_occurrence_flanks` as the exact, case-sensitive source-window

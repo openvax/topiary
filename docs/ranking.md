@@ -830,10 +830,10 @@ kinds have different identity grids by construction.  Processing-only
 quantities that do not depend on allele should be read directly rather than
 through `best_*`.
 
-## Optional WEIRDO foreignness
+## WEIRDO foreignness
 
-Install `pip install 'topiary[weirdo]'` to use the released, offline WEIRDO
-model with canonical peptides of length 8–11:
+The normal Topiary install includes the released, offline WEIRDO model.
+Select it explicitly for canonical peptides of length 8–11:
 
 ```python
 from topiary import TopiaryPredictor, Foreignness, apply_sort, peptide_view

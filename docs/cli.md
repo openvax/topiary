@@ -148,7 +148,7 @@ topiary --ensembl-proteome --mhc-predictor netmhcpan --mhc-alleles HLA-A*02:01
 topiary --cta --mhc-predictor netmhcpan --mhc-alleles HLA-A*02:01  # cancer-testis antigens
 ```
 
-`--cta` needs the `pirlygenes` extra. The same sources are available in Python
+`--cta` uses the included PirlyGenes integration. The same sources are available in Python
 through `topiary.sources` — see the [quickstart](quickstart.md#ensembl-and-tissue-lookups).
 
 ## Filtering and ranking
@@ -274,7 +274,7 @@ its type.
 | Status | Meaning |
 |---|---|
 | 0 | Success |
-| 1 | Something topiary found after reading the command: a missing or unreadable input, an allele a predictor rejects, a missing optional dependency, a predictor that isn't set up, an output that can't be written. One `topiary: error:` line on stderr. |
+| 1 | Something topiary found after reading the command: a missing or unreadable input, an allele a predictor rejects, a broken dependency installation, a predictor that isn't set up, an output that can't be written. One `topiary: error:` line on stderr. |
 | 2 | The command line is malformed: an unknown flag, a bad value, required flags missing or in conflict. The error follows the usage text. |
 | 3 | Partial result under `--cache-miss-report` (see [cached predictions](cached.md)). |
 
@@ -305,12 +305,14 @@ Installing some other release does not change that default — select it
 explicitly with `--ensembl-release` or the API's `release=` argument. GRCh37
 inputs need release 75.
 
-Two extras add input sources:
+The normal install includes cancer-testis antigen and tissue-expression
+sources through PirlyGenes/OncoRef (`--cta`, `--exclude-non-cta`,
+`--exclude-tissues`), RNA assembly through Isovar, and WEIRDO foreignness.
+No Topiary installation extras are needed. See the
+[consumer guide](consumer-guide.md#fragments) for the Isovar version rules.
 
-- `pip install 'topiary[pirlygenes]'` — cancer-testis antigens and tissue
-  expression (`--cta`, `--exclude-non-cta`, `--exclude-tissues`).
-- `pip install 'topiary[isovar]'` — protein fragments assembled from RNA reads.
-  The extra requires Isovar 1.39.5 or newer, which Topiary also checks at run
-  time, and works with the Osteosarc 0.14 and 0.15 series. Isovar is not needed
-  for any other input source; see the
-  [consumer guide](consumer-guide.md#fragments) for the version rules.
+PirlyGenes 6.0.18 currently pins OncoRef 1.19.2, so the compatible installation
+uses that release rather than the newer OncoRef 1.21.0. Adoption of the newer
+owner data is tracked in [PirlyGenes #655](https://github.com/pirl-unc/pirlygenes/issues/655).
+Reference genomes, model assets and licensed executables remain explicit
+inputs; installing Topiary does not download them.

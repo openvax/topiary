@@ -26,13 +26,16 @@ def check_license_metadata(metadata):
 
 
 def check_runtime_metadata(metadata):
-    """Require the Python/pandas baseline and Osteosarc in built artifacts."""
+    """Require the Python/pandas baseline and core integrations in artifacts."""
     assert metadata["Requires-Python"] == ">=3.11"
     requirements = [value.replace(" ", "") for value in metadata.get_all("Requires-Dist", [])]
     assert any(value in ("pandas>=3,<4", "pandas<4,>=3") for value in requirements)
     assert any(value in ("osteosarc>=0.14.0,<0.16", "osteosarc<0.16,>=0.14.0")
                for value in requirements)
-    assert "osteosarc" not in metadata.get_all("Provides-Extra", [])
+    for name in ("isovar", "pirlygenes", "oncoref", "weirdo"):
+        assert any(value.startswith(name + ">=") or value.startswith(name + "<")
+                   for value in requirements if ";" not in value), name
+    assert not metadata.get_all("Provides-Extra", [])
 
 
 def check_distributions(dist_dir, source_root):

@@ -2,8 +2,6 @@
 
 import pytest
 
-from tests.optional_dependencies import require_integration
-
 
 @pytest.fixture(scope="module")
 def additional_indel_rna(tmp_path_factory):
@@ -50,10 +48,3 @@ def transcript_expression_dict(cancer_test_variants):
         for variant in cancer_test_variants
         for transcript_id in variant.transcript_ids
     }
-
-
-def pytest_runtest_setup(item):
-    """Require a usable optional import before setting up its fixtures."""
-    for dependency in ("isovar", "pirlygenes"):
-        if item.get_closest_marker(dependency) is not None:
-            require_integration(dependency)

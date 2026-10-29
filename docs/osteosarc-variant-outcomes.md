@@ -133,7 +133,7 @@ The historical `.cache/osteosarc-all-variants-v181-2026-09-17/` contains source 
 SHA-256 receipts, regional BAM/index, references, per-entry outcomes, accepted
 and filtered fragments, diagnostic stopping stages, genuine predictions and
 the full source-linked `README.md`. The earlier 1.17.4 run is preserved separately;
-current counts require the corrected optional Isovar floor of 1.18.1.
+current counts require the corrected historical Isovar floor of 1.18.1.
 Historical pVAC files and the new RNA overlay
 remain in their separate archives. The committed
 `tests/data/osteosarc_all_variants/` metadata and references are paired with

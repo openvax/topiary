@@ -159,14 +159,12 @@ the whole point of the abstraction, and why `source_type` stays biological.
 `SEMANTIC_CORE` names the fields every source is expected to speak to, whether
 or not it can populate them.
 
-### isovar is optional in the strong sense
+### RNA assembly with Isovar
 
-Not imported at module scope and not in Topiary's base requirements, so
-`import topiary` does not import it. Install the optional integration with
-`pip install 'topiary[isovar]'`. Only `fragments_from_variants` with an
-`alignment_file` imports it. `fragment_from_isovar_result` needs nothing from
-isovar at all — it reads an already-built result by attribute. A consumer that
-only reads LENS reports should not pay for a package it never calls.
+Isovar is installed with Topiary and imported when `fragments_from_variants`
+receives an `alignment_file`. `fragment_from_isovar_result` reads an
+already-built result by attribute. Lazy imports keep other input paths quick
+to start; they do not require a separate installation choice.
 
 isovar is also the only source that *counts* the reads supporting an assembled
 sequence. Everything else derives them or counts something adjacent, which is

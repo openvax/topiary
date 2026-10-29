@@ -158,8 +158,7 @@ def test_the_list_helper_drops_unsupported_variants():
 
 
 def test_isovar_is_not_imported_by_importing_topiary():
-    """Optional in the strong sense: not importable, not installed, shape
-    unchanged. A consumer reading LENS reports should not pay for it."""
+    """Installed RNA support stays lazy when reading other input sources."""
     import subprocess
     import sys
 

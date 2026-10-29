@@ -31,11 +31,11 @@ annotation database:
 pyensembl install --release "$(python -c 'from pyensembl import ensembl_grch38; print(ensembl_grch38.release)')" --species human
 ```
 
-Two extras add input sources: `pip install 'topiary[pirlygenes]'` for
-cancer-testis antigens and tissue expression, and `pip install 'topiary[isovar]'`
-for protein fragments assembled from RNA reads. See
+The normal install includes Isovar for RNA-derived protein fragments,
+PirlyGenes and OncoRef for cancer-testis antigens and tissue expression,
+and WEIRDO for peptide foreignness. See
 [installation details](cli.md#installation-details) for choosing a different
-Ensembl release and for the optional-package versions.
+Ensembl release and compatible package versions.
 
 ## A first prediction
 

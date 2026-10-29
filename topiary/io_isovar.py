@@ -5,11 +5,8 @@ translating one from the reference, and counts the reads that support it.
 That makes it the only source topiary reads that can populate the read
 counts natively — everything else derives or approximates them.
 
-**isovar is optional in the strong sense**: not imported at module scope,
-not in ``requirements.txt``, and topiary's shape is identical whether or
-not it is installed. Only this module's functions need it, and they say
-so clearly when it is missing. A consumer that reads LENS reports should
-not pay for a package it never calls.
+Isovar is installed with Topiary. It is imported only when assembling RNA
+fragments, keeping report reading and other inputs quick to start.
 """
 
 from __future__ import annotations
@@ -19,18 +16,18 @@ from typing import Optional
 
 from .protein_fragment import ProteinFragment, fragments_for_sample, require_sample_name
 from .evidence import ISOVAR_ASSEMBLY, RNA_ALIGNMENT
-from .optional_dependencies import require_optional_dependency
+from .dependencies import require_dependency
 from .serialization import normalize_python_types
 
 
 def _check_isovar():
     """Load the Isovar API used to assemble variants from RNA reads.
 
-    Refuses an installed release older than the ``isovar`` extra's floor:
+    Refuses an installed release older than Topiary's declared floor:
     older releases run, but can return wrong evidence (1.17.x miscounts
     reads at insertion boundaries), which is worse than failing.
     """
-    return require_optional_dependency(
+    return require_dependency(
         "isovar",
         feature="assembling protein fragments from RNA alignments",
         required_callables=("run_isovar", "ProteinSequenceCreator"),
@@ -530,9 +527,8 @@ def fragments_from_variants(
 
     Notes
     -----
-    Needs the ``isovar`` extra (``pip install 'topiary[isovar]'``) only
-    when *alignment_file* is given; an installed Isovar older than the
-    extra's floor is refused rather than trusted. Explicit
+    Imports the installed Isovar integration when *alignment_file* is given;
+    an installed Isovar older than the declared floor is refused. Explicit
     RNA-only options are rejected without an alignment file. RNA fragments
     record the Isovar version, creator class and available creator settings
     as ``isovar_*`` annotations, preserved by fragment IO and prediction.

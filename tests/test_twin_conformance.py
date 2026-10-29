@@ -66,7 +66,7 @@ from topiary import (
 )
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
-import topiary.optional_dependencies as optional_dependencies
+import topiary.dependencies as dependencies
 from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_REPORTS, ROOT as PVACSEQ_ROOT
 from .osteosarc_helpers import load_osteosarc
 from .sid_data import sid_data_root
@@ -888,17 +888,17 @@ def without_installed_metadata(monkeypatch):
     def absent(name):
         raise PackageNotFoundError(name)
 
-    monkeypatch.setattr(optional_dependencies, "version", absent)
+    monkeypatch.setattr(dependencies, "version", absent)
 
 
 # ---------------------------------------------------------------------------
-# Optional integrations
+# Core integrations
 #
 # Isovar and PirlyGenes are independent doors, but both must distinguish an
-# absent optional package from a broken installed package in the same way.
+# absent package from a broken installed package in the same way.
 # ---------------------------------------------------------------------------
 
-OPTIONAL_DEPENDENCY_TWINS = (
+DEPENDENCY_TWINS = (
     (
         "isovar",
         ("run_isovar", "ProteinSequenceCreator"),
@@ -911,7 +911,7 @@ OPTIONAL_DEPENDENCY_TWINS = (
         ("pan_cancer_expression",),
         lambda: _check_pirlygenes("pan_cancer_expression"),
         "cancer-testis antigen and tissue-expression gene lists",
-        ">=5.1.0",
+        ">=6.0.18",
     ),
 )
 
@@ -1095,10 +1095,10 @@ def test_fragment_construction_doors_agree_on_conflicts(old, new, conflict):
 
 @pytest.mark.parametrize(
     ("dependency", "required_api", "check", "feature", "specifier"),
-    OPTIONAL_DEPENDENCY_TWINS,
+    DEPENDENCY_TWINS,
     ids=lambda value: value if isinstance(value, str) else None,
 )
-def test_optional_dependency_metadata_has_one_floor(
+def test_dependency_metadata_has_one_floor(
     dependency, required_api, check, feature, specifier,
 ):
     del required_api, check, feature
@@ -1109,17 +1109,15 @@ def test_optional_dependency_metadata_has_one_floor(
 
     assert len(declared) == 1
     assert str(declared[0].specifier) == specifier
-    assert declared[0].marker.evaluate({"extra": dependency})
-    other = "pirlygenes" if dependency == "isovar" else "isovar"
-    assert not declared[0].marker.evaluate({"extra": other})
+    assert declared[0].marker is None
 
 
 @pytest.mark.parametrize(
     ("dependency", "required_api", "check", "feature", "specifier"),
-    OPTIONAL_DEPENDENCY_TWINS,
+    DEPENDENCY_TWINS,
     ids=lambda value: value if isinstance(value, str) else None,
 )
-def test_optional_dependency_missing_errors_match(
+def test_dependency_missing_errors_match(
     monkeypatch, dependency, required_api, check, feature, specifier,
 ):
     del required_api, specifier
@@ -1131,24 +1129,24 @@ def test_optional_dependency_missing_errors_match(
         del module_name
         raise original
 
-    monkeypatch.setattr(optional_dependencies, "import_module", missing)
+    monkeypatch.setattr(dependencies, "import_module", missing)
 
     with pytest.raises(ImportError) as raised:
         check()
 
     message = str(raised.value)
     assert feature in message
-    assert f"pip install 'topiary[{dependency}]'" in message
+    assert "pip install topiary" in message
     assert "installed but" not in message
     assert raised.value.__cause__ is original
 
 
 @pytest.mark.parametrize(
     ("dependency", "required_api", "check", "feature", "specifier"),
-    OPTIONAL_DEPENDENCY_TWINS,
+    DEPENDENCY_TWINS,
     ids=lambda value: value if isinstance(value, str) else None,
 )
-def test_optional_dependency_broken_import_errors_match(
+def test_dependency_broken_import_errors_match(
     monkeypatch, dependency, required_api, check, feature, specifier,
 ):
     del required_api, specifier
@@ -1161,7 +1159,7 @@ def test_optional_dependency_broken_import_errors_match(
         del module_name
         raise original
 
-    monkeypatch.setattr(optional_dependencies, "import_module", broken)
+    monkeypatch.setattr(dependencies, "import_module", broken)
 
     with pytest.raises(ImportError) as raised:
         check()
@@ -1170,21 +1168,21 @@ def test_optional_dependency_broken_import_errors_match(
     assert feature in message
     assert "installed but could not be imported" in message
     assert "broken_transitive_dependency" in message
-    assert f"pip install --upgrade 'topiary[{dependency}]'" in message
+    assert "pip install --upgrade topiary" in message
     assert raised.value.__cause__ is original
 
 
 @pytest.mark.parametrize(
     ("dependency", "required_api", "check", "feature", "specifier"),
-    OPTIONAL_DEPENDENCY_TWINS,
+    DEPENDENCY_TWINS,
     ids=lambda value: value if isinstance(value, str) else None,
 )
-def test_optional_dependency_capability_errors_match(
+def test_dependency_capability_errors_match(
     monkeypatch, without_installed_metadata, dependency, required_api, check, feature, specifier,
 ):
     del feature, specifier
     monkeypatch.setattr(
-        optional_dependencies,
+        dependencies,
         "import_module",
         lambda module_name: SimpleNamespace(__name__=module_name),
     )
@@ -1195,21 +1193,21 @@ def test_optional_dependency_capability_errors_match(
     message = str(raised.value)
     assert "installed but does not provide the API" in message
     assert all(name in message for name in required_api)
-    assert f"pip install --upgrade 'topiary[{dependency}]'" in message
+    assert "pip install --upgrade topiary" in message
 
 
 @pytest.mark.parametrize(
     ("dependency", "required_api", "check", "feature", "specifier"),
-    OPTIONAL_DEPENDENCY_TWINS,
+    DEPENDENCY_TWINS,
     ids=lambda value: value if isinstance(value, str) else None,
 )
-def test_optional_dependency_capabilities_load_through_both_doors(
+def test_dependency_capabilities_load_through_both_doors(
     monkeypatch, without_installed_metadata, dependency, required_api, check, feature, specifier,
 ):
     del dependency, feature, specifier
     module = SimpleNamespace(**{name: lambda: None for name in required_api})
     monkeypatch.setattr(
-        optional_dependencies, "import_module", lambda module_name: module,
+        dependencies, "import_module", lambda module_name: module,
     )
 
     assert check() is module
@@ -1217,10 +1215,10 @@ def test_optional_dependency_capabilities_load_through_both_doors(
 
 @pytest.mark.parametrize(
     ("dependency", "required_api", "check", "feature", "specifier"),
-    OPTIONAL_DEPENDENCY_TWINS,
+    DEPENDENCY_TWINS,
     ids=lambda value: value if isinstance(value, str) else None,
 )
-def test_optional_dependency_floors_refuse_older_releases_through_both_doors(
+def test_dependency_floors_refuse_older_releases_through_both_doors(
     monkeypatch, dependency, required_api, check, feature, specifier,
 ):
     """An older release imports fine and answers wrongly; both doors refuse it.
@@ -1231,12 +1229,12 @@ def test_optional_dependency_floors_refuse_older_releases_through_both_doors(
     import topiary
 
     module = SimpleNamespace(**{name: lambda: None for name in required_api})
-    monkeypatch.setattr(optional_dependencies, "import_module", lambda module_name: module)
+    monkeypatch.setattr(dependencies, "import_module", lambda module_name: module)
     # Independent of whatever this machine has installed.
-    monkeypatch.setattr(optional_dependencies, "requires", lambda name: [
-        f'{dependency}{specifier}; extra == "{dependency}"'])
+    monkeypatch.setattr(dependencies, "requires", lambda name: [
+        f"{dependency}{specifier}"])
     installed = {"topiary": topiary.__version__}
-    monkeypatch.setattr(optional_dependencies, "version", lambda name: installed[name])
+    monkeypatch.setattr(dependencies, "version", lambda name: installed[name])
 
     installed[dependency] = "0.0.1"
     with pytest.raises(ImportError) as raised:
@@ -1244,7 +1242,7 @@ def test_optional_dependency_floors_refuse_older_releases_through_both_doors(
     message = str(raised.value)
     assert f"{dependency} 0.0.1 is installed" in message
     assert feature in message and specifier in message
-    assert f"pip install --upgrade 'topiary[{dependency}]'" in message
+    assert "pip install --upgrade topiary" in message
 
     installed[dependency] = next(s.version for s in Requirement(dependency + specifier).specifier
                                  if s.operator == ">=")
