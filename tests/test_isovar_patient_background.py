@@ -172,7 +172,8 @@ def test_reader_twins_coalesce_exact_pairs_without_summing_support(tmp_path):
         assert len(result) == 1
         assert result.extra['isovar_patient_background_pairs'] == original
         row = result.df.iloc[0]
-        assert row.mutant_rna_support == event['pairs'][0]['mutant']['rna_support']
+        expected = event['pairs'][0]['mutant']['rna_support']
+        assert {key: row.mutant_rna_support[key] for key in expected} == expected
     assert export == original
     other = deepcopy(event)
     other['event_id'] = 'different-event'

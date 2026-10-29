@@ -933,7 +933,8 @@ def test_imported_isovar_rna_union_counts_shared_reads_once_after_reload(tmp_pat
 
 
 @pytest.mark.isovar
-def test_real_repeated_isovar_translations_survive_import_and_reload(tmp_path):
+@pytest.mark.parametrize('include_background', [False, True])
+def test_real_repeated_isovar_translations_survive_import_and_reload(tmp_path, include_background):
     from collections import Counter
     import json
     from pathlib import Path
@@ -948,6 +949,8 @@ def test_real_repeated_isovar_translations_survive_import_and_reload(tmp_path):
     from .test_isovar_hypotheses import read_both
     from .test_twin_conformance import DELIMITED_IO_TWINS
 
+    if include_background and not hasattr(isovar, 'export_patient_background_pairs'):
+        pytest.skip('Isovar before 1.64 has no patient-background producer; reader fixtures run on every version')
     manifest = json.loads((Path(__file__).parent / "data/isovar_repeats/manifest.json").read_text())
     reads = sid_read("isovar_repeats/reads.bam")
     with pysam.AlignmentFile(reads) as bam:
@@ -966,16 +969,17 @@ def test_real_repeated_isovar_translations_survive_import_and_reload(tmp_path):
             source="osteosarc-0.7.0-repeat-fixture", alignment_header=bam.header)
     # Both released producer exports preserve 0 as unlimited. Import the
     # comparison through every file/mapping door without changing its settings.
-    from .test_isovar_patient_background import read_all
-    pairs = isovar.export_patient_background_pairs(
-        [upstream], sample_id="Sid-T2-UCLA-2025-01-06",
-        source="osteosarc-0.7.0-repeat-fixture")
-    for document in (export, pairs):
-        assert document["events"][0]["protein_sequence_limit"] == 0
-        assert document["events"][0]["protein_hypotheses_complete"] is True
-    for imported_pairs in read_all(pairs, tmp_path):
-        assert len(imported_pairs) > 0
-        assert imported_pairs.extra["isovar_patient_background_pairs"] == pairs
+    if include_background:
+        from .test_isovar_patient_background import read_all
+        pairs = isovar.export_patient_background_pairs(
+            [upstream], sample_id="Sid-T2-UCLA-2025-01-06",
+            source="osteosarc-0.7.0-repeat-fixture")
+        for document in (export, pairs):
+            assert document["events"][0]["protein_sequence_limit"] == 0
+            assert document["events"][0]["protein_hypotheses_complete"] is True
+        for imported_pairs in read_all(pairs, tmp_path):
+            assert len(imported_pairs) > 0
+            assert imported_pairs.extra["isovar_patient_background_pairs"] == pairs
     proteins = export["events"][0]["protein_hypotheses"]
     counts = [Counter(t["translation_id"] for t in p["translations"]) for p in proteins]
     assert sorted(n for c in counts for n in c.values() if n > 1) == [3, 3, 3]
