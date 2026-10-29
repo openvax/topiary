@@ -10,7 +10,8 @@ The current checked scope is:
 - `TopiaryResult` tables, metadata, long/wide views and result operations;
 - native TSV/CSV readers and writers, including nullable `Metadata` fields;
 - `CachedPredictor` loading, querying and saving;
-- Isovar hypothesis and patient-background export readers.
+- Isovar hypothesis and patient-background export readers;
+- native per-bond evidence conversion with `from_cleavage_results`.
 
 `tests/typing/public_tables.py` checks a consumer that loads a table, changes
 views, queries a cache and saves the result. It also includes invalid calls
@@ -22,7 +23,7 @@ yet part of this diagnostic scope (`follow_imports = "silent"`).
 Prediction-table cells, custom metadata and dynamically supplied predictor
 plugins still use `Any` where the input schema is open. Pandas-compatible
 indexing can return a Series or another TopiaryResult; use `.df` when the
-consumer needs pandas' full indexing API. Three specific MHCTools/MHCgnomes
+consumer needs pandas' full indexing API. Specific MHCTools/MHCgnomes
 imports have local `import-untyped` allowances because those upstream
 packages do not publish type information. There is no global missing-import
 ignore and no blanket module error suppression.

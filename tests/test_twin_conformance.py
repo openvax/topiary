@@ -64,6 +64,7 @@ from topiary import (
     Foreignness, peptide_view,
     parse as parse_dsl,
 )
+from topiary import from_cleavage_results
 from topiary.io_isovar import _check_isovar
 from topiary.sources import _check_pirlygenes
 import topiary.dependencies as dependencies
@@ -1944,3 +1945,10 @@ def test_prediction_schema_doors_preserve_typed_measurements(kind, allele, value
             source_sequence_name=row.source_sequence_name, offset=int(row.peptide_offset))
         assert restored == original
         assert pd.isna(row.value) if value is None else row.value == value
+
+
+CLEAVAGE_RESULT_TWINS = (
+    ("native", from_cleavage_results),
+    ("serialized", lambda results: from_cleavage_results(
+        result.to_dict() for result in results)),
+)

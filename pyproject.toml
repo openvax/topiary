@@ -54,7 +54,7 @@ markers = [
 ]
 
 [tool.mypy]
-files = ["topiary/io.py", "topiary/result.py", "topiary/cached.py", "topiary/io_isovar_hypotheses.py", "tests/typing/public_tables.py"]
+files = ["topiary/io.py", "topiary/result.py", "topiary/cached.py", "topiary/io_isovar_hypotheses.py", "topiary/cleavage.py", "tests/typing/public_tables.py"]
 python_version = "3.11"
 follow_imports = "silent"
 check_untyped_defs = true

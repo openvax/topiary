@@ -23,6 +23,7 @@ nav:
     - Protein Fragments: fragments.md
     - RNA Expression: expression.md
     - Peptide Properties: properties.md
+    - Cleavage Evidence: cleavage.md
     - Cross-reactivity: self_proteome.md
     - Cached Predictions: cached.md
   - Other pipelines:
