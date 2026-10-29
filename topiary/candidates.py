@@ -395,9 +395,12 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
         Filter selecting source observations to re-score. Other rows receive
         missing features. No new peptide windows or HLA candidates are added.
     use_flanks : bool
-        Forward supplied flank sequences. A flank-dependent model requires
-        both flanks to be stated (empty strings mean known termini). Set
-        False explicitly to request predictions without flanking context.
+        Forward current occurrence context. When a nonempty
+        ``source_sequence`` and ``peptide_offset`` are present, derive the new
+        request's flanks from that exact window without changing historical
+        flank columns. Otherwise, a flank-dependent model requires both
+        ``n_flank`` and ``c_flank`` to be stated (empty strings mean known
+        termini). Set False explicitly to request peptide-only predictions.
 
     Returns
     -------
@@ -428,7 +431,17 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
     selected = selected.drop_duplicates(["source_observation_id", "candidate_id", "allele_set"]
                                         if "allele_set" in selected else ["source_observation_id", "candidate_id"])
     selected = selected.reset_index(drop=True)
-    requests = selected.reindex(columns=["peptide", "candidate_sample", "n_flank", "c_flank", "allele_set"]).copy()
+    request_columns = [
+        "peptide", "candidate_sample", "source_sequence", "peptide_offset",
+        "n_flank", "c_flank", "allele_set",
+    ]
+    requests = selected.reindex(columns=request_columns).copy()
+    # A source window describes the occurrence being scored now. The flank
+    # columns on an imported row describe its historical model invocation and
+    # remain untouched in ``frame``; do not silently relabel them as current.
+    exact_source = requests.source_sequence.map(
+        lambda value: isinstance(value, str) and bool(value)) & requests.peptide_offset.notna()
+    requests.loc[exact_source, ["n_flank", "c_flank"]] = None
     requests["prediction_id"] = [str(index) for index in range(len(requests))]
     features, descriptors = {}, {}
 

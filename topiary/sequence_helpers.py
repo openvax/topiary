@@ -11,6 +11,49 @@
 # limitations under the License.
 
 from collections.abc import Iterable
+from numbers import Integral
+
+
+def peptide_occurrence_flanks(source_sequence, peptide, peptide_offset):
+    """Return the residues flanking one exact peptide occurrence.
+
+    Parameters
+    ----------
+    source_sequence : str
+        Protein sequence containing the occurrence.
+    peptide : str
+        Nonempty peptide sequence.
+    peptide_offset : int
+        Zero-based offset of the peptide in ``source_sequence``.
+
+    Returns
+    -------
+    tuple of str
+        The complete N- and C-terminal source context. An empty string states
+        that the peptide reaches that molecular terminus.
+
+    Raises
+    ------
+    TypeError
+        If either sequence is not a string or the offset is not an integer.
+    ValueError
+        If a sequence is empty, the offset is negative, or the exact peptide
+        does not occur at the stated offset. Matching is case-sensitive; this
+        function never searches for or chooses among repeated occurrences.
+    """
+    if not isinstance(source_sequence, str) or not isinstance(peptide, str):
+        raise TypeError("source_sequence and peptide must be strings")
+    if not source_sequence or not peptide:
+        raise ValueError("source_sequence and peptide must be nonempty")
+    if isinstance(peptide_offset, bool) or not isinstance(peptide_offset, Integral):
+        raise TypeError("peptide_offset must be an integer")
+    peptide_offset = int(peptide_offset)
+    if peptide_offset < 0:
+        raise ValueError("peptide_offset must be nonnegative")
+    peptide_end = peptide_offset + len(peptide)
+    if source_sequence[peptide_offset:peptide_end] != peptide:
+        raise ValueError("peptide does not occur in source_sequence at peptide_offset")
+    return source_sequence[:peptide_offset], source_sequence[peptide_end:]
 
 
 def protein_subsequences_around_mutations(effects, padding_around_mutation):

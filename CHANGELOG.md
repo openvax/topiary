@@ -7,6 +7,18 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.106.0
+
+- Add `peptide_occurrence_flanks` as the exact, case-sensitive source-window
+  geometry rule shared by occurrence consumers (#545).
+- Derive missing primary or comparator flanks during occurrence inference when
+  their own source sequence and offset are known; reject false termini and
+  other explicit context contradictions before prediction.
+- Keep occurrence context separate from historical prediction metadata, and
+  preserve compatible caller-supplied shorter flanks unchanged. Additive
+  rescoring now prefers an exact source window for the new request without
+  relabelling an imported score's recorded flank metadata.
+
 ## 5.105.0
 
 - Classify each bounded Isovar patient-background protein pair as `identical`,

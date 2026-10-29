@@ -110,7 +110,7 @@ policy composition and interpretation of missing results.
 |--------|-------|----------|
 | `predict_from_named_sequences(dict)` | `{name: sequence}` | Sliding-window scan |
 | `predict_from_named_peptides(dict)` | `{name: peptide}` | Score as-is |
-| `predict_from_peptide_occurrences(table)` | `prediction_id`, peptide, optional flanks/coordinates/annotations; unique by ID, peptide, offset and sample | Score exact occurrences with their context; no scanning. |
+| `predict_from_peptide_occurrences(table)` | `prediction_id`, peptide, optional source sequence/flanks/coordinates/annotations; unique by ID, peptide, offset and sample | Score exact occurrences with their context; no scanning. |
 | `predict_from_sequences(list)` | `[sequence, ...]` | Sliding-window scan |
 | `predict_from_fragments(fragments)` | `[ProteinFragment]` | Universal path — any origin; fragment-level metadata and `target_intervals` threaded through. |
 | `predict_from_variants(variants)` | VariantCollection | Variant pipeline (builds `ProteinFragment`s internally and delegates). |
@@ -119,6 +119,10 @@ policy composition and interpretation of missing results.
 `predict_peptide_occurrences(table, model, use_flanks=True, predict_wt=False)`
 exposes the same occurrence prediction for one configured mhctools model.
 It is exported from `topiary` and is also used by `rescore_candidates`.
+`peptide_occurrence_flanks(source_sequence, peptide, peptide_offset)` returns
+the complete N/C context for one exact occurrence; it validates rather than
+searching for the peptide. The prediction doors use this rule to derive missing
+primary or comparator flanks from their own source windows.
 See [exact occurrence prediction](combined-sources.md#predict-exact-peptide-occurrences)
 for input identity, unknown flanks, comparator and coverage rules.
 

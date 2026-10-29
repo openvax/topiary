@@ -1,6 +1,31 @@
-"""Direct unit tests for protein_subsequences_around_mutations()."""
+"""Direct tests for public protein/peptide sequence geometry helpers."""
 
+import numpy as np
+import pytest
+
+from topiary import peptide_occurrence_flanks
 from topiary.sequence_helpers import protein_subsequences_around_mutations
+
+
+def test_peptide_occurrence_flanks_returns_exact_source_context():
+    assert peptide_occurrence_flanks("AASIINFEKLKK", "SIINFEKL", 2) == ("AA", "KK")
+    assert peptide_occurrence_flanks("SIINFEKL", "SIINFEKL", np.int64(0)) == ("", "")
+
+
+@pytest.mark.parametrize("source,peptide,offset,error", [
+    ("AASIINFEKL", "siinfekl", 2, ValueError),
+    ("AASIINFEKL", "SIINFEKL", 3, ValueError),
+    ("AASIINFEKL", "SIINFEKL", -1, ValueError),
+    ("", "SIINFEKL", 0, ValueError),
+    ("SIINFEKL", "", 0, ValueError),
+    (None, "SIINFEKL", 0, TypeError),
+    ("SIINFEKL", "SIINFEKL", 0.0, TypeError),
+    ("SIINFEKL", "SIINFEKL", True, TypeError),
+])
+def test_peptide_occurrence_flanks_refuses_ambiguous_or_invalid_geometry(
+        source, peptide, offset, error):
+    with pytest.raises(error):
+        peptide_occurrence_flanks(source, peptide, offset)
 
 
 class _MockEffect:
