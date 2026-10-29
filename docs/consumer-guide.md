@@ -215,6 +215,14 @@ an older release can import cleanly and still return wrong evidence (1.17.x
 miscounts reads at insertion boundaries), so Topiary refuses it with an
 upgrade instruction. Upgrade with `pip install --upgrade topiary`.
 
+Topiary supports `varcode<11`. Its coding-effect filtering and transcript
+selection need the coordinated candidate-traversal migration tracked in
+[Topiary #559](https://github.com/openvax/topiary/issues/559),
+[Isovar #651](https://github.com/openvax/isovar/issues/651) and
+[Vaxrank #750](https://github.com/openvax/vaxrank/issues/750) before this bound
+can be widened. Topiary declares the bound directly so an upstream dependency
+update cannot change its supported effect contract implicitly.
+
 Reading an existing versioned Isovar comparison export does not run RNA
 assembly. `read_isovar_hypotheses` imports all protein hypotheses, while
 `read_isovar_patient_background_pairs` imports the corresponding bounded

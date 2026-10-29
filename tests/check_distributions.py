@@ -32,6 +32,8 @@ def check_runtime_metadata(metadata):
     assert any(value in ("pandas>=3,<4", "pandas<4,>=3") for value in requirements)
     assert any(value in ("osteosarc>=0.15.5,<0.16", "osteosarc<0.16,>=0.15.5")
                for value in requirements)
+    assert any(value in ("varcode>=4.18.0,<11", "varcode<11,>=4.18.0")
+               for value in requirements)
     for name in ("isovar", "pirlygenes", "oncoref", "weirdo"):
         assert any(value.startswith(name + ">=") or value.startswith(name + "<")
                    for value in requirements if ";" not in value), name
