@@ -19,7 +19,14 @@ ONE_CORPUS_CASE = "not every_literal_allele or ABI3BP-chr3-100850671"
     ["-m", "isovar", "--strict-markers", "-k", ONE_CORPUS_CASE],
 ])
 def test_collection_and_marker_selection_without_reference_data(tmp_path, selection):
-    """Run the whole collection, with empty caches and forbidden I/O."""
+    """Run collection and selected tests with an empty annotation cache."""
+    if "--collect-only" not in selection:
+        # Selected real-read tests need their published read bundle. Prepare it
+        # before the child forbids networking, independent of other tests or a
+        # restored CI cache. Collection alone must never need this prerequisite.
+        import osteosarc
+        from .sid_data import SHARED_BUNDLE
+        osteosarc.fetch_bundle(SHARED_BUNDLE)
     cache = tmp_path / "ensembl"
     cache.mkdir()
     code = textwrap.dedent("""

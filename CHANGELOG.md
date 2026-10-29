@@ -16,6 +16,8 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   consumer with both accepted and rejected inputs; retain runtime validation.
 - Keep the remaining typing scope explicit and defer `py.typed` until the
   installed package has a checked package-wide contract.
+- Prepare selected read fixtures before network-isolated tests so empty CI
+  caches do not make their outcome depend on test order (#555).
 
 ## 5.107.0
 
