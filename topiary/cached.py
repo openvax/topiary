@@ -756,7 +756,7 @@ class CachedPredictor:
 
     @property
     def alleles(self):
-        """Alleles selected for contextual exact-peptide queries.
+        """Alleles selected for contextual occurrence queries.
 
         Returns
         -------
@@ -764,8 +764,10 @@ class CachedPredictor:
             The assigned canonical allele set, or by default the union of
             cached alleles/genotypes and fallback alleles. Assign a sequence
             to select one genotype from a multi-genotype cache; assigning None
-            restores the union. Legacy flat lookups still return all stored
-            alleles and contexts. Selection is not a coverage guarantee.
+            restores the union. Contextual exact-peptide and protein-scan
+            queries both honor this selection. Legacy flat peptide lookups
+            still return all stored alleles and contexts. Selection is not a
+            coverage guarantee.
 
         Allele-free rows are excluded: a row with no allele is not a
         row about an allele, and reporting its blank key here would
@@ -900,6 +902,34 @@ class CachedPredictor:
 
     def _cache_alleles(self):
         return sorted(set(self._df["allele"].unique().tolist()))
+
+    @staticmethod
+    def _row_mhc_scope(row):
+        dependence = mhc_dependence(
+            row["kind"], rows=pd.DataFrame([row]).rename(columns={
+                "prediction_mhc_dependence": "source_prediction_mhc_dependence"}))
+        return dependence, prediction_mhc_scope(
+            row["allele"], dependence=dependence, allele_set=row.get("allele_set"))
+
+    def _selected_cache_rows(self, peptide, length):
+        """Stored rows for one peptide within the selected MHC scope."""
+        rows = [row for allele in self._cache_alleles()
+                for row in self._lookup_by_prefix(peptide, allele, length)]
+        if self._requested_alleles is None:
+            return rows
+        selected = {
+            prediction_mhc_scope(allele, dependence="single_allele")
+            for allele in self._requested_alleles}
+        haplotype = prediction_mhc_scope(
+            None, dependence="haplotype", allele_set=self._requested_alleles)
+        retained = []
+        for row in rows:
+            dependence, scope = self._row_mhc_scope(row)
+            if (dependence == "none"
+                    or dependence == "single_allele" and scope in selected
+                    or dependence == "haplotype" and scope == haplotype):
+                retained.append(row)
+        return retained
 
     def predict_peptides_dataframe(
         self, peptides: Iterable[str],
@@ -1038,16 +1068,9 @@ class CachedPredictor:
             raise ValueError("Allele-dependent cache queries require configured alleles")
         requests = list(zip(peptides, n_flanks, c_flanks))
 
-        def row_scope(row):
-            return prediction_mhc_scope(
-                row["allele"], dependence=mhc_dependence(row["kind"], rows=pd.DataFrame([row]).rename(
-                    columns={"prediction_mhc_dependence": "source_prediction_mhc_dependence"})),
-                allele_set=row.get("allele_set"))
-
         def contextual_rows(peptide, n_flank, c_flank):
-            rows = pd.DataFrame([row for allele in self._cache_alleles()
-                                 for row in self._lookup_by_prefix(peptide, allele, len(peptide))],
-                                columns=self._df.columns)
+            rows = pd.DataFrame(
+                self._selected_cache_rows(peptide, len(peptide)), columns=self._df.columns)
             return rows.loc[[prediction_flanks_match(
                 row, n_flank=n_flank, c_flank=c_flank) for row in rows.to_dict("records")]]
 
@@ -1061,7 +1084,8 @@ class CachedPredictor:
                     candidates = contextual.loc[contextual.kind.eq(kind)]
                     for allele in expected:
                         scope = prediction_mhc_scope(allele, dependence=dependence, allele_set=alleles)
-                        matching = candidates.loc[[row_scope(row) == scope for row in candidates.to_dict("records")]]
+                        matching = candidates.loc[[self._row_mhc_scope(row)[1] == scope
+                                                   for row in candidates.to_dict("records")]]
                         if matching.empty:
                             missing.append((peptide, n_flank, c_flank))
                             continue
@@ -1110,10 +1134,10 @@ class CachedPredictor:
                 # A legacy row can answer the same query without carrying
                 # the explicit metadata emitted by fresh inference. Retain
                 # that measurement too, rather than introducing a second answer.
-                existing = {(row["peptide"], row["kind"], row_scope(row))
+                existing = {(row["peptide"], row["kind"], self._row_mhc_scope(row)[1])
                             for peptide in batch
                             for row in contextual_rows(peptide, n_flank, c_flank).to_dict("records")}
-                novel = normalized.loc[[(row["peptide"], row["kind"], row_scope(row)) not in existing
+                novel = normalized.loc[[(row["peptide"], row["kind"], self._row_mhc_scope(row)[1]) not in existing
                                         for row in normalized.to_dict("records")]]
                 if not novel.empty:
                     self._df = novel.copy() if self._df.empty else pd.concat([self._df, novel], ignore_index=True)
@@ -1148,8 +1172,9 @@ class CachedPredictor:
         affected full protein once. Its complete output is validated before
         missing measurements are inserted. Original cache hits remain intact,
         and any failed scanner batch leaves this cache unchanged. The fallback's
-        configuration is never mutated. Scans retain the stored MHC scopes;
-        allele selection on exact-context queries remains separate.
+        configuration is never mutated. Assigning :attr:`alleles` selects the
+        same per-allele or haplotype scope as an exact-context query; assigning
+        ``None`` restores every stored/fallback scope.
 
         Peptide-only fallbacks retain peptide-miss support, but cannot resolve a
         different stored flank context. Cache-only scans preserve sparse stored
@@ -1186,13 +1211,22 @@ class CachedPredictor:
         if not support:
             raise ValueError("Protein fallback must declare at least one prediction kind")
         declared = self.kind_support()
-        scan_alleles = sorted({allele for allele in self._cache_alleles() if allele}
-                              | set(getattr(self.fallback, "alleles", ())))
+        fallback_alleles = getattr(self.fallback, "alleles", ())
+        scan_alleles = (list(self._requested_alleles)
+                        if self._requested_alleles is not None else
+                        sorted({allele for allele in self._cache_alleles() if allele}
+                               | set(fallback_alleles)))
         for kind, spec in support.items():
             if spec.get("mhc_dependence") not in {"none", "single_allele", "haplotype"}:
                 raise ValueError("Protein fallback must declare MHC dependence")
             if declared[kind]["mhc_dependence"] != spec["mhc_dependence"]:
                 raise ValueError("Fallback MHC dependence differs from the cached model")
+            if (self._requested_alleles is not None and spec["mhc_dependence"] == "haplotype"
+                    and prediction_mhc_scope(
+                        None, dependence="haplotype", allele_set=fallback_alleles)
+                    != prediction_mhc_scope(
+                        None, dependence="haplotype", allele_set=scan_alleles)):
+                raise ValueError("Fallback genotype differs from the requested genotype")
         expanded, unmatched, counts = self._scan_cached_occurrences(positions, name_to_sequence)
         covered = {_coverage_key(row, row["source_sequence_name"], row["offset"]) for row in expanded}
         expected = covered | set(unmatched)
@@ -1202,7 +1236,8 @@ class CachedPredictor:
                 for allele in scan_alleles if mode == "single_allele" else [""]:
                     template = dict(peptide=peptide, allele=allele, kind=kind,
                                     prediction_mhc_dependence=mode,
-                                    allele_set=getattr(self.fallback, "alleles", ()) if mode == "haplotype" else "")
+                                    allele_set=(scan_alleles if self._requested_alleles is not None
+                                                else fallback_alleles) if mode == "haplotype" else "")
                     for name, offset, _ in occurrences:
                         expected.add(_coverage_key(template, name, offset))
         missing = expected - covered
@@ -1253,8 +1288,7 @@ class CachedPredictor:
     def _scan_cached_occurrences(self, per_peptide_positions, name_to_sequence):
         """Read-only expansion and coverage bookkeeping for a protein query."""
         df = pd.DataFrame([row for peptide in sorted(per_peptide_positions)
-                           for allele in self._cache_alleles()
-                           for row in self._lookup_by_prefix(peptide, allele, len(peptide))],
+                           for row in self._selected_cache_rows(peptide, len(peptide))],
                           columns=self._df.columns)
         # Expand: one row per (peptide, allele) × (name, offset) matching
         # length.  Each output row describes the *requested* occurrence,
