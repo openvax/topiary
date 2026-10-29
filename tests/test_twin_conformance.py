@@ -66,6 +66,8 @@ from topiary import (
 )
 from topiary import from_cleavage_results
 from topiary.io_isovar import _check_isovar
+from topiary import SelfProteome, iter_fasta_records
+from topiary.inputs import read_fasta, read_peptide_fasta
 from topiary.sources import _check_pirlygenes
 import topiary.dependencies as dependencies
 from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_REPORTS, ROOT as PVACSEQ_ROOT
@@ -1951,4 +1953,11 @@ CLEAVAGE_RESULT_TWINS = (
     ("native", from_cleavage_results),
     ("serialized", lambda results: from_cleavage_results(
         result.to_dict() for result in results)),
+)
+
+FASTA_INPUT_TWINS = (
+    ("records", lambda path: list(iter_fasta_records(path))),
+    ("proteins", read_fasta),
+    ("peptides", read_peptide_fasta),
+    ("self_proteome", SelfProteome.from_fasta),
 )

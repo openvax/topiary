@@ -137,6 +137,14 @@ sliced = slice_regions(seqs, {
 })
 ```
 
+FASTA readers use the first header token as the identifier, join wrapped
+sequence lines and ignore blank lines. Empty identifiers and sequence data
+before the first header raise `ValueError` across all input paths.
+The mapping readers keep the last record for each repeated identifier;
+`topiary.iter_fasta_records(path)` yields every `(identifier, sequence)` pair
+in order. `SelfProteome.from_fasta` uses those records directly so repeated
+identifiers do not discard reference sequences. Empty files yield no records.
+
 ## Ensembl and tissue lookups
 
 ```python

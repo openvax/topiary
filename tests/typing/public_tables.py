@@ -5,6 +5,7 @@ regression that turns a validated boundary back into Any.
 """
 
 from pathlib import Path
+from collections.abc import Iterator
 from typing import assert_type
 
 import pandas as pd
@@ -12,7 +13,7 @@ import pandas as pd
 from topiary import (
     CachedPredictor, Metadata, TopiaryResult, combine_predictions,
     read_csv, read_tsv, read_isovar_hypotheses,
-    read_isovar_patient_background_pairs, stack_results, to_tsv,
+    read_isovar_patient_background_pairs, stack_results, to_tsv, iter_fasta_records,
 )
 
 
@@ -34,6 +35,7 @@ def table_workflow(path: Path) -> None:
     assert_type(result.combine_predictions((result, result.df)), TopiaryResult)
     assert_type(read_isovar_hypotheses(path), TopiaryResult)
     assert_type(read_isovar_patient_background_pairs({}), TopiaryResult)
+    assert_type(iter_fasta_records(path), Iterator[tuple[str, str]])
 
     cache = CachedPredictor.from_topiary_output(path)
     assert_type(cache, CachedPredictor)
