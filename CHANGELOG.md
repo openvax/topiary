@@ -7,6 +7,13 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.108.3
+
+- Declare Topiary's own `varcode<11` bound while candidate traversal is
+  coordinated with Isovar and Vaxrank (#559). An upstream dependency update
+  can no longer widen this compatibility boundary implicitly.
+- Check the bound in wheel and source metadata and document the migration.
+
 ## 5.108.2
 
 - Require Isovar 1.54.3 or newer so every supported installation includes its
