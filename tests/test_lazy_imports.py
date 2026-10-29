@@ -25,7 +25,7 @@ def test_import_topiary_does_not_import_varcode():
     )
 
 
-def test_import_topiary_does_not_import_optional_dependencies():
+def test_import_topiary_does_not_import_input_integrations():
     _run_import_check(
         """
         import sys

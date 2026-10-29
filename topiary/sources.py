@@ -32,7 +32,7 @@ import logging
 
 from pyensembl import EnsemblRelease, ensembl_grch38
 
-from .optional_dependencies import require_optional_dependency
+from .dependencies import require_dependency
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +376,7 @@ def _tissue_columns(pce, tissues):
 
 def _check_pirlygenes(*required_callables):
     """Load the PirlyGenes API used for CTA and tissue-expression data."""
-    return require_optional_dependency(
+    return require_dependency(
         "pirlygenes",
         feature="cancer-testis antigen and tissue-expression gene lists",
         required_callables=required_callables,
@@ -389,8 +389,8 @@ def _check_pirlygenes(*required_callables):
 # through oncoref rather than importing tsarina as well, since tsarina's CTA
 # API is oncoref's and defines no membership of its own (topiary#124).
 _CTA_SOURCES = {
-    "pirlygenes": ("pirlygenes.gene_sets_cancer", "CTA", "pirlygenes"),
-    "oncoref": ("oncoref.cta", "cta", "oncoref"),
+    "pirlygenes": ("pirlygenes.gene_sets_cancer", "CTA"),
+    "oncoref": ("oncoref.cta", "cta"),
 }
 _CTA_SOURCE_ALIASES = {"tsarina": "oncoref"}
 
@@ -441,7 +441,7 @@ def cta_gene_ids(source=None, tier="default", species="human"):
     ValueError
         The source, tier or species is unsupported.
     ImportError
-        The named source is not installed, with the extra to install.
+        The installed source is missing, broken or incompatible.
     """
     if species != "human":
         raise ValueError(
@@ -459,12 +459,11 @@ def cta_gene_ids(source=None, tier="default", species="human"):
             f"Unsupported CTA tier: {tier!r}. Use "
             f"{', '.join(map(repr, sorted(CTA_TIERS)))}."
         )
-    module_name, prefix, extra = _CTA_SOURCES[source]
+    module_name, prefix = _CTA_SOURCES[source]
     attribute = f"{prefix}_{CTA_TIERS[tier]}"
-    module = require_optional_dependency(
+    module = require_dependency(
         module_name,
         feature="cancer-testis antigen gene lists",
-        extra=extra,
         required_callables=(attribute,),
     )
     return set(getattr(module, attribute)())

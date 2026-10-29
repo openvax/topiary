@@ -55,6 +55,7 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
         }
         original_db = pyensembl.Genome.db.fget
         original_index = pyensembl.Genome.index
+        databases = {}
         # The continuity workflow actually builds a regional reference. Its
         # output is content-pinned too, though its path is a new tmp directory.
         # Pin uncompressed records: valid gzip headers/streams vary by platform.
@@ -80,7 +81,9 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
 
         def pinned_db(genome):
             require_pinned_reference(genome)
-            return original_db(genome)
+            database = original_db(genome)
+            databases[id(database)] = database
+            return database
 
         def pinned_index(genome, *args, **kwargs):
             require_pinned_reference(genome)
@@ -90,8 +93,18 @@ def test_collection_and_marker_selection_without_reference_data(tmp_path, select
         pyensembl.Genome.download = forbid_annotation
         pyensembl.Genome.index = pinned_index
 
+        class ClosePinnedDatabases:
+            def pytest_sessionfinish(self):
+                # These references belong to this test process. Keep them
+                # alive until they can be closed explicitly, before pytest's
+                # final cyclic GC reports unclosed SQLite handles on 3.14.
+                for database in databases.values():
+                    database.close()
+                databases.clear()
+
         import pytest
-        raise SystemExit(pytest.main(["tests", "-q", *sys.argv[1:]]))
+        raise SystemExit(pytest.main(
+            ["tests", "-q", *sys.argv[1:]], plugins=[ClosePinnedDatabases()]))
     """)
     env = dict(os.environ, PYENSEMBL_CACHE_DIR=str(cache))
     # The child selects tests explicitly; do not inherit xdist/coverage options

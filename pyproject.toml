@@ -35,12 +35,6 @@ namespaces = false
 [project.scripts]
 topiary = "topiary.cli.script:main"
 
-[project.optional-dependencies]
-weirdo = ["mhctools[weirdo]>=4.5.0"]
-isovar = ["isovar>=1.39.5,<2"]
-pirlygenes = ["pirlygenes>=5.1.0"]
-oncoref = ["oncoref>=1.8.150"]
-
 [tool.ruff.lint]
 select = ["E", "F"]
 ignore = ["F821", "E501", "F841", "E731", "E741", "E722", "E721"]
@@ -53,8 +47,8 @@ ignore = ["F821", "E501", "F841", "E731", "E741", "E722", "E721"]
 filterwarnings = ["error"]
 markers = [
     "weirdo: exercises the installed WEIRDO model integration",
-    "isovar: exercises the installed Isovar optional integration",
-    "pirlygenes: exercises the installed PirlyGenes optional integration",
+    "isovar: exercises RNA assembly with Isovar",
+    "pirlygenes: exercises CTA and expression sources with PirlyGenes",
     "osteosarc: exercises Osteosarc data acquisition and shared fixtures",
     "netmhc: requires the private NetMHC bundle executables",
 ]

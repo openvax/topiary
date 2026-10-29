@@ -5,9 +5,8 @@ around each mutation is assembled from RNA reads; leave it out and the same
 variants are translated from the reference. Both arms return
 `ProteinFragment`s with the same core.
 
-**Nothing here imports isovar.** The RNA arm is exercised through a fake, so
-these run in an environment that has never installed it — which is the claim
-the module makes and CI is such an environment.
+The RNA arm here uses a fake to isolate argument and evidence contracts.
+Real RNA assembly is exercised in test_consumer_workflows.py.
 """
 
 import pytest

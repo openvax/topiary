@@ -202,21 +202,19 @@ def support(fragment):
     return fragment.n_rna_alt          # None where the source has no RNA
 ```
 
-Isovar is optional in the strong sense: it is not a base requirement, and
-`import topiary` does not import it. Install it with
-`pip install 'topiary[isovar]'`; only `fragments_from_variants` with an
-`alignment_file` needs it.
+Isovar is installed with Topiary. `fragments_from_variants` imports it when
+given an `alignment_file`; other inputs retain lazy startup.
 
-The extra requires `isovar>=1.39.5,<2`. Topiary accepts Osteosarc 0.14 and 0.15;
+Topiary requires `isovar>=1.39.5,<2` and accepts Osteosarc 0.14 and 0.15;
 Isovar 1.45.0 requires Osteosarc >=0.15.4,<0.16. Historical shared bundles and
 their producer versions remain pinned independently of these runtime versions.
 The Isovar range is enforced at run time as well as at install time:
 an older release can import cleanly and still return wrong evidence (1.17.x
 miscounts reads at insertion boundaries), so Topiary refuses it with an
-upgrade instruction. Upgrade with `pip install --upgrade 'topiary[isovar]'`.
+upgrade instruction. Upgrade with `pip install --upgrade topiary`.
 
-Reading an existing versioned Isovar comparison export does not require the
-Isovar extra. `read_isovar_hypotheses` imports all protein hypotheses, while
+Reading an existing versioned Isovar comparison export does not run RNA
+assembly. `read_isovar_hypotheses` imports all protein hypotheses, while
 `read_isovar_patient_background_pairs` imports the corresponding bounded
 mutant/patient-background windows. Join the two on `event_id`, `hypothesis_id`
 and `translation_id`; `pair_id` and `transcript_id` preserve each distinct

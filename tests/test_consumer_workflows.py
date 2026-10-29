@@ -60,7 +60,6 @@ from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 @pytest.mark.weirdo
 def test_weirdo_model_mixed_ranking_and_cache_replay(tmp_path):
     """The released model must change an opted-in ranking and survive offline replay."""
-    pytest.importorskip("weirdo")
     from mhctools import Kind, Prediction, WEIRDO
     from topiary import from_predictions, read_tsv, to_tsv
     from .test_twin_conformance import FOREIGNNESS_EXPRESSION_TWINS, WHOLE_PEPTIDE_PREDICTION_DOORS
@@ -128,7 +127,6 @@ def test_weirdo_model_mixed_ranking_and_cache_replay(tmp_path):
 @pytest.mark.weirdo
 @pytest.mark.parametrize("identity_part", ["artifact", "policy", "host"])
 def test_weirdo_cache_refuses_cross_identity_fallback(identity_part):
-    pytest.importorskip("weirdo")
     from mhctools import WEIRDO
     from weirdo import get_model_manifest
 
@@ -151,7 +149,6 @@ def test_weirdo_cache_refuses_cross_identity_fallback(identity_part):
 @pytest.mark.weirdo
 @pytest.mark.parametrize("door", ["instance", "class", "name"])
 def test_weirdo_construction_and_empty_batch(door):
-    pytest.importorskip("weirdo")
     from mhctools import WEIRDO
     supplied = WEIRDO() if door == "instance" else WEIRDO if door == "class" else "weirdo"
     predictor = TopiaryPredictor(models=supplied)

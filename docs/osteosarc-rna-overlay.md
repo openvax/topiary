@@ -41,7 +41,7 @@ with independent reference checks before counting.
 
 ## Reproduce with local caching
 
-From this checkout, with `topiary[isovar]` and samtools available:
+From this checkout, with Topiary and samtools available:
 
 ```sh
 python -m scripts.osteosarc_rna_overlay acquire --root .cache/osteosarc-rna-overlay-2026-09-17

@@ -61,7 +61,7 @@ interpreter. From the Topiary checkout:
 ```bash
 python3 -m venv .venv
 export PYTHON="$PWD/.venv/bin/python"
-"$PYTHON" -m pip install -e '.[isovar,pirlygenes]' build twine ruff pytest pytest-cov pytest-xdist
+"$PYTHON" -m pip install -e . build twine ruff pytest pytest-cov pytest-xdist
 "$PYTHON" -m pip check
 "$PYTHON" -m pip inspect > .venv/environment.json
 ./lint.sh
@@ -101,10 +101,25 @@ Vaxrank 3.46.15 and PirlyGenes 6.0.18 both accept OncoRef 1.19.2, resolving
 the earlier joint-install conflict
 ([PirlyGenes #652](https://github.com/pirl-unc/pirlygenes/issues/652)).
 The separate consumer environment keeps this check independent of the release
-environment's optional integrations.
+environment's core integrations.
 
 Update that pin when adopting a new downstream release; do not leave temporary
 migration-branch pins after the corresponding release is published.
+
+CI also installs the normal wheel without extras and runs RNA assembly,
+reference/CTA inputs, WEIRDO ranking and typed cache replay outside the source
+checkout. Isovar, PirlyGenes, OncoRef and WEIRDO are core dependencies; their
+test markers select workflows, not optional installations. PirlyGenes 6.0.18
+pins OncoRef 1.19.2; newer owner-data adoption is tracked in
+[PirlyGenes #655](https://github.com/pirl-unc/pirlygenes/issues/655).
+
+The #520 sequence-utility audit found that Topiary's FASTA readers preserve
+different record shapes (a named sequence mapping versus all provenance
+records), while self matching and peptide properties have explicit I/L,
+unknown-residue and mass conventions. Dependency consolidation does not
+change those contracts or add an unused Biotite/scikit-bio backend.
+The readers' inconsistent malformed-input handling is tracked in
+[Topiary #549](https://github.com/openvax/topiary/issues/549).
 
 ## Version scheme
 
