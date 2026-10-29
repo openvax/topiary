@@ -683,9 +683,9 @@ from topiary import (
 # model is an explicitly configured mhctools predictor with patient alleles.
 occurrences = pd.DataFrame([
     dict(prediction_id="gene-a:12", peptide="SIINFEKL", peptide_offset=12,
-         n_flank="AAA", c_flank="GGG", gene="gene-a"),
+         source_sequence="M" * 12 + "SIINFEKL" + "GGG", gene="gene-a"),
     dict(prediction_id="gene-b:20", peptide="SIINFEKL", peptide_offset=20,
-         n_flank="TTT", c_flank="CCC", gene="gene-b"),
+         source_sequence="T" * 20 + "SIINFEKL" + "CCC", gene="gene-b"),
 ])
 predictor = TopiaryPredictor(models=model)
 predictions = predictor.predict_from_peptide_occurrences(occurrences)
@@ -733,17 +733,29 @@ occurrence. Source annotations and read support are copied, never summed.
 the configured `allele_set`. An explicitly supplied haplotype set must match the
 configured model. Missing kind/allele coverage and ambiguous outputs raise.
 
-Flank-dependent models require both `n_flank` and `c_flank`. An empty string is a
-known terminus; a missing value is unknown. `use_flanks=False` explicitly requests
-peptide-only inference while preserving the original context. The output's
+Flank-dependent models require exact occurrence context. Supply `n_flank` and
+`c_flank` directly, or supply a nonempty `source_sequence` and
+`peptide_offset`; `peptide_occurrence_flanks` is the public scalar form of the
+same exact, case-sensitive geometry rule. Source-window inference derives only
+missing flanks. The offset is local to that supplied sequence, not an absolute
+protein coordinate. An explicit shorter N-terminal suffix or C-terminal prefix is
+preserved, while a contradictory flank raises before prediction. In particular,
+an empty string is a known terminus and cannot agree with a source window that
+has residues on that side. A missing value is unknown. A source sequence without
+an offset establishes no location and therefore cannot fill missing context.
+
+`use_flanks=False` explicitly requests peptide-only inference while preserving
+and validating the original occurrence context. The output's
 `prediction_flanks_supplied` records whether flanks were supplied in the model call; it does not imply that every returned prediction kind depends on them.
 Missing source offsets remain missing. Model peptide-length/domain checks still
 apply; no padding, comparator sequence, or additional peptide window is inferred.
 
 With `TopiaryPredictor(predict_wt=True)` (or `predict_wt=True` on the standalone
 function), supplied `wt_peptide` values are scored using their own
-`wt_n_flank` / `wt_c_flank`. Flank-dependent comparator prediction requires those
-flanks or explicit `use_flanks=False`; primary-peptide context is not borrowed.
+`wt_n_flank` / `wt_c_flank`, or context derived from their own
+`wt_source_sequence` / `wt_peptide_offset`. Flank-dependent comparator
+prediction requires one complete form or explicit `use_flanks=False`;
+primary-peptide context is never borrowed.
 Absent comparators keep missing scores. Explicit filter/sort settings operate on
 occurrences; `only_novel_epitopes` does not reinterpret this already selected
 peptide universe. Cache failures are strict by default; an explicit
@@ -755,6 +767,9 @@ columns. Keep imported measurements in their original table and use the additive
 operation below. Context-aware live prediction requires mhctools' flank-aware API;
 sparse historical tables with unknown model versions are supported through
 `HistoricalPredictor` ([#368](https://github.com/openvax/topiary/issues/368)).
+Deriving occurrence flanks says what context a new request has; it does not claim
+that an older score used that context. Never replace historical `n_flank`,
+`c_flank` or `prediction_flanks_supplied` metadata with source-derived values.
 
 ## Reuse reported historical predictions
 
@@ -848,7 +863,10 @@ Configured mhctools models supply `predict_dataframe` and `kind_support()`.
 This path reuses `predict_peptide_occurrences` to batch compatible requests and
 preserve source identity; it appends primary-peptide features and leaves all
 historical comparator measurements intact.
-Supplied flanks are forwarded by default; flank-dependent models require both
+When an exact `source_sequence` and `peptide_offset` are present, the new
+request derives current flanks from that source and leaves the imported row's
+historical `n_flank` / `c_flank` cells unchanged. Without an exact source,
+supplied flanks are forwarded by default; flank-dependent models require both
 flanks or explicit `use_flanks=False`. Haplotype models require a matching
 stated `allele_set`. Existing candidate identities are preserved; ORF-only rows
 remain unscored. Scanning new windows or adding HLA candidates is a separate

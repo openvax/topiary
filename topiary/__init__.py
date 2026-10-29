@@ -108,6 +108,7 @@ from .properties import (
 )
 from .sequence_helpers import (
     check_padding_around_mutation,
+    peptide_occurrence_flanks,
     peptide_mutation_interval,
     contains_mutant_residues,
     protein_subsequences_around_mutations,
@@ -225,10 +226,11 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.105.0"
+__version__ = "5.106.0"
 
 __all__ = [
     "PROTEIN_SCAN_METADATA_COLUMNS",
+    "peptide_occurrence_flanks",
     "prediction_flank_limits",
     "annotate_protein_prediction_context",
     "prediction_matches_protein_context",

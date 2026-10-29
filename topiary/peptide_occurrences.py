@@ -7,6 +7,7 @@ import mhcgnomes
 from .predictor import from_predictions
 from .prediction_batch import predict_with_cache_miss_report
 from .ranking import format_allele_set, split_allele_set, prediction_mhc_scope
+from .sequence_helpers import peptide_occurrence_flanks
 from .wide import PREDICTION_COLUMNS, _concat_frames
 
 
@@ -21,9 +22,12 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
         ``candidate_sample``. This compound identity must be unique; an ID may
         name several peptide windows in one source.
         Optional ``peptide_offset`` is a nonnegative source coordinate; absent
-        coordinates remain unknown. ``n_flank`` and ``c_flank`` are strings or
-        missing: an empty string states a known terminus. Other non-prediction
-        columns (source IDs, genes, RNA evidence, etc.) survive unchanged.
+        coordinates remain unknown. A nonempty ``source_sequence`` plus an
+        offset must contain the exact peptide and derives either missing flank.
+        Explicit ``n_flank`` and ``c_flank`` strings remain unchanged but must
+        agree with that source window; an empty string states a known terminus.
+        Other non-prediction columns (source IDs, genes, RNA evidence, etc.)
+        survive unchanged.
         Prediction columns and allele-specific ``candidate_id`` /
         ``candidate_allele`` / ``candidate_mhc_class`` are refused: keep historical measurements in their
         original table and use :func:`rescore_candidates` for additive features.
@@ -38,10 +42,11 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
         ``uses_flanking_sequences`` require both flanks unless False explicitly
         requests peptide-only inference. Original context is retained either way.
     predict_wt : bool
-        Also score supplied ``wt_peptide`` comparators, using only explicitly
-        supplied ``wt_n_flank`` / ``wt_c_flank`` context. Missing comparators keep
-        missing scores. No baseline, coordinate correspondence or flank is
-        inferred from the primary peptide.
+        Also score supplied ``wt_peptide`` comparators. Their missing flanks can
+        be derived from their own ``wt_source_sequence`` and
+        ``wt_peptide_offset``; otherwise supply ``wt_n_flank`` / ``wt_c_flank``.
+        Missing comparators keep missing scores. No baseline, coordinate
+        correspondence or context is inferred from the primary peptide.
     on_miss : callable, optional
         Explicitly report and skip cache coverage failures, using
         :func:`predict_with_cache_miss_report`. The report's source name is the
@@ -90,19 +95,7 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
                       for allele in (getattr(model, "alleles", ()) or ())})
     if any(spec["mhc_dependence"] != "none" for spec in support.values()) and not alleles:
         raise ValueError("Allele-dependent models require configured alleles")
-    for column in ("n_flank", "c_flank"):
-        if column not in frame:
-            frame[column] = None
-        if not frame[column].map(lambda value: isinstance(value, str) or
-                                 (pd.api.types.is_scalar(value) and pd.isna(value))).all():
-            raise ValueError(f"{column} must contain strings or missing values")
-    if "peptide_offset" not in frame:
-        frame["peptide_offset"] = pd.array([None] * len(frame), dtype="Int64")
-    offsets = frame.peptide_offset.dropna()
-    if not offsets.map(lambda value: not isinstance(value, (bool, np.bool_))
-                       and isinstance(value, (int, float, np.integer, np.floating))
-                       and np.isfinite(value) and value >= 0 and value == int(value)).all():
-        raise ValueError("peptide_offset must be a nonnegative integer or missing")
+    frame = _prepare_occurrence_context(frame)
     identity_columns = ["prediction_id", "peptide", "peptide_offset"] + [
         column for column in ("sample_name", "candidate_sample") if column in frame]
     if frame.duplicated(identity_columns).any():
@@ -120,10 +113,17 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
         comparators = frame.loc[frame.wt_peptide.notna()]
         if not comparators.wt_peptide.map(lambda value: isinstance(value, str) and bool(value.strip())).all():
             raise ValueError("wt_peptide must be a nonempty string or missing")
+        prepared = _prepare_occurrence_context(comparators, prefix="wt_")
+        for column in prepared:
+            if column not in frame:
+                frame[column] = None
+            frame.loc[prepared.index, column] = prepared[column]
+        comparators = frame.loc[comparators.index]
         if use_flanks and (flank_model or contextual_predict is not None) and not comparators.empty:
             if any(column not in comparators or not comparators[column].map(lambda value: isinstance(value, str)).all()
                    for column in ("wt_n_flank", "wt_c_flank")):
-                raise ValueError("Flank-dependent comparator prediction requires both flanks for the comparator")
+                raise ValueError(
+                    "Flank-dependent comparator prediction requires both flanks or its own source sequence and offset")
     genotypes = frame.get("allele_set", pd.Series(None, index=frame.index, dtype=object)).map(
         lambda value: "" if pd.isna(value) else format_allele_set(
             mhcgnomes.parse(name).to_string() for name in split_allele_set(value)))
@@ -242,6 +242,10 @@ def _attach_comparators(output, occurrences, positions, model, use_flanks):
     comparators = comparators.drop(columns=["peptide_length"], errors="ignore")
     for column in ("n_flank", "c_flank", "peptide_offset"):
         comparators[column] = comparators.get("wt_" + column)
+    if "wt_source_sequence" in comparators:
+        comparators["source_sequence"] = comparators.wt_source_sequence
+    else:
+        comparators = comparators.drop(columns="source_sequence", errors="ignore")
     comparators = comparators.drop(columns=[column for column in comparators if column.startswith("wt_")])
     scores = predict_peptide_occurrences(comparators, model, use_flanks=use_flanks)
     # A haplotype's deconvolved presenter may change for the comparator. Its
@@ -255,3 +259,50 @@ def _attach_comparators(output, occurrences, positions, model, use_flanks):
     for field in fields:
         output["wt_" + field] = [getattr(row, field, np.nan) for row in matches]
     return output
+
+
+def _prepare_occurrence_context(frame, prefix=""):
+    """Validate and complete one occurrence-context column family."""
+    frame = frame.copy()
+    peptide_column = prefix + "peptide"
+    offset_column = prefix + "peptide_offset"
+    source_column = prefix + "source_sequence"
+    flank_columns = (prefix + "n_flank", prefix + "c_flank")
+    for column in flank_columns:
+        if column not in frame:
+            frame[column] = None
+        if not frame[column].map(lambda value: isinstance(value, str) or
+                                 (pd.api.types.is_scalar(value) and pd.isna(value))).all():
+            raise ValueError(f"{column} must contain strings or missing values")
+    if offset_column not in frame:
+        frame[offset_column] = pd.array([None] * len(frame), dtype="Int64")
+    offsets = frame[offset_column].dropna()
+    if not offsets.map(lambda value: not isinstance(value, (bool, np.bool_))
+                       and isinstance(value, (int, float, np.integer, np.floating))
+                       and np.isfinite(value) and value >= 0 and value == int(value)).all():
+        raise ValueError(f"{offset_column} must be a nonnegative integer or missing")
+    if source_column not in frame:
+        return frame
+    if not frame[source_column].map(lambda value: isinstance(value, str) or
+                                    (pd.api.types.is_scalar(value) and pd.isna(value))).all():
+        raise ValueError(f"{source_column} must contain strings or missing values")
+    for index, row in frame.iterrows():
+        source = row[source_column]
+        offset = row[offset_column]
+        if not isinstance(source, str) or not source or pd.isna(offset):
+            continue
+        try:
+            derived = peptide_occurrence_flanks(source, row[peptide_column], int(offset))
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"{prefix or 'primary '}peptide does not match its source sequence and offset") from error
+        for side, column, actual in zip(("N", "C"), flank_columns, derived):
+            stated = row[column]
+            if pd.isna(stated):
+                frame.at[index, column] = actual
+                continue
+            agrees = actual == "" if stated == "" else (
+                actual.endswith(stated) if side == "N" else actual.startswith(stated))
+            if not agrees:
+                raise ValueError(f"{column} disagrees with {source_column} at {offset_column}")
+    return frame

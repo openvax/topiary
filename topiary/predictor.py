@@ -1004,8 +1004,9 @@ class TopiaryPredictor(object):
         ----------
         occurrences : pandas.DataFrame or iterable of mappings
             Explicit ``prediction_id``, peptide and optional source coordinates,
-            flanks and non-prediction annotations. Identity is unique by ID,
-            peptide, offset and supplied sample keys. See
+            source sequence, flanks and non-prediction annotations. An exact
+            source sequence and offset derive missing flanks. Identity is
+            unique by ID, peptide, offset and supplied sample keys. See
             :func:`predict_peptide_occurrences` for validation and scope rules.
         use_flanks : bool
             Use supplied flanks. False explicitly requests peptide-only scores,

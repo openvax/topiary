@@ -4095,6 +4095,55 @@ def test_contextual_file_cache_and_fallback_preserve_selection(tmp_path, suffix)
     assert evaluate(changed_output).selected.prediction_id.tolist() == ["other-peptide"]
 
 
+def test_source_windows_survive_fresh_native_additive_context_replay(tmp_path):
+    from topiary import (
+        CachedPredictor, combine_sources, predict_peptide_occurrences,
+        read_tsv, rescore_candidates,
+    )
+    from .test_candidate_tables import Model, source
+
+    class ContextModel(Model):
+        def predict_dataframe(self, peptides, **kwargs):
+            result = super().predict_dataframe(peptides, **kwargs)
+            result["value"] = {"AA": 101., "CC": 202.}[kwargs["n_flanks"][0]]
+            return result
+
+    windows = pd.DataFrame([
+        dict(prediction_id="aa", peptide="SIINFEKL",
+             source_sequence="AASIINFEKLKK", peptide_offset=2),
+        dict(prediction_id="cc", peptide="SIINFEKL",
+             source_sequence="CCSIINFEKLKK", peptide_offset=2),
+    ])
+    fresh = predict_peptide_occurrences(windows, ContextModel())
+    assert fresh.value.tolist() == [101., 202.]
+    cache_path = tmp_path / "fresh-contexts.parquet"
+    CachedPredictor.from_dataframe(fresh).save(cache_path)
+
+    # Native historical rows can carry default empty flank fields. Their own
+    # measurements stay historical; additive inference uses the actual source
+    # occurrence rather than relabelling those blanks as known termini.
+    native = source(
+        peptides=("SIINFEKL", "SIINFEKL"), values=(11., 22.),
+        source_sequence_name=["aa", "cc"],
+        source_sequence=windows.source_sequence,
+        peptide_offset=2, n_flank="", c_flank="",
+    )
+    combined = combine_sources({"native": native}, sample_name="patient")
+    before = combined.df.copy(deep=True)
+    enriched = rescore_candidates(
+        combined, CachedPredictor.from_topiary_output(cache_path), prefix="current")
+    pd.testing.assert_frame_equal(enriched.df[before.columns], before)
+    feature = "current__testmodel__pMHC_affinity__value"
+    assert enriched.df[feature].tolist() == [101., 202.]
+    assert enriched.df[["n_flank", "c_flank"]].eq("").all().all()
+
+    native_path = tmp_path / "native-additive.tsv"
+    enriched.to_tsv(native_path)
+    restored = read_tsv(native_path)
+    assert restored.df[feature].tolist() == [101., 202.]
+    assert restored.df[["n_flank", "c_flank"]].eq("").all().all()
+
+
 @pytest.mark.parametrize('format_name,filename', [
     ('pvacseq', 'pvacseq/mhc_i_aggregated.tsv'),
     ('pvacseq', 'pvacseq/mhc_i_all_epitopes.tsv'),

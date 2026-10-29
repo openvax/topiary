@@ -113,6 +113,54 @@ def test_unknown_and_empty_flanks_are_distinct_and_positions_not_invented(tmp_pa
         predict_peptide_occurrences(inputs, Model())
 
 
+@pytest.mark.parametrize("predict", PEPTIDE_OCCURRENCE_TWINS)
+def test_source_windows_derive_distinct_occurrence_contexts(predict):
+    inputs = pd.DataFrame([
+        dict(prediction_id="aa", peptide="SIINFEKL", source_sequence="AASIINFEKLKK", peptide_offset=2),
+        dict(prediction_id="cc", peptide="SIINFEKL", source_sequence="CCSIINFEKLKK", peptide_offset=2),
+    ])
+    model = Model()
+    result = predict(inputs, model)
+    assert result[["n_flank", "c_flank"]].to_dict("records") == [
+        {"n_flank": "AA", "c_flank": "KK"},
+        {"n_flank": "CC", "c_flank": "KK"},
+    ]
+    assert [kwargs for _, kwargs in model.calls] == [
+        {"n_flanks": ["AA"], "c_flanks": ["KK"]},
+        {"n_flanks": ["CC"], "c_flanks": ["KK"]},
+    ]
+    assert result.source_sequence.tolist() == inputs.source_sequence.tolist()
+
+
+@pytest.mark.parametrize("predict", PEPTIDE_OCCURRENCE_TWINS)
+def test_explicit_shorter_source_context_is_preserved_and_validated(predict):
+    inputs = pd.DataFrame([dict(
+        prediction_id="p", peptide="SIINFEKL", source_sequence="XXAASIINFEKLKKYY",
+        peptide_offset=4, n_flank="AA", c_flank="KK")])
+    result = predict(inputs, Model())
+    assert result[["n_flank", "c_flank"]].iloc[0].tolist() == ["AA", "KK"]
+    for column, value in (("n_flank", ""), ("n_flank", "XA"),
+                          ("c_flank", ""), ("c_flank", "KY")):
+        model = Model()
+        with pytest.raises(ValueError, match=f"{column} disagrees"):
+            predict(inputs.assign(**{column: value}), model)
+        assert not model.calls
+
+
+@pytest.mark.parametrize("change,match", [
+    ({"source_sequence": "AAGILGFVFTLKK"}, "does not match"),
+    ({"source_sequence": 42}, "source_sequence must contain"),
+])
+@pytest.mark.parametrize("predict", PEPTIDE_OCCURRENCE_TWINS)
+def test_invalid_source_window_fails_before_inference(change, match, predict):
+    inputs = pd.DataFrame([dict(
+        prediction_id="p", peptide="SIINFEKL", peptide_offset=2, **change)])
+    model = Model()
+    with pytest.raises(ValueError, match=match):
+        predict(inputs, model)
+    assert not model.calls
+
+
 def test_model_scope_and_coverage_are_explicit():
     inputs = occurrences()
     kinds = ("pMHC_affinity", "antigen_processing")
@@ -162,6 +210,28 @@ def test_explicit_comparators_use_only_their_own_context():
     with pytest.raises(ValueError, match="both flanks"):
         predict_peptide_occurrences(inputs.drop(columns="wt_n_flank"), Model(), predict_wt=True)
     assert predict_peptide_occurrences(inputs.drop(columns="wt_n_flank"), Model(), predict_wt=True, use_flanks=False).wt_value.iloc[0] == 10.
+
+
+def test_comparator_derives_only_its_own_source_context():
+    inputs = pd.DataFrame([dict(
+        prediction_id="p", peptide="SIINFEKL", source_sequence="AASIINFEKLKK", peptide_offset=2,
+        wt_peptide="GILGFVFTL", wt_source_sequence="TTTGILGFVFTLGG", wt_peptide_offset=3,
+    )])
+    for predict in (
+            lambda rows, model: predict_peptide_occurrences(rows, model, predict_wt=True),
+            lambda rows, model: TopiaryPredictor(models=model, predict_wt=True).predict_from_peptide_occurrences(rows)):
+        model = Model()
+        result = predict(inputs, model)
+        assert result[["n_flank", "c_flank"]].iloc[0].tolist() == ["AA", "KK"]
+        assert result.wt_value.iloc[0] == 13.
+        assert [kwargs for _, kwargs in model.calls] == [
+            {"n_flanks": ["AA"], "c_flanks": ["KK"]},
+            {"n_flanks": ["TTT"], "c_flanks": ["GG"]},
+        ]
+    model = Model()
+    with pytest.raises(ValueError, match="wt_n_flank disagrees"):
+        predict_peptide_occurrences(inputs.assign(wt_n_flank=""), model, predict_wt=True)
+    assert not model.calls
 
 
 def test_additive_rescoring_and_occurrence_predictions_agree():

@@ -395,8 +395,10 @@ from topiary import CachedPredictor, predict_peptide_occurrences
 cache = CachedPredictor.from_topiary_output("predictions.tsv", fallback=live)
 cache.alleles = ["HLA-A*02:01", "HLA-B*07:02"]
 predictions = predict_peptide_occurrences([
-    dict(prediction_id="first", peptide="SIINFEKL", n_flank="AAA", c_flank="GG"),
-    dict(prediction_id="second", peptide="SIINFEKL", n_flank="T", c_flank="GG"),
+    dict(prediction_id="first", peptide="SIINFEKL",
+         source_sequence="AASIINFEKLKK", peptide_offset=2),
+    dict(prediction_id="second", peptide="SIINFEKL",
+         source_sequence="CCSIINFEKLKK", peptide_offset=2),
 ], cache)
 cache.save("filled.parquet")
 ```
@@ -413,6 +415,11 @@ independently of the reported best presenter. Assign `cache.alleles` to select
 one genotype; its default is the union of stored and fallback alleles. A
 haplotype fallback must be configured for that same genotype. Primary and
 explicit wild-type comparator occurrences use their own flanks.
+
+Missing request flanks can be derived from that request's nonempty
+`source_sequence` and exact `peptide_offset`. This affects the new cache query,
+not stored prediction metadata: historical flank values and
+`prediction_flanks_supplied` are never reconstructed from a source annotation.
 
 Two strings specify known inference inputs; `""` means an explicitly empty input.
 Missing legacy context cannot satisfy a known-context request. A blank legacy
