@@ -107,13 +107,25 @@ def test_selected_lengths_do_not_change_fallback_configuration(selected):
     assert model.default_peptide_lengths == [8, 9]
 
 
-def test_scan_retains_stored_scopes_without_mutating_model():
+def test_scan_honors_selected_alleles_without_mutating_model():
     cache, model = filled_cache(ProteinModel(alleles=(A, B)))
     original_alleles = list(model.alleles)
     cache.alleles = [B]
     result = cache.predict_proteins_dataframe({"p": "WW" + PEPTIDE + "CC"})
-    assert set(result.allele) == {A, B}
+    assert set(result.allele) == {B}
     assert model.alleles == original_alleles
+    cache.alleles = None
+    restored = cache.predict_proteins_dataframe({"p": "WW" + PEPTIDE + "CC"})
+    assert set(restored.allele) == {A, B}
+    assert model.alleles == original_alleles
+
+
+def test_selected_haplotype_must_match_fallback_genotype():
+    cache, _ = filled_cache(ProteinModel(
+        alleles=(A, B), modes={"pMHC_presentation": "haplotype"}))
+    cache.alleles = [A]
+    with pytest.raises(ValueError, match="Fallback genotype differs"):
+        cache.predict_proteins_dataframe({"p": "WW" + PEPTIDE + "CC"})
 
 
 def test_haplotype_presenter_does_not_change_measurement_identity():

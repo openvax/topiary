@@ -1838,6 +1838,35 @@ CONTEXTUAL_FALLBACK_TWINS = (
     lambda cache, peptide: cache.predict_proteins_dataframe({"p": "MA" + peptide + "GG"}),
 )
 
+# Selecting a patient genotype means the same thing for exact occurrences and
+# protein scans. A reusable cache must not leak another patient's alleles
+# through one door while the other correctly filters them (topiary#547).
+CACHE_SELECTED_ALLELE_TWINS = (
+    lambda cache, peptide: cache.predict_contextual_peptides_dataframe(
+        [peptide], n_flanks=[""], c_flanks=[""]),
+    lambda cache, peptide: cache.predict_proteins_dataframe({"p": peptide}),
+)
+
+
+def test_contextual_cache_doors_share_selected_alleles_and_restore_union():
+    peptide = "SIINFEKLA"
+    rows = pd.DataFrame([dict(
+        peptide=peptide, peptide_length=len(peptide), allele=allele,
+        kind="pMHC_affinity", value=value, score=1 / value,
+        affinity=value, percentile_rank=1., prediction_method_name="test",
+        predictor_version="1", n_flank="", c_flank="",
+        prediction_flanks_supplied=True,
+        prediction_n_flank_limit=2, prediction_c_flank_limit=2,
+        prediction_mhc_dependence="single_allele",
+    ) for allele, value in (("HLA-A*02:01", 20.), ("HLA-A*03:01", 30.))])
+    for door in CACHE_SELECTED_ALLELE_TWINS:
+        cache = CachedPredictor(rows)
+        cache.alleles = ["HLA-A*02:01"]
+        assert door(cache, peptide).allele.tolist() == ["HLA-A*02:01"]
+        cache.alleles = None
+        assert set(door(cache, peptide).allele) == {
+            "HLA-A*02:01", "HLA-A*03:01"}
+
 def _prediction_frame_through_scan(frame):
     model = RandomBindingPredictor(alleles=["HLA-A*02:01"], default_peptide_lengths=[9])
     model.predict_proteins_dataframe = lambda sequences: frame

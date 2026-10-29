@@ -470,7 +470,10 @@ Protein scans resolve missing occurrence contexts through the fallback's
 `predict_proteins_dataframe` when it is available. Topiary sends each affected
 original protein once, keeping its name, full sequence and coordinates. It does
 not first run a peptide-only prediction. The cache's selected window lengths
-apply, without modifying the fallback's lengths or alleles.
+apply, without modifying the fallback's lengths or alleles. Assigning
+`cache.alleles` selects one patient genotype from a reusable cache for protein
+scans as well as exact-context queries; `cache.alleles = None` restores the
+union of stored and fallback scopes.
 
 The scanner must declare `kind_support()` and its configured alleles. Every
 requested window in the affected proteins must have all its declared kinds and
@@ -482,8 +485,9 @@ an empty cache's identity, unchanged. A different haplotype presenter can match
 the same genotype; a different genotype cannot fill its gap.
 
 Repeated queries and saved/reloaded caches reuse the new inference contexts
-offline. As before, protein scans retain stored MHC scopes; assigning
-`cache.alleles` selects exact-context queries, not the protein-scan inventory.
+offline. With no explicit selection, protein scans retain every stored MHC
+scope. With a selected genotype, per-allele rows outside it and haplotype rows
+for another genotype remain stored but do not participate in lookup or coverage.
 A cache-only scan may retain sparse kinds/genotypes, but a mismatched stored
 context cannot disappear behind another kind's hit. A fallback with only a
 peptide API can fill ordinary peptide misses; it cannot repair stored inference
