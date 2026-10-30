@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from .sid_data import sid_data_root, sid_read
+from .osteosarc_all_helpers import expected_current_rna_outcome
 
 import pandas as pd
 import pytest
@@ -18,6 +19,17 @@ from scripts.osteosarc_variant_audit import (
 
 
 ROOT = sid_data_root("osteosarc_all_variants")
+
+# Varcode 11 reports the producer-preferred concrete comparison in these fields;
+# alternatives remain on the native effect. All RNA counts, sequences, filters
+# and statuses below stay pinned to the historical observations.
+VARCODE11_COMPARISONS = {
+    "BAZ1B-chr7-73498699": ("FrameShift", "p.V124fs", 123, 137),
+    "BTBD11-chr12-107642169": ("PrematureStop", "p.Q974*", 973, 973),
+    "PCDH19-chrX-100341898": ("Intronic", "intronic", None, None),
+    "PPP6R3-chr11-68601969": ("Substitution", "p.A767S", 766, 767),
+    "SULT6B1-chr2-37171433": ("FrameShift", "p.N209fs", 208, 233),
+}
 
 
 def records():
@@ -39,7 +51,7 @@ def pinned_rna_outcome(variant_id, varcode_version):
     """Keep historical biology, choosing the documented annotation vocabulary."""
     from packaging.version import Version
 
-    expected = dict(pinned_outcomes()[variant_id]["rna"])
+    expected = expected_current_rna_outcome(pinned_outcomes()[variant_id]["rna"])
     expected["transcript_ids"] = sorted(expected["transcript_ids"])
     if Version(varcode_version) >= Version("10.21.2"):
         for change in deletion_label_replay()["changes"]:
@@ -47,6 +59,11 @@ def pinned_rna_outcome(variant_id, varcode_version):
                 assert expected["predicted_effect"] == change["before"]
                 field = "after" if Version(varcode_version) >= Version("10.21.3") else "range"
                 expected["predicted_effect"] = change[field]
+    if Version(varcode_version) >= Version("11") and variant_id in VARCODE11_COMPARISONS:
+        kind, description, start, end = VARCODE11_COMPARISONS[variant_id]
+        expected.update(predicted_effect_class=kind, predicted_effect=description,
+                        predicted_effect_aa_mutation_start_offset=start,
+                        predicted_effect_aa_mutation_end_offset=end)
     return expected
 
 
@@ -58,7 +75,7 @@ def test_pinned_deletion_vocabularies_preserve_every_other_field(varcode_version
     for change in deletion_label_replay()["changes"]:
         expected = pinned_rna_outcome(change["variant_id"], varcode_version)
         assert expected["predicted_effect"] == change[field]
-        historical = dict(pinned_outcomes()[change["variant_id"]]["rna"])
+        historical = expected_current_rna_outcome(pinned_outcomes()[change["variant_id"]]["rna"])
         historical["transcript_ids"] = sorted(historical["transcript_ids"])
         assert {k: v for k, v in expected.items() if k != "predicted_effect"} == {
             k: v for k, v in historical.items() if k != "predicted_effect"}
@@ -191,6 +208,11 @@ def test_every_literal_allele_has_a_checked_rna_and_consumer_outcome(entry, all_
         f"Differs from the outcome pinned with Isovar {run['isovar_version']} (installed "
         f"{isovar.__version__}, Varcode {version('varcode')}). If the installed release changed this evidence, re-run the "
         "audit and re-pin; otherwise Topiary regressed.")
+    if entry["variant_id"] in VARCODE11_COMPARISONS:
+        from varcode import get_effect_candidates
+        candidates = get_effect_candidates(result.predicted_effect)
+        assert len(candidates) > 1
+        assert any(type(candidate.effect).__name__ == "Unresolved" for candidate in candidates)
     validate_rna_protein(result, models)
     # Both doors receive the SAME policy, including the normal result filters.
     with pysam.AlignmentFile(bam_path) as bam:

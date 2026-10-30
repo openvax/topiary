@@ -145,6 +145,7 @@ from .io_isovar import (
     fragments_from_variants,
 )
 from .io_osteosarc import osteosarc_fixture_paths
+from .varcode_evidence import varcode_candidate_provenance
 from .protein_fragment import (
     APPROXIMATED,
     MEASURED,
@@ -228,7 +229,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.108.4"
+__version__ = "5.109.0"
 
 __all__ = [
     "PROTEIN_SCAN_METADATA_COLUMNS",
@@ -299,6 +300,7 @@ __all__ = [
     "from_cleavage_results",
     "iter_fasta_records",
     "fragment_from_effect",
+    "varcode_candidate_provenance",
     "CachedPredictor",
     "CachedPredictorCoverageError",
     "HistoricalPredictor",

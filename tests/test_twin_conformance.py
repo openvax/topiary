@@ -48,7 +48,7 @@ from topiary.rna.expression_loader import load_expression, load_expression_from_
 from topiary import (
     prediction_flanks_match, prediction_matches_protein_context,
     APPROXIMATED, MEASURED, CachedPredictor, HistoricalPredictor, ProteinFragment, TopiaryPredictor, from_predictions, fragments_from_variants,
-    read_fragments, read_pvacseq, write_fragments, unique_fragments,
+    read_fragments, read_pvacseq, write_fragments, unique_fragments, fragments_from_effects,
     read_exacto, read_exacto_fragments,
     describe_isovar_result, fragment_from_isovar_result, TopiaryResult,
     to_tsv, to_csv, read_tsv, read_csv,
@@ -323,6 +323,17 @@ MUTATION_PREDICTION_TWINS = (
     ),
 )
 
+# Reference translation and the mutation predictor must select the same
+# concrete Varcode comparison, including candidate-bearing ordinary effects.
+# Driven by the real Varcode 11 regressions in test_consumer_workflows.py.
+VARCODE_FRAGMENT_TWINS = (
+    lambda predictor, effects, expression: predictor.predict_from_mutation_effects(
+        effects, transcript_expression_dict=expression),
+    lambda predictor, effects, expression: predictor.predict_from_fragments(
+        fragments_from_effects(effects, predictor.padding_around_mutation,
+                               transcript_expression=expression)),
+)
+
 
 def test_variant_and_effect_prediction_doors_agree_on_shared_mutation():
     from pyensembl import ensembl_grch37
@@ -355,14 +366,19 @@ def test_variant_and_effect_prediction_doors_agree_on_shared_mutation():
 
     legitimate_differences = {
         "fragment_id", "source_sequence_name", "variant", "mutation_input",
+        "varcode_candidate_selection",
     }
+    # A named protein edit has no genomic annotation/hypotheses to preserve.
+    assert frames[0].varcode_candidate_selection.map(bool).all()
+    assert "varcode_candidate_selection" not in frames[1]
     assert {
-        column for column in frames[0]
-        if not frames[0][column].equals(frames[1][column])
+        column for column in set(frames[0]) | set(frames[1])
+        if column not in frames[0] or column not in frames[1]
+        or not frames[0][column].equals(frames[1][column])
     } == legitimate_differences
     pd.testing.assert_frame_equal(
-        frames[0].drop(columns=legitimate_differences),
-        frames[1].drop(columns=legitimate_differences),
+        frames[0].drop(columns=legitimate_differences, errors="ignore"),
+        frames[1].drop(columns=legitimate_differences, errors="ignore"),
     )
 
 
@@ -907,7 +923,7 @@ DEPENDENCY_TWINS = (
         ("run_isovar", "ProteinSequenceCreator"),
         _check_isovar,
         "assembling protein fragments from RNA alignments",
-        "<2,>=1.54.3",
+        "<2,>=1.78.0",
     ),
     (
         "pirlygenes",

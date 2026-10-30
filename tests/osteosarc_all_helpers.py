@@ -8,6 +8,25 @@ import re
 from .osteosarc_helpers import transcript_offset
 
 
+def expected_current_rna_outcome(historical):
+    """Retain pinned biology while checking Isovar 1.78's aggregate filter name.
+
+    Only the filter vocabulary changes. Every historical value, count, sequence
+    and outcome remains an assertion against the new annotator. This mapping is
+    specific to these fixtures; primary and aggregate flags need not agree for
+    other variants (notably an Intronic primary with a Deletion alternative).
+    """
+    result = dict(historical)
+    old = "predicted_effect_modifies_protein_sequence"
+    new = "has_protein_changing_predicted_effect"
+    result["filter_values"] = {
+        (new if name == old else name): value
+        for name, value in historical["filter_values"].items()}
+    result["failed_filters"] = sorted(new if name == old else name
+                                      for name in historical["failed_filters"])
+    return result
+
+
 CODONS = ["".join(b) for b in product("TCAG", repeat=3)]
 TABLES = {
     1: dict(zip(CODONS, "FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG")),

@@ -194,7 +194,7 @@ def describe_isovar_result(isovar_result):
         status = "no_usable_reads"
     elif counts["num_alt_reads"] == 0:
         status = "no_alt_reads"
-    elif getattr(effect, "modifies_protein_sequence", None) is False:
+    elif getattr(result, "has_protein_changing_predicted_effect", None) is False:
         status = "no_predicted_coding_change"
     else:
         status = "no_protein_sequence"
@@ -339,7 +339,7 @@ def fragments_from_effects(
     caller with variants and no alignment file wants exactly this and
     should not have to reach into a private helper for it.
 
-    Silent, non-coding and untranslatable effects are filtered first —
+    Effects with no protein-changing candidate are filtered first —
     several varcode effect classes expose a ``mutant_protein_sequence``
     while leaving the amino-acid offsets ``None``, and
     :func:`~topiary.fragment_from_effect` raises on those by design.
@@ -350,8 +350,10 @@ def fragments_from_effects(
     ----------
     effects : varcode.EffectCollection or iterable of effects
         Effects to translate. Grouped by variant; the top-priority
-        effect of each group becomes a fragment, or the
-        top-*expression* effect when *transcript_expression* is given.
+        annotation of each group is selected, or the top-*expression*
+        annotation when *transcript_expression* is given. Its highest-priority
+        usable concrete candidate becomes the fragment. Alternatives and their
+        baseline, phase and RNA evidence remain in the fragment annotations.
     padding_around_mutation : int
         Residues kept either side of the mutated span.
     gene_expression, transcript_expression : dict, optional
@@ -366,10 +368,13 @@ def fragments_from_effects(
     -------
     list of ProteinFragment
     """
-    from varcode import EffectCollection
+    from varcode import EffectCollection, classification_priority, iter_candidate_paths
+    from varcode.effects import StructuralVariantEffect
+    from varcode.effects.sequence_change import structural_sequence_changes
 
     from .filters import filter_silent_and_noncoding_effects
     from .predictor import fragment_from_effect
+    from .varcode_evidence import varcode_candidate_provenance
 
     if not isinstance(effects, EffectCollection):
         effects = EffectCollection(list(effects))
@@ -377,7 +382,10 @@ def fragments_from_effects(
     if len(effects) == 0:
         return []
 
-    groups = effects.groupby_variant()
+    groups = effects.groupby(key_fn=lambda effect: (
+        ("variant", effect.variant) if effect.variant is not None
+        else ("variantless_effect", id(effect))
+    ))
     if transcript_expression:
         top_effects = [
             group.top_expression_effect(transcript_expression)
@@ -387,23 +395,50 @@ def fragments_from_effects(
         top_effects = [group.top_priority_effect() for group in groups.values()]
 
     fragments = []
-    for effect in top_effects:
-        if effect is None:
+    for annotated_effect in top_effects:
+        if annotated_effect is None:
             continue
-        fragment = fragment_from_effect(
-            effect,
-            padding_around_mutation,
-            gene_expression=(
-                gene_expression.get(effect.gene_id)
-                if gene_expression else None
-            ),
-            transcript_expression=(
-                transcript_expression.get(effect.transcript_id)
-                if transcript_expression else None
-            ),
-        )
-        if fragment is not None:
+        paths = list(iter_candidate_paths(annotated_effect))
+        # A selected Intronic/Silent comparison can retain a protein-changing
+        # alternative. Rank the concrete comparison, not its siblings' severity.
+        for effect, selected_path in sorted(
+                paths, key=lambda item: -classification_priority(item[0])
+                if item[0] is not None else float("inf")):
+            if effect is None:
+                continue
+            changed = (structural_sequence_changes(effect)[1]
+                       if isinstance(effect, StructuralVariantEffect)
+                       else effect.modifies_protein_sequence)
+            if changed is not True:
+                continue
+            if (effect.mutant_protein_sequence is None
+                    or effect.aa_mutation_start_offset is None
+                    or effect.aa_mutation_end_offset is None):
+                continue
+            fragment = fragment_from_effect(
+                effect,
+                padding_around_mutation,
+                gene_expression=(gene_expression.get(effect.gene_id)
+                                 if gene_expression else None),
+                transcript_expression=(transcript_expression.get(effect.transcript_id)
+                                       if transcript_expression else None),
+            )
+            if fragment is None:
+                continue
+            if any(path for _candidate, path in paths):
+                fragment.annotations["varcode_candidate_selection"] = dict(
+                    rule="highest consequence priority among usable comparisons in the selected transcript",
+                    selected_alternative_index=next(
+                        index for index, (candidate, path) in enumerate(paths)
+                        if candidate is effect and path == selected_path),
+                    alternatives=[dict(
+                        effect_type=type(candidate).__name__ if candidate is not None else None,
+                        description=candidate.short_description if candidate is not None else None,
+                        path=[varcode_candidate_provenance(c) for c in path],
+                    ) for candidate, path in paths],
+                )
             fragments.append(fragment)
+            break
     return fragments
 
 

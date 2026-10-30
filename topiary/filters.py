@@ -49,10 +49,13 @@ def filter_silent_and_noncoding_effects(effects):
     ----------
     effects : varcode.EffectCollection
     """
-    from varcode import NonsilentCodingMutation
+    from varcode import iter_candidate_effects
 
     return apply_filter(
-        filter_fn=lambda effect: isinstance(effect, NonsilentCodingMutation),
+        filter_fn=lambda effect: any(
+            candidate is not None and candidate.modifies_protein_sequence is True
+            for candidate in iter_candidate_effects(effect)
+        ),
         collection=effects,
         result_fn=effects.clone_with_new_elements,
         filter_name="Silent mutation",

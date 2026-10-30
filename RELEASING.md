@@ -85,33 +85,33 @@ tests or suppress their errors.
 
 ## Downstream verification
 
-CI installs a pinned published Vaxrank release and runs the real candidate
-scoring and vaccine-construction workflow. Use a separate consumer environment
-to repeat it locally:
+CI runs the real Vaxrank candidate scoring and vaccine-construction workflow.
+During the coordinated Topiary 5.109 / Vaxrank 3.49 migration it installs the
+exact Vaxrank migration commit: the previous published consumer caps Varcode
+below 11. Use a separate consumer environment to repeat that check locally:
 
 ```bash
 "$PYTHON" -m venv .venv/vaxrank-consumer
 VAXRANK_PYTHON="$PWD/.venv/vaxrank-consumer/bin/python"
-"$VAXRANK_PYTHON" -m pip install pytest 'vaxrank==3.46.15' -e .
+"$VAXRANK_PYTHON" -m pip install pytest 'vaxrank @ git+https://github.com/openvax/vaxrank.git@b5c1c9b8348072b005283f5e78096fed1e570300' -e .
 "$VAXRANK_PYTHON" -m pip check
 "$VAXRANK_PYTHON" -m pytest scripts/check_vaxrank_candidates.py -q
 ```
 
-Vaxrank 3.46.15 and PirlyGenes 6.0.18 both accept OncoRef 1.19.2, resolving
-the earlier joint-install conflict
-([PirlyGenes #652](https://github.com/pirl-unc/pirlygenes/issues/652)).
 The separate consumer environment keeps this check independent of the release
-environment's core integrations.
+environment's core integrations. Varcode 11.1 and Isovar 1.78 must already be
+published; installation uses normal dependency resolution.
 
-Update that pin when adopting a new downstream release; do not leave temporary
-migration-branch pins after the corresponding release is published.
+After Vaxrank 3.49 publishes, replace the source pin with its published version
+in CI and this example ([Topiary #567](https://github.com/openvax/topiary/issues/567)).
+Do not leave temporary migration-source pins after the corresponding release
+is published.
 
 CI also installs the normal wheel without extras and runs RNA assembly,
-reference/CTA inputs, WEIRDO ranking and typed cache replay outside the source
-checkout. Isovar, PirlyGenes, OncoRef and WEIRDO are core dependencies; their
-test markers select workflows, not optional installations. PirlyGenes 6.0.18
-pins OncoRef 1.19.2; newer owner-data adoption is tracked in
-[PirlyGenes #655](https://github.com/pirl-unc/pirlygenes/issues/655).
+reference/CTA inputs, Weirdo ranking and typed cache replay outside the source
+checkout. Isovar, PirlyGenes, OncoRef and Weirdo are core dependencies; their
+test markers select workflows, not optional installations. The coordinated
+data combination is PirlyGenes 6.1 with OncoRef 1.24.
 
 The #520 sequence-utility audit found that Topiary's FASTA readers preserve
 different record shapes (a named sequence mapping versus all provenance

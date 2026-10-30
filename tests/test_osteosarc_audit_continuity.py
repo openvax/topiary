@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 
 from .sid_data import sid_data_root, sid_read
+from .osteosarc_all_helpers import expected_current_rna_outcome
 import shutil
 
 import pytest
@@ -108,7 +109,8 @@ def test_reference_build_to_report_keeps_annotation_gaps(tmp_path, monkeypatch, 
         # The regional reference has a new content identity; evidence and
         # scientific answers must remain identical under that new identity.
         assert {k: v for k, v in outcomes[-1]["rna"].items() if k not in ("variant", "reference_name")} == {
-            k: v for k, v in pinned["rna"].items() if k not in ("variant", "reference_name")}
+            k: v for k, v in expected_current_rna_outcome(pinned["rna"]).items()
+            if k not in ("variant", "reference_name")}
         assert outcomes[-1]["rna"]["num_alt_reads"] > 0
     before = {p.name: p.read_bytes() for p in (tmp_path / "outcomes").iterdir()}
     audit(tmp_path)
