@@ -7,6 +7,19 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.109.0
+
+- Adopt Varcode 11.1 candidate traversal with Isovar 1.78. Ordinary intronic or
+  silent annotations can retain coding alternatives; both mutation-effect
+  prediction entry points now use the same candidate-aware fragment selection
+  (#559).
+- Preserve patient baseline and mutant products, alternative hypotheses and
+  candidate paths. Export `varcode_candidate_provenance` for downstream users;
+  producer preference, consequence priority and probability remain distinct.
+- Keep transcript-expression selection and RNA support semantics intact, and
+  verify real splice alternatives, unavailable outcomes and native replay with
+  the coordinated Vaxrank 3.49 consumer.
+
 ## 5.108.4
 
 - Accept Isovar's unlimited protein-hypothesis limit (`0`) in patient-background
