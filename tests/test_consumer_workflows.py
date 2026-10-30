@@ -3357,7 +3357,8 @@ def test_shared_osteosarc_reads_reconstruct_and_rank_identically(tmp_path):
             upstream, = isovar.run_isovar(
                 native, bam, read_collector=isovar.ReadCollector(**translated["read_collector"]),
                 protein_sequence_creator=isovar.ProteinSequenceCreator(**translated["protein_sequence_creator"]))
-        assert describe_isovar_result(upstream) == translated["description"]
+        from .osteosarc_all_helpers import expected_current_rna_outcome
+        assert describe_isovar_result(upstream) == expected_current_rna_outcome(translated["description"])
         validate_rna_protein(upstream, models)
         fragment = fragment_from_isovar_result(upstream)
         assert fragment.to_dict() == translated["fragment"]
@@ -3435,7 +3436,8 @@ def test_malformed_osteosarc_catalogue_row_survives_audit_and_report(tmp_path):
     expected = next(r for r in json.loads((data / "expected.json").read_text())
                     if r["input"]["variant_id"] == good["variant_id"])
     assert result["status"] == expected["status"]
-    assert result["rna"] == expected["rna"]
+    from .osteosarc_all_helpers import expected_current_rna_outcome
+    assert result["rna"] == expected_current_rna_outcome(expected["rna"])
     assert "malformed_source_row | unavailable" in (tmp_path / "README.md").read_text()
 
 
@@ -4538,3 +4540,87 @@ def test_self_reference_keeps_sequences_with_repeated_fasta_ids(tmp_path):
     assert result.self_nearest_peptide.tolist() == ["ACDE", "GGHH"]
     assert result.self_nearest_edit_distance.eq(0).all()
     assert result.self_nearest_gene_id.eq("shared").all()
+
+
+@pytest.mark.parametrize("position,ref,alt,preferred", [
+    (117171168, "G", "T", "Substitution"),
+    (117171171, "A", "C", "Intronic"),
+])
+@pytest.mark.parametrize("with_expression", [False, True])
+def test_varcode11_alternatives_flow_through_both_prediction_doors(
+        tmp_path, position, ref, alt, preferred, with_expression):
+    """Real CFTR annotation and MHCTools scanning, with deterministic test scores."""
+    from pyensembl import EnsemblRelease
+    from varcode import EffectCollection, Variant
+    from topiary import fragments_from_effects, read_fragments, write_fragments
+    from .test_protein_fallback import ProteinModel
+    from .test_twin_conformance import VARCODE_FRAGMENT_TWINS
+
+    genome = EnsemblRelease(75)
+    transcript = genome.transcript_by_id("ENST00000003084")
+    effect = Variant("7", position, ref, alt, genome=genome).effect_on_transcript(transcript)
+    assert type(effect).__name__ == preferred
+    assert type(effect.highest_priority_candidate.effect).__name__ == "Deletion"
+    effects = EffectCollection([effect])
+    expression = {transcript.id: 10.0} if with_expression else None
+    frames = []
+    for run in VARCODE_FRAGMENT_TWINS:
+        predictor = TopiaryPredictor(models=ProteinModel(), padding_around_mutation=12,
+                                     only_novel_epitopes=False)
+        frame = run(predictor, effects, expression)
+        assert not frame.empty
+        assert frame.effect_type.eq("Deletion").all()
+        frames.append(frame)
+    columns = ["peptide", "allele", "affinity", "effect_type", "transcript_id"]
+    pd.testing.assert_frame_equal(frames[0][columns], frames[1][columns])
+
+    fragment = fragments_from_effects(effects, 12, transcript_expression=expression)[0]
+    proof = fragment.annotations["varcode_candidate_selection"]
+    assert {a["effect_type"] for a in proof["alternatives"]} == {preferred, "Deletion", "Unresolved"}
+    evidence = proof["alternatives"][proof["selected_alternative_index"]]["path"][-1]["evidence"]
+    assert evidence["probability"] is None
+    comparison = evidence["outcomes"][0]
+    assert comparison["baseline"]["cdna_sequence"]
+    assert comparison["mutant"]["cdna_sequence"]
+    assert comparison["mutant"]["protein_sequence"] == effect.highest_priority_candidate.effect.mutant_protein_sequence
+    path = tmp_path / "fragments.json"
+    write_fragments([fragment], path)
+    restored = read_fragments(path)[0]
+    assert restored.annotations == fragment.annotations
+    assert restored.sequence == fragment.sequence
+
+
+def test_varcode11_patient_baseline_and_unavailable_comparisons():
+    from types import SimpleNamespace
+    from pyensembl import EnsemblRelease
+    from varcode import EffectCollection, GermlineContext, Variant
+    from varcode.effects import Unresolved
+    from topiary import fragments_from_effects
+    from .test_protein_fallback import ProteinModel
+    from .test_twin_conformance import VARCODE_FRAGMENT_TWINS
+
+    genome = EnsemblRelease(75)
+    transcript = genome.transcript_by_id("ENST00000003084")
+    variant = Variant("7", 117171154, "T", "A", genome)
+    germline = Variant("7", 117171155, "T", "C", genome)
+    effect = variant.effect_on_transcript(
+        transcript, germline=GermlineContext.from_variants([germline]),
+        phase_resolver=SimpleNamespace(in_cis=lambda *args: True))
+    assert effect.short_description == "p.S159T"
+    fragment, = fragments_from_effects(EffectCollection([effect]), 12)
+    assert fragment.reference_sequence[12] == "S"
+    assert fragment.sequence[12] == "T"
+    assert transcript.protein_sequence[158] == "L"
+    proof = fragment.annotations["varcode_candidate_selection"]
+    selected = proof["alternatives"][proof["selected_alternative_index"]]
+    assert selected["path"][-1]["evidence"]["outcomes"][0]["baseline"]["protein_sequence"][158] == "S"
+    unknown = Unresolved(variant, transcript, mechanism="supplied_rna",
+                         reason="No mapped patient baseline")
+    for effects, should_be_empty in (([effect], False), ([unknown], True), ([], True)):
+        frames = [run(TopiaryPredictor(models=ProteinModel(), only_novel_epitopes=False),
+                      EffectCollection(effects), None)
+                  for run in VARCODE_FRAGMENT_TWINS]
+        assert all(frame.empty is should_be_empty for frame in frames)
+        if not should_be_empty:
+            columns = ["peptide", "allele", "affinity", "effect_type", "transcript_id"]
+            pd.testing.assert_frame_equal(frames[0][columns], frames[1][columns])

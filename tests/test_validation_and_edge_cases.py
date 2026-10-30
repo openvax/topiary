@@ -52,26 +52,12 @@ def _tmpfile(content, suffix=".csv"):
 
 def test_predict_from_mutation_effects_empty_returns_dataframe():
     """predict_from_mutation_effects must return a DataFrame, not a list."""
-    from unittest.mock import MagicMock
+    from varcode import EffectCollection
 
     predictor = TopiaryPredictor(
         models=RandomBindingPredictor, alleles=["A0201"],
     )
-    # Create a mock EffectCollection that filters to empty
-    mock_effects = MagicMock()
-    mock_effects.groupby_variant.return_value = {}
-    # Patch filter_silent_and_noncoding_effects and apply_effect_expression_filters
-    # to pass through the mock
-    import topiary.predictor as pred_module
-    original_filter = pred_module.filter_silent_and_noncoding_effects
-    original_expr = pred_module.apply_effect_expression_filters
-    try:
-        pred_module.filter_silent_and_noncoding_effects = lambda e: e
-        pred_module.apply_effect_expression_filters = lambda e, **kw: e
-        result = predictor.predict_from_mutation_effects(mock_effects)
-    finally:
-        pred_module.filter_silent_and_noncoding_effects = original_filter
-        pred_module.apply_effect_expression_filters = original_expr
+    result = predictor.predict_from_mutation_effects(EffectCollection([]))
 
     assert isinstance(result, pd.DataFrame)
     assert len(result) == 0

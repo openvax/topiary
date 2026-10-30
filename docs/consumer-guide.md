@@ -205,23 +205,35 @@ def support(fragment):
 Isovar is installed with Topiary. `fragments_from_variants` imports it when
 given an `alignment_file`; other inputs retain lazy startup.
 
-Topiary requires `isovar>=1.54.3,<2` and `osteosarc>=0.15.5,<0.16`.
-The Isovar minimum includes its output-preserving high-depth read-support
-optimization ([Isovar #507](https://github.com/openvax/isovar/pull/507)); it
-does not bound assembly time for every input. Historical shared bundles and
+Topiary requires `isovar>=1.78.0,<2` and `osteosarc>=0.15.5,<0.16`.
+The Isovar minimum preserves Varcode 11 candidate alternatives and their
+patient baselines. It also includes the high-depth read-support optimization;
+it does not bound assembly time for every input. Historical shared bundles and
 their producer versions remain pinned independently of these runtime versions.
 The Isovar range is enforced at run time as well as at install time:
 an older release can import cleanly and still return wrong evidence (1.17.x
 miscounts reads at insertion boundaries), so Topiary refuses it with an
 upgrade instruction. Upgrade with `pip install --upgrade topiary`.
 
-Topiary supports `varcode<11`. Its coding-effect filtering and transcript
-selection need the coordinated candidate-traversal migration tracked in
-[Topiary #559](https://github.com/openvax/topiary/issues/559),
-[Isovar #651](https://github.com/openvax/isovar/issues/651) and
-[Vaxrank #750](https://github.com/openvax/vaxrank/issues/750) before this bound
-can be widened. Topiary declares the bound directly so an upstream dependency
-update cannot change its supported effect contract implicitly.
+Topiary supports `varcode>=11.1.0,<12`. Its default transcript-model annotation
+retains alternative comparisons on ordinary effects: a preferred intronic
+result can still have a protein-changing exon-skip alternative. Topiary uses
+Varcode's shared traversal, selects the transcript by expression when supplied
+or consequence priority otherwise, and selects its highest-priority usable
+protein-changing comparison. `fragments_from_effects` and
+`predict_from_mutation_effects` use this same selection. Unavailable protein
+sequences or offsets do not produce a predicted peptide.
+
+Fragments retain the selection and alternative paths in
+`annotations["varcode_candidate_selection"]`, including full native products
+and hypothesis evidence. `varcode_candidate_provenance(candidate)` exposes
+the same JSON-compatible evidence conversion for consumers that select their
+own windows. Ordinal preference and consequence severity are ordering rules,
+not calibrated probabilities. A candidate's comparator is its own recorded
+baseline, which may include inherited alleles; it is not necessarily the
+canonical annotated protein. Varcode 11's composed annotation can cost more
+CPU and memory than the older local classifier. Topiary uses the selected
+upstream annotator without silently switching to the legacy implementation.
 
 Reading an existing versioned Isovar comparison export does not run RNA
 assembly. `read_isovar_hypotheses` imports all protein hypotheses, while

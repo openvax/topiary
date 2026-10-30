@@ -22,7 +22,6 @@ import pandas as pd
 from .filters import (
     apply_effect_expression_filters,
     apply_variant_expression_filters,
-    filter_silent_and_noncoding_effects,
 )
 from .ranking import (
     ALLELE_SET_COLUMN,
@@ -1793,8 +1792,6 @@ class TopiaryPredictor(object):
         -------
         pandas.DataFrame
         """
-        effects = filter_silent_and_noncoding_effects(effects)
-
         effects = apply_effect_expression_filters(
             effects,
             transcript_expression_dict=transcript_expression_dict,
@@ -1802,18 +1799,6 @@ class TopiaryPredictor(object):
             gene_expression_dict=gene_expression_dict,
             gene_expression_threshold=self.min_gene_expression,
         )
-
-        variant_effect_groups = effects.groupby(
-            key_fn=lambda effect: (
-                ("variant", effect.variant)
-                if effect.variant is not None
-                else ("variantless_effect", id(effect))
-            )
-        )
-
-        if len(variant_effect_groups) == 0:
-            logging.warning("No candidates for MHC binding prediction")
-            return pd.DataFrame()
 
         # Derive a transcript expression dict from new-style data when
         # the legacy dict is absent, so that transcript selection stays
@@ -1824,35 +1809,14 @@ class TopiaryPredictor(object):
                 expression_data
             )
 
-        if effective_transcript_expr:
-            top_effects = [
-                variant_effects.top_expression_effect(effective_transcript_expr)
-                for variant_effects in variant_effect_groups.values()
-            ]
-        else:
-            top_effects = [
-                variant_effects.top_priority_effect()
-                for variant_effects in variant_effect_groups.values()
-            ]
+        from .io_isovar import fragments_from_effects
 
-        fragments = []
-        for effect in top_effects:
-            gene_expr = None
-            if gene_expression_dict is not None:
-                gene_expr = gene_expression_dict.get(effect.gene_id, 0.0)
-            transcript_expr = None
-            if transcript_expression_dict is not None:
-                transcript_expr = transcript_expression_dict.get(
-                    effect.transcript_id, 0.0
-                )
-            frag = fragment_from_effect(
-                effect,
-                self.padding_around_mutation,
-                gene_expression=gene_expr,
-                transcript_expression=transcript_expr,
-            )
-            if frag is not None:
-                fragments.append(frag)
+        fragments = fragments_from_effects(
+            effects,
+            self.padding_around_mutation,
+            gene_expression=gene_expression_dict,
+            transcript_expression=effective_transcript_expr,
+        )
 
         if not fragments:
             logging.warning("No candidates for MHC binding prediction")

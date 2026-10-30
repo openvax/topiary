@@ -24,7 +24,10 @@ def result(**changes):
 @pytest.mark.parametrize("changes,status", [
     ({"num_total_reads": 0, "num_alt_reads": 0}, "no_usable_reads"),
     ({"num_alt_reads": 0}, "no_alt_reads"),
-    ({"predicted_effect": SimpleNamespace(modifies_protein_sequence=False)}, "no_predicted_coding_change"),
+    ({"predicted_effect": SimpleNamespace(modifies_protein_sequence=False),
+      "has_protein_changing_predicted_effect": False}, "no_predicted_coding_change"),
+    ({"predicted_effect": SimpleNamespace(modifies_protein_sequence=False),
+      "has_protein_changing_predicted_effect": True}, "no_protein_sequence"),
     ({}, "no_protein_sequence"),
 ])
 def test_negative_outcomes_preserve_counts_and_named_filters(changes, status):
