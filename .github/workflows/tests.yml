@@ -34,11 +34,11 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Install the released downstream consumer
+      - name: Install the coordinated downstream consumer
         run: |
           # Exact Vaxrank 3.49 migration commit: older published consumers cap
           # Varcode below 11. Install both candidates with normal resolution.
-          bash scripts/pip_install.sh pytest 'vaxrank @ git+https://github.com/openvax/vaxrank.git@d2c226958fdd964e1f83fc62113437193f42d34c' -e .
+          bash scripts/pip_install.sh pytest 'vaxrank @ git+https://github.com/openvax/vaxrank.git@b5c1c9b8348072b005283f5e78096fed1e570300' -e .
           python -m pip check
       - name: Verify table features through DSL scoring and vaccine construction
         run: python -m pytest scripts/check_vaxrank_candidates.py -q
