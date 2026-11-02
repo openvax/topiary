@@ -42,7 +42,21 @@ records are retained and do not establish independent biological evidence.
 
 For a candidate interval `[start, end)` in the supplied source frame, internal
 bonds satisfy `start < source_bond < end`; equality identifies a boundary.
-First select the matching occurrence. The table does not decide whether a cut
+`select_cleavage_sites` applies that rule, and `cleavage_interval_coverage`
+reports how much of the interval each model reached:
+
+```python
+from topiary import cleavage_interval_coverage, select_cleavage_sites
+
+inside = select_cleavage_sites(sites, 100, 109, occurrence_id="example")
+coverage = cleavage_interval_coverage(sites, 100, 109, occurrence_id="example")
+# n_internal_bonds, n_assessed, n_unassessed, fraction_assessed per model
+```
+
+Both require a single source occurrence and raise on a table with several
+unless `occurrence_id` and/or `source_sequence_name` chooses one. An unassessed
+bond (the scored context did not reach it) is missing evidence, not a measured
+zero and not an unfavourable score. The table does not decide whether a cut
 destroys all copies of a desired ligand or whether a different window is useful.
 
 Site evidence, whole-peptide half-life, and peptide-MHC stability answer
