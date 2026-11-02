@@ -260,24 +260,11 @@ def create_arg_parser(
     if rna:
         add_rna_args(arg_parser)
     if mhc:
-        add_mhc_args(arg_parser)
-        add_cached_predictor_args(arg_parser)
-        # mhctools' add_mhc_args registers --mhc-predictor / --mhc-alleles
-        # as required.  Relax them so users can run exclusively from a
+        # --mhc-predictor is optional so a run can be answered entirely from
         # --mhc-cache-file / --mhc-cache-directory; predict_epitopes_from_args
-        # validates that at least one MHC source is supplied.
-        #
-        # Accessing _actions here is intentional — it's argparse's de-facto
-        # public API for mutating registered arguments post-registration.
-        # If mhctools ever changes its add_mhc_args action layout this loop
-        # will still work (it only looks at option_strings), and worst-case
-        # would fall back to mhctools' original required=True behavior.
-        for action in arg_parser._actions:
-            if action.option_strings and any(
-                opt in ("--mhc-predictor", "--mhc-alleles")
-                for opt in action.option_strings
-            ):
-                action.required = False
+        # checks that at least one MHC source was given.
+        add_mhc_args(arg_parser, predictor_required=False)
+        add_cached_predictor_args(arg_parser)
     if variants:
         add_variant_args(arg_parser)
     if protein_changes:

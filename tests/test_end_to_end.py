@@ -170,7 +170,6 @@ def test_exclude_by_exact_full_pipeline():
         models=RandomBindingPredictor, alleles=["A0201"],
     )
     df = predictor.predict_from_named_sequences({"target": "MASIINFEKLGGGLLL"})
-    n_before = len(df)
 
     ref = {"ref": "MASIINFEKLGGGLLL"}
     df_exact = exclude_by(df, ref, mode="exact")
@@ -251,7 +250,7 @@ def test_ic50_cutoff_as_filter_by():
         mhc_model=RandomBindingPredictor(alleles=["A0201"]),
         filter_by=Affinity.value <= 500,
     )
-    df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
+    predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGG"})
     assert predictor.filter_by is not None
 
 

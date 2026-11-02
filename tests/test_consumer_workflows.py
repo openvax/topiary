@@ -4098,7 +4098,9 @@ def test_contextual_file_cache_and_fallback_preserve_selection(tmp_path, suffix)
     assert sum(len(peptides) for peptides, _ in fallback.calls) == 2
     policy = SelectionPolicy("contextual", "1 / affinity.value", min_score=1 / 802.)
     keys = ["prediction_id", "peptide", "peptide_offset", "allele"]
-    evaluate = lambda frame: evaluate_selection_policy(TopiaryResult(frame), policy, group_keys=keys)
+    def evaluate(frame):
+        return evaluate_selection_policy(TopiaryResult(frame), policy, group_keys=keys)
+
     expected, actual = evaluate(fresh), evaluate(replayed)
     assert actual.selected.prediction_id.tolist() == ["other-context", "other-peptide"]
     pd.testing.assert_frame_equal(actual.occurrences, expected.occurrences, check_exact=True)
