@@ -5,7 +5,7 @@ from itertools import repeat
 import math
 from collections.abc import Mapping
 
-import mhcgnomes
+from .alleles import canonical_allele_name
 import pandas as pd
 
 from .predictor import from_predictions
@@ -113,7 +113,7 @@ def validate_protein_predictions(predictions, sequences, model, *, peptide_lengt
     if not support or any(spec.get("mhc_dependence") not in {"none", "single_allele", "haplotype"}
                           for spec in support.values()):
         raise ValueError("Protein fallback must declare MHC dependence for every kind")
-    alleles = sorted({mhcgnomes.parse(str(allele)).to_string() for allele in getattr(model, "alleles", ())})
+    alleles = sorted({canonical_allele_name(allele) for allele in getattr(model, "alleles", ())})
     if any(spec["mhc_dependence"] != "none" for spec in support.values()) and not alleles:
         raise ValueError("Protein fallback requires configured alleles")
     expected = set()
@@ -149,7 +149,7 @@ def validate_protein_predictions(predictions, sequences, model, *, peptide_lengt
             if column in row and (isinstance(row[column], bool) or row[column] != len(peptide)):
                 raise ValueError("Protein fallback peptide length disagrees with its sequence")
     frame = annotate_protein_prediction_context(from_predictions(raw), model)
-    frame["allele"] = frame.allele.map(lambda value: mhcgnomes.parse(str(value)).to_string() if is_stated(value) else "")
+    frame["allele"] = frame.allele.map(lambda value: canonical_allele_name(value) if is_stated(value) else "")
     actual, records = set(), []
     for row in frame.to_dict("records"):
         kind = row["kind"]

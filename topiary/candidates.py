@@ -9,7 +9,7 @@ import re
 
 import numpy as np
 import pandas as pd
-import mhcgnomes
+from .alleles import canonical_allele_name
 from mhctools.pred import value_unit
 
 from .io_pvacseq import derive_mhc_class
@@ -61,7 +61,7 @@ def _identity(values):
 
 
 def _allele(value):
-    return mhcgnomes.parse(str(value)).to_string() if is_stated(value) else ""
+    return canonical_allele_name(value) if is_stated(value) else ""
 
 
 def candidate_identifier(sample, peptide, allele):
