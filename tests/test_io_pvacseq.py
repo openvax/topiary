@@ -113,6 +113,23 @@ class TestLoadAggregated:
         # MHC-I sample carries HLA-A/B/C only; mhcgnomes leaves the prefix.
         assert (r.df["allele"].dropna().str.startswith("HLA-")).all()
 
+    def test_an_allele_group_is_kept_as_given_and_logged(self, tmp_path, caplog):
+        df = pd.read_csv(MHC_I_AGG, sep="\t")
+        df.loc[0, "Allele"] = "A*02"
+        path = tmp_path / "allele_group.tsv"
+        df.to_csv(path, sep="\t", index=False)
+        with caplog.at_level("WARNING", logger="topiary.alleles"):
+            rows = read_pvacseq(path).df
+        # Kept as typed rather than rewritten to HLA-A*02 or made missing,
+        # and still classified, so the row stays visible and filterable.
+        group_rows = rows[rows["allele"].eq("A*02")]
+        assert len(group_rows) > 0
+        assert group_rows["mhc_class"].eq("I").all()
+        assert rows.loc[~rows["allele"].eq("A*02"), "allele"].dropna().str.startswith("HLA-").all()
+        messages = [record.getMessage() for record in caplog.records if record.name == "topiary.alleles"]
+        assert len(messages) == 1
+        assert "'A*02' is the allele group HLA-A*02 (one field)" in messages[0]
+
     def test_mhc_ii_alleles_get_hla_prefix(self):
         r = read_pvacseq(MHC_II_AGG)
         # Raw "DRB1*04:05" / "DPA1*02:01-DPB1*01:01" gain the HLA- prefix
