@@ -589,8 +589,11 @@ Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use
 | `melt_pvacseq_algorithms(result)` | Loaded pVACseq `all_epitopes` result | `TopiaryResult` with one row per (peptide, allele, algorithm) |
 | `parse_prediction_metric(model_name, metric_name)` | External predictor and metric labels | `PredictionMetric(method, kind, field, sequence)` or `None` when ambiguous |
 | `derive_mhc_class(allele_series)` | Allele Series (mhcgnomes-normalized or raw) | Series of `"I"` / `"II"` / `pd.NA` |
-| `canonical_allele_name(allele)` | One allele in any mhcgnomes spelling | Canonical name; raises `mhcgnomes` `ParseError` if unparseable |
-| `canonical_allele_names_or_raw(values)` | Iterable of allele values | List of canonical names; unparseable, empty and non-string values pass through unchanged |
+| `parse_allele(allele, species=None)` | One allele in any mhcgnomes spelling | The mhcgnomes `Allele`, class II `Pair` or `AlleleWithoutGene`; raises `AlleleError` for a missing value, a non-string, an unparseable string, a serotype, gene, haplotype or other non-allele, an allele group (`HLA-A*02`), a null allele (`N`) or a pair that is not an alpha/beta heterodimer |
+| `canonical_allele_name(allele, species=None)` | One allele in any mhcgnomes spelling | Canonical name of `parse_allele(allele)`; raises `AlleleError` (a `ValueError`) on the same inputs |
+| `canonical_allele_names_or_raw(values, species=None)` | Iterable of allele values | List of canonical names; values that are not one allele are kept as given with one logged warning per distinct value; missing and non-string values pass through silently |
+| `allele_rejection_reason(parsed)` | Any `mhcgnomes.parse` result | `None` for a usable allele, else the reason `parse_allele` gives |
+| `allele_expression_caveats(parsed)` | Any `mhcgnomes.parse` result | Tuple naming each `L`/`Q`/`S`/`C`/`A`/`Ps` annotation; `parse_allele` logs these once per process and accepts the allele |
 | `slice_regions(seqs, regions)` | Sequences + intervals | `{name:start-end: subseq}` |
 | `exclude_by(df, ref, mode)` | DataFrame + ref sequences | Filtered DataFrame |
 

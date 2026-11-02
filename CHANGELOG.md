@@ -7,6 +7,52 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.111.0
+
+- Allele canonicalization now checks what mhcgnomes parsed rather than
+  taking the canonical spelling of any successful parse. New
+  `parse_allele(value, species=None)` returns the mhcgnomes `Allele`,
+  class II `Pair` or `AlleleWithoutGene`, and raises `AlleleError` (a
+  `ValueError`) with a message naming the input, what it parsed as and
+  why it was refused. `canonical_allele_name` is `parse_allele(...)`'s
+  canonical name. Also exported: `AlleleError`, `allele_rejection_reason`
+  and `allele_expression_caveats`. The rules are in the `topiary.alleles`
+  module docstring.
+- Behavior changes in every strict caller (the `CachedPredictor.alleles`
+  setter, `HistoricalPredictor`, `predict_peptide_occurrences`,
+  `validate_protein_predictions`, `prediction_mhc_scope`,
+  `candidate_identifier` / `combine_sources` / `rescore_candidates`,
+  `match_self_peptides`,
+  `self_matches_in_windows` and self-proteome evidence records):
+  - A serotype (`A2`, `Cw7`), supertype (`A02`), haplotype (`H2-b`),
+    ambiguous set, gene (`HLA-A`), class II locus (`HLA-DR`), MHC class or
+    species now raises `AlleleError`; it used to become a name such as
+    `HLA-A2`. The message lists some of a serotype's member alleles.
+  - An allele group with one numeric field (`A*02`, `HLA-DRB1*04`, and
+    legacy one-number names such as `Mamu-A01`) now raises. Letter-named
+    alleles (`H2-K*b`, `RT1-A*a`) are unaffected.
+  - A null allele (`HLA-A*02:01N`, or a pair with a null chain) now raises.
+  - A `Pair` that is not a class II alpha/beta heterodimer
+    (`HLA-A*02:01/HLA-A*02:02`, or a beta chain written first) now raises.
+  - `L`, `Q`, `S`, `C`, `A` and `Ps` alleles are still accepted, with one
+    logged warning per allele per process. `G` and `P` groups are accepted
+    silently.
+  - A missing value (None, NaN, `pd.NA`, blank, `"nan"`) or a non-string
+    now raises `AlleleError` instead of being stringified and failing as
+    `Could not parse 'nan'`. Unparseable strings raise `AlleleError`
+    chained from mhcgnomes' `ParseError` instead of the bare `ParseError`;
+    without `species`, the message says that unprefixed names are read as
+    human.
+- `canonical_allele_names_or_raw` (the pVACseq and LENS readers) keeps
+  passing values that are not one allele through unchanged, now including
+  serotypes, allele groups and null alleles (which used to be rewritten,
+  e.g. `A2` to `HLA-A2`), and logs one warning per distinct such value
+  with the reason. It catches only `AlleleError`.
+- `canonical_allele_name`, `parse_allele` and
+  `canonical_allele_names_or_raw` take `species=`, passed to
+  `mhcgnomes.parse(species=...)`, so `canonical_allele_name("Kb",
+  species="H2")` is `H2-K*b`.
+
 ## 5.109.1
 
 - Route Topiary's mhcgnomes allele-name canonicalization through one

@@ -51,6 +51,11 @@ Affinity rows use the following mapping:
 | `prediction_method_name` | `"pvacseq"` (synthesized) | same |
 | `predictor_version` | `pd.NA` (pVACseq doesn't surface a method version per row) | same |
 
+An allele value that is not one specific allele (a serotype such as `A2`, an
+allele group such as `HLA-A*02`, a null allele, or text mhcgnomes cannot
+parse) is kept as given and logged once per distinct value with the reason;
+see `canonical_allele_names_or_raw` in the [API reference](api.md).
+
 Presentation rows preserve both pVACtools' summary and its underlying EL
 algorithms:
 

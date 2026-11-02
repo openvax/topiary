@@ -1,7 +1,14 @@
 from .sv_interest import build_sv_interest_report, write_sv_interest_report, SV_PROTEIN_EVIDENCE_TIERS
 from .serialization import normalize_python_types
 from .report_geometry import map_peptide_intervals, mutation_intervals_from_positions
-from .alleles import canonical_allele_name, canonical_allele_names_or_raw
+from .alleles import (
+    AlleleError,
+    allele_expression_caveats,
+    allele_rejection_reason,
+    canonical_allele_name,
+    canonical_allele_names_or_raw,
+    parse_allele,
+)
 from .annotations import join_annotations
 from .candidates import candidate_identifier, combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
 from .selection_criteria import SelectionCriterion, RankingTerm, resolve_selection_expression
@@ -230,7 +237,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.109.1"
+__version__ = "5.111.0"
 
 __all__ = [
     "PROTEIN_SCAN_METADATA_COLUMNS",
@@ -374,8 +381,12 @@ __all__ = [
     "mean",
     "median",
     "minimum",
+    "AlleleError",
+    "allele_expression_caveats",
+    "allele_rejection_reason",
     "canonical_allele_name",
     "canonical_allele_names_or_raw",
+    "parse_allele",
     "format_allele_set",
     "parse",
     "as_dsl_node",
