@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections import defaultdict
 
-import mhcgnomes
+from .alleles import canonical_allele_name
 import numpy as np
 import pandas as pd
 
@@ -236,7 +236,7 @@ def self_matches_in_windows(windows, reference, *, peptide_lengths, alleles=None
 
 
 def _allele(value):
-    return None if value is None or (pd.api.types.is_scalar(value) and pd.isna(value)) or value == "" else mhcgnomes.parse(str(value)).to_string()
+    return None if value is None or (pd.api.types.is_scalar(value) and pd.isna(value)) or value == "" else canonical_allele_name(value)
 
 
 def _digest(value):

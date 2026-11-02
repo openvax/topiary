@@ -23,6 +23,19 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   required `release=`; allele arguments containing `*` are quoted so the
   commands survive a shell that globs.
 
+## 5.109.1
+
+- Route Topiary's mhcgnomes allele-name canonicalization through one
+  module, `topiary.alleles`. `canonical_allele_name` (strict: raises on an
+  unparseable allele) replaces fifteen inline
+  `mhcgnomes.parse(...).to_string()` calls, and
+  `canonical_allele_names_or_raw` (lenient: passes unparseable values
+  through) replaces the identical `_normalize_alleles` copies in the
+  pVACseq and LENS readers. Both are exported from `topiary`. The CLI's
+  cached-predictor allele lookup still uses mhctools'
+  `normalize_allele_name_or_raw`, to match the live predictors. No
+  behavior change.
+
 ## 5.109.0
 
 - Adopt Varcode 11.1 candidate traversal with Isovar 1.78. Ordinary intronic or

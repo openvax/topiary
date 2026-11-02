@@ -589,6 +589,8 @@ Mixing `|` and `&` follows standard precedence (`&` binds tighter than `|`); use
 | `melt_pvacseq_algorithms(result)` | Loaded pVACseq `all_epitopes` result | `TopiaryResult` with one row per (peptide, allele, algorithm) |
 | `parse_prediction_metric(model_name, metric_name)` | External predictor and metric labels | `PredictionMetric(method, kind, field, sequence)` or `None` when ambiguous |
 | `derive_mhc_class(allele_series)` | Allele Series (mhcgnomes-normalized or raw) | Series of `"I"` / `"II"` / `pd.NA` |
+| `canonical_allele_name(allele)` | One allele in any mhcgnomes spelling | Canonical name; raises `mhcgnomes` `ParseError` if unparseable |
+| `canonical_allele_names_or_raw(values)` | Iterable of allele values | List of canonical names; unparseable, empty and non-string values pass through unchanged |
 | `slice_regions(seqs, regions)` | Sequences + intervals | `{name:start-end: subseq}` |
 | `exclude_by(df, ref, mode)` | DataFrame + ref sequences | Filtered DataFrame |
 

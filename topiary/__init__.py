@@ -1,6 +1,7 @@
 from .sv_interest import build_sv_interest_report, write_sv_interest_report, SV_PROTEIN_EVIDENCE_TIERS
 from .serialization import normalize_python_types
 from .report_geometry import map_peptide_intervals, mutation_intervals_from_positions
+from .alleles import canonical_allele_name, canonical_allele_names_or_raw
 from .annotations import join_annotations
 from .candidates import candidate_identifier, combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
 from .selection_criteria import SelectionCriterion, RankingTerm, resolve_selection_expression
@@ -373,6 +374,8 @@ __all__ = [
     "mean",
     "median",
     "minimum",
+    "canonical_allele_name",
+    "canonical_allele_names_or_raw",
     "format_allele_set",
     "parse",
     "as_dsl_node",
