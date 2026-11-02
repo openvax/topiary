@@ -7,6 +7,22 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.111.1
+
+- Documentation only. Rewrite the README as purpose, install, quick start,
+  command line, documentation index, development; the first Python and CLI
+  examples now show the output they really produce. The home page follows the
+  same path, so README and docs agree.
+- Correct examples that could not run: every `TopiaryPredictor(models=NetMHCpan)`
+  becomes `models=[NetMHCpan(alleles=...)]`, since mhctools' `NetMHCpan` is a
+  version-selecting factory function rather than a class; the quickstart's
+  multi-model ranking reads presentation through `peptide_view(...)` and names
+  the model, which is what the predictor asks for; `--filter-by` in the
+  command-line guide uses `variant_num_alt_reads`, the column Topiary actually
+  creates, not `variant_n_alt`; `SelfProteome.from_ensembl` examples pass the
+  required `release=`; allele arguments containing `*` are quoted so the
+  commands survive a shell that globs.
+
 ## 5.109.0
 
 - Adopt Varcode 11.1 candidate traversal with Isovar 1.78. Ordinary intronic or

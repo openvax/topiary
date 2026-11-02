@@ -735,9 +735,10 @@ Run predictors together when that is convenient:
 from mhctools import NetMHCpan, MHCflurry
 from topiary import TopiaryPredictor
 
+alleles = ["HLA-A*02:01", "HLA-B*07:02"]
 combined = TopiaryPredictor(
-    models=[NetMHCpan, MHCflurry],
-    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+    models=[NetMHCpan(alleles=alleles), MHCflurry],
+    alleles=alleles,
 ).predict_from_named_peptides(peptides)
 ```
 
@@ -749,14 +750,15 @@ shape:
 from mhctools import NetMHCpan, MHCflurry
 from topiary import TopiaryPredictor, combine_predictions
 
+alleles = ["HLA-A*02:01", "HLA-B*07:02"]
 netmhcpan_rows = TopiaryPredictor(
-    models=NetMHCpan,
-    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+    models=[NetMHCpan(alleles=alleles)],
+    alleles=alleles,
 ).predict_from_named_peptides(peptides)
 
 mhcflurry_rows = TopiaryPredictor(
-    models=MHCflurry,
-    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+    models=[MHCflurry],
+    alleles=alleles,
 ).predict_from_named_peptides(peptides)
 
 combined = combine_predictions([netmhcpan_rows, mhcflurry_rows])
@@ -784,7 +786,7 @@ for allele in ["HLA-A*02:01", "HLA-B*07:02"]:
         }
         shards.append(
             TopiaryPredictor(
-                models=NetMHCpan,
+                models=[NetMHCpan(alleles=[allele])],
                 alleles=[allele],
                 name=f"netmhcpan_{allele}_len{length}",
             ).predict_from_named_peptides(length_peptides)
@@ -876,9 +878,10 @@ from topiary import (
 from topiary.properties import add_peptide_properties
 from mhctools import NetMHCpan, MHCflurry
 
+alleles = ["HLA-A*02:01", "HLA-B*07:02"]
 predictor = TopiaryPredictor(
-    models=[NetMHCpan, MHCflurry],
-    alleles=["HLA-A*02:01", "HLA-B*07:02"],
+    models=[NetMHCpan(alleles=alleles), MHCflurry],
+    alleles=alleles,
     only_novel_epitopes=True,
 )
 

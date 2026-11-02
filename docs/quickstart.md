@@ -1,21 +1,32 @@
 # Quickstart
 
+This page goes from one prediction to the input formats, lookups and model
+combinations behind it. The [home page](index.md) has the shortest possible
+first run; the [API reference](api.md) has the complete signatures.
+
 ## A first prediction
 
 Give `TopiaryPredictor` one or more mhctools models, the alleles to predict
-against, and a source of sequence:
+against, and a source of sequence. Models are passed as configured instances,
+as classes, or by name:
 
 ```python
 from topiary import TopiaryPredictor, Affinity
 from mhctools import NetMHCpan
 
+alleles = ["HLA-A*02:01"]
 predictor = TopiaryPredictor(
-    models=NetMHCpan,
-    alleles=["A0201"],
+    models=[NetMHCpan(alleles=alleles)],
+    alleles=alleles,
     filter_by=Affinity <= 500,
 )
 df = predictor.predict_from_sequences(["MASIINFEKLGGG"])
 ```
+
+`NetMHCpan(...)` is an mhctools factory that picks the installed NetMHCpan
+version, so it is called rather than passed as a class. A version-specific
+class (`NetMHCpan41`, `MHCflurry`) or its lowercase name (`"netmhcpan41"`) can
+be passed directly instead, and `alleles=` then configures it.
 
 The returned DataFrame has one row per `(peptide, allele, kind)`:
 
@@ -39,10 +50,10 @@ file:
 
 ```python
 # Sliding-window scan over named proteins
-df = predictor.predict_from_named_sequences({"PRAME": PRAME_SEQUENCE})
+df = predictor.predict_from_named_sequences({"KRAS_G12D": "MTEYKLVVVGADGVGKSALT"})
 
 # Score these peptides as-is, no sliding window
-df = predictor.predict_from_named_peptides({"flu_np": "GILGFVFTL"})
+df = predictor.predict_from_named_peptides({"flu_M1": "GILGFVFTL"})
 ```
 
 ## The same runs from the command line
@@ -87,16 +98,22 @@ input modes, output options and exit status.
 ## Multiple models
 
 ```python
-from topiary import Affinity, Presentation
+from topiary import Affinity, Presentation, peptide_view
 from mhctools import NetMHCpan, MHCflurry
 
+alleles = ["HLA-A*02:01", "HLA-A*03:01", "HLA-B*07:02"]
 predictor = TopiaryPredictor(
-    models=[NetMHCpan, MHCflurry],
-    alleles=["A0201", "A0301", "B0702"],
+    models=[NetMHCpan(alleles=alleles), MHCflurry],
+    alleles=alleles,
     filter_by=Affinity <= 500,
-    sort_by=Presentation.score,
+    sort_by=peptide_view(Presentation["mhcflurry"].score),
 )
 ```
+
+Presentation is predicted for the whole genotype, so reading it in an
+allele-keyed ranking needs `peptide_view(...)`, and two models producing the
+same kind need the bracket to say which one is meant. Both are explained in the
+[ranking DSL](ranking.md).
 
 When several models produce the same prediction kind, say which one an
 expression means with brackets:
