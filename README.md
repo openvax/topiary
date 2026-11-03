@@ -23,7 +23,7 @@ ranking expressions that [vaxrank](https://github.com/openvax/vaxrank) uses.
 
 ## Install
 
-Topiary requires Python 3.11 or newer.
+Topiary requires Python 3.11 or newer and pandas 3.x (`pandas>=3,<4`).
 
 ```bash
 pip install topiary
@@ -140,8 +140,14 @@ order:
 5. [Cached predictions](https://openvax.github.io/topiary/cached/): replay stored scores instead of calling a predictor.
 6. [API reference](https://openvax.github.io/topiary/api/): classes, functions and complete column lists.
 
-Other guides cover RNA expression, peptide properties, cross-reactivity, and
-reading pVACseq, LENS and Exacto reports.
+Other guides cover [RNA expression](https://openvax.github.io/topiary/expression/),
+[peptide properties](https://openvax.github.io/topiary/properties/),
+[cross-reactivity](https://openvax.github.io/topiary/self_proteome/),
+[structural-variant evidence reports](https://openvax.github.io/topiary/sv-interest/),
+reading [pVACseq](https://openvax.github.io/topiary/pvacseq/), LENS and
+[Exacto](https://openvax.github.io/topiary/exacto/) reports, and
+[combining those sources](https://openvax.github.io/topiary/combined-sources/)
+with fresh predictions in one ranking.
 
 ## Development
 
@@ -150,6 +156,7 @@ reading pVACseq, LENS and Exacto reports.
 pip install -r requirements-dev.txt   # lint, test and docs tools
 ./lint.sh
 ./test.sh                             # full suite: needs Ensembl data and predictors
+python -m pytest tests --collect-only # collecting loads no Ensembl data or predictors
 ./test.sh -m isovar --strict-markers  # synthetic Isovar tests, no Ensembl download
 mkdocs build --strict                 # docs site
 ```
