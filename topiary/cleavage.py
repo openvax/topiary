@@ -99,3 +99,118 @@ def from_cleavage_results(
     for column in ("result_index", "source_start", "bond", "source_bond", "match"):
         frame[column] = pd.Series(frame[column], dtype="Int64")
     return frame
+
+
+_MODEL_COLUMNS = ("prediction_method_name", "predictor_version", "enzyme",
+                  "evidence_type")
+_OCCURRENCE_COLUMNS = ("occurrence_id", "source_sequence_name")
+
+
+def _interval_rows(sites, start, end, occurrence_id, source_sequence_name):
+    """One occurrence's rows, and those whose bond is strictly inside the interval."""
+    needed = {"source_bond", *_MODEL_COLUMNS, *_OCCURRENCE_COLUMNS}
+    if not isinstance(sites, pd.DataFrame) or needed - set(sites.columns):
+        raise ValueError(
+            "Expected a table from from_cleavage_results (missing: %s)"
+            % ", ".join(sorted(needed - set(getattr(sites, "columns", ())))))
+    for name, value in (("start", start), ("end", end)):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError("%s must be an integer source coordinate" % name)
+    if end <= start:
+        raise ValueError("end must be greater than start")
+    keep = pd.Series(True, index=sites.index)
+    for column, wanted in (("occurrence_id", occurrence_id),
+                           ("source_sequence_name", source_sequence_name)):
+        if wanted is not None:
+            keep &= sites[column] == wanted
+    chosen = sites[keep]
+    distinct = chosen[list(_OCCURRENCE_COLUMNS)].drop_duplicates()
+    if len(distinct) > 1:
+        raise ValueError(
+            "sites hold %d source occurrences; pass occurrence_id and/or "
+            "source_sequence_name to choose one" % len(distinct))
+    bond = chosen["source_bond"]
+    return chosen, chosen[bond.notna() & (bond > start) & (bond < end)]
+
+
+def select_cleavage_sites(
+    sites: pd.DataFrame, start: int, end: int, *,
+    occurrence_id: str | None = None, source_sequence_name: str | None = None,
+) -> pd.DataFrame:
+    """Select the assessed internal bonds of a candidate interval.
+
+    Parameters
+    ----------
+    sites : pandas.DataFrame
+        Output of :func:`from_cleavage_results`.
+    start, end : int
+        Half-open candidate interval ``[start, end)`` in the source coordinate
+        frame (``source_bond``).
+    occurrence_id, source_sequence_name : str, optional
+        Choose one source occurrence. Required when ``sites`` holds more than
+        one, because a cut in one copy of a repeated epitope says nothing about
+        another copy; a mixed table raises instead of silently pooling them.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The rows with ``start < source_bond < end``, in input order, with every
+        column retained. A bond equal to ``start`` or ``end`` is a boundary of
+        the interval, not an internal bond, and is excluded. Rows without a bond
+        (unsupported, unassessed or whole-substrate observations) are never
+        selected. Empty when nothing was assessed inside the interval.
+
+    Notes
+    -----
+    This states where evidence lies, not what it means: whether a cut destroys
+    every copy of a ligand, or another window is preferable, is the caller's
+    decision. Use :func:`cleavage_interval_coverage` to see how much of the
+    interval the evidence reaches at all.
+    """
+    _, inside = _interval_rows(
+        sites, start, end, occurrence_id, source_sequence_name)
+    return inside.copy()
+
+
+def cleavage_interval_coverage(
+    sites: pd.DataFrame, start: int, end: int, *,
+    occurrence_id: str | None = None, source_sequence_name: str | None = None,
+) -> pd.DataFrame:
+    """Report how many internal bonds of an interval each model assessed.
+
+    Parameters
+    ----------
+    sites, start, end, occurrence_id, source_sequence_name
+        As for :func:`select_cleavage_sites`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per ``(prediction_method_name, predictor_version, enzyme,
+        evidence_type)`` present for the chosen occurrence, with
+        ``n_internal_bonds`` (``end - start - 1``), ``n_assessed`` (distinct
+        bonds with a row), ``n_unassessed`` and ``fraction_assessed``. Repeated
+        results for one bond count once. A model with no row for the occurrence
+        does not appear: the table cannot name a model it was never given.
+
+    Notes
+    -----
+    A bond with no row was not scored, usually because the scored context did
+    not reach it. That is missing context, not a measured zero and not an
+    unfavourable score, so callers must not rank it as one. A model that
+    assessed every bond but matched none is reported fully covered; a motif
+    non-match does not establish resistance to cleavage.
+    """
+    chosen, inside = _interval_rows(
+        sites, start, end, occurrence_id, source_sequence_name)
+    n_bonds = end - start - 1
+    keys = list(_MODEL_COLUMNS)
+    assessed = inside.groupby(keys, dropna=False)["source_bond"].nunique()
+    out = chosen[keys].drop_duplicates().reset_index(drop=True)
+    out["n_internal_bonds"] = n_bonds
+    out["n_assessed"] = [
+        int(assessed.get(tuple(row), 0)) for row in out[keys].itertuples(index=False)]
+    out["n_unassessed"] = n_bonds - out["n_assessed"]
+    out["fraction_assessed"] = (
+        out["n_assessed"] / n_bonds if n_bonds else float("nan"))
+    return out

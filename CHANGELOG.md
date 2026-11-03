@@ -53,6 +53,16 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   `mhcgnomes.parse(species=...)`, so `canonical_allele_name("Kb",
   species="H2")` is `H2-K*b`.
 
+## 5.110.0
+
+- Add `select_cleavage_sites` and `cleavage_interval_coverage` for the table
+  from `from_cleavage_results` (#288). The first applies one boundary rule
+  (`start < source_bond < end`) so consumers stop re-deriving it; the second
+  reports how many internal bonds of a candidate interval each model assessed,
+  keeping missing scored context distinct from a measured score. Both refuse a
+  table holding several source occurrences unless one is chosen, so a cut in
+  one copy of a repeated epitope is never pooled with another.
+
 ## 5.109.1
 
 - Route Topiary's mhcgnomes allele-name canonicalization through one
