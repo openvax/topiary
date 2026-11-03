@@ -1743,7 +1743,7 @@ class CachedPredictor:
         When ``predictor_version`` is omitted, the version string is
         parsed from the stdout preamble (e.g. ``"4.1b"``).
         """
-        from mhctools.parsing import parse_netmhcpan_to_preds  # type: ignore[import-untyped]
+        from mhctools.parsing import parse_netmhcpan_to_preds
         text = _read_text(path)
         if predictor_version is None:
             predictor_version = _version_from_header(text) or "unknown"
@@ -1774,7 +1774,7 @@ class CachedPredictor:
 
         ``version`` selects the parser: ``"3"``, ``"4"``, or ``"4.1"``.
         """
-        from mhctools import parsing as _p  # type: ignore[import-untyped]
+        from mhctools import parsing as _p
         parsers = {
             "3": _p.parse_netmhc3_stdout,
             "4": _p.parse_netmhc4_stdout,

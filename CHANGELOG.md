@@ -7,6 +7,14 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.110.1
+
+- Make the mypy gate less brittle. `mypy` and `pandas-stubs` are pinned to
+  compatible ranges (`>=2.4,<3`, `>=3,<4`) instead of exact versions, so the
+  stubs track the pandas range CI tests. The untyped `mhcgnomes` and `mhctools`
+  imports are declared once in a `[[tool.mypy.overrides]]` table instead of
+  four inline `# type: ignore[import-untyped]` comments. No runtime change.
+
 ## 5.110.0
 
 - Add `select_cleavage_sites` and `cleavage_interval_coverage` for the table
