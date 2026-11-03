@@ -5,7 +5,7 @@ from copy import deepcopy
 from typing import Any
 
 import pandas as pd
-from mhctools import CleavageResult  # type: ignore[import-untyped]
+from mhctools import CleavageResult
 
 from .serialization import normalize_python_types
 

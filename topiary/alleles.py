@@ -4,7 +4,7 @@ All parsing is delegated to mhcgnomes; this module only fixes the two
 policies Topiary needs, so they are not re-spelled at every call site.
 """
 
-import mhcgnomes  # type: ignore[import-untyped]  # Upstream does not publish types.
+import mhcgnomes
 
 
 def canonical_allele_name(value):

@@ -61,3 +61,9 @@ check_untyped_defs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_optional = true
+
+# mhcgnomes and mhctools do not publish type information. Declared once here
+# so import sites stay free of per-line ignores.
+[[tool.mypy.overrides]]
+module = ["mhcgnomes", "mhcgnomes.*", "mhctools", "mhctools.*"]
+ignore_missing_imports = true
