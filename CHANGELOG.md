@@ -17,11 +17,12 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   becomes `models=[NetMHCpan(alleles=...)]`, since mhctools' `NetMHCpan` is a
   version-selecting factory function rather than a class; the quickstart's
   multi-model ranking reads presentation through `peptide_view(...)` and names
-  the model, which is what the predictor asks for; `--filter-by` in the
-  command-line guide uses `variant_num_alt_reads`, the column Topiary actually
-  creates, not `variant_n_alt`; `SelfProteome.from_ensembl` examples pass the
-  required `release=`; allele arguments containing `*` are quoted so the
-  commands survive a shell that globs.
+  the model, which is what the predictor asks for; the command-line guide's
+  `--variant-expression isovar.tsv` example filters on `variant_num_alt_reads`,
+  the column Isovar's `num_alt_reads` becomes (`variant_n_alt` exists only when
+  the input file has an `n_alt` column); `SelfProteome.from_ensembl` examples
+  pass the required `release=`; allele arguments containing `*` are quoted so
+  the commands survive a shell that globs.
 
 ## 5.109.1
 
