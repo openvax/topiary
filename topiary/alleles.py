@@ -60,7 +60,7 @@ Not checked
 import functools
 import logging
 
-import mhcgnomes  # type: ignore[import-untyped]  # Upstream does not publish types.
+import mhcgnomes
 import pandas as pd
 from mhcgnomes.allele_annotations import annotation_descriptions
 
