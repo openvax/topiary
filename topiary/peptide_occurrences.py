@@ -2,7 +2,7 @@
 
 import numpy as np
 import pandas as pd
-import mhcgnomes
+from .alleles import canonical_allele_name
 
 from .predictor import from_predictions
 from .prediction_batch import predict_with_cache_miss_report
@@ -91,7 +91,7 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
     if not support or any(spec.get("mhc_dependence") not in {"none", "single_allele", "haplotype"}
                           for spec in support.values()):
         raise ValueError("Model must declare MHC dependence for every prediction kind")
-    alleles = sorted({mhcgnomes.parse(str(allele)).to_string()
+    alleles = sorted({canonical_allele_name(allele)
                       for allele in (getattr(model, "alleles", ()) or ())})
     if any(spec["mhc_dependence"] != "none" for spec in support.values()) and not alleles:
         raise ValueError("Allele-dependent models require configured alleles")
@@ -126,7 +126,7 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
                     "Flank-dependent comparator prediction requires both flanks or its own source sequence and offset")
     genotypes = frame.get("allele_set", pd.Series(None, index=frame.index, dtype=object)).map(
         lambda value: "" if pd.isna(value) else format_allele_set(
-            mhcgnomes.parse(name).to_string() for name in split_allele_set(value)))
+            canonical_allele_name(name) for name in split_allele_set(value)))
     if any(spec["mhc_dependence"] == "haplotype" for spec in support.values()):
         if any(genotype and genotype != format_allele_set(alleles) for genotype in genotypes):
             raise ValueError("Haplotype occurrence allele_set must match the configured model")
@@ -167,7 +167,7 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
         if not predicted.kind.isin(support).all():
             raise ValueError("Model returned an undeclared prediction kind")
         predicted["allele"] = predicted.allele.map(
-            lambda value: mhcgnomes.parse(str(value)).to_string() if isinstance(value, str) and value.strip() else "")
+            lambda value: canonical_allele_name(value) if isinstance(value, str) and value.strip() else "")
         for peptide in peptides:
             for kind, spec in support.items():
                 rows = predicted[predicted.peptide.eq(peptide) & predicted.kind.eq(kind)]
@@ -200,7 +200,7 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
             reported = predicted.loc[predicted.prediction_mhc_dependence.eq("haplotype"), "allele_set"]
             if any(value and value != format_allele_set(alleles)
                    for value in reported.map(lambda value: "" if pd.isna(value) else format_allele_set(
-                       mhcgnomes.parse(name).to_string() for name in split_allele_set(value)))):
+                       canonical_allele_name(name) for name in split_allele_set(value)))):
                 raise ValueError("Returned haplotype allele_set differs from the configured model")
         predicted["allele_set"] = np.where(predicted.prediction_mhc_dependence.eq("haplotype"),
                                            format_allele_set(alleles), genotype)
