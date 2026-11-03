@@ -11,6 +11,7 @@ import pytest
 import topiary
 from topiary.alleles import (
     AlleleError,
+    allele_chains,
     allele_expression_caveats,
     allele_rejection_reason,
     canonical_allele_name,
@@ -54,6 +55,13 @@ ACCEPTED = [
     ("88*001:01", "DLA-88*001:01"),  # only dogs have an 88 gene
     ("Mamu-A1*001:01", "Mamu-A1*001:01"),
     ("BoLA-T2C", "BoLA-T2c"),  # AlleleWithoutGene: a named molecule
+    # mhcgnomes returns an Allele for groups and for NetMHC's short macaque
+    # names alike and does not yet say which is which (pirl-unc/mhcgnomes#215),
+    # so Topiary accepts both rather than guess from the number of fields.
+    ("A*02", "HLA-A*02"),
+    ("HLA-DRB1*04", "HLA-DRB1*04"),
+    ("Mamu-A01", "Mamu-A*01"),
+    ("HLA-DRA*01/DRB1*04:01", "HLA-DRA*01/DRB1*04:01"),
 ]
 
 
@@ -91,24 +99,22 @@ REJECTED = [
     ("Kb", None, r"could not parse 'Kb'.*read as human.*with its prefix.*species="),
     ("A1*001:01", None, r"could not parse 'A1\*001:01'.*read as human"),
     ("A2", mhcgnomes.Serotype,
-     r"^'A2' is a serotype \(HLA-A2\), not an allele; give one of its \d+ alleles, such as HLA-A\*02:01"),
-    ("Cw7", mhcgnomes.Serotype, r"^'Cw7' is a serotype \(HLA-Cw7\), not an allele; .*HLA-C\*07"),
-    ("A02", mhcgnomes.Supertype, r"^'A02' is a supertype \(HLA A02 supertype\), not an allele"),
-    ("H2-b", mhcgnomes.Haplotype, r"^'H2-b' is a haplotype \(H2-b\), not an allele; give one of its"),
-    ("SahaI*49/82", mhcgnomes.AmbiguousAlleles, r"is an ambiguous set of alleles"),
-    ("HLA-A", mhcgnomes.Gene, r"^'HLA-A' is a gene \(HLA-A\), not an allele; give one specific allele, such as HLA-A\*02:01$"),
-    ("HLA-DR", mhcgnomes.Class2Locus, r"^'HLA-DR' is a class II locus \(HLA-DR\), not an allele"),
-    ("class I", mhcgnomes.MhcClass, r"^'class I' is an MHC class \(human class I\), not an allele"),
-    ("HLA", mhcgnomes.Species, r"^'HLA' is a species \(HLA\), not an allele"),
-    ("A*02", mhcgnomes.Allele, r"^'A\*02' is the allele group HLA-A\*02 \(one field\) rather than a specific allele"),
-    ("HLA-DRB1*04", mhcgnomes.Allele, r"is the allele group HLA-DRB1\*04 \(one field\)"),
-    ("Mamu-A01", mhcgnomes.Allele, r"is the allele group Mamu-A\*01 \(one field\)"),
+     r"^'A2' parses as the mhcgnomes Serotype HLA-A2, not an allele; give one of its \d+ alleles, such as HLA-A\*02:01"),
+    ("Cw7", mhcgnomes.Serotype, r"^'Cw7' parses as the mhcgnomes Serotype HLA-Cw7, not an allele; .*HLA-C\*07"),
+    ("A02", mhcgnomes.Supertype, r"^'A02' parses as the mhcgnomes Supertype HLA A02 supertype, not an allele"),
+    ("H2-b", mhcgnomes.Haplotype, r"^'H2-b' parses as the mhcgnomes Haplotype H2-b, not an allele; give one of its"),
+    ("SahaI*49/82", mhcgnomes.AmbiguousAlleles, r"parses as the mhcgnomes AmbiguousAlleles"),
+    ("HLA-A", mhcgnomes.Gene,
+     r"^'HLA-A' parses as the mhcgnomes Gene HLA-A, not an allele; give one specific allele, such as HLA-A\*02:01$"),
+    ("H-2-Qa1", mhcgnomes.Gene, r"^'H-2-Qa1' parses as the mhcgnomes Gene H2-T23, not an allele"),  # pirl-unc/mhcgnomes#190
+    ("HLA-DR", mhcgnomes.Class2Locus, r"^'HLA-DR' parses as the mhcgnomes Class2Locus HLA-DR, not an allele"),
+    ("class I", mhcgnomes.MhcClass, r"^'class I' parses as the mhcgnomes MhcClass human class I, not an allele"),
+    ("HLA", mhcgnomes.Species, r"^'HLA' parses as the mhcgnomes Species HLA, not an allele"),
     ("HLA-A*02:01N", mhcgnomes.Allele, r"^'HLA-A\*02:01N' is the null allele HLA-A\*02:01N, which is not expressed"),
     ("HLA-DQA1*01:01/DQB1*06:02N", mhcgnomes.Pair, r"contains the null allele HLA-DQB1\*06:02N"),
     ("HLA-A*02:01/HLA-A*02:02", mhcgnomes.Pair,
      r"pairs HLA-A\*02:01 with HLA-A\*02:02, which is not a class II alpha/beta heterodimer"),
     ("HLA-DRB1*01:01/DRA*01:01", mhcgnomes.Pair, r"pairs HLA-DRB1\*01:01 with HLA-DRA\*01:01"),
-    ("HLA-DRA*01/DRB1*04:01", mhcgnomes.Pair, r"contains the allele group HLA-DRA\*01 \(one field\)"),
 ]
 
 
@@ -154,6 +160,14 @@ def test_rejection_reason_examples_come_from_the_serotype_members():
     assert serotype.alleles[0].to_string() in reason
 
 
+def test_allele_chains_lists_single_chain_alleles():
+    pair = mhcgnomes.parse("HLA-DQA1*01:01/DQB1*06:02")
+    assert [chain.to_string() for chain in allele_chains(pair)] == ["HLA-DQA1*01:01", "HLA-DQB1*06:02"]
+    assert [chain.to_string() for chain in allele_chains(mhcgnomes.parse("HLA-A*02:01"))] == ["HLA-A*02:01"]
+    for value in ("BoLA-T2C", "A2", "HLA-A"):
+        assert allele_chains(mhcgnomes.parse(value)) == ()
+
+
 # Species handling.
 
 @pytest.mark.parametrize("value,species,expected", [
@@ -174,7 +188,7 @@ def test_species_rejects_a_name_whose_prefix_says_otherwise():
 
 
 def test_species_still_rejects_non_alleles():
-    with pytest.raises(AlleleError, match=r"is a serotype"):
+    with pytest.raises(AlleleError, match=r"parses as the mhcgnomes Serotype"):
         parse_allele("A2", species="HLA")
 
 
@@ -194,17 +208,18 @@ def test_no_species_hint_once_a_species_is_given():
 
 # Expression annotations.
 
-@pytest.mark.parametrize("value,code", [
-    ("HLA-A*24:02:01:02L", "L"),
-    ("HLA-A*32:11Q", "Q"),
-    ("HLA-A*02:01S", "S"),
-    ("HLA-A*02:01C", "C"),
-    ("HLA-A*02:01A", "A"),
-    ("HLA-A*02:01Ps", "Ps"),
+@pytest.mark.parametrize("value,meaning", [
+    ("HLA-A*24:02:01:02L", "low cell-surface expression"),
+    ("HLA-A*32:11Q", "questionable expression"),
+    ("HLA-A*02:01S", "secreted as a soluble molecule"),
+    ("HLA-A*02:01C", "present in the cytoplasm"),
+    ("HLA-A*02:01A", "aberrant expression"),
+    ("HLA-A*02:01Ps", "a pseudogene"),
+    ("HLA-H*01:01", "a pseudogene"),  # no annotation: mhcgnomes curates HLA-H as a pseudogene
 ])
-def test_expression_caveats_name_the_allele_and_annotation(value, code):
+def test_expression_caveats_name_the_allele_and_what_mhcgnomes_flags(value, meaning):
     (caveat,) = allele_expression_caveats(mhcgnomes.parse(value))
-    assert caveat.startswith(f"{mhcgnomes.parse(value).to_string()}, annotated {code} (")
+    assert caveat.startswith(f"{mhcgnomes.parse(value).to_string()}: {meaning}")
 
 
 def test_group_annotations_and_plain_alleles_have_no_caveats():
@@ -214,7 +229,7 @@ def test_group_annotations_and_plain_alleles_have_no_caveats():
 
 def test_pair_caveats_cover_both_chains():
     caveats = allele_expression_caveats(mhcgnomes.parse("HLA-DQA1*01:01L/DQB1*06:02Q"))
-    assert [caveat.split(",")[0] for caveat in caveats] == ["HLA-DQA1*01:01L", "HLA-DQB1*06:02Q"]
+    assert [caveat.split(": ")[0] for caveat in caveats] == ["HLA-DQA1*01:01L", "HLA-DQB1*06:02Q"]
 
 
 def test_an_annotated_allele_is_accepted_with_one_warning_per_process(caplog):
@@ -222,7 +237,7 @@ def test_an_annotated_allele_is_accepted_with_one_warning_per_process(caplog):
         for _ in range(3):
             assert canonical_allele_name("HLA-A*24:02:01:02L") == "HLA-A*24:02:01:02L"
     assert len(caplog.records) == 1
-    assert "HLA-A*24:02:01:02L, annotated L (low cell-surface expression)" in caplog.text
+    assert "HLA-A*24:02:01:02L: low cell-surface expression" in caplog.text
 
 
 def test_log_allele_caveat_once_logs_each_caveat_once(caplog):
@@ -246,7 +261,7 @@ def test_names_or_raw_keeps_rejected_values_and_warns_once_per_distinct_value(ca
     messages = [record.getMessage() for record in caplog.records]
     assert len(messages) == 3
     assert all(message.startswith("Allele value kept as given: ") for message in messages)
-    assert "'A2' is a serotype (HLA-A2)" in messages[0]
+    assert "'A2' parses as the mhcgnomes Serotype HLA-A2" in messages[0]
     assert "'HLA-A*02:01N' is the null allele" in messages[1]
     assert "could not parse 'not an allele'" in messages[2]
 

@@ -3,6 +3,7 @@ from .serialization import normalize_python_types
 from .report_geometry import map_peptide_intervals, mutation_intervals_from_positions
 from .alleles import (
     AlleleError,
+    allele_chains,
     allele_expression_caveats,
     allele_rejection_reason,
     canonical_allele_name,
@@ -386,6 +387,7 @@ __all__ = [
     "median",
     "minimum",
     "AlleleError",
+    "allele_chains",
     "allele_expression_caveats",
     "allele_rejection_reason",
     "canonical_allele_name",

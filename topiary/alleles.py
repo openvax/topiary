@@ -1,55 +1,50 @@
 """MHC allele parsing and canonical names for Topiary.
 
 Every allele name Topiary compares, caches or reports goes through this
-module. Parsing is delegated to mhcgnomes. What this module adds is the
-decision of which mhcgnomes results count as one allele, because
+module. mhcgnomes does the parsing and owns the nomenclature; this module
+only decides which kinds of mhcgnomes result Topiary treats as one allele.
 ``mhcgnomes.parse`` succeeds on many inputs that are not alleles: ``"A2"``
-is the serotype HLA-A2, ``"HLA-A"`` is a gene, ``"A*02"`` is the allele
-group HLA-A*02 and ``"HLA-A*02:01/HLA-A*02:02"`` is a "pair" of two class I
-alleles. Taking the canonical spelling of such a result produced a name
-that looked like an allele and was not one.
+is the serotype HLA-A2, ``"HLA-A"`` is a gene and
+``"HLA-A*02:01/HLA-A*02:02"`` is a "pair" of two class I alleles. Taking
+the canonical spelling of such a result produced a name that looked like an
+allele and was not one.
 
 Accepted
 --------
-- An ``Allele`` with at least two fields (``HLA-A*02:01``), or a
-  letter-named allele whose one field names the molecule (mouse
-  ``H2-K*b``, rat ``RT1-A*a``, ``SLA-1*CDY``).
-- A ``Pair`` that is a class II alpha/beta heterodimer
-  (``HLA-DQA1*01:01/DQB1*06:02``), each chain held to the rules above.
-- An ``AlleleWithoutGene``: mhcgnomes returns it only for curated names of
-  specific molecules whose gene is unassigned, such as ``BoLA-T2c``, which
-  NetMHCpan predicts for.
+- An ``Allele`` or ``AlleleWithoutGene`` (``HLA-A*02:01``, ``H2-K*b``,
+  ``BoLA-T2c``).
+- A ``Pair`` whose chains mhcgnomes marks as a class II alpha and a class II
+  beta (``HLA-DQA1*01:01/DQB1*06:02``).
 
 Rejected, with :class:`AlleleError`
 -----------------------------------
 - A missing value, a non-string, or a string mhcgnomes cannot parse.
 - Any other mhcgnomes result: serotype, supertype, haplotype, ambiguous
   alleles, gene, class II locus, MHC class or species.
-- An allele group: one numeric field (``HLA-A*02``, ``HLA-DRB1*04``). In
-  IPD-IMGT/HLA and IPD-MHC numbering the first field alone names a group
-  of proteins; the second field names one. Legacy one-number names such
-  as ``Mamu-A*01`` fall under this rule too; write the current two-field
-  name (``Mamu-A1*001:01``).
-- A null allele (``N``): it is not expressed, so binding predictions for it
-  are meaningless.
-- A ``Pair`` that is not an alpha/beta heterodimer, including a beta chain
-  written first.
+- An allele mhcgnomes marks as null (``annotation_null``): it is not
+  expressed, so binding predictions for it are meaningless.
+- A ``Pair`` that is not a class II alpha/beta heterodimer, including a
+  beta chain written first.
 
-Annotations
------------
-``L``, ``Q``, ``S``, ``C``, ``A`` and ``Ps`` are accepted with a logged
-warning (see :data:`EXPRESSION_CAVEATS`): the molecule exists, so a binding
-prediction is well defined, but whether it reaches the cell surface is
-reduced, uncertain or ruled out. ``G`` and ``P`` groups are accepted
-without comment: they group alleles that share a peptide-binding domain,
-which is what a binding prediction depends on.
+Expression caveats
+------------------
+An allele mhcgnomes flags for low, questionable or aberrant expression, as
+secreted or cytoplasmic, or as a pseudogene (by annotation or because its
+gene is curated as one) is accepted with a warning logged once per process:
+the molecule exists, so a binding prediction is well defined, but it may
+present little or nothing on the cell surface.
 
 Not checked
 -----------
-Whether the allele exists (mhcgnomes parses ``HLA-A*99:99``), and whether a
-given predictor supports it; the predictor answers that. A class II beta
-chain alone (``HLA-DQB1*06:02``) stays a single-chain allele: no alpha
-chain is inferred.
+- Whether an allele names one molecule or a group of them. mhcgnomes
+  returns an ``Allele`` both for the allele group ``HLA-A*02`` and for
+  NetMHC's ``Mamu-A01``, which names one molecule, and does not yet say
+  which is which (pirl-unc/mhcgnomes#215, #216). Topiary does not guess
+  from the number of fields.
+- Whether the allele exists (mhcgnomes parses ``HLA-A*99:99``), and whether
+  a given predictor supports it; the predictor answers that.
+- A class II beta chain alone (``HLA-DQB1*06:02``) stays a single-chain
+  allele: no alpha chain is inferred.
 """
 
 import functools
@@ -66,37 +61,20 @@ EXAMPLE_ALLELE = "HLA-A*02:01"
 #: A class II alpha/beta pair, shown in messages as an example.
 EXAMPLE_CLASS2_PAIR = "HLA-DQA1*01:01/DQB1*06:02"
 
-#: mhcgnomes result types that are not one allele, with what each is called
-#: in an error message. Checked in order with ``isinstance``.
-NON_ALLELE_KINDS = (
-    (mhcgnomes.Serotype, "a serotype"),
-    (mhcgnomes.Supertype, "a supertype"),
-    (mhcgnomes.Haplotype, "a haplotype"),
-    (mhcgnomes.AmbiguousAlleles, "an ambiguous set of alleles"),
-    (mhcgnomes.Gene, "a gene"),
-    (mhcgnomes.Class2Locus, "a class II locus"),
-    (mhcgnomes.MhcClass, "an MHC class"),
-    (mhcgnomes.Species, "a species"),
-)
+#: The mhcgnomes result types that can name one allele. ``mhcgnomes.parse``
+#: returns other types too (serotype, gene, haplotype, ...); those are refused.
+ALLELE_RESULT_TYPES = (mhcgnomes.Allele, mhcgnomes.AlleleWithoutGene, mhcgnomes.Pair)
 
-#: The non-allele result types that list their member alleles in ``.alleles``.
-MULTI_ALLELE_TYPES = (
-    mhcgnomes.Serotype,
-    mhcgnomes.Supertype,
-    mhcgnomes.Haplotype,
-    mhcgnomes.AmbiguousAlleles,
-)
-
-#: Allele-name annotations accepted with a logged warning, and what each
-#: means (IPD-IMGT/HLA and IPD-MHC nomenclature). The null annotation ``N``
-#: is not here: a null allele is rejected.
+#: The mhcgnomes allele properties that put cell-surface expression in doubt,
+#: with what each means for the logged warning. mhcgnomes sets the flags but
+#: does not yet describe them (pirl-unc/mhcgnomes#217).
 EXPRESSION_CAVEATS = {
-    "L": "low cell-surface expression",
-    "Q": "questionable expression",
-    "S": "secreted as a soluble molecule, not on the cell surface",
-    "C": "present in the cytoplasm, not on the cell surface",
-    "A": "aberrant expression",
-    "Ps": "a pseudogene",
+    "annotation_low_expression": "low cell-surface expression",
+    "annotation_questionable": "questionable expression",
+    "annotation_secreted": "secreted as a soluble molecule, not on the cell surface",
+    "annotation_cystosolic": "present in the cytoplasm, not on the cell surface",
+    "annotation_aberrant_expression": "aberrant expression",
+    "is_pseudogene": "a pseudogene",
 }
 
 
@@ -137,6 +115,28 @@ class AlleleError(ValueError):
         return (type(self), (str(self), self.value))
 
 
+def allele_chains(parsed):
+    """List the single-chain alleles in an mhcgnomes result.
+
+    Parameters
+    ----------
+    parsed : mhcgnomes.Result
+        Anything ``mhcgnomes.parse`` returns.
+
+    Returns
+    -------
+    tuple of mhcgnomes.Allele
+        ``(alpha, beta)`` for a ``Pair``, ``(parsed,)`` for an ``Allele``,
+        and empty for anything else, including ``AlleleWithoutGene``, which
+        carries no annotations.
+    """
+    if isinstance(parsed, mhcgnomes.Pair):
+        return (parsed.alpha, parsed.beta)
+    if isinstance(parsed, mhcgnomes.Allele):
+        return (parsed,)
+    return ()
+
+
 def allele_rejection_reason(parsed):
     """Say why an mhcgnomes result is not one specific allele.
 
@@ -150,50 +150,37 @@ def allele_rejection_reason(parsed):
     str or None
         None when *parsed* is a usable allele (see the module docstring for
         the rules). Otherwise a clause that completes a sentence about the
-        input and suggests what to write instead, such as ``"is a serotype
-        (HLA-A2), not an allele; give one of its 47 alleles, such as
-        HLA-A*02:01, ..."``. :func:`parse_allele` puts the input in front.
+        input and suggests what to write instead, such as ``"parses as the
+        mhcgnomes Serotype HLA-A2, not an allele; give one of its 47
+        alleles, such as HLA-A*02:01, ..."``. :func:`parse_allele` puts the
+        input in front.
     """
-    if isinstance(parsed, mhcgnomes.AlleleWithoutGene):
-        return None
-    if isinstance(parsed, mhcgnomes.Allele):
-        chains, verb = (parsed,), "is"
-    elif isinstance(parsed, mhcgnomes.Pair):
-        if not (parsed.alpha.is_class2_alpha and parsed.beta.is_class2_beta):
-            return (
-                f"pairs {parsed.alpha.to_string()} with {parsed.beta.to_string()}, "
-                f"which is not a class II alpha/beta heterodimer; give one allele, "
-                f"or a class II pair written alpha/beta such as {EXAMPLE_CLASS2_PAIR}"
-            )
-        chains, verb = (parsed.alpha, parsed.beta), "contains"
-    else:
-        kind = next(
-            (label for result_type, label in NON_ALLELE_KINDS if isinstance(parsed, result_type)),
-            f"a {type(parsed).__name__}",
-        )
-        if isinstance(parsed, MULTI_ALLELE_TYPES) and parsed.alleles:
-            examples = ", ".join(allele.to_string() for allele in parsed.alleles[:3])
-            advice = f"give one of its {len(parsed.alleles)} alleles, such as {examples}"
+    if not isinstance(parsed, ALLELE_RESULT_TYPES):
+        members = getattr(parsed, "alleles", None) or ()
+        if members:
+            examples = ", ".join(allele.to_string() for allele in members[:3])
+            advice = f"give one of its {len(members)} alleles, such as {examples}"
         else:
             advice = f"give one specific allele, such as {EXAMPLE_ALLELE}"
-        return f"is {kind} ({parsed.to_string()}), not an allele; {advice}"
-    for chain in chains:
-        name = chain.to_string()
+        return f"parses as the mhcgnomes {type(parsed).__name__} {parsed.to_string()}, not an allele; {advice}"
+    if isinstance(parsed, mhcgnomes.Pair) and not (parsed.alpha.is_class2_alpha and parsed.beta.is_class2_beta):
+        return (
+            f"pairs {parsed.alpha.to_string()} with {parsed.beta.to_string()}, "
+            f"which is not a class II alpha/beta heterodimer; give one allele, "
+            f"or a class II pair written alpha/beta such as {EXAMPLE_CLASS2_PAIR}"
+        )
+    verb = "contains" if isinstance(parsed, mhcgnomes.Pair) else "is"
+    for chain in allele_chains(parsed):
         if chain.annotation_null:
             return (
-                f"{verb} the null allele {name}, which is not expressed, "
+                f"{verb} the null allele {chain.to_string()}, which is not expressed, "
                 f"so binding predictions for it are meaningless"
-            )
-        if len(chain.allele_fields) == 1 and chain.allele_fields[0].isdigit():
-            return (
-                f"{verb} the allele group {name} (one field) rather than a specific "
-                f"allele; give at least two fields, such as {EXAMPLE_ALLELE} rather than HLA-A*02"
             )
     return None
 
 
 def allele_expression_caveats(parsed):
-    """List what an allele's annotations say about its expression.
+    """List what mhcgnomes says puts an allele's surface expression in doubt.
 
     Parameters
     ----------
@@ -203,23 +190,17 @@ def allele_expression_caveats(parsed):
     Returns
     -------
     tuple of str
-        One entry per annotation in :data:`EXPRESSION_CAVEATS` on the allele
-        or on either chain of a pair, such as ``"HLA-A*24:02:01:02L,
-        annotated L (low cell-surface expression)"``. Empty for an
-        unannotated allele and for anything that is not an Allele or Pair.
+        One entry per flag in :data:`EXPRESSION_CAVEATS` that mhcgnomes sets
+        on the allele or on either chain of a pair, such as
+        ``"HLA-A*24:02:01:02L: low cell-surface expression"``. Empty for an
+        unflagged allele and for anything that is not an Allele or Pair.
     """
-    if isinstance(parsed, mhcgnomes.Pair):
-        chains = (parsed.alpha, parsed.beta)
-    elif isinstance(parsed, mhcgnomes.Allele):
-        chains = (parsed,)
-    else:
-        chains = ()
-    caveats = []
-    for chain in chains:
-        for code in chain.annotations:
-            if code in EXPRESSION_CAVEATS:
-                caveats.append(f"{chain.to_string()}, annotated {code} ({EXPRESSION_CAVEATS[code]})")
-    return tuple(caveats)
+    return tuple(
+        f"{chain.to_string()}: {description}"
+        for chain in allele_chains(parsed)
+        for flag, description in EXPRESSION_CAVEATS.items()
+        if getattr(chain, flag)
+    )
 
 
 @functools.cache

@@ -15,9 +15,9 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   class II `Pair` or `AlleleWithoutGene`, and raises `AlleleError` (a
   `ValueError`) with a message naming the input, what it parsed as and
   why it was refused. `canonical_allele_name` is `parse_allele(...)`'s
-  canonical name. Also exported: `AlleleError`, `allele_rejection_reason`
-  and `allele_expression_caveats`. The rules are in the `topiary.alleles`
-  module docstring.
+  canonical name. Also exported: `AlleleError`, `allele_rejection_reason`,
+  `allele_expression_caveats` and `allele_chains`. The rules are in the
+  `topiary.alleles` module docstring.
 - Behavior changes in every strict caller (the `CachedPredictor.alleles`
   setter, `HistoricalPredictor`, `predict_peptide_occurrences`,
   `validate_protein_predictions`, `prediction_mhc_scope`,
@@ -28,15 +28,23 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
     ambiguous set, gene (`HLA-A`), class II locus (`HLA-DR`), MHC class or
     species now raises `AlleleError`; it used to become a name such as
     `HLA-A2`. The message lists some of a serotype's member alleles.
-  - An allele group with one numeric field (`A*02`, `HLA-DRB1*04`, and
-    legacy one-number names such as `Mamu-A01`) now raises. Letter-named
-    alleles (`H2-K*b`, `RT1-A*a`) are unaffected.
   - A null allele (`HLA-A*02:01N`, or a pair with a null chain) now raises.
+  - Allele groups (`HLA-A*02`) are still accepted: mhcgnomes returns an
+    `Allele` for them, as it does for retired one-number names of specific
+    molecules such as `Mamu-A01`, and does not yet say which is which
+    (pirl-unc/mhcgnomes#215, #216). Topiary will refuse groups once
+    mhcgnomes marks them, rather than guess from the number of fields.
+  - `H-2-Qa1` and `H-2-Qa2`, which NetMHCpan 4.1 and 4.2 list, are genes to
+    mhcgnomes (`H2-T23`, `H2-Q7`) and now raise, including when they come
+    from a NetMHCpan cache; so does `Mamu-B17`. Topiary follows mhcgnomes
+    here rather than special-casing them (pirl-unc/mhcgnomes#190, #216).
   - A `Pair` that is not a class II alpha/beta heterodimer
     (`HLA-A*02:01/HLA-A*02:02`, or a beta chain written first) now raises.
-  - `L`, `Q`, `S`, `C`, `A` and `Ps` alleles are still accepted, with one
-    logged warning per allele per process. `G` and `P` groups are accepted
-    silently.
+  - Alleles mhcgnomes flags for low, questionable or aberrant expression,
+    as secreted or cytoplasmic, or as a pseudogene (by `Ps` annotation or
+    because mhcgnomes curates the gene as one, such as `HLA-H`) are still
+    accepted, with one logged warning per allele per process. `G` and `P`
+    groups are accepted silently.
   - A missing value (None, NaN, `pd.NA`, blank, `"nan"`) or a non-string
     now raises `AlleleError` instead of being stringified and failing as
     `Could not parse 'nan'`. Unparseable strings raise `AlleleError`
@@ -45,7 +53,7 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
     human.
 - `canonical_allele_names_or_raw` (the pVACseq and LENS readers) keeps
   passing values that are not one allele through unchanged, now including
-  serotypes, allele groups and null alleles (which used to be rewritten,
+  serotypes, genes and null alleles (which used to be rewritten,
   e.g. `A2` to `HLA-A2`), and logs one warning per distinct such value
   with the reason. It catches only `AlleleError`.
 - `canonical_allele_name`, `parse_allele` and

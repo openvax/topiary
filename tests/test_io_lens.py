@@ -154,7 +154,7 @@ class TestAlleles:
         assert alleles[alleles.ne("HLA-A02")].map(lambda a: "*" in a).all()
         messages = [record.getMessage() for record in caplog.records if record.name == "topiary.alleles"]
         assert len(messages) == 1
-        assert "'HLA-A02' is a supertype (HLA A02 supertype), not an allele" in messages[0]
+        assert "'HLA-A02' parses as the mhcgnomes Supertype HLA A02 supertype, not an allele" in messages[0]
 
 
 # ---------------------------------------------------------------------------
