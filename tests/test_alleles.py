@@ -219,7 +219,7 @@ def test_no_species_hint_once_a_species_is_given():
 ])
 def test_expression_caveats_name_the_allele_and_what_mhcgnomes_flags(value, meaning):
     (caveat,) = allele_expression_caveats(mhcgnomes.parse(value))
-    assert caveat.startswith(f"{mhcgnomes.parse(value).to_string()}: {meaning}")
+    assert caveat.startswith(f"{mhcgnomes.parse(value).to_string()} ({meaning}")
 
 
 def test_group_annotations_and_plain_alleles_have_no_caveats():
@@ -229,7 +229,7 @@ def test_group_annotations_and_plain_alleles_have_no_caveats():
 
 def test_pair_caveats_cover_both_chains():
     caveats = allele_expression_caveats(mhcgnomes.parse("HLA-DQA1*01:01L/DQB1*06:02Q"))
-    assert [caveat.split(": ")[0] for caveat in caveats] == ["HLA-DQA1*01:01L", "HLA-DQB1*06:02Q"]
+    assert [caveat.split(" (")[0] for caveat in caveats] == ["HLA-DQA1*01:01L", "HLA-DQB1*06:02Q"]
 
 
 def test_an_annotated_allele_is_accepted_with_one_warning_per_process(caplog):
@@ -237,7 +237,7 @@ def test_an_annotated_allele_is_accepted_with_one_warning_per_process(caplog):
         for _ in range(3):
             assert canonical_allele_name("HLA-A*24:02:01:02L") == "HLA-A*24:02:01:02L"
     assert len(caplog.records) == 1
-    assert "HLA-A*24:02:01:02L: low cell-surface expression" in caplog.text
+    assert "HLA-A*24:02:01:02L (low cell-surface expression)" in caplog.text
 
 
 def test_log_allele_caveat_once_logs_each_caveat_once(caplog):

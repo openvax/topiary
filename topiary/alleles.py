@@ -192,11 +192,11 @@ def allele_expression_caveats(parsed):
     tuple of str
         One entry per flag in :data:`EXPRESSION_CAVEATS` that mhcgnomes sets
         on the allele or on either chain of a pair, such as
-        ``"HLA-A*24:02:01:02L: low cell-surface expression"``. Empty for an
+        ``"HLA-A*24:02:01:02L (low cell-surface expression)"``. Empty for an
         unflagged allele and for anything that is not an Allele or Pair.
     """
     return tuple(
-        f"{chain.to_string()}: {description}"
+        f"{chain.to_string()} ({description})"
         for chain in allele_chains(parsed)
         for flag, description in EXPRESSION_CAVEATS.items()
         if getattr(chain, flag)
