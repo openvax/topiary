@@ -42,7 +42,7 @@ NetMHCpan and the other DTU tools need a license from
 gene lookups and `SelfProteome` need a local Ensembl annotation database:
 
 ```bash
-pyensembl install --release "$(python -c 'from pyensembl import ensembl_grch38; print(ensembl_grch38.release)')" --species human
+pyensembl install --release 115 --species human
 ```
 
 Isovar, PirlyGenes, OncoRef and WEIRDO are installed with Topiary; there are no

@@ -33,7 +33,7 @@ annotation, gene lookups and `SelfProteome` need a local Ensembl annotation
 database:
 
 ```bash
-pyensembl install --release "$(python -c 'from pyensembl import ensembl_grch38; print(ensembl_grch38.release)')" --species human
+pyensembl install --release 115 --species human
 ```
 
 The normal install includes Isovar for RNA-derived protein fragments,

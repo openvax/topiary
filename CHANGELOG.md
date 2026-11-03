@@ -23,6 +23,8 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   the input file has an `n_alt` column); `SelfProteome.from_ensembl` examples
   pass the required `release=`; allele arguments containing `*` are quoted so
   the commands survive a shell that globs.
+- Install Ensembl data with a plain `pyensembl install --release 115 --species human`
+  instead of a nested `python -c` lookup of PyEnsembl's default release.
 
 ## 5.109.1
 

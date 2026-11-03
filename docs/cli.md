@@ -297,10 +297,11 @@ MHC predictors are installed separately and called through
 DTU tools under a license from [DTU Health Tech](https://services.healthtech.dtu.dk/).
 
 Variant annotation, gene lookups and `SelfProteome` need a local Ensembl
-annotation database. Install the release your PyEnsembl selects by default:
+annotation database. Topiary uses PyEnsembl's default GRCh38 release,
+which is Ensembl 115 in PyEnsembl 2.32.3:
 
 ```bash
-pyensembl install --release "$(python -c 'from pyensembl import ensembl_grch38; print(ensembl_grch38.release)')" --species human
+pyensembl install --release 115 --species human
 ```
 
 Installing some other release does not change that default — select it
