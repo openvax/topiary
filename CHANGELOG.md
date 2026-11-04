@@ -7,7 +7,7 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
-## 5.110.2
+## 5.110.3
 
 - Build the CLI parser with mhctools' `add_mhc_args(predictor_required=False)`
   instead of flipping `required` on argparse's private `_actions` list
