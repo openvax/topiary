@@ -143,7 +143,7 @@ def add_cached_predictor_args(arg_parser):
     group.add_argument(
         "--mhc-cache-netmhc-version",
         default="4",
-        choices=("3", "4", "4.1"),
+        choices=("3", "4"),
         help=(
             "NetMHC classic version for 'netmhc' format.  "
             "Default: 4."
