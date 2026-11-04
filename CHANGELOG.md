@@ -19,6 +19,17 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   matching `requires-python` and the CI matrix. Remove the Python 2
   `__future__` imports from `topiary/rna/common.py` and a test.
 
+## 5.110.2
+
+- Fix `CachedPredictor.from_netmhc_stdout` (and `--mhc-cache-format netmhc`)
+  with mhctools 4.5.4 and later, which removed `parse_netmhc41_stdout`.
+  Looking that parser up failed every classic NetMHC load, versions 3 and
+  4 included. The parser read NetMHCpan 4.1 output (and topiary called it
+  without the `mode` it required, so version `"4.1"` never worked), so
+  `version="4.1"` now raises a `ValueError` that points to
+  `from_netmhcpan_stdout`, and `--mhc-cache-netmhc-version` accepts `3`
+  and `4`.
+
 ## 5.110.0
 
 - Add `select_cleavage_sites` and `cleavage_interval_coverage` for the table
