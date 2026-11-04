@@ -21,26 +21,35 @@ Rejected, with :class:`AlleleError`
 - A missing value, a non-string, or a string mhcgnomes cannot parse.
 - Any other mhcgnomes result: serotype, supertype, haplotype, ambiguous
   alleles, gene, class II locus, MHC class or species.
+- An allele mhcgnomes marks as an allele group (``is_allele_group``), such
+  as ``HLA-A*02`` or ``HLA-DRB1*04``, or a pair with such a chain. A group
+  covers many molecules, so a binding prediction for it is not defined.
 - An allele mhcgnomes marks as null (``annotation_null``): it is not
   expressed, so binding predictions for it are meaningless.
 - A ``Pair`` that is not a class II alpha/beta heterodimer, including a
   beta chain written first.
 
+Old names
+---------
+Names are read with mhcgnomes' defaults, which do not resolve old names.
+NetMHC's short macaque names (``Mamu-A01``, ``Mamu-B08``) therefore parse as
+the allele groups ``Mamu-A*01`` and ``Mamu-B*008`` and are refused. The
+error names the allele mhcgnomes resolves the old name to when asked
+(``use_allele_aliases=True``; ``Mamu-A1*001:01``), via
+:func:`resolve_old_allele_name`. Topiary does not resolve old names itself,
+because that would rename alleles it already accepts.
+
 Expression caveats
 ------------------
-An allele mhcgnomes flags for low, questionable or aberrant expression, as
-secreted or cytoplasmic, or as a pseudogene (by annotation or because its
-gene is curated as one) is accepted with a warning logged once per process:
-the molecule exists, so a binding prediction is well defined, but it may
-present little or nothing on the cell surface.
+An allele whose name mhcgnomes says bears on cell-surface expression
+(``cell_surface_expression``: low, uncertain or absent, such as a secreted,
+cytoplasmic or pseudogene allele) is accepted with a warning logged once per
+process, worded with mhcgnomes' meaning of each annotation
+(``annotation_descriptions``). The molecule exists, so a binding prediction
+is well defined, but it may present little or nothing on the cell surface.
 
 Not checked
 -----------
-- Whether an allele names one molecule or a group of them. mhcgnomes
-  returns an ``Allele`` both for the allele group ``HLA-A*02`` and for
-  NetMHC's ``Mamu-A01``, which names one molecule, and does not yet say
-  which is which (pirl-unc/mhcgnomes#215, #216). Topiary does not guess
-  from the number of fields.
 - Whether the allele exists (mhcgnomes parses ``HLA-A*99:99``), and whether
   a given predictor supports it; the predictor answers that.
 - A class II beta chain alone (``HLA-DQB1*06:02``) stays a single-chain
@@ -52,6 +61,7 @@ import logging
 
 import mhcgnomes  # type: ignore[import-untyped]  # Upstream does not publish types.
 import pandas as pd
+from mhcgnomes.allele_annotations import annotation_descriptions
 
 logger = logging.getLogger(__name__)
 
@@ -65,17 +75,10 @@ EXAMPLE_CLASS2_PAIR = "HLA-DQA1*01:01/DQB1*06:02"
 #: returns other types too (serotype, gene, haplotype, ...); those are refused.
 ALLELE_RESULT_TYPES = (mhcgnomes.Allele, mhcgnomes.AlleleWithoutGene, mhcgnomes.Pair)
 
-#: The mhcgnomes allele properties that put cell-surface expression in doubt,
-#: with what each means for the logged warning. mhcgnomes sets the flags but
-#: does not yet describe them (pirl-unc/mhcgnomes#217).
-EXPRESSION_CAVEATS = {
-    "annotation_low_expression": "low cell-surface expression",
-    "annotation_questionable": "questionable expression",
-    "annotation_secreted": "secreted as a soluble molecule, not on the cell surface",
-    "annotation_cystosolic": "present in the cytoplasm, not on the cell surface",
-    "annotation_aberrant_expression": "aberrant expression",
-    "is_pseudogene": "a pseudogene",
-}
+#: How a gene-curated pseudogene (``HLA-H``), which carries no ``Ps``
+#: annotation, is described in an expression caveat: mhcgnomes' own meaning
+#: of the ``Ps`` annotation.
+PSEUDOGENE_DESCRIPTION = annotation_descriptions["Ps"]
 
 
 class AlleleError(ValueError):
@@ -176,11 +179,55 @@ def allele_rejection_reason(parsed):
                 f"{verb} the null allele {chain.to_string()}, which is not expressed, "
                 f"so binding predictions for it are meaningless"
             )
+        if chain.is_allele_group:
+            return (
+                f"{verb} the allele group {chain.to_string()}, not one allele; "
+                f"give one specific allele, such as {EXAMPLE_ALLELE}"
+            )
     return None
 
 
+def resolve_old_allele_name(value, species=None):
+    """Name the allele mhcgnomes resolves an old, group-looking name to.
+
+    Some single molecules have old names that now read as allele groups,
+    such as NetMHC's ``Mamu-A01``, which mhcgnomes parses by default as the
+    group ``Mamu-A*01``. mhcgnomes resolves old names only when asked
+    (``use_allele_aliases=True``). Topiary keeps the default names, since
+    resolving would rename alleles it already accepts, and uses this only to
+    say in an error which allele an old name meant.
+
+    Parameters
+    ----------
+    value : str
+        One allele name as given.
+    species : str, optional
+        The species of *value*; see :func:`parse_allele`.
+
+    Returns
+    -------
+    str or None
+        The canonical name of the allele mhcgnomes resolves *value* to, such
+        as ``"Mamu-A1*001:01"`` for ``"Mamu-A01"``. None unless *value*
+        parses by default as an allele group and, with old names resolved,
+        as an allele this module accepts. Also None when *value* does not
+        parse.
+    """
+    parsed = mhcgnomes.parse(value, species=species, raise_on_error=False)
+    if not isinstance(parsed, mhcgnomes.Allele) or not parsed.is_allele_group:
+        return None
+    resolved = mhcgnomes.parse(value, species=species, use_allele_aliases=True, raise_on_error=False)
+    if resolved is None or allele_rejection_reason(resolved) is not None:
+        return None
+    return resolved.to_string()
+
+
 def allele_expression_caveats(parsed):
-    """List what mhcgnomes says puts an allele's surface expression in doubt.
+    """List the chains whose names mhcgnomes says bear on surface expression.
+
+    Which names count, and what each annotation means, are mhcgnomes'
+    (``cell_surface_expression`` and ``annotation_descriptions``), so the
+    wording follows mhcgnomes rather than a table kept here.
 
     Parameters
     ----------
@@ -190,17 +237,24 @@ def allele_expression_caveats(parsed):
     Returns
     -------
     tuple of str
-        One entry per flag in :data:`EXPRESSION_CAVEATS` that mhcgnomes sets
-        on the allele or on either chain of a pair, such as
-        ``"HLA-A*24:02:01:02L (low cell-surface expression)"``. Empty for an
-        unflagged allele and for anything that is not an Allele or Pair.
+        One entry per allele, or per chain of a pair, whose
+        ``cell_surface_expression`` is not None, naming the allele and what
+        its annotations mean, such as ``"HLA-A*24:02:01:02L (low
+        cell-surface expression)"``. A pseudogene by gene curation, such as
+        ``HLA-H*01:01``, which carries no annotation, is described as
+        :data:`PSEUDOGENE_DESCRIPTION`. Empty for an allele whose name says
+        nothing about expression and for anything that is not an Allele or
+        Pair.
     """
-    return tuple(
-        f"{chain.to_string()} ({description})"
-        for chain in allele_chains(parsed)
-        for flag, description in EXPRESSION_CAVEATS.items()
-        if getattr(chain, flag)
-    )
+    caveats = []
+    for chain in allele_chains(parsed):
+        if chain.cell_surface_expression is None:
+            continue
+        meanings = list(chain.annotation_descriptions.values())
+        if chain.is_pseudogene and not chain.annotation_pseudogene:
+            meanings.append(PSEUDOGENE_DESCRIPTION)
+        caveats.append(f"{chain.to_string()} ({'; '.join(meanings)})")
+    return tuple(caveats)
 
 
 @functools.cache
@@ -253,8 +307,10 @@ def parse_allele(value, species=None):
         If *value* is missing (None, NaN, ``pd.NA``, blank, or text such as
         ``"nan"`` that :func:`topiary.is_stated` reads as missing), is not a
         string, cannot be parsed, or parses as something other than one
-        specific allele (see the module docstring). Each case has its own
-        message naming the input.
+        specific allele, such as an allele group (see the module docstring).
+        Each case has its own message naming the input; for an old name that
+        reads as a group, it also names the allele mhcgnomes resolves it to
+        (:func:`resolve_old_allele_name`).
     ValueError
         If *species* is not one species mhcgnomes knows. This is a mistake in
         the call rather than in the data, so it is not an AlleleError and
@@ -288,7 +344,11 @@ def parse_allele(value, species=None):
         ) from error
     reason = allele_rejection_reason(parsed)
     if reason is not None:
-        raise AlleleError(f"{value!r} {reason}", value, parsed)
+        message = f"{value!r} {reason}"
+        resolved = resolve_old_allele_name(value, species=species)
+        if resolved is not None:
+            message += f". mhcgnomes resolves {value!r} as an old name of {resolved}; write that if you mean it"
+        raise AlleleError(message, value, parsed)
     for caveat in allele_expression_caveats(parsed):
         log_allele_caveat_once(caveat)
     return parsed

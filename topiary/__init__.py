@@ -9,6 +9,7 @@ from .alleles import (
     canonical_allele_name,
     canonical_allele_names_or_raw,
     parse_allele,
+    resolve_old_allele_name,
 )
 from .annotations import join_annotations
 from .candidates import candidate_identifier, combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
@@ -393,6 +394,7 @@ __all__ = [
     "canonical_allele_name",
     "canonical_allele_names_or_raw",
     "parse_allele",
+    "resolve_old_allele_name",
     "format_allele_set",
     "parse",
     "as_dsl_node",

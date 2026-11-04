@@ -7,6 +7,7 @@ import mhcgnomes
 import numpy as np
 import pandas as pd
 import pytest
+from mhcgnomes.allele_annotations import annotation_descriptions
 
 import topiary
 from topiary.alleles import (
@@ -18,6 +19,7 @@ from topiary.alleles import (
     canonical_allele_names_or_raw,
     log_allele_caveat_once,
     parse_allele,
+    resolve_old_allele_name,
 )
 
 
@@ -55,13 +57,11 @@ ACCEPTED = [
     ("88*001:01", "DLA-88*001:01"),  # only dogs have an 88 gene
     ("Mamu-A1*001:01", "Mamu-A1*001:01"),
     ("BoLA-T2C", "BoLA-T2c"),  # AlleleWithoutGene: a named molecule
-    # mhcgnomes returns an Allele for groups and for NetMHC's short macaque
-    # names alike and does not yet say which is which (pirl-unc/mhcgnomes#215),
-    # so Topiary accepts both rather than guess from the number of fields.
-    ("A*02", "HLA-A*02"),
-    ("HLA-DRB1*04", "HLA-DRB1*04"),
-    ("Mamu-A01", "Mamu-A*01"),
-    ("HLA-DRA*01/DRB1*04:01", "HLA-DRA*01/DRB1*04:01"),
+    # One numeric field, but a complete registry name, so mhcgnomes does not
+    # mark it as an allele group; a field count would have refused it.
+    ("HLA-MICA*001", "HLA-MICA*001"),
+    ("SLA-1*es11", "SLA-1*es11"),  # a provisional name, not a group
+    ("HLA-DRA*01:01/DRB1*04:01", "HLA-DRA*01:01/DRB1*04:01"),
 ]
 
 
@@ -110,6 +110,17 @@ REJECTED = [
     ("HLA-DR", mhcgnomes.Class2Locus, r"^'HLA-DR' parses as the mhcgnomes Class2Locus HLA-DR, not an allele"),
     ("class I", mhcgnomes.MhcClass, r"^'class I' parses as the mhcgnomes MhcClass human class I, not an allele"),
     ("HLA", mhcgnomes.Species, r"^'HLA' parses as the mhcgnomes Species HLA, not an allele"),
+    # Allele groups, as mhcgnomes' is_allele_group marks them.
+    ("A*02", mhcgnomes.Allele,
+     r"^'A\*02' is the allele group HLA-A\*02, not one allele; give one specific allele, such as HLA-A\*02:01$"),
+    ("HLA-DRB1*04", mhcgnomes.Allele, r"^'HLA-DRB1\*04' is the allele group HLA-DRB1\*04, not one allele"),
+    ("SLA-1*15XX", mhcgnomes.Allele, r"^'SLA-1\*15XX' is the allele group SLA-1\*15xx, not one allele"),
+    ("HLA-DRA*01/DRB1*04:01", mhcgnomes.Pair, r"contains the allele group HLA-DRA\*01, not one allele"),
+    # NetMHC's short macaque name reads as a group unless old names are
+    # resolved; the message names the allele mhcgnomes resolves it to.
+    ("Mamu-A01", mhcgnomes.Allele,
+     r"^'Mamu-A01' is the allele group Mamu-A\*01, not one allele; .*"
+     r"mhcgnomes resolves 'Mamu-A01' as an old name of Mamu-A1\*001:01; write that if you mean it$"),
     ("HLA-A*02:01N", mhcgnomes.Allele, r"^'HLA-A\*02:01N' is the null allele HLA-A\*02:01N, which is not expressed"),
     ("HLA-DQA1*01:01/DQB1*06:02N", mhcgnomes.Pair, r"contains the null allele HLA-DQB1\*06:02N"),
     ("HLA-A*02:01/HLA-A*02:02", mhcgnomes.Pair,
@@ -168,6 +179,27 @@ def test_allele_chains_lists_single_chain_alleles():
         assert allele_chains(mhcgnomes.parse(value)) == ()
 
 
+@pytest.mark.parametrize("value,species,expected", [
+    ("Mamu-A01", None, "Mamu-A1*001:01"),
+    ("Mamu-A*01", None, "Mamu-A1*001:01"),
+    ("Mamu-A26", None, "Mamu-A1*026:01"),
+    ("A01", "Mamu", "Mamu-A1*001:01"),
+    ("HLA-A*02", None, None),  # a current group name: nothing to resolve
+    ("Mamu-B*008", None, None),  # the current Mamu-B*008 lineage
+    ("HLA-A*02:01", None, None),  # already one allele
+    ("Mamu-B17", None, None),  # a gene with aliases on too
+    ("not an allele", None, None),
+])
+def test_resolve_old_allele_name(value, species, expected):
+    assert resolve_old_allele_name(value, species=species) == expected
+
+
+def test_a_current_group_name_gets_no_old_name_hint():
+    with pytest.raises(AlleleError) as caught:
+        parse_allele("HLA-A*02")
+    assert "old name" not in str(caught.value)
+
+
 # Species handling.
 
 @pytest.mark.parametrize("value,species,expected", [
@@ -208,22 +240,25 @@ def test_no_species_hint_once_a_species_is_given():
 
 # Expression annotations.
 
-@pytest.mark.parametrize("value,meaning", [
-    ("HLA-A*24:02:01:02L", "low cell-surface expression"),
-    ("HLA-A*32:11Q", "questionable expression"),
-    ("HLA-A*02:01S", "secreted as a soluble molecule"),
-    ("HLA-A*02:01C", "present in the cytoplasm"),
-    ("HLA-A*02:01A", "aberrant expression"),
-    ("HLA-A*02:01Ps", "a pseudogene"),
-    ("HLA-H*01:01", "a pseudogene"),  # no annotation: mhcgnomes curates HLA-H as a pseudogene
+# Which names carry a caveat, and its wording, are mhcgnomes': its
+# cell_surface_expression and its published annotation meanings.
+@pytest.mark.parametrize("value,annotation", [
+    ("HLA-A*24:02:01:02L", "L"),
+    ("HLA-A*32:11Q", "Q"),
+    ("HLA-A*02:01S", "S"),
+    ("HLA-A*02:01C", "C"),
+    ("HLA-A*02:01A", "A"),
+    ("HLA-A*02:01Ps", "Ps"),
+    ("HLA-H*01:01", "Ps"),  # no annotation: mhcgnomes curates HLA-H as a pseudogene
 ])
-def test_expression_caveats_name_the_allele_and_what_mhcgnomes_flags(value, meaning):
-    (caveat,) = allele_expression_caveats(mhcgnomes.parse(value))
-    assert caveat.startswith(f"{mhcgnomes.parse(value).to_string()} ({meaning}")
+def test_expression_caveats_use_mhcgnomes_annotation_meanings(value, annotation):
+    parsed = mhcgnomes.parse(value)
+    assert parsed.cell_surface_expression is not None
+    assert allele_expression_caveats(parsed) == (f"{parsed.to_string()} ({annotation_descriptions[annotation]})",)
 
 
 def test_group_annotations_and_plain_alleles_have_no_caveats():
-    for value in ("HLA-A*02:01", "HLA-A*02:01:01G", "HLA-A*02:01P", "H2-Kb", "BoLA-T2C", "A2"):
+    for value in ("HLA-A*02:01", "HLA-A*02:01:01G", "HLA-A*02:01P", "H2-Kb", "BoLA-T2C", "A2", "Mamu-A1*001:01Sp"):
         assert allele_expression_caveats(mhcgnomes.parse(value)) == ()
 
 
@@ -311,7 +346,7 @@ def test_lenient_and_strict_agree(value):
 def test_the_api_is_exported_from_the_package():
     names = {
         "AlleleError", "allele_expression_caveats", "allele_rejection_reason",
-        "canonical_allele_name", "canonical_allele_names_or_raw", "parse_allele",
+        "canonical_allele_name", "canonical_allele_names_or_raw", "parse_allele", "resolve_old_allele_name",
     }
     assert names <= set(topiary.__all__)
     for name in names:
