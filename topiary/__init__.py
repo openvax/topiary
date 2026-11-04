@@ -1,6 +1,7 @@
 from .sv_interest import build_sv_interest_report, write_sv_interest_report, SV_PROTEIN_EVIDENCE_TIERS
 from .serialization import normalize_python_types
 from .report_geometry import map_peptide_intervals, mutation_intervals_from_positions
+from .alleles import canonical_allele_name, canonical_allele_names_or_raw
 from .annotations import join_annotations
 from .candidates import candidate_identifier, combine_sources, protein_evidence_view, rank_candidates, rescore_candidates
 from .selection_criteria import SelectionCriterion, RankingTerm, resolve_selection_expression
@@ -19,7 +20,9 @@ from .reconciliation import (
 )
 from .prediction_batch import predict_with_cache_miss_report, PartialPredictionWarning
 from .peptide_occurrences import predict_peptide_occurrences
-from .cleavage import from_cleavage_results
+from .cleavage import (
+    cleavage_interval_coverage, from_cleavage_results, select_cleavage_sites,
+)
 from .inputs import iter_fasta_records
 from .predictor import (
     TopiaryPredictor,
@@ -229,7 +232,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.109.2"
+__version__ = "5.110.2"
 
 __all__ = [
     "PROTEIN_SCAN_METADATA_COLUMNS",
@@ -297,7 +300,9 @@ __all__ = [
     "encode_amino_acids",
     "PredictionMetric",
     "from_predictions",
+    "cleavage_interval_coverage",
     "from_cleavage_results",
+    "select_cleavage_sites",
     "iter_fasta_records",
     "fragment_from_effect",
     "varcode_candidate_provenance",
@@ -373,6 +378,8 @@ __all__ = [
     "mean",
     "median",
     "minimum",
+    "canonical_allele_name",
+    "canonical_allele_names_or_raw",
     "format_allele_set",
     "parse",
     "as_dsl_node",

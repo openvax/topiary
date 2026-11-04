@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 from uuid import uuid4
 
-import mhcgnomes
+from .alleles import canonical_allele_name
 import pandas as pd
 
 from .cached import CachedPredictorCoverageError, prediction_flanks_match, _flank_flag, _dependence_tag
@@ -107,7 +107,7 @@ def _source_id(path):
 
 
 def _genotype(value):
-    return format_allele_set(mhcgnomes.parse(name).to_string() for name in split_allele_set(value)) if is_stated(value) else ""
+    return format_allele_set(canonical_allele_name(name) for name in split_allele_set(value)) if is_stated(value) else ""
 
 
 def _sample(row):
@@ -241,7 +241,7 @@ class HistoricalPredictor:
             out[column] = out[column].map(lambda value: str(value) if is_stated(value) else None)
         if "allele" not in out:
             out["allele"] = ""
-        out["allele"] = out.allele.map(lambda value: mhcgnomes.parse(str(value)).to_string() if is_stated(value) else "")
+        out["allele"] = out.allele.map(lambda value: canonical_allele_name(value) if is_stated(value) else "")
         for column in ("n_flank", "c_flank", "wt_n_flank", "wt_c_flank"):
             if column in out and not out[column].map(
                     lambda value: isinstance(value, str) or pd.api.types.is_scalar(value) and pd.isna(value)).all():
@@ -298,7 +298,7 @@ class HistoricalPredictor:
         else:
             if isinstance(values, str):
                 raise ValueError("alleles must be a sequence, not one string")
-            values = tuple(sorted({mhcgnomes.parse(str(value)).to_string() for value in values}))
+            values = tuple(sorted({canonical_allele_name(value) for value in values}))
             if not values:
                 raise ValueError("alleles must be nonempty; use None for all reported alleles")
             self._requested_alleles = values
@@ -380,7 +380,7 @@ class HistoricalPredictor:
         if is_stated(query.get("historical_source_id")) and query["historical_source_id"] != row["historical_source_id"]:
             return False
         if is_stated(query.get("allele")) and row["prediction_mhc_dependence"] != "none":
-            if row["prediction_mhc_dependence"] == "single_allele" and row["allele"] != mhcgnomes.parse(str(query["allele"])).to_string():
+            if row["prediction_mhc_dependence"] == "single_allele" and row["allele"] != canonical_allele_name(query["allele"]):
                 return False
         genotype = _genotype(row.get("allele_set"))
         if genotype and genotype != _genotype(query.get("allele_set")):

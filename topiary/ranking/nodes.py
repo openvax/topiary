@@ -46,7 +46,7 @@ from typing import Optional
 import numpy as np
 from packaging.version import InvalidVersion, Version
 import pandas as pd
-import mhcgnomes
+from ..alleles import canonical_allele_name
 from mhctools import MHC_DEPENDENCE_VALUES, Kind
 
 
@@ -274,14 +274,14 @@ def prediction_mhc_scope(allele, *, dependence, allele_set=None):
     if dependence == "none":
         return ("none",)
     if dependence == "single_allele":
-        return (dependence, mhcgnomes.parse(str(allele)).to_string()) if is_stated(allele) else None
+        return (dependence, canonical_allele_name(allele)) if is_stated(allele) else None
     if dependence != "haplotype":
         raise ValueError(f"Unknown MHC dependence: {dependence!r}")
     if isinstance(allele_set, (list, tuple, set, frozenset)):
         names = allele_set
     else:
         names = split_allele_set(allele_set) if is_stated(allele_set) else []
-    names = sorted({mhcgnomes.parse(str(name)).to_string() for name in names})
+    names = sorted({canonical_allele_name(name) for name in names})
     return (dependence, *names) if names else None
 
 
@@ -573,8 +573,8 @@ def _validate_declared_alleles(alleles):
     reader's alleles while the frame is being built, whereas these are
     matched against whatever spelling the frame already carries, so
     canonicalizing one side alone would stop equal alleles comparing
-    equal.  Named apart from that pair, which share the name
-    ``_normalize_alleles``, because this one was called that too and the
+    equal.  Named apart from :func:`topiary.alleles.canonical_allele_names_or_raw`
+    because this one was once called ``_normalize_alleles`` too and the
     collision invited the opposite conclusion.
     """
     if alleles is None:

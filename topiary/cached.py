@@ -42,7 +42,7 @@ from typing import Any, Callable, Iterable, List, Mapping, Optional, Union
 
 import numpy as np
 import pandas as pd
-import mhcgnomes  # type: ignore[import-untyped]  # Upstream does not publish types.
+from .alleles import canonical_allele_name
 
 from .io import _float_precision_kwargs
 from .predictor import from_predictions
@@ -798,7 +798,7 @@ class CachedPredictor:
             return
         if isinstance(values, str):
             raise ValueError("alleles must be a sequence, not one string")
-        parsed = tuple(sorted({mhcgnomes.parse(str(value)).to_string() for value in values}))
+        parsed = tuple(sorted({canonical_allele_name(value) for value in values}))
         if not parsed:
             raise ValueError("alleles must be nonempty; use None to restore defaults")
         self._requested_alleles = parsed

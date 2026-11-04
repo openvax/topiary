@@ -7,7 +7,7 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
-## 5.109.2
+## 5.110.2
 
 - Build the CLI parser with mhctools' `add_mhc_args(predictor_required=False)`
   instead of flipping `required` on argparse's private `_actions` list
@@ -16,6 +16,29 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   that hid only a handful of fixable sites (`F841`, `E731`, `E741`): unused
   test locals, lambda assignments, and an ambiguous `l`. `E501` and `E721`
   remain ignored.
+
+## 5.110.0
+
+- Add `select_cleavage_sites` and `cleavage_interval_coverage` for the table
+  from `from_cleavage_results` (#288). The first applies one boundary rule
+  (`start < source_bond < end`) so consumers stop re-deriving it; the second
+  reports how many internal bonds of a candidate interval each model assessed,
+  keeping missing scored context distinct from a measured score. Both refuse a
+  table holding several source occurrences unless one is chosen, so a cut in
+  one copy of a repeated epitope is never pooled with another.
+
+## 5.109.1
+
+- Route Topiary's mhcgnomes allele-name canonicalization through one
+  module, `topiary.alleles`. `canonical_allele_name` (strict: raises on an
+  unparseable allele) replaces fifteen inline
+  `mhcgnomes.parse(...).to_string()` calls, and
+  `canonical_allele_names_or_raw` (lenient: passes unparseable values
+  through) replaces the identical `_normalize_alleles` copies in the
+  pVACseq and LENS readers. Both are exported from `topiary`. The CLI's
+  cached-predictor allele lookup still uses mhctools'
+  `normalize_allele_name_or_raw`, to match the live predictors. No
+  behavior change.
 
 ## 5.109.0
 

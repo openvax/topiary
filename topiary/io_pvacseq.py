@@ -63,6 +63,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .alleles import canonical_allele_names_or_raw
 from .ranking import stated_values
 from .report_geometry import mutation_intervals_from_positions
 from .evidence import (
@@ -117,27 +118,6 @@ def detect_pvacseq_format(columns) -> str | None:
 # =============================================================================
 # Allele / sequence helpers
 # =============================================================================
-
-
-def _normalize_alleles(values):
-    """Run each allele string through mhcgnomes; unparseable values pass through."""
-    import mhcgnomes
-
-    cache: dict[str, str] = {}
-
-    def _norm(raw):
-        if not isinstance(raw, str) or not raw:
-            return raw
-        if raw in cache:
-            return cache[raw]
-        try:
-            out = mhcgnomes.parse(raw).to_string()
-        except Exception:  # noqa: BLE001 — mhcgnomes raises many exception types
-            out = raw
-        cache[raw] = out
-        return out
-
-    return [_norm(v) for v in values]
 
 
 # Matches the pVACseq aggregated AA Change format for a single missense:
@@ -594,7 +574,7 @@ def _parse_aggregated(df):
     """Aggregated-format DataFrame → parsed-rows DataFrame."""
     out = pd.DataFrame(index=df.index)
     out["peptide"] = df["Best Peptide"]
-    out["allele"] = _normalize_alleles(df["Allele"])
+    out["allele"] = canonical_allele_names_or_raw(df["Allele"])
     out["value"] = pd.to_numeric(df["IC50 MT"], errors="coerce")
     out["percentile_rank"] = pd.to_numeric(df["%ile MT"], errors="coerce")
     out["wt_value"] = (
@@ -642,7 +622,7 @@ def _parse_all_epitopes(df, algorithm_columns, unmapped_columns):
     """All-epitopes-format DataFrame → parsed-rows DataFrame."""
     out = pd.DataFrame(index=df.index)
     out["peptide"] = df["MT Epitope Seq"]
-    out["allele"] = _normalize_alleles(df["HLA Allele"])
+    out["allele"] = canonical_allele_names_or_raw(df["HLA Allele"])
 
     mt_ic50 = _first_present_column(df, "Median MT IC50 Score", "Best MT IC50 Score")
     wt_ic50 = _first_present_column(df, "Median WT IC50 Score", "Corresponding WT IC50 Score")

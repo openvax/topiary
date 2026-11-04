@@ -40,6 +40,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .alleles import canonical_allele_names_or_raw
 from .io import Metadata
 from .evidence import (
     LENS_PEP_CONTEXT,
@@ -598,24 +599,8 @@ def _normalize_alleles(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize ``allele`` via mhcgnomes (handles Class I / II / mouse)."""
     if "allele" not in df.columns:
         return df
-    import mhcgnomes
-
-    cache: dict[str, str] = {}
-
-    def _norm(raw):
-        if not isinstance(raw, str) or not raw:
-            return raw
-        if raw in cache:
-            return cache[raw]
-        try:
-            out = mhcgnomes.parse(raw).to_string()
-        except Exception:  # noqa: BLE001 — mhcgnomes raises many types
-            out = raw
-        cache[raw] = out
-        return out
-
     df = df.copy()
-    df["allele"] = df["allele"].map(_norm)
+    df["allele"] = canonical_allele_names_or_raw(df["allele"])
     return df
 
 
