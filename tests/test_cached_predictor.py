@@ -907,6 +907,13 @@ class TestNetMHCLoaders:
         with pytest.raises(ValueError, match="not supported"):
             CachedPredictor.from_netmhc_stdout(path, version="5")
 
+    def test_from_netmhc_stdout_points_4_1_at_the_netmhcpan_loader(self, tmp_path):
+        # mhctools' parse_netmhc41_stdout read NetMHCpan 4.1 output and was
+        # removed in mhctools 4.5.4; referring to it broke every version.
+        path = self._write(tmp_path, "x.out", _NETMHC_4_STDOUT)
+        with pytest.raises(ValueError, match="'4.1' is not supported.*from_netmhcpan_stdout"):
+            CachedPredictor.from_netmhc_stdout(path, version="4.1")
+
     def test_from_netmhcstabpan_stdout(self, tmp_path):
         path = self._write(tmp_path, "stab.out", _NETMHCSTABPAN_STDOUT)
         cache = CachedPredictor.from_netmhcstabpan_stdout(path)

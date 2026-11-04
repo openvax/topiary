@@ -616,7 +616,7 @@ Full flag reference:
 | `--mhc-cache-predictor-version V` | Supply version provenance. For generic TSV, topiary output and shards, fills missing values and rejects conflicts. NetMHC stdout defaults to its preamble; raw MHCflurry defaults to the configured official local bundle. |
 | `--mhc-cache-tsv-column CANONICAL=FILE_COL` | Repeatable. Column-name mapping for `tsv` format. |
 | `--mhc-cache-tsv-sep SEP` | Separator for `tsv`. Default tab. |
-| `--mhc-cache-netmhc-version V` | `3`, `4`, or `4.1` for classic NetMHC output. Default `4`. |
+| `--mhc-cache-netmhc-version V` | `3` or `4` for classic NetMHC output. Default `4`. NetMHCpan 4.1 output uses `--mhc-cache-format netmhcpan`. |
 | `--mhc-cache-netmhciipan-version V` | `legacy`, `4`, or `4.3` for NetMHCIIpan. Default `4.3`. |
 | `--mhc-cache-netmhciipan-mode MODE` | `binding_affinity` or `elution_score` (default) for NetMHCIIpan 4+. |
 
