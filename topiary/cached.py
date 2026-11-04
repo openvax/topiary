@@ -1493,7 +1493,7 @@ class CachedPredictor:
             )
         path_str = str(path)
         if path_str.endswith((".parquet", ".pq")):
-            self._df.to_parquet(path_str, index=False)
+            self._df.to_parquet(path_str, index=False, engine="pyarrow")
         else:
             from .io import to_tsv, to_csv
             writer = to_tsv if path_str.endswith((".tsv", ".tsv.gz")) else to_csv
@@ -1596,7 +1596,7 @@ class CachedPredictor:
         path_str = str(path)
         try:
             if path_str.endswith((".parquet", ".pq")):
-                df = pd.read_parquet(path_str)
+                df = pd.read_parquet(path_str, engine="pyarrow")
             else:
                 from .io import read_tsv, read_csv
                 reader = read_tsv if path_str.endswith((".tsv", ".tsv.gz")) else read_csv

@@ -15,6 +15,11 @@ classifiers = [
     "Operating System :: OS Independent",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 readme = "README.md"
@@ -34,6 +39,9 @@ namespaces = false
 
 [project.scripts]
 topiary = "topiary.cli.script:main"
+
+[tool.ruff]
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F"]

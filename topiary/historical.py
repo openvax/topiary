@@ -190,7 +190,9 @@ class HistoricalPredictor:
     @staticmethod
     def _read_table(path):
         if str(path).endswith((".parquet", ".pq")):
-            frame = pd.read_parquet(path)
+            # pyarrow is the pandas engine that keeps DataFrame.attrs, where
+            # the envelope below lives; never let pandas pick another one.
+            frame = pd.read_parquet(path, engine="pyarrow")
             envelope = frame.attrs.pop("topiary_historical", None)
             if envelope is None:
                 return TopiaryResult(frame)
@@ -510,7 +512,7 @@ class HistoricalPredictor:
         for column in columns:
             frame[column] = [_encode_json(value, column=column, allow_scalar=True) for value in frame[column]]
         frame.attrs["topiary_historical"] = dict(version=1, metadata=asdict(self._metadata), json_columns=columns)
-        frame.to_parquet(path, index=False)
+        frame.to_parquet(path, index=False, engine="pyarrow")
 
     @classmethod
     def from_dataframe(cls, df, **kwargs):

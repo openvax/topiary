@@ -309,6 +309,20 @@ def test_serialization_roundtrip_tsv_csv_parquet(tmp_path):
     assert res_pq.iloc[0]["value"] == 42.0
 
 
+def test_parquet_goes_through_pyarrow_whatever_pandas_would_choose(tmp_path):
+    # The JSON-column envelope lives in DataFrame.attrs, which pandas keeps
+    # only with the pyarrow engine (#587). Name another engine as pandas'
+    # default: the table must still be written and read through pyarrow.
+    original = HistoricalPredictor(pd.DataFrame([_row(wt_peptide="SIINFEKM", wt_value=420.0)]))
+    path = tmp_path / "engine.parquet"
+    with pd.option_context("io.parquet.engine", "fastparquet"):
+        original.to_parquet(path)
+        loaded = HistoricalPredictor.from_table(path)
+    row = loaded.predict_peptides_dataframe(["SIINFEKL"]).iloc[0]
+    assert row["wt_peptide"] == "SIINFEKM"
+    assert row["wt_value"] == 420.0
+
+
 def test_historical_source_uses_result_policies_instead_of_live_inference():
     rows = [_row(value=50., affinity=50.), _row(peptide="GILGFVFTL", value=500., affinity=500.)]
     source = HistoricalPredictor(pd.DataFrame(rows))
