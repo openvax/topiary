@@ -40,8 +40,6 @@ ACCEPTED = [
     (" HLA-A*02:01 ", "HLA-A*02:01"),
     ("HLA-A*02:01:01:01", "HLA-A*02:01:01:01"),
     ("HLA-A*99:99", "HLA-A*99:99"),  # mhcgnomes does not check existence
-    ("HLA-A*02:01:01G", "HLA-A*02:01:01G"),
-    ("HLA-A*02:01P", "HLA-A*02:01P"),
     ("HLA-A*24:02:01:02L", "HLA-A*24:02:01:02L"),
     ("HLA-A*32:11Q", "HLA-A*32:11Q"),
     ("HLA-A*02:01 K66A mutant", "HLA-A*02:01 K66A mutant"),
@@ -110,7 +108,9 @@ REJECTED = [
     ("HLA-DR", mhcgnomes.Class2Locus, r"^'HLA-DR' parses as the mhcgnomes Class2Locus HLA-DR, not an allele"),
     ("class I", mhcgnomes.MhcClass, r"^'class I' parses as the mhcgnomes MhcClass human class I, not an allele"),
     ("HLA", mhcgnomes.Species, r"^'HLA' parses as the mhcgnomes Species HLA, not an allele"),
-    # Allele groups, as mhcgnomes' is_allele_group marks them.
+    # G/P typings and allele groups are not one full allele identity.
+    ("HLA-A*02:01:01G", mhcgnomes.Allele, "allele group"),
+    ("HLA-A*02:01P", mhcgnomes.Allele, "allele group"),
     ("A*02", mhcgnomes.Allele,
      r"^'A\*02' is the allele group HLA-A\*02, not one allele; give one specific allele, such as HLA-A\*02:01$"),
     ("HLA-DRB1*04", mhcgnomes.Allele, r"^'HLA-DRB1\*04' is the allele group HLA-DRB1\*04, not one allele"),

@@ -18,7 +18,7 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   canonical name. Also exported: `AlleleError`, `allele_rejection_reason`,
   `allele_expression_caveats`, `allele_chains` and
   `resolve_old_allele_name`. The rules are in the `topiary.alleles` module
-  docstring. Requires mhcgnomes 3.67 (`is_allele_group`,
+  docstring. Requires mhcgnomes 3.68.1 (`is_allele_group`,
   `cell_surface_expression`, published annotation meanings).
 - Behavior changes in every strict caller (the `CachedPredictor.alleles`
   setter, `HistoricalPredictor`, `predict_peptide_occurrences`,
@@ -56,8 +56,9 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
     `S`, `C`, or a pseudogene by `Ps` annotation or because mhcgnomes
     curates the gene as one, such as `HLA-H`) are still accepted, with one
     logged warning per allele per process that uses mhcgnomes' published
-    meaning of each annotation (pirl-unc/mhcgnomes#217). `G` and `P`
-    groups and splice variants are accepted silently.
+    meaning of each annotation (pirl-unc/mhcgnomes#217). Splice variants
+    without an expression caveat are accepted silently. G/P typing groups are rejected;
+    they do not identify one full allele.
   - A missing value (None, NaN, `pd.NA`, blank, `"nan"`) or a non-string
     now raises `AlleleError` instead of being stringified and failing as
     `Could not parse 'nan'`. Unparseable strings raise `AlleleError`

@@ -23,9 +23,10 @@ Rejected, with :class:`AlleleError`
   alleles, gene, class II locus, MHC class or species.
 - An allele mhcgnomes marks as an allele group (``is_allele_group``), such
   as ``HLA-A*02`` or ``HLA-DRB1*04``, or a pair with such a chain. A group
-  covers many molecules, so a binding prediction for it is not defined.
+  covers many molecules; G/P binding-domain typings are also refused rather
+  than substituted with one full allele identity.
 - An allele mhcgnomes marks as null (``annotation_null``): it is not
-  expressed, so binding predictions for it are meaningless.
+  expressed, so Topiary excludes it from presentation analysis.
 - A ``Pair`` that is not a class II alpha/beta heterodimer, including a
   beta chain written first.
 
@@ -166,7 +167,11 @@ def allele_rejection_reason(parsed):
         else:
             advice = f"give one specific allele, such as {EXAMPLE_ALLELE}"
         return f"parses as the mhcgnomes {type(parsed).__name__} {parsed.to_string()}, not an allele; {advice}"
-    if isinstance(parsed, mhcgnomes.Pair) and not (parsed.alpha.is_class2_alpha and parsed.beta.is_class2_beta):
+    if isinstance(parsed, mhcgnomes.Pair) and not (
+            isinstance(parsed.alpha, mhcgnomes.Allele)
+            and isinstance(parsed.beta, mhcgnomes.Allele)
+            and parsed.alpha.species == parsed.beta.species
+            and parsed.alpha.is_class2_alpha and parsed.beta.is_class2_beta):
         return (
             f"pairs {parsed.alpha.to_string()} with {parsed.beta.to_string()}, "
             f"which is not a class II alpha/beta heterodimer; give one allele, "
@@ -177,9 +182,9 @@ def allele_rejection_reason(parsed):
         if chain.annotation_null:
             return (
                 f"{verb} the null allele {chain.to_string()}, which is not expressed, "
-                f"so binding predictions for it are meaningless"
+                f"so Topiary excludes it from presentation analysis"
             )
-        if chain.is_allele_group:
+        if chain.is_allele_group or set(chain.annotations).intersection({"G", "P"}):
             return (
                 f"{verb} the allele group {chain.to_string()}, not one allele; "
                 f"give one specific allele, such as {EXAMPLE_ALLELE}"
@@ -329,7 +334,11 @@ def parse_allele(value, species=None):
     if not isinstance(value, str):
         raise AlleleError(f"an allele must be a string, not {type(value).__name__}: {value!r}", value)
     try:
-        parsed = mhcgnomes.parse(value, species=species)
+        parsed = mhcgnomes.parse(
+            value.strip().replace(";", "/"), species=species,
+            use_allele_aliases=False, infer_class2_pairing=False,
+            collapse_singleton_haplotypes=True, collapse_singleton_serotypes=False,
+            max_allele_fields=None, raise_on_error=True)
     except mhcgnomes.ParseError as error:
         if species is None:
             raise AlleleError(
