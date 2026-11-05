@@ -1770,16 +1770,25 @@ class CachedPredictor:
         fallback: Any = None,
         also_accept_versions: Optional[Iterable[str]] = None,
     ) -> "CachedPredictor":
-        """Load a classic NetMHC stdout capture (3 / 4 / 4.1).
+        """Load a classic NetMHC stdout capture (3 / 4).
 
-        ``version`` selects the parser: ``"3"``, ``"4"``, or ``"4.1"``.
+        ``version`` selects the parser: ``"3"`` or ``"4"``. ``"4.1"`` is
+        refused: the mhctools parser it named read NetMHCpan 4.1 output and
+        was removed in mhctools 4.5.4. Load NetMHCpan 4.1 output with
+        :meth:`from_netmhcpan_stdout`.
         """
         from mhctools import parsing as _p  # type: ignore[import-untyped]
         parsers = {
             "3": _p.parse_netmhc3_stdout,
             "4": _p.parse_netmhc4_stdout,
-            "4.1": _p.parse_netmhc41_stdout,
         }
+        if version == "4.1":
+            raise ValueError(
+                "NetMHC version '4.1' is not supported: there is no classic "
+                "NetMHC 4.1 parser. For NetMHCpan 4.1 output use "
+                "CachedPredictor.from_netmhcpan_stdout "
+                "(--mhc-cache-format netmhcpan)."
+            )
         if version not in parsers:
             raise ValueError(
                 f"NetMHC version {version!r} not supported — choose "
