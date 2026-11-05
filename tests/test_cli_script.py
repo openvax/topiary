@@ -3,6 +3,7 @@ import pathlib
 import pytest
 from mhcgnomes.errors import ParseError as AlleleParseError
 
+from topiary import AlleleError
 import topiary.cli.script as cli_script
 from topiary.cli.script import main
 
@@ -285,6 +286,8 @@ def _run(argv, capsys):
      "pirlygenes is required"),
     (AlleleParseError("Could not parse 'HLA-Q99:99'"),
      "could not parse MHC allele: Could not parse 'HLA-Q99:99'"),
+    (AlleleError("'A2' is a serotype (HLA-A2), not an allele", "A2"),
+     "topiary: error: 'A2' is a serotype (HLA-A2), not an allele"),
     (FileNotFoundError(2, "No such file or directory", "absent.csv"),
      "No such file or directory"),
 ])

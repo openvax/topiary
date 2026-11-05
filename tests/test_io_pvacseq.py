@@ -113,6 +113,22 @@ class TestLoadAggregated:
         # MHC-I sample carries HLA-A/B/C only; mhcgnomes leaves the prefix.
         assert (r.df["allele"].dropna().str.startswith("HLA-")).all()
 
+    def test_a_serotype_is_kept_as_given_and_logged(self, tmp_path, caplog):
+        df = pd.read_csv(MHC_I_AGG, sep="\t")
+        df.loc[0, "Allele"] = "A2"
+        path = tmp_path / "serotype.tsv"
+        df.to_csv(path, sep="\t", index=False)
+        with caplog.at_level("WARNING", logger="topiary.alleles"):
+            rows = read_pvacseq(path).df
+        # Kept as typed rather than rewritten to HLA-A2 or made missing,
+        # so the row stays visible and a strict step later names it.
+        serotype_rows = rows[rows["allele"].eq("A2")]
+        assert len(serotype_rows) > 0
+        assert rows.loc[~rows["allele"].eq("A2"), "allele"].dropna().str.startswith("HLA-").all()
+        messages = [record.getMessage() for record in caplog.records if record.name == "topiary.alleles"]
+        assert len(messages) == 1
+        assert "'A2' parses as the mhcgnomes Serotype HLA-A2, not an allele" in messages[0]
+
     def test_mhc_ii_alleles_get_hla_prefix(self):
         r = read_pvacseq(MHC_II_AGG)
         # Raw "DRB1*04:05" / "DPA1*02:01-DPB1*01:01" gain the HLA- prefix
