@@ -658,12 +658,21 @@ class TestLoaders:
         assert out.iloc[0]["affinity"] == 150.0
 
     def test_from_topiary_output_roundtrip_parquet(self, tmp_path):
-        pytest.importorskip("pyarrow")
         path = tmp_path / "cache.parquet"
         cache = CachedPredictor.from_dataframe(_df([_row()]))
         cache.save(path)
         reloaded = CachedPredictor.from_topiary_output(path)
         assert reloaded.prediction_method_name == "random"
+
+    def test_parquet_goes_through_pyarrow_whatever_pandas_would_choose(self, tmp_path):
+        # Topiary declares pyarrow and names it, rather than relying on
+        # pandas' engine="auto" (#587).
+        path = tmp_path / "cache.parquet"
+        cache = CachedPredictor.from_dataframe(_df([_row()]))
+        with pd.option_context("io.parquet.engine", "fastparquet"):
+            cache.save(path)
+            reloaded = CachedPredictor.from_topiary_output(path)
+        assert reloaded.predict_peptides_dataframe(["SIINFEKLA"]).iloc[0]["affinity"] == 150.0
 
     def test_from_tsv_with_column_mapping(self, tmp_path):
         # Simulate a third-party TSV with non-canonical column names.

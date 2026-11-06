@@ -1,5 +1,8 @@
 numpy>=2.0.0,<3.0.0
 pandas>=3,<4
+# Parquet I/O. The only pandas engine that keeps DataFrame.attrs, which
+# historical Parquet tables use; floor matches gtfparse's.
+pyarrow>=18
 mhctools>=4.5.0
 weirdo>=2.4.0,<3
 isovar>=1.78.0,<2

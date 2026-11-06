@@ -7,6 +7,18 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.111.3
+
+- Declare `pyarrow>=18` (gtfparse's floor) and read and write Parquet with
+  `engine="pyarrow"` in `CachedPredictor` and `HistoricalPredictor` (#587).
+  pyarrow used to arrive only through gtfparse, and pandas chose the engine
+  itself. Historical Parquet tables keep their JSON-column envelope in
+  `DataFrame.attrs`, which pandas keeps only with pyarrow; through another
+  engine they would load with undecoded JSON strings.
+- Python classifiers for 3.11 to 3.14 and ruff `target-version = "py311"`,
+  matching `requires-python` and the CI matrix. Remove the Python 2
+  `__future__` imports from `topiary/rna/common.py` and a test.
+
 ## 5.111.2
 
 - Documentation only. Rewrite the README as purpose, install, quick start,
