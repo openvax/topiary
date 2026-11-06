@@ -86,7 +86,9 @@ def _error_message(error):
     ``__str__``, so its message arrives without KeyError's repr quoting.
     Removing that ``__str__`` would bring the quoting back (#296, #302,
     #304). An allele error says which kind of input it was about, since
-    mhcgnomes' own text only names the string.
+    mhcgnomes' own text only names the string. Topiary's own
+    :class:`topiary.AlleleError` is a ValueError whose message already
+    says that, so it passes through unchanged.
     """
     message = str(error) or type(error).__name__
     if isinstance(error, AlleleParseError):

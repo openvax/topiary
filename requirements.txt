@@ -7,7 +7,7 @@ pirlygenes>=6.0.18
 oncoref>=1.19.2
 varcode>=11.1.0,<12
 gtfparse>=3.0.2,<4.0.0
-mhcgnomes>=3.4.0
+mhcgnomes>=3.68.1
 pyensembl>=2.24.1,<3.0.0
 # PEP 440 versions and validated package names for release preflight
 packaging>=23.2

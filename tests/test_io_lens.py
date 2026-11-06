@@ -141,6 +141,21 @@ class TestAlleles:
             for a in alleles:
                 assert "*" in a, f"{p.name}: {a!r} missing star"
 
+    def test_a_non_allele_is_kept_as_given_and_logged(self, tmp_path, caplog):
+        # "HLA-A02" lacks the separator LENS's own "HLA-A02:01" spelling
+        # relies on; mhcgnomes reads it as the HLA A02 supertype.
+        df = pd.read_csv(V1_4, sep="\t", na_values=["NA"])
+        df.loc[0, "allele"] = "HLA-A02"
+        path = tmp_path / "supertype.tsv"
+        df.to_csv(path, sep="\t", index=False, na_rep="NA")
+        with caplog.at_level("WARNING", logger="topiary.alleles"):
+            alleles = read_lens(path).df["allele"].dropna()
+        assert alleles.eq("HLA-A02").sum() == 1
+        assert alleles[alleles.ne("HLA-A02")].map(lambda a: "*" in a).all()
+        messages = [record.getMessage() for record in caplog.records if record.name == "topiary.alleles"]
+        assert len(messages) == 1
+        assert "'HLA-A02' parses as the mhcgnomes Supertype HLA A02 supertype, not an allele" in messages[0]
+
 
 # ---------------------------------------------------------------------------
 # Derived columns
