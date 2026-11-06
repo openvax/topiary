@@ -1,4 +1,4 @@
-[![Tests](https://github.com/openvax/topiary/actions/workflows/tests.yml/badge.svg)](https://github.com/openvax/topiary/actions/workflows/tests.yml)
+[![Tests](https://github.com/openvax/topiary/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/openvax/topiary/actions/workflows/tests.yml)
 <a href="https://coveralls.io/github/openvax/topiary?branch=master">
     <img src="https://coveralls.io/repos/openvax/topiary/badge.svg?branch=master&service=github" alt="Coverage Status" />
 </a>
@@ -10,18 +10,18 @@
 
 Topiary predicts which peptides from an antigen source are presented by a
 patient's MHC molecules, then filters and ranks them. Inputs are protein
-sequences, peptides, somatic variants or a pipeline's report, plus a list of HLA
-alleles; output is a DataFrame (or CSV/TSV/HTML) with one row per
-peptide-allele-prediction. Binding predictions come from
-[mhctools](https://github.com/openvax/mhctools) models such as NetMHCpan and
-MHCflurry.
+sequences, peptides, somatic variants or another pipeline's report, plus a list
+of MHC alleles; the output is a DataFrame (or CSV/HTML file) with one row per
+peptide, allele and prediction. It is used for personalized cancer vaccine
+design, viral epitope mapping and characterizing T-cell responses. In the
+openvax stack, Topiary runs MHC predictors through
+[mhctools](https://github.com/openvax/mhctools), translates variants with
+[varcode](https://github.com/openvax/varcode) and
+[pyensembl](https://github.com/openvax/pyensembl), reads RNA evidence from
+[isovar](https://github.com/openvax/isovar), and supplies the predictions and
+ranking expressions that [vaxrank](https://github.com/openvax/vaxrank) uses.
 
-It is used for personalized cancer vaccine design, viral epitope mapping, and
-characterizing T-cell responses.
-
-Documentation: [openvax.github.io/topiary](https://openvax.github.io/topiary/)
-
-## Installation
+## Install
 
 Topiary requires Python 3.11 or newer and pandas 3.x (`pandas>=3,<4`).
 
@@ -29,132 +29,143 @@ Topiary requires Python 3.11 or newer and pandas 3.x (`pandas>=3,<4`).
 pip install topiary
 ```
 
-MHC binding predictors are installed separately and called through mhctools.
-MHCflurry installs with pip:
+MHC predictors are installed separately and called through mhctools.
+MHCflurry installs with pip; its models are a separate download:
 
 ```bash
-pip install mhcflurry && mhcflurry-downloads fetch
+pip install mhcflurry
+mhcflurry-downloads fetch
 ```
 
-NetMHCpan and the other DTU tools require a license from
-[DTU Health Tech](https://services.healthtech.dtu.dk/).
-
-Variant annotation, gene lookups and `SelfProteome` need a local Ensembl
-annotation database:
+NetMHCpan and the other DTU tools need a license from
+[DTU Health Tech](https://services.healthtech.dtu.dk/). Variant annotation,
+gene lookups and `SelfProteome` need a local Ensembl annotation database:
 
 ```bash
-pyensembl install --release "$(python -c 'from pyensembl import ensembl_grch38; print(ensembl_grch38.release)')" --species human
+pyensembl install --release 115 --species human
 ```
 
-The normal install includes Isovar for RNA-derived protein fragments,
-PirlyGenes and OncoRef for cancer-testis antigens and tissue expression,
-and WEIRDO for peptide foreignness. No installation extras are needed.
-See [installation details](https://openvax.github.io/topiary/cli/#installation-details)
-for choosing a different Ensembl release and compatible package versions.
+Isovar, PirlyGenes, OncoRef and WEIRDO are installed with Topiary; there are no
+extras to choose. [Installation details](https://openvax.github.io/topiary/cli/#installation-details)
+covers other Ensembl releases and compatible package versions.
 
-## Predict binding for a few peptides
+## Quick start
+
+Score two viral peptides against two HLA alleles with MHCflurry:
 
 ```python
+from mhctools import MHCflurry
 from topiary import TopiaryPredictor
-from mhctools import NetMHCpan
+
+peptides = {"influenza_M1": "GILGFVFTL", "CMV_pp65": "TPRVTGGGAM"}
+columns = ["peptide", "allele", "kind", "value", "score", "percentile_rank"]
 
 predictor = TopiaryPredictor(
-    models=[NetMHCpan],
-    alleles=["HLA-A*02:01"],
+    models=[MHCflurry],
+    alleles=["HLA-A*02:01", "HLA-B*07:02"],
 )
-
-df = predictor.predict_from_named_peptides({
-    "peptide_1": "YLQLVFGIEV",
-    "peptide_2": "LLFNILGGWV",
-    "peptide_3": "GILGFVFTL",
-})
+df = predictor.predict_from_named_peptides(peptides)
+print(df[columns].to_string(index=False))
 ```
 
-Each row of `df` is one peptide, allele and prediction kind, with `value` (the
-raw prediction, IC50 in nM for binding affinity), `score` (normalized, higher is
-better) and `percentile_rank` (lower is better). Several models can run
-together — `models=[NetMHCpan, MHCflurry]` — and each contributes its own rows.
+```
+   peptide      allele               kind        value    score  percentile_rank
+ GILGFVFTL HLA-A*02:01      pMHC_affinity    25.841361 0.699441         0.130863
+ GILGFVFTL HLA-B*07:02      pMHC_affinity 14185.201956 0.116437         8.844587
+ GILGFVFTL HLA-A*02:01  pMHC_presentation          NaN 0.850049         0.193547
+ GILGFVFTL             antigen_processing          NaN 0.175628              NaN
+TPRVTGGGAM HLA-A*02:01      pMHC_affinity   556.503394 0.415730         1.541447
+TPRVTGGGAM HLA-B*07:02      pMHC_affinity    14.428557 0.753303         0.003906
+TPRVTGGGAM HLA-B*07:02  pMHC_presentation          NaN 0.941776         0.062445
+TPRVTGGGAM             antigen_processing          NaN 0.300611              NaN
+```
 
-To scan whole proteins with a sliding window instead of scoring peptides as
-given, use `predict_from_named_sequences({"BRAF": "MAALSGGGG..."})`.
+Each row is one peptide, allele and prediction kind. `value` is the raw
+prediction (IC50 in nM for binding affinity), `score` is higher-is-better and
+`percentile_rank` is lower-is-better. MHCflurry predicts affinity for each
+allele, presentation for the genotype (reported under its best allele) and
+antigen processing with no allele.
 
-## Predict from somatic variants
+Pass `filter_by=Affinity <= 500` (with `from topiary import Affinity`) to keep
+only the pairs predicted to bind at 500 nM or tighter, and `sort_by=` to rank
+them. Both take expressions that combine prediction fields, arithmetic,
+normalizing transforms and any DataFrame column; see the
+[ranking DSL guide](https://openvax.github.io/topiary/ranking/). To scan whole
+proteins with a sliding window, use `predict_from_named_sequences`; for
+[varcode](https://github.com/openvax/varcode) variants, use
+`predict_from_variants`.
 
-The CLI runs the same pipeline from a VCF, translating each variant, tiling
-peptides across the mutated region, and keeping only peptides that overlap it:
+## Command line
+
+The `topiary` command runs the same pipeline from variants, sequence files or
+gene names. This run translates KRAS G12D, scores the mutant peptides and keeps
+the binders (Ensembl data for `--genome grch38` must be installed as above):
 
 ```bash
 topiary \
-  --vcf somatic.vcf \
-  --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01,HLA-B*07:02 \
-  --filter-by "ba <= 500 | el.rank <= 2" \
-  --only-novel-epitopes \
-  --output-csv epitopes.csv
+  --variant 12 25245350 C T \
+  --genome grch38 \
+  --mhc-predictor mhcflurry \
+  --mhc-alleles 'HLA-A*11:01,HLA-C*08:02' \
+  --filter-by "affinity <= 500" \
+  --only-novel-epitopes
 ```
 
-The equivalent Python call is `predictor.predict_from_variants(variants)` on a
-[varcode](https://github.com/openvax/varcode) variant collection.
-
-## Filter and rank
-
-Filters and ranking expressions are written the same way in Python and as
-strings for the CLI:
-
-```python
-from topiary import TopiaryPredictor, Affinity, Presentation
-from mhctools import NetMHCpan
-
-predictor = TopiaryPredictor(
-    models=[NetMHCpan],
-    alleles=["HLA-A*02:01"],
-    filter_by=(Affinity <= 500) | (Presentation.rank <= 2.0),
-    sort_by=Affinity.logistic(350, 150),
-)
+```
+  peptide      allele               kind      value    score  percentile_rank                      source_sequence_name
+VVGADGVGK HLA-A*11:01      pMHC_affinity 126.927288 0.552337         0.505538 KRAS_p.G12D_chr12_g.25245350C_T__567b9678
+VVGADGVGK HLA-A*11:01  pMHC_presentation        NaN 0.727242         0.375163 KRAS_p.G12D_chr12_g.25245350C_T__567b9678
+VVGADGVGK             antigen_processing        NaN 0.465049              NaN KRAS_p.G12D_chr12_g.25245350C_T__567b9678
+GADGVGKSA HLA-C*08:02      pMHC_affinity 108.830353 0.566554         0.282237 KRAS_p.G12D_chr12_g.25245350C_T__567b9678
+GADGVGKSA HLA-C*08:02  pMHC_presentation        NaN 0.534686         0.686717 KRAS_p.G12D_chr12_g.25245350C_T__567b9678
+GADGVGKSA             antigen_processing        NaN 0.215621              NaN KRAS_p.G12D_chr12_g.25245350C_T__567b9678
+6 prediction rows (2 unique peptides, 2 named alleles)
 ```
 
-`Affinity`, `Presentation`, `Stability` and `Processing` each read a prediction
-kind, through `.value`, `.rank` or `.score`. Expressions combine with
-arithmetic and boolean operators, normalizing transforms, and any column in the
-DataFrame — RNA expression, peptide properties, custom annotations. The string
-forms (`affinity <= 500 | el.rank <= 2`) go to `--filter-by` and `--sort-by`.
-The [ranking DSL guide](https://openvax.github.io/topiary/ranking/) has the
-full grammar.
+`--vcf`, `--maf`, `--fasta`, `--peptide-csv` and `--gene-names` select other
+inputs, and `--output-csv results.csv` saves every row instead of printing a
+preview. The [command-line guide](https://openvax.github.io/topiary/cli/)
+lists predictor names, input modes, output columns and exit status.
 
-## Where to read more
+## Documentation
 
-| Guide | Covers |
-|---|---|
-| [Quickstart](https://openvax.github.io/topiary/quickstart/) | Input formats, Ensembl lookups, exclusion filtering, peptide-only models |
-| [Command-line interface](https://openvax.github.io/topiary/cli/) | Predictor names, input modes, output columns, exit status |
-| [Ranking DSL](https://openvax.github.io/topiary/ranking/) | Filter and ranking expressions, multi-model disambiguation |
-| [Protein fragments](https://openvax.github.io/topiary/fragments/) | One antigen record for variants, fusions, ERVs, CTAs, viral and synthetic sources |
-| [RNA expression](https://openvax.github.io/topiary/expression/) | Annotating predictions with Salmon, Kallisto, RSEM and other quantification |
-| [Cached predictions](https://openvax.github.io/topiary/cached/) | Replaying stored scores instead of calling a predictor |
-| [Peptide properties](https://openvax.github.io/topiary/properties/) | Charge, hydrophobicity, manufacturability and TCR-facing signals |
-| [Cross-reactivity](https://openvax.github.io/topiary/self_proteome/) | Nearest-self search and presentation evidence |
-| [Reading pVACseq](https://openvax.github.io/topiary/pvacseq/), [Exacto](https://openvax.github.io/topiary/exacto/), [combining sources](https://openvax.github.io/topiary/combined-sources/) | Importing other pipelines' reports and ranking them together |
-| [SV evidence reports](https://openvax.github.io/topiary/sv-interest/) | Complete structural-variant nomination inventories, including candidates with no recovered protein |
-| [API reference](https://openvax.github.io/topiary/api/) | Classes, functions and complete column lists |
+The full documentation is at
+[openvax.github.io/topiary](https://openvax.github.io/topiary/). In reading
+order:
 
-## Contributing
+1. [Quickstart](https://openvax.github.io/topiary/quickstart/): protein scans, input files, Ensembl and tissue lookups, multiple models.
+2. [Command-line interface](https://openvax.github.io/topiary/cli/): predictor names, input modes, output columns, exit status.
+3. [Ranking DSL](https://openvax.github.io/topiary/ranking/): filter and ranking expressions in Python and as strings.
+4. [Protein fragments](https://openvax.github.io/topiary/fragments/): one antigen record for variants, fusions, ERVs, CTAs, viral and synthetic sources.
+5. [Cached predictions](https://openvax.github.io/topiary/cached/): replay stored scores instead of calling a predictor.
+6. [API reference](https://openvax.github.io/topiary/api/): classes, functions and complete column lists.
 
-Install development tools with `pip install -r requirements-dev.txt`.
-Run `./lint.sh` and `./test.sh` before submitting changes. The full suite uses
-real Ensembl annotations and external MHC predictors; collecting tests does not
-load either:
+Other guides cover [RNA expression](https://openvax.github.io/topiary/expression/),
+[peptide properties](https://openvax.github.io/topiary/properties/),
+[cross-reactivity](https://openvax.github.io/topiary/self_proteome/),
+[structural-variant evidence reports](https://openvax.github.io/topiary/sv-interest/),
+reading [pVACseq](https://openvax.github.io/topiary/pvacseq/), LENS and
+[Exacto](https://openvax.github.io/topiary/exacto/) reports, and
+[combining those sources](https://openvax.github.io/topiary/combined-sources/)
+with fresh predictions in one ranking.
+
+## Development
 
 ```bash
-python -m pytest tests --collect-only
+./develop.sh                          # editable install (uses uv)
+pip install -r requirements-dev.txt   # lint, test and docs tools
+./lint.sh
+./test.sh                             # full suite: needs Ensembl data and predictors
+python -m pytest tests --collect-only # collecting loads no Ensembl data or predictors
+./test.sh -m isovar --strict-markers  # synthetic Isovar tests, no Ensembl download
+mkdocs build --strict                 # docs site
 ```
 
-Run the synthetic Isovar integration tests without downloading Ensembl data:
-
-```bash
-pip install . pytest pytest-cov pytest-xdist
-./test.sh -m isovar --strict-markers
-```
+Every pull request bumps `__version__` in `topiary/__init__.py` and adds a
+[CHANGELOG](https://github.com/openvax/topiary/blob/master/CHANGELOG.md) entry;
+[RELEASING.md](https://github.com/openvax/topiary/blob/master/RELEASING.md)
+describes the release steps.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](https://github.com/openvax/topiary/blob/master/LICENSE).

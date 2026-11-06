@@ -162,11 +162,13 @@ does not establish that a general aggregate-score threshold protects each target
 from topiary import SelfProteome, TopiaryPredictor
 from mhctools import NetMHCpan
 
-ref = SelfProteome.from_ensembl(species="human")
+ref = SelfProteome.from_ensembl(species="human", release=115)
 # Default include="non_cta" strips CTAs using oncoref membership via pirlygenes.
+# release= names the installed Ensembl annotation release. It has to be given:
+# the signature's default of None is rejected by pyensembl.
 
 predictor = TopiaryPredictor(
-    models=NetMHCpan,
+    models=[NetMHCpan(alleles=["HLA-A*02:01"])],
     alleles=["HLA-A*02:01"],
     self_proteome=ref,
 )
@@ -188,7 +190,7 @@ reference them in DSL expressions:
 
 ```python
 predictor = TopiaryPredictor(
-    models=NetMHCpan,
+    models=[NetMHCpan(alleles=["HLA-A*02:01"])],
     alleles=["HLA-A*02:01"],
     self_proteome=ref,
     filter_by=(Affinity <= 500) & (Column("self_nearest_edit_distance") >= 3),
@@ -212,7 +214,7 @@ presentation. Supply presentation observations separately when available.
 **Human users** get zero-config `include="non_cta"` via pirlygenes:
 
 ```python
-ref = SelfProteome.from_ensembl(species="human")
+ref = SelfProteome.from_ensembl(species="human", release=115)
 ```
 
 **Non-human users** must either use `include="all"` or supply their own
@@ -226,7 +228,7 @@ ref = SelfProteome.from_ensembl(
     species="mouse",
     release=102,
     include="non_cta",
-    cta_source={"ENSMUSG0001", "ENSMUSG0002", ...},
+    cta_source={"ENSMUSG00000031691", "ENSMUSG00000079641"},
 )
 ```
 

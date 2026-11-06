@@ -7,6 +7,25 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.111.2
+
+- Documentation only. Rewrite the README as purpose, install, quick start,
+  command line, documentation index, development; the first Python and CLI
+  examples now show the output they really produce. The home page follows the
+  same path, so README and docs agree.
+- Correct examples that could not run: every `TopiaryPredictor(models=NetMHCpan)`
+  becomes `models=[NetMHCpan(alleles=...)]`, since mhctools' `NetMHCpan` is a
+  version-selecting factory function rather than a class; the quickstart's
+  multi-model ranking reads presentation through `peptide_view(...)` and names
+  the model, which is what the predictor asks for; the command-line guide's
+  `--variant-expression isovar.tsv` example filters on `variant_num_alt_reads`,
+  the column Isovar's `num_alt_reads` becomes (`variant_n_alt` exists only when
+  the input file has an `n_alt` column); `SelfProteome.from_ensembl` examples
+  pass the required `release=`; allele arguments containing `*` are quoted so
+  the commands survive a shell that globs.
+- Install Ensembl data with a plain `pyensembl install --release 115 --species human`
+  instead of a nested `python -c` lookup of PyEnsembl's default release.
+
 ## 5.111.1
 
 - Build the CLI parser with mhctools' `add_mhc_args(predictor_required=False)`

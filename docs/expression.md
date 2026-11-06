@@ -8,7 +8,7 @@ to [filter and ranking expressions](ranking.md) like any other column.
 topiary \
   --vcf somatic.vcf \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01 \
+  --mhc-alleles 'HLA-A*02:01' \
   --gene-expression salmon_quant.sf \
   --filter-by "ba <= 500 & gene_tpm >= 5" \
   --only-novel-epitopes \
@@ -81,7 +81,7 @@ selection.
 topiary \
   --vcf somatic.vcf \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01 \
+  --mhc-alleles 'HLA-A*02:01' \
   --transcript-expression kallisto/abundance.tsv \
   --filter-by "ba <= 500" \
   --sort-by "affinity.descending_cdf(500, 200) + 0.1 * transcript_tpm.log1p()" \
@@ -91,7 +91,7 @@ topiary \
 topiary \
   --vcf somatic.vcf \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01 \
+  --mhc-alleles 'HLA-A*02:01' \
   --variant-expression isovar_output.tsv \
   --filter-by "ba <= 500 & variant_num_alt_reads >= 3" \
   --output-csv results.csv
@@ -100,7 +100,7 @@ topiary \
 topiary \
   --vcf somatic.vcf \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01 \
+  --mhc-alleles 'HLA-A*02:01' \
   --gene-expression salmon_quant.sf \
   --transcript-expression kallisto/abundance.tsv \
   --variant-expression isovar_output.tsv \
@@ -114,7 +114,7 @@ topiary \
   --protein-change EGFR T790M \
   --genome grch37 \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01 \
+  --mhc-alleles 'HLA-A*02:01' \
   --variant-expression isovar.tsv \
   --filter-by "mutation_input == 'protein_change' | variant_num_alt_reads >= 3" \
   --output-csv results.csv
@@ -123,7 +123,7 @@ topiary \
 topiary \
   --vcf somatic.vcf \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01 \
+  --mhc-alleles 'HLA-A*02:01' \
   --gene-expression mygene:custom_quant.tsv:ensembl_id:tpm_value \
   --output-csv results.csv
 ```
@@ -152,7 +152,7 @@ expression_data = {
 }
 
 predictor = TopiaryPredictor(
-    models=[NetMHCpan],
+    models=[NetMHCpan(alleles=["HLA-A*02:01"])],
     alleles=["HLA-A*02:01"],
     filter_by=(Affinity <= 500) & (Column("gene_tpm") >= 5.0),
 )
