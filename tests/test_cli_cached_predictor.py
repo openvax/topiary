@@ -38,6 +38,14 @@ def _write_peptide_csv(path, peptide):
 # ---------------------------------------------------------------------------
 
 
+def test_parser_accepts_a_cache_without_mhc_predictor():
+    # mhctools' add_mhc_args(predictor_required=False) leaves --mhc-predictor
+    # optional, so a cache alone parses; --mhc-alleles was never required.
+    args = arg_parser.parse_args(["--mhc-cache-file", "cache.tsv", "--peptide-csv", "p.csv"])
+    assert args.mhc_predictor is None
+    assert args.mhc_alleles == ""
+
+
 class TestCachedPredictorCliErrors:
     def test_no_predictor_no_cache_raises(self, tmp_path):
         csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")

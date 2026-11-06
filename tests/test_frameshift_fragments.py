@@ -440,7 +440,6 @@ class TestFrameShiftEndToEnd:
             effect, padding_around_mutation=padding,
         )
         assert frag is not None
-        mutant_protein = effect.mutant_protein_sequence
 
         # Build an EffectCollection containing just this effect and run
         # it through predict_from_mutation_effects with only_novel_epitopes.
