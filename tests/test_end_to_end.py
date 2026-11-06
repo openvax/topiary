@@ -12,6 +12,7 @@ import pytest
 from mhctools import RandomBindingPredictor
 
 from topiary import Affinity, Presentation, TopiaryPredictor
+from topiary.alleles import canonical_allele_name
 from topiary.inputs import exclude_by, read_fasta, read_peptide_csv, read_peptide_fasta, read_sequence_csv, slice_regions
 from topiary.ranking import apply_filter, parse
 
@@ -92,7 +93,9 @@ def test_pipeline_mouse_h2_alleles():
     df = predictor.predict_from_named_sequences({"prot": "MASIINFEKLGGGLLLAAA"})
     assert len(df) > 0
     alleles_in_output = set(df["allele"].unique())
-    assert any("H-2" in a for a in alleles_in_output)
+    # Check the identities with both mhctools 4.8's old spelling and 4.9's
+    # canonical output; a species-prefix substring is not an identity check.
+    assert {canonical_allele_name(a) for a in alleles_in_output} == {"H2-K*b", "H2-D*b"}
 
 
 def test_pipeline_class2_dq_allele():
