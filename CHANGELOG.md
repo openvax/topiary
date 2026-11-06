@@ -7,6 +7,16 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.111.1
+
+- Build the CLI parser with mhctools' `add_mhc_args(predictor_required=False)`
+  instead of flipping `required` on argparse's private `_actions` list
+  afterwards. Same flags, same behavior.
+- Drop ruff ignores that no longer suppress anything (`F821`, `E722`) or
+  that hid only a handful of fixable sites (`F841`, `E731`, `E741`): unused
+  test locals, lambda assignments, and an ambiguous `l`. `E501` and `E721`
+  remain ignored.
+
 ## 5.111.0
 
 - Allele canonicalization now checks what mhcgnomes parsed rather than

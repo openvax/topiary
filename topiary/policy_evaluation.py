@@ -79,9 +79,11 @@ def _context_options(record):
     alleles = record["alleles"]
     if alleles and isinstance(alleles[0], dict):
         lookup = {_key(item["keys"]): item["alleles"] for item in alleles}
-        alleles = lambda keys: lookup.get(_key(keys), ())
+        def alleles(keys):
+            return lookup.get(_key(keys), ())
     elif alleles == []:
-        alleles = lambda keys: ()
+        def alleles(keys):
+            return ()
     return dict(
         group_keys=record["group_keys"], alleles=alleles,
         default_methods=record["default_methods"], kind_support=record["kind_support"],
