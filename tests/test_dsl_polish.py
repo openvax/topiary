@@ -65,9 +65,9 @@ class TestDirection:
 
     def test_norm_and_logistic_are_different(self):
         """They give different values for the same input."""
-        n = Affinity.ascending_cdf(350, 150).evaluate(_aff_df(200))
-        l = Affinity.logistic(350, 150).evaluate(_aff_df(200))
-        assert n != pytest.approx(l, abs=0.01)
+        cdf = Affinity.ascending_cdf(350, 150).evaluate(_aff_df(200))
+        logistic = Affinity.logistic(350, 150).evaluate(_aff_df(200))
+        assert cdf != pytest.approx(logistic, abs=0.01)
 
 
 # ---------------------------------------------------------------------------

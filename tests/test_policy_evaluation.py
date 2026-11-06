@@ -131,7 +131,9 @@ def test_empty_evidence_and_invalid_runtime_context():
 
 def test_context_derivation_accepts_callbacks_and_rebuilds_changed_genotypes():
     frame = source(allele="", kind="proteasome_cleavage").df
-    callback = lambda keys: ["HLA-A*02:01"]
+    def callback(keys):
+        return ["HLA-A*02:01"]
+
     ctx = EvalContext(frame, alleles=callback)
     expected = ctx.group_index
     derived = ctx.derive(filter_context=True)

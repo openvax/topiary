@@ -9,7 +9,7 @@ models, a list of alleles.
 topiary \
   --fasta proteins.fasta \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01,HLA-B*07:02 \
+  --mhc-alleles 'HLA-A*02:01,HLA-B*07:02' \
   --ic50-cutoff 500 \
   --output-csv results.csv
 ```
@@ -20,11 +20,13 @@ Name one or more predictors with `--mhc-predictor` and alleles with
 `--mhc-alleles`:
 
 ```bash
---mhc-predictor netmhcpan mhcflurry --mhc-alleles HLA-A*02:01,HLA-B*07:02
+--mhc-predictor netmhcpan mhcflurry --mhc-alleles 'HLA-A*02:01,HLA-B*07:02'
 ```
 
 All predictors come from [mhctools](https://github.com/openvax/mhctools), which
-also handles their installation and licensing.
+also handles their installation and licensing. Quote allele lists: `*` is a
+glob character, and shells that do not pass unmatched patterns through (zsh,
+and bash under `failglob`) reject the command before topiary sees it.
 
 | CLI name | Predicts |
 |----------|----------|
@@ -54,7 +56,7 @@ them: `--mhc-epitope-lengths 8,9,10,11`.
 topiary \
   --peptide-csv peptides.csv \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01 \
+  --mhc-alleles 'HLA-A*02:01' \
   --output-csv results.csv
 ```
 
@@ -67,7 +69,7 @@ window is applied.
 topiary \
   --fasta proteins.fasta \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01,HLA-B*07:02 \
+  --mhc-alleles 'HLA-A*02:01,HLA-B*07:02' \
   --output-csv results.csv
 ```
 
@@ -84,7 +86,7 @@ Restrict the scan to parts of each sequence with `--regions NAME:START-END`
 topiary \
   --vcf somatic.vcf \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01,HLA-B*07:02 \
+  --mhc-alleles 'HLA-A*02:01,HLA-B*07:02' \
   --filter-by "ba <= 500 | el.rank <= 2" \
   --sort-by "0.6 * affinity.descending_cdf(500, 200) + 0.4 * presentation.score" \
   --only-novel-epitopes \
@@ -106,7 +108,7 @@ topiary \
   --protein-change EGFR T790M \
   --genome grch37 \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01 \
+  --mhc-alleles 'HLA-A*02:01' \
   --output-csv hotspot.csv
 ```
 
@@ -123,7 +125,7 @@ requiring variant-only evidence can state what should happen to protein changes:
 
 ```bash
 --variant-expression isovar.tsv \
---filter-by "mutation_input == 'protein_change' | variant_n_alt >= 3"
+--filter-by "mutation_input == 'protein_change' | variant_num_alt_reads >= 3"
 ```
 
 Every configured mutation shares one effect-selection, prediction, filter and
@@ -141,11 +143,11 @@ therefore land on a different transcript as the annotation release changes; pass
 ### Genes, transcripts and proteome-scale sources
 
 ```bash
-topiary --gene-names BRAF TP53 EGFR --mhc-predictor netmhcpan --mhc-alleles HLA-A*02:01
-topiary --gene-ids ENSG00000157764 --mhc-predictor netmhcpan --mhc-alleles HLA-A*02:01
-topiary --transcript-ids ENST00000288602 --mhc-predictor netmhcpan --mhc-alleles HLA-A*02:01
-topiary --ensembl-proteome --mhc-predictor netmhcpan --mhc-alleles HLA-A*02:01
-topiary --cta --mhc-predictor netmhcpan --mhc-alleles HLA-A*02:01  # cancer-testis antigens
+topiary --gene-names BRAF TP53 EGFR --mhc-predictor netmhcpan --mhc-alleles 'HLA-A*02:01'
+topiary --gene-ids ENSG00000157764 --mhc-predictor netmhcpan --mhc-alleles 'HLA-A*02:01'
+topiary --transcript-ids ENST00000288602 --mhc-predictor netmhcpan --mhc-alleles 'HLA-A*02:01'
+topiary --ensembl-proteome --mhc-predictor netmhcpan --mhc-alleles 'HLA-A*02:01'
+topiary --cta --mhc-predictor netmhcpan --mhc-alleles 'HLA-A*02:01'  # cancer-testis antigens
 ```
 
 `--cta` uses the included PirlyGenes integration. The same sources are available in Python
@@ -160,7 +162,7 @@ through `topiary.sources` — see the [quickstart](quickstart.md#ensembl-and-tis
 topiary \
   --fasta proteins.fasta \
   --mhc-predictor netmhcpan \
-  --mhc-alleles HLA-A*02:01 \
+  --mhc-alleles 'HLA-A*02:01' \
   --filter-by "ba <= 500 | el.rank <= 2" \
   --output-csv results.csv
 
@@ -168,7 +170,7 @@ topiary \
 topiary \
   --fasta antigens.fasta \
   --mhc-predictor netmhcpan mhcflurry \
-  --mhc-alleles HLA-A*02:01 \
+  --mhc-alleles 'HLA-A*02:01' \
   --filter-by "ba <= 500" \
   --sort-by "mean(netmhcpan:affinity.logistic(350, 150), mhcflurry:affinity.logistic(350, 150))" \
   --output-csv results.csv
@@ -295,10 +297,11 @@ MHC predictors are installed separately and called through
 DTU tools under a license from [DTU Health Tech](https://services.healthtech.dtu.dk/).
 
 Variant annotation, gene lookups and `SelfProteome` need a local Ensembl
-annotation database. Install the release your PyEnsembl selects by default:
+annotation database. Topiary uses PyEnsembl's default GRCh38 release,
+which is Ensembl 115 in PyEnsembl 2.32.3:
 
 ```bash
-pyensembl install --release "$(python -c 'from pyensembl import ensembl_grch38; print(ensembl_grch38.release)')" --species human
+pyensembl install --release 115 --species human
 ```
 
 Installing some other release does not change that default — select it

@@ -288,7 +288,7 @@ alleles = sorted(r.df["allele"].dropna().unique())
 peptides = {f"{v}_{p}": p for v, p in zip(r.df["variant"], r.df["peptide"])}
 
 fresh = TopiaryPredictor(
-    models=[NetMHCpan, MHCflurry],
+    models=[NetMHCpan(alleles=alleles), MHCflurry],
     alleles=alleles,
 ).predict_from_named_peptides(peptides)
 ```
