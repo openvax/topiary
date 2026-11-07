@@ -14,6 +14,7 @@ import logging
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from functools import lru_cache
+from inspect import Parameter, signature
 from types import MappingProxyType
 
 import numpy as np
@@ -38,7 +39,6 @@ from .ranking import (
 from .io import _model_version_str
 from .wide import _concat_frames
 from mhctools.pred import COLUMNS as _PRED_COLUMNS
-from mhctools.wrapper_base import AlleleFreePredictor
 
 from .protein_fragment import ProteinFragment, unique_fragments
 from .prediction_batch import predict_with_cache_miss_report
@@ -124,10 +124,13 @@ def _build_model_lookup():
 
 
 def _resolve_model_name(name):
-    """Resolve a string model name to an mhctools predictor class.
+    """Resolve a string model name to an mhctools predictor class or factory.
 
     Supports case-insensitive matching against mhctools class names,
     e.g. ``"netmhcpan41"`` → ``NetMHCpan41``, ``"mhcflurry"`` → ``MHCflurry``.
+    Some mhctools entries are factory functions that pick a class from the
+    installed tool's version rather than classes — ``"netmhcpan"`` is one —
+    and resolve to that factory, which :func:`model_from_spec` then calls.
     """
     import mhctools
 
@@ -151,19 +154,80 @@ def _resolve_model_name(name):
         )
 
     # mhctools represents heavyweight entries with lazy callable factories.
-    # Resolve only the selected factory through the corresponding public root
+    # Resolve only the selected one through the corresponding public root
     # export; building the lookup must not import every optional ML runtime.
     if isinstance(factory, type):
-        cls = factory
+        model = factory
     else:
         export_name = getattr(factory, "__name__", "")
-        cls = getattr(mhctools, export_name, None)
-    if not isinstance(cls, type) or not (
-        hasattr(cls, "predict_dataframe")
-        or hasattr(cls, "predict_peptides_dataframe")
-    ):
+        model = getattr(mhctools, export_name, factory)
+    # A factory is callable but has no prediction methods to check until it
+    # has built something, so a class is checked and a factory is taken on
+    # the registry's word.
+    predicts = (
+        hasattr(model, "predict_dataframe")
+        or hasattr(model, "predict_peptides_dataframe")
+    ) if isinstance(model, type) else callable(model)
+    if not predicts:
         raise ValueError(f"mhctools model {name!r} is not a peptide predictor")
-    return cls
+    return model
+
+
+def model_from_spec(spec, alleles=None):
+    """Build one configured prediction model from a ``models=`` entry.
+
+    Parameters
+    ----------
+    spec : str, class, callable or predictor instance
+        How a caller names a model:
+
+        - a case-insensitive mhctools registry or public class name,
+          ``"netmhcpan42"`` or ``"mhcflurry"``;
+        - a predictor class, ``NetMHCpan42``;
+        - a factory that returns a configured predictor, which is what
+          mhctools' ``NetMHCpan``, ``NetMHC`` and ``NetMHCIIpan`` are:
+          functions that run the installed tool to learn its version and
+          return the class for it;
+        - an already-configured predictor instance,
+          ``NetMHCpan42(alleles=[...])``, used as given.
+    alleles : list of str, optional
+        Alleles for a model that is built here. Passed only to a class or
+        factory whose signature takes ``alleles``, so allele-free
+        predictors (whole-peptide and cleavage models) are built without
+        them. This is the rule mhctools' own command line applies, so a
+        model named on the command line and in Python is built the same way.
+
+    Returns
+    -------
+    A configured predictor: the instance that was passed in, or the one the
+    class or factory returned.
+
+    Raises
+    ------
+    ValueError
+        When the model takes alleles and none were given. Classes and
+        factories are constructed here, so a predictor needing alleles
+        cannot be configured without them; pass an instance to supply
+        other constructor options.
+    """
+    if isinstance(spec, str):
+        spec = _resolve_model_name(spec)
+    # Predictor instances are not callable, so anything callable here is a
+    # class or a factory to build one. A factory is called like a class:
+    # mhctools returns configured instances from both.
+    if not callable(spec):
+        return spec
+    parameters = signature(spec).parameters
+    takes_alleles = "alleles" in parameters or any(
+        parameter.kind is Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    if not takes_alleles:
+        return spec()
+    if alleles is None:
+        name = getattr(spec, "__name__", None) or type(spec).__name__
+        raise ValueError(f"alleles required when passing model {name}")
+    return spec(alleles=alleles)
 
 
 def _transcript_expression_dict_from_data(expression_data):
@@ -718,10 +782,15 @@ class TopiaryPredictor(object):
         """
         Parameters
         ----------
-        models : class, instance, str, or list
-            Predictor model(s). Can be:
+        models : class, factory, instance, str, or list
+            Predictor model(s), each built by :func:`model_from_spec`.
+            Can be:
 
-            - A model class or list of classes (requires ``alleles``)::
+            - A model class or factory, or a list of them. mhctools'
+              ``NetMHCpan``, ``NetMHC`` and ``NetMHCIIpan`` are factories
+              that choose a class from the installed tool's version;
+              either form is built here, and takes ``alleles`` when the
+              model uses them::
 
                   TopiaryPredictor(models=[NetMHCpan, MHCflurry], alleles=["A0201"])
 
@@ -736,9 +805,13 @@ class TopiaryPredictor(object):
                       alleles=["A0201"],
                   )
 
+              A name that mhctools registers for a factory, such as
+              ``"netmhcpan"``, means in Python what it means on the
+              command line: the installed version of that tool.
+
         alleles : list of str, optional
-            HLA alleles, required when constructing MHC model classes.
-            Allele-free mhctools classes do not receive this argument.
+            HLA alleles, required when a model class or factory built here
+            takes them. Allele-free models do not receive this argument.
             Pass a configured model instance for other constructor options.
 
         filter_by : DSLNode or str, optional
@@ -848,19 +921,7 @@ class TopiaryPredictor(object):
             if isinstance(m, HistoricalPredictor):
                 raise TypeError("HistoricalPredictor is a sparse source; use lookup_occurrences, "
                                 "rescore_candidates, or to_result instead of live TopiaryPredictor inference")
-            if isinstance(m, str):
-                m = _resolve_model_name(m)
-            if isinstance(m, type):
-                if issubclass(m, AlleleFreePredictor):
-                    self.models.append(m())
-                elif alleles is None:
-                    raise ValueError(
-                        f"alleles required when passing model class {m.__name__}"
-                    )
-                else:
-                    self.models.append(m(alleles=alleles))
-            else:
-                self.models.append(m)
+            self.models.append(model_from_spec(m, alleles))
         self._model_keys = _unique_model_keys(self.models)
 
         # Whole-peptide models have no scanning window or flanking requirement.

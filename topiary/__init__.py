@@ -38,6 +38,7 @@ from .predictor import (
     describe_prediction_models,
     fragment_from_effect,
     from_predictions,
+    model_from_spec,
 )
 from .ranking import (
     self_nearest,
@@ -241,7 +242,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.111.4"
+__version__ = "5.111.5"
 
 __all__ = [
     "PROTEIN_SCAN_METADATA_COLUMNS",
@@ -297,6 +298,7 @@ __all__ = [
     "normalize_python_types",
     "TopiaryPredictor",
     "describe_prediction_models",
+    "model_from_spec",
     "predict_with_cache_miss_report",
     "PartialPredictionWarning",
     "AMINO_ACIDS",

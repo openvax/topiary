@@ -7,6 +7,25 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.111.5
+
+- `TopiaryPredictor(models=NetMHCpan)` and `models=["netmhcpan"]` run
+  (#580). mhctools' `NetMHCpan`, `NetMHC` and `NetMHCIIpan` are factory
+  functions that run the installed tool to learn its version and return
+  the class for it, not classes; the function object was stored as a
+  configured model and the run failed later with `'function' object has
+  no attribute predict_peptides_dataframe`, while the name raised "is not
+  a peptide predictor".
+- New public `model_from_spec(spec, alleles=None)` builds one model from a
+  `models=` entry — name, class, factory or configured instance — and
+  `TopiaryPredictor` uses it for every entry. It passes `alleles` to a
+  class or factory whose signature takes them rather than asking whether
+  the class is an `AlleleFreePredictor`, which is what mhctools' own
+  command line does, so a model named in Python is built the same way as
+  one named on the command line. Classes that take no alleles without
+  declaring that base, `NetChop`, `NetCleave` and `Pepsickle`, build in
+  Python for the first time.
+
 ## 5.111.4
 
 - `SelfProteome.from_ensembl(species="human")` builds again instead of
