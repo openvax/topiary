@@ -171,7 +171,9 @@ class TestEnsemblScopeErrors:
             lambda release=None, species=None: fake_release,
         )
         with pytest.raises(ValueError, match="no default registered"):
-            SelfProteome.from_ensembl(species="mouse", include="non_cta")
+            SelfProteome.from_ensembl(
+                species="mouse", release=102, include="non_cta",
+            )
 
     def test_pirlygenes_requires_human(self, monkeypatch):
         fake_release = MagicMock()
@@ -182,7 +184,8 @@ class TestEnsemblScopeErrors:
         )
         with pytest.raises(ValueError, match="human-only"):
             SelfProteome.from_ensembl(
-                species="mouse", include="non_cta", cta_source="pirlygenes",
+                species="mouse", release=102, include="non_cta",
+                cta_source="pirlygenes",
             )
 
     def test_protected_tissues_not_yet_implemented(self, monkeypatch):
@@ -196,7 +199,7 @@ class TestEnsemblScopeErrors:
         # tissue_gene_ids should raise (human-only default data).
         with pytest.raises(ValueError, match="human-only"):
             SelfProteome.from_ensembl(
-                species="mouse", include="protected_tissues",
+                species="mouse", release=102, include="protected_tissues",
             )
 
     def test_unknown_scope_string_rejects(self, monkeypatch):
@@ -208,7 +211,7 @@ class TestEnsemblScopeErrors:
         )
         with pytest.raises(ValueError, match="Unknown include"):
             SelfProteome.from_ensembl(
-                species="human", include="bananas",
+                species="human", release=115, include="bananas",
             )
 
     def test_custom_cta_source_as_set(self, monkeypatch):
@@ -220,7 +223,7 @@ class TestEnsemblScopeErrors:
         )
         # Non-human + explicit CTA set should succeed.
         ref = SelfProteome.from_ensembl(
-            species="mouse", include="non_cta",
+            species="mouse", release=102, include="non_cta",
             cta_source={"ENSMUSG0001", "ENSMUSG0002"},
         )
         assert "non_cta" in ref.reference_version
@@ -408,7 +411,7 @@ class TestProtectedTissuesScope:
         )
         with pytest.raises(ValueError, match="human-only"):
             SelfProteome.from_ensembl(
-                species="mouse", include="protected_tissues",
+                species="mouse", release=102, include="protected_tissues",
             )
 
     def test_non_human_with_explicit_gene_ids_works(self, monkeypatch):
@@ -467,10 +470,7 @@ class TestProtectedTissuesScope:
             "P1": "MASIINFEKLGGG",
             "P2": "QRSTVWYACDEFGH",
         }.get
-        monkeypatch.setattr(
-            "pyensembl.EnsemblRelease",
-            lambda release=None, species=None: fake,
-        )
+        monkeypatch.setattr("pyensembl.ensembl_grch38", fake)
         ref = SelfProteome.from_ensembl(
             species="human",
             include="protected_tissues",
@@ -492,10 +492,7 @@ class TestProtectedTissuesScope:
         fake.gene_id_of_protein_id.side_effect = lambda pid: "GENE_X"
         fake.transcript_id_of_protein_id.side_effect = lambda pid: "TX_X"
         fake.protein_sequence.side_effect = lambda pid: "SIINFEKLA"
-        monkeypatch.setattr(
-            "pyensembl.EnsemblRelease",
-            lambda release=None, species=None: fake,
-        )
+        monkeypatch.setattr("pyensembl.ensembl_grch38", fake)
         ref = SelfProteome.from_ensembl(
             species="human",
             include="protected_tissues",
@@ -781,16 +778,44 @@ class TestReferenceVersionIdentity:
         assert "+cta-oncoref-9.9.9+" in versions["pirlygenes"]
 
     def test_an_unrequested_release_records_the_one_selected(self, monkeypatch):
+        """Human ``release=None`` builds from pyensembl's current genome (#581).
+
+        It used to pass None straight to ``EnsemblRelease``, which refuses
+        it, so the documented zero-configuration human call raised
+        "Invalid Ensembl release: None".
+        """
         fake = TestEnsemblHappyPath()._fake_genome()
         fake.release = 115
-        monkeypatch.setattr(
-            "pyensembl.EnsemblRelease",
-            lambda release=None, species=None: fake,
-        )
+        monkeypatch.setattr("pyensembl.ensembl_grch38", fake)
         ref = SelfProteome.from_ensembl(
             species="human", peptide_lengths=[9], include="all",
         )
         assert ref.reference_version.startswith("ensembl-human-115+include-all+")
+
+    def test_a_species_without_a_default_release_says_so(self, monkeypatch):
+        """Non-human ``release=None`` names the missing argument (#581).
+
+        Both doors onto Ensembl refuse it the same way, and take the same
+        default when it is available, because ``from_ensembl`` and the
+        ``topiary.sources`` readers resolve releases through one function.
+        """
+        from topiary.sources import ensembl_genome
+
+        for call in (
+            lambda: SelfProteome.from_ensembl(species="mouse", include="all"),
+            lambda: ensembl_genome(None, "mouse"),
+        ):
+            with pytest.raises(ValueError, match="Must specify release"):
+                call()
+
+        fake = TestEnsemblHappyPath()._fake_genome()
+        fake.release = 115
+        monkeypatch.setattr("pyensembl.ensembl_grch38", fake)
+        built = SelfProteome.from_ensembl(
+            species="human", peptide_lengths=[9], include="all",
+        )
+        assert ensembl_genome(None, "human") is fake
+        assert built.reference_version.startswith("ensembl-human-115+")
 
     def test_a_callable_filter_labels_the_same_on_every_run(self, tmp_path):
         path = tmp_path / "ref.fa"
