@@ -46,6 +46,7 @@ from .evidence import VARCODE_TRANSLATION
 from .sequence_helpers import (
     check_padding_around_mutation,
     peptide_mutation_interval,
+    scannable_segments,
 )
 
 
@@ -599,6 +600,31 @@ def _reject_conflicting_offset_columns(df):
     )
 
 
+def _restore_source_coordinates(df, segments):
+    """Report scanned segments under their source protein and offset.
+
+    ``scannable_segments`` may hand a model one entry per scorable run of
+    a protein, so the scanner reports the run's name and an offset within
+    it.  This puts the rows back in the caller's coordinates, which is
+    what every later join, flank derivation and validation reads.
+    """
+    renamed = {
+        name: (source, offset)
+        for name, (source, offset, _) in segments.items()
+        if name != source or offset
+    }
+    if not renamed or df.empty or "source_sequence_name" not in df.columns:
+        return df
+    df = df.copy()
+    df["offset"] = df["offset"] + df["source_sequence_name"].map(
+        lambda name: renamed.get(name, (None, 0))[1]
+    )
+    df["source_sequence_name"] = df["source_sequence_name"].map(
+        lambda name: renamed.get(name, (name, 0))[0]
+    )
+    return df
+
+
 def _normalize_prediction_frame(df):
     """Put an mhctools prediction frame into topiary's long form.
 
@@ -1007,11 +1033,17 @@ class TopiaryPredictor(object):
     # ------------------------------------------------------------------
 
     def predict_from_named_sequences(self, name_to_sequence_dict):
-        """
+        """Scan proteins and score every window a model can score.
+
         Parameters
         ----------
         name_to_sequence_dict : dict (str -> str)
-            Mapping of sequence names to amino acid sequences.
+            Mapping of sequence names to amino acid sequences. A window
+            covering a residue outside the twenty standard amino acids —
+            ``X`` where Ensembl does not know the residue — is left out
+            rather than offered to a model that refuses it; see
+            :func:`~topiary.scannable_segments`. The rest of that protein
+            is scanned, and one warning says what was left out.
 
         Returns
         -------
@@ -1117,9 +1149,14 @@ class TopiaryPredictor(object):
 
     def _predict_raw_for_model(self, model, name_to_sequence_dict, model_key=None, stage="protein"):
         """Run one model on proteins, preserving source-sequence context."""
+        # Scan the runs a predictor can score, not the whole protein: one
+        # unknown residue otherwise ends the run for every protein (#573).
+        segments = scannable_segments(name_to_sequence_dict)
         model_df = predict_with_cache_miss_report(
-            model.predict_proteins_dataframe, name_to_sequence_dict,
+            model.predict_proteins_dataframe,
+            {name: segment for name, (_, _, segment) in segments.items()},
             on_miss=self.cache_miss_handler, context=self._cache_miss_context(model, model_key, stage))
+        model_df = _restore_source_coordinates(model_df, segments)
         from .protein_predictions import annotate_protein_prediction_context
         model_df = annotate_protein_prediction_context(model_df, model)
         return self._attach_model_key(
