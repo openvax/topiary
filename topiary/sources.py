@@ -30,9 +30,54 @@ proteome, transcript choices and peptide coordinates all move between releases.
 
 import logging
 
-from pyensembl import EnsemblRelease, ensembl_grch38
+import pyensembl
 
 from .dependencies import require_dependency
+
+
+def ensembl_genome(release=None, species="human"):
+    """The pyensembl genome Topiary reads for a release and species.
+
+    Every Topiary entry point that takes ``release`` resolves it here, so
+    the proteome a caller gets from :func:`cta_sequences`, from
+    :meth:`topiary.SelfProteome.from_ensembl` and from the command line is
+    the same one.
+
+    Parameters
+    ----------
+    release : int, optional
+        Ensembl release number. ``None`` means the default described under
+        "Which Ensembl release" in the module docstring: for human, the
+        release the installed pyensembl exposes as ``ensembl_grch38``.
+    species : str
+        Species name or latin name (default ``"human"``). Any spelling
+        pyensembl accepts, so ``"homo_sapiens"`` and ``"Homo sapiens"``
+        name the same species as ``"human"``.
+
+    Returns
+    -------
+    pyensembl.Genome
+        The genome for that release. Its data must already be installed
+        (``pyensembl install --release <n> --species <species>``).
+
+    Raises
+    ------
+    ValueError
+        When ``release`` is None for a non-human species. Only human has a
+        default: pyensembl publishes one GRCh38 release as its current
+        human genome, and no equivalent for other species. Choosing a
+        release on the caller's behalf would silently fix the proteome and
+        the coordinates an analysis is reported in.
+    """
+    if release is not None:
+        return pyensembl.EnsemblRelease(release=release, species=species)
+    if pyensembl.normalize_species_name(species) != "homo_sapiens":
+        raise ValueError(
+            "Must specify release for non-human species %r; only human has "
+            "a default Ensembl release (the one pyensembl exposes as "
+            "ensembl_grch38)." % (species,)
+        )
+    return pyensembl.ensembl_grch38
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +101,7 @@ def ensembl_proteome(release=None, species="human"):
     -------
     dict : protein_id -> amino acid sequence
     """
-    genome = _get_genome(release, species)
+    genome = ensembl_genome(release, species)
     sequences = {}
     for protein_id in genome.protein_ids():
         seq = genome.protein_sequence(protein_id)
@@ -94,7 +139,7 @@ def sequences_from_gene_names(gene_names, release=None, species="human"):
     """
     if not gene_names:
         raise ValueError("gene_names must be a non-empty list")
-    genome = _get_genome(release, species)
+    genome = ensembl_genome(release, species)
     return _sequences_for_genes(genome, gene_names, by="name")
 
 
@@ -115,7 +160,7 @@ def sequences_from_gene_ids(gene_ids, release=None, species="human"):
     """
     if not gene_ids:
         raise ValueError("gene_ids must be a non-empty list")
-    genome = _get_genome(release, species)
+    genome = ensembl_genome(release, species)
     return _sequences_for_genes(genome, gene_ids, by="id")
 
 
@@ -136,7 +181,7 @@ def sequences_from_transcript_ids(transcript_ids, release=None, species="human")
     """
     if not transcript_ids:
         raise ValueError("transcript_ids must be a non-empty list")
-    genome = _get_genome(release, species)
+    genome = ensembl_genome(release, species)
     sequences = {}
     for tid in transcript_ids:
         try:
@@ -167,7 +212,7 @@ def sequences_from_transcript_names(transcript_names, release=None, species="hum
     """
     if not transcript_names:
         raise ValueError("transcript_names must be a non-empty list")
-    genome = _get_genome(release, species)
+    genome = ensembl_genome(release, species)
     sequences = {}
     for tname in transcript_names:
         try:
@@ -203,7 +248,7 @@ def cta_sequences(release=None):
     dict : "GENE_NAME|TRANSCRIPT_ID" -> amino acid sequence
     """
     gene_ids = cta_gene_ids()
-    genome = _get_genome(release, "human")
+    genome = ensembl_genome(release, "human")
     return _sequences_for_genes(genome, list(gene_ids), by="id")
 
 
@@ -225,7 +270,7 @@ def non_cta_sequences(release=None):
     dict : protein_id -> amino acid sequence
     """
     cta_ids = cta_gene_ids()
-    genome = _get_genome(release, "human")
+    genome = ensembl_genome(release, "human")
     sequences = {}
     for protein_id in genome.protein_ids():
         try:
@@ -291,7 +336,7 @@ def tissue_expressed_sequences(tissues, min_ntpm=1.0, release=None):
     dict : "GENE_NAME|TRANSCRIPT_ID" -> amino acid sequence
     """
     gene_ids = tissue_expressed_gene_ids(tissues, min_ntpm=min_ntpm)
-    genome = _get_genome(release, "human")
+    genome = ensembl_genome(release, "human")
     return _sequences_for_genes(genome, list(gene_ids), by="id")
 
 
@@ -304,14 +349,6 @@ def available_tissues():
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
-
-
-def _get_genome(release, species):
-    if release is None and species == "human":
-        return ensembl_grch38
-    if release is None:
-        raise ValueError("Must specify release for non-human species")
-    return EnsemblRelease(release=release, species=species)
 
 
 def _sequences_for_genes(genome, identifiers, by="name"):

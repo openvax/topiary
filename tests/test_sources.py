@@ -108,18 +108,20 @@ def test_predictor_filter_and_sort_by_separate():
 def test_default_human_release_is_the_one_pyensembl_exposes():
     import pyensembl
 
-    from topiary.sources import _get_genome
+    from topiary.sources import ensembl_genome
 
     # Not "the latest release whose data is installed", and not a number
     # pinned in topiary: whatever the installed pyensembl points at.
-    assert _get_genome(None, "human") is pyensembl.ensembl_grch38
+    assert ensembl_genome(None, "human") is pyensembl.ensembl_grch38
+    # Any spelling pyensembl accepts names the same species.
+    assert ensembl_genome(None, "homo_sapiens") is pyensembl.ensembl_grch38
 
 
 def test_non_human_species_has_no_default_release():
-    from topiary.sources import _get_genome
+    from topiary.sources import ensembl_genome
 
     with pytest.raises(ValueError, match="Must specify release"):
-        _get_genome(None, "mouse")
+        ensembl_genome(None, "mouse")
 
 
 def test_the_module_docstring_states_the_rule_it_follows():
