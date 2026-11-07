@@ -67,6 +67,25 @@ def test_reporting_preserves_protein_context_and_skips_whole_affected_sequence()
     assert failures[0]["source_sequence_name"] == "wrong_flanks"
 
 
+def test_a_miss_inside_a_split_protein_is_reported_under_the_protein():
+    """A protein scanned in runs is still one input in the report (#573).
+
+    Windows covering an unknown residue are not scored, so the scanner
+    sees one entry per scorable run; a report naming the run would name
+    something the caller never passed in.
+    """
+    model = _covering_cache([PEPTIDE])
+    failures = []
+    predictor = TopiaryPredictor(models=[model], cache_miss_handler=failures.append)
+
+    with pytest.warns(PartialPredictionWarning):
+        predictor.predict_from_named_sequences({"unknown_residue": "X" + MISSING})
+
+    failure, = failures
+    assert failure["source_sequence_name"] == "unknown_residue"
+    assert MISSING in failure["message"]
+
+
 @pytest.mark.parametrize("dimension", ["kind", "genotype"])
 def test_one_covered_prediction_cannot_hide_a_missing_kind_or_genotype(dimension):
     protein = "MA" + PEPTIDE + "GG"

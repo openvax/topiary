@@ -602,6 +602,17 @@ def _reject_conflicting_offset_columns(df):
     )
 
 
+def _report_under_source_name(handler, segments):
+    """Report a skipped input under the caller's protein, not a scanned run."""
+    sources = {name: source for name, (source, _, _) in segments.items()}
+
+    def report(record):
+        name = record.get("source_sequence_name")
+        return handler(dict(record, source_sequence_name=sources.get(name, name)))
+
+    return report
+
+
 def _restore_source_coordinates(df, segments):
     """Report scanned segments under their source protein and offset.
 
@@ -1159,10 +1170,13 @@ class TopiaryPredictor(object):
         # Scan the runs a predictor can score, not the whole protein: one
         # unknown residue otherwise ends the run for every protein (#573).
         segments = scannable_segments(name_to_sequence_dict)
+        on_miss = self.cache_miss_handler
+        if on_miss is not None:
+            on_miss = _report_under_source_name(on_miss, segments)
         model_df = predict_with_cache_miss_report(
             model.predict_proteins_dataframe,
             {name: segment for name, (_, _, segment) in segments.items()},
-            on_miss=self.cache_miss_handler, context=self._cache_miss_context(model, model_key, stage))
+            on_miss=on_miss, context=self._cache_miss_context(model, model_key, stage))
         model_df = _restore_source_coordinates(model_df, segments)
         from .protein_predictions import annotate_protein_prediction_context
         model_df = annotate_protein_prediction_context(model_df, model)
