@@ -47,10 +47,9 @@ def scannable_segments(sequences):
 
     A protein from Ensembl may carry ``X`` where the residue is unknown —
     a few CTA proteins do — and every window covering one is refused by
-    every predictor. Scanning such a protein whole used to end the entire
-    run, so one unknown residue produced no output for any protein (#573).
-    Scanning its scorable runs instead keeps every window that can be
-    scored and drops exactly those that cannot.
+    every predictor, which ends the whole scan. Handing a model the
+    scorable runs keeps every window that can be scored and drops exactly
+    those that cannot (#573).
 
     Parameters
     ----------
