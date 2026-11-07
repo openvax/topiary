@@ -1,9 +1,11 @@
 """Direct tests for public protein/peptide sequence geometry helpers."""
 
+import logging
+
 import numpy as np
 import pytest
 
-from topiary import peptide_occurrence_flanks
+from topiary import peptide_occurrence_flanks, scannable_segments, scorable_peptide
 from topiary.sequence_helpers import protein_subsequences_around_mutations
 
 
@@ -106,3 +108,91 @@ def test_empty_string_protein_skipped():
     effect = _mock_effect("", 0, 0)
     subseqs, offsets = protein_subsequences_around_mutations([effect], padding_around_mutation=9)
     assert len(subseqs) == 0
+
+
+# ---------------------------------------------------------------------------
+# Unscorable residues (#573)
+#
+# A few CTA proteins carry X where Ensembl does not know the residue. Every
+# predictor refuses a window covering one, which used to end the whole run:
+# `topiary --cta` produced nothing at all, under a message that printed a
+# pandas array repr.
+# ---------------------------------------------------------------------------
+
+
+def test_scorable_peptide_accepts_only_the_standard_residues():
+    assert scorable_peptide("SIINFEKL")
+    assert not scorable_peptide("XIINFEKL")
+    assert not scorable_peptide("SIINFEKU")
+    assert not scorable_peptide("siinfekl")
+    assert not scorable_peptide("")
+
+
+def test_scannable_segments_pass_whole_proteins_through():
+    sequences = {"a": "MASIINFEKLGGG", "b": "QRSTVWYACDEFGH"}
+
+    assert scannable_segments(sequences) == {
+        "a": ("a", 0, "MASIINFEKLGGG"),
+        "b": ("b", 0, "QRSTVWYACDEFGH"),
+    }
+
+
+def test_scannable_segments_split_at_unscorable_residues():
+    segments = scannable_segments({"p": "XMTHCGHLGXAAKL", "empty": ""})
+
+    assert segments == {
+        "p@1": ("p", 1, "MTHCGHLG"),
+        "p@10": ("p", 10, "AAKL"),
+        "empty": ("empty", 0, ""),
+    }
+    # Every segment is located where the source protein really holds it.
+    for source, offset, segment in segments.values():
+        assert {"p": "XMTHCGHLGXAAKL", "empty": ""}[source][
+            offset:offset + len(segment)
+        ] == segment
+
+
+def test_scannable_segments_do_not_collide_with_a_real_name():
+    segments = scannable_segments({"p": "XSIINFEKL", "p@1": "SIINFEKLA"})
+
+    assert segments["p@1"] == ("p@1", 0, "SIINFEKLA")
+    assert segments["p@1#2"] == ("p", 1, "SIINFEKL")
+
+
+def test_scannable_segments_warn_once_about_what_was_dropped(caplog):
+    with caplog.at_level(logging.WARNING):
+        scannable_segments({"a": "SIINFEKL", "b": "XSIINFEKL", "c": "SIXNFEKL"})
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert len(messages) == 1
+    # Count and example, in plain text: the old message ended the run and
+    # printed <ArrowStringArray> rows instead.
+    assert "2 of 3" in messages[0]
+    assert "2 residues in all" in messages[0]
+    assert "b" in messages[0] and "ArrowStringArray" not in messages[0]
+
+
+def test_protein_scan_skips_only_the_windows_covering_an_unknown_residue():
+    """A protein with an X still contributes every scorable window (#573)."""
+    from mhctools import RandomBindingPredictor
+
+    from topiary import TopiaryPredictor
+
+    sequences = {"clean": "MASIINFEKLGG", "unknown": "XMTHCGHLGAAAKL"}
+    predictor = TopiaryPredictor(models=RandomBindingPredictor(
+        alleles=["HLA-A*02:01"], default_peptide_lengths=[9],
+    ))
+
+    df = predictor.predict_from_named_sequences(sequences)
+
+    assert set(df.source_sequence_name) == {"clean", "unknown"}
+    # Coordinates are the caller's, not the scanned segment's.
+    for row in df.to_dict("records"):
+        source = sequences[row["source_sequence_name"]]
+        offset = row["peptide_offset"]
+        assert source[offset:offset + len(row["peptide"])] == row["peptide"]
+    scored = set(df.loc[df.source_sequence_name == "unknown", "peptide"])
+    assert scored == {
+        sequences["unknown"][offset:offset + 9] for offset in range(1, 6)
+    }
+    assert not any("X" in peptide for peptide in df.peptide)

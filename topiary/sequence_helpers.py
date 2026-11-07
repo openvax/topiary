@@ -10,8 +10,112 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from collections.abc import Iterable
 from numbers import Integral
+
+from .amino_acids import AMINO_ACIDS
+
+#: Residues an MHC binding predictor can score. Everything else — ``X`` for
+#: an unknown residue, ``U``, ``*`` — is refused by the tools Topiary drives.
+SCORABLE_AMINO_ACIDS = frozenset(AMINO_ACIDS)
+
+
+def scorable_peptide(peptide):
+    """Whether a predictor can score this peptide at all.
+
+    Parameters
+    ----------
+    peptide : str
+        Candidate peptide sequence.
+
+    Returns
+    -------
+    bool
+        True when the peptide is nonempty and every residue is one of the
+        twenty standard amino acids. The MHC predictors Topiary drives
+        refuse anything else rather than scoring it: mhctools raises
+        "Invalid character 'X' in peptide", MHCflurry "peptides have
+        nonstandard amino acids". An unknown residue carries no binding
+        evidence, so there is no score to substitute.
+    """
+    return bool(peptide) and SCORABLE_AMINO_ACIDS.issuperset(peptide)
+
+
+def scannable_segments(sequences):
+    """Split named proteins into the runs a predictor can scan.
+
+    A protein from Ensembl may carry ``X`` where the residue is unknown —
+    a few CTA proteins do — and every window covering one is refused by
+    every predictor, which ends the whole scan. Handing a model the
+    scorable runs keeps every window that can be scored and drops exactly
+    those that cannot (#573).
+
+    Parameters
+    ----------
+    sequences : mapping of str to str
+        Named protein sequences, as passed to a model's protein scanner.
+
+    Returns
+    -------
+    dict of str to tuple
+        ``{scan_name: (source_name, offset, segment)}`` in input order.
+        A protein a predictor can scan whole keeps its own name and offset
+        0, so the ordinary case passes through unchanged. A split protein
+        contributes one entry per run of scorable residues, each under a
+        name that collides with no other key, and ``offset`` locates the
+        run in the source protein so reported coordinates can be restored.
+        A protein with no scorable run contributes nothing. Flanking
+        context stops at the unscorable residue, which is where the
+        sequence stops saying what the neighbouring residue is.
+
+    Notes
+    -----
+    Logs one summary warning when any protein is split, naming how many
+    proteins and residues were affected and one example.
+    """
+    segments = {}
+    skipped = {}
+    for name, sequence in sequences.items():
+        runs = list(_residue_runs(sequence))
+        unscorable = len(sequence) - sum(len(run) for _, run in runs)
+        if not unscorable:
+            segments[name] = (name, 0, sequence)
+            continue
+        skipped[name] = unscorable
+        for offset, run in runs:
+            scan_name = f"{name}@{offset}"
+            duplicate = 2
+            while scan_name in segments or scan_name in sequences:
+                scan_name = f"{name}@{offset}#{duplicate}"
+                duplicate += 1
+            segments[scan_name] = (name, offset, run)
+    if skipped:
+        example = next(iter(skipped))
+        logging.warning(
+            "%d of %d protein sequences contain residues no MHC predictor "
+            "can score (%d residues in all); windows covering them are not "
+            "scored. For example %s has %d such residue(s).",
+            len(skipped), len(sequences), sum(skipped.values()),
+            example, skipped[example],
+        )
+    return segments
+
+
+def _residue_runs(sequence):
+    """Yield ``(offset, run)`` for each maximal scorable run of residues."""
+    offset = 0
+    run = []
+    for index, residue in enumerate(sequence):
+        if residue in SCORABLE_AMINO_ACIDS:
+            if not run:
+                offset = index
+            run.append(residue)
+        elif run:
+            yield offset, "".join(run)
+            run = []
+    if run:
+        yield offset, "".join(run)
 
 
 def peptide_occurrence_flanks(source_sequence, peptide, peptide_offset):

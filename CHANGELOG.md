@@ -7,6 +7,28 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.111.6
+
+- A protein carrying a residue no predictor can score no longer ends the
+  run (#573). `topiary --cta` failed after about 18 seconds and produced
+  nothing, because three CTA proteins begin with `X`, the residue Ensembl
+  writes where it does not know which one it is, and MHCflurry refuses a
+  window covering one — in a message that printed a pandas
+  `<ArrowStringArray>` repr. `--gene-names`, `--fasta` and
+  `--ensembl-proteome` inputs failed the same way.
+- `predict_from_named_sequences` now scans the runs of scorable residues
+  in each protein, so every window that can be scored is scored and only
+  the windows covering an unknown residue are left out, with one warning
+  naming how many proteins and residues were affected. Reported
+  coordinates remain the caller's, and so does the name in a cache-miss
+  report: a protein scanned in runs is still one input. A window's
+  flanking context stops at such a residue, which is where the protein
+  stops saying what the neighbouring residue is.
+- New public `scorable_peptide(peptide)`, `scannable_segments(sequences)`
+  and `SCORABLE_AMINO_ACIDS` state that rule once. Explicitly supplied
+  peptides are unaffected: a peptide a caller names is still the model's
+  to accept or refuse.
+
 ## 5.111.5
 
 - `TopiaryPredictor(models=NetMHCpan)` and `models=["netmhcpan"]` run

@@ -401,7 +401,7 @@ class TestFrameShiftEndToEnd:
     """Integration: a mocked FrameShift goes all the way through
     predict_from_mutation_effects and survives only_novel_epitopes."""
 
-    def _make_real_frameshift_effect(self, shift_at=11, shifted_tail="XYZQRSTUV"):
+    def _make_real_frameshift_effect(self, shift_at=11, shifted_tail="KYEQRSTMV"):
         """Construct a real varcode FrameShift attached to a variant /
         transcript mock, which is enough for the predictor path to run."""
         from varcode.effects import FrameShift
@@ -425,10 +425,13 @@ class TestFrameShiftEndToEnd:
         # transcript, so our MagicMock attributes are picked up.
         return fs
 
+    # Tails are spelled in the twenty standard amino acids: a predictor
+    # cannot score a window covering anything else, so one would now be
+    # dropped before scoring rather than standing in for a novel tail.
     @pytest.mark.parametrize("shift_at,shifted_tail,padding", [
-        (11, "XYZQRSTUVWXYZ", 8),
-        (15, "ABCDEFGHIJKL", 12),
-        (5,  "NOVELRESIDUES", 8),
+        (11, "KYEQRSTMVWKYE", 8),
+        (15, "ACDEFGHIKLMN", 12),
+        (5,  "NQVELRESIDMES", 8),
     ])
     def test_all_downstream_9mers_survive_only_novel_epitopes(
         self, shift_at, shifted_tail, padding,

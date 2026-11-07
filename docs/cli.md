@@ -153,6 +153,11 @@ topiary --cta --mhc-predictor netmhcpan --mhc-alleles 'HLA-A*02:01'  # cancer-te
 `--cta` uses the included PirlyGenes integration. The same sources are available in Python
 through `topiary.sources` — see the [quickstart](quickstart.md#ensembl-and-tissue-lookups).
 
+Some Ensembl proteins carry `X` where the residue is unknown — a few CTA proteins do.
+No MHC predictor scores a window covering one, so those windows are left out and the
+rest of the protein is scanned as usual. One warning names how many proteins and
+residues were affected. A window's flanking context also stops at such a residue.
+
 ## Filtering and ranking
 
 `--filter-by` and `--sort-by` take [ranking DSL](ranking.md) strings:
