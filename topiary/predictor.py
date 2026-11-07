@@ -615,10 +615,15 @@ def _restore_source_coordinates(df, segments):
         for name, (source, offset, _) in segments.items()
         if name != source or offset
     }
-    if not renamed or df.empty or "source_sequence_name" not in df.columns:
+    if not renamed or df.empty:
+        return df
+    # "offset" is the protein-scan vocabulary; a producer that states the
+    # coordinate under topiary's own name is normalized later, not here.
+    offset_column = "offset" if "offset" in df.columns else "peptide_offset"
+    if {"source_sequence_name", offset_column} - set(df.columns):
         return df
     df = df.copy()
-    df["offset"] = df["offset"] + df["source_sequence_name"].map(
+    df[offset_column] = df[offset_column] + df["source_sequence_name"].map(
         lambda name: renamed.get(name, (None, 0))[1]
     )
     df["source_sequence_name"] = df["source_sequence_name"].map(
