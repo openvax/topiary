@@ -20,9 +20,10 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
   in each protein, so every window that can be scored is scored and only
   the windows covering an unknown residue are left out, with one warning
   naming how many proteins and residues were affected. Reported
-  coordinates remain the caller's. A window's flanking context stops at
-  such a residue, which is where the protein stops saying what the
-  neighbouring residue is.
+  coordinates remain the caller's, and so does the name in a cache-miss
+  report: a protein scanned in runs is still one input. A window's
+  flanking context stops at such a residue, which is where the protein
+  stops saying what the neighbouring residue is.
 - New public `scorable_peptide(peptide)`, `scannable_segments(sequences)`
   and `SCORABLE_AMINO_ACIDS` state that rule once. Explicitly supplied
   peptides are unaffected: a peptide a caller names is still the model's
