@@ -161,12 +161,14 @@ def _resolve_model_name(name):
     else:
         export_name = getattr(factory, "__name__", "")
         model = getattr(mhctools, export_name, factory)
-    if isinstance(model, type) and not (
+    # A factory is callable but has no prediction methods to check until it
+    # has built something, so a class is checked and a factory is taken on
+    # the registry's word.
+    predicts = (
         hasattr(model, "predict_dataframe")
         or hasattr(model, "predict_peptides_dataframe")
-    ):
-        raise ValueError(f"mhctools model {name!r} is not a peptide predictor")
-    if not callable(model):
+    ) if isinstance(model, type) else callable(model)
+    if not predicts:
         raise ValueError(f"mhctools model {name!r} is not a peptide predictor")
     return model
 
@@ -808,8 +810,8 @@ class TopiaryPredictor(object):
               command line: the installed version of that tool.
 
         alleles : list of str, optional
-            HLA alleles, required when constructing MHC model classes.
-            Allele-free mhctools classes do not receive this argument.
+            HLA alleles, required when a model class or factory built here
+            takes them. Allele-free models do not receive this argument.
             Pass a configured model instance for other constructor options.
 
         filter_by : DSLNode or str, optional
