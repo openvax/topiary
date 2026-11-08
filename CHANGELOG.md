@@ -9,28 +9,27 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
 ## 5.111.6
 
-- Gene lookups return the protein a predictor can use, not the longest
-  translation (#573). `topiary --cta` failed after about 18 seconds and
+- Gene lookups select a representative transcript using its annotation,
+  alphabet and length (#573). `topiary --cta` failed after about 18 seconds and
   produced nothing, because the longest translation of IZUMO2, C16orf90
   and LLCFC1 is one Ensembl marks as having no annotated start codon, so
   it begins with `X` — the residue Ensembl writes where it does not know
   which one it is — and MHCflurry refuses a window covering one, in a
   message that printed a pandas `<ArrowStringArray>` repr.
 - New public `topiary.sources.best_protein_transcript(gene)` states the
-  choice once: a complete protein-coding translation, then one a
-  predictor can score end to end, then the longest, with ties broken by
+  choice once: a complete protein-coding translation, then a sequence
+  using standard amino acids, then the longest, with ties broken by
   transcript ID so a release always gives the same answer. `--cta`,
   `--gene-names` and the tissue sources all use it. Across the 624 CTA
   proteins of Ensembl 115 this replaces 7 proteins — 5 incomplete
   translations and 2 nonsense-mediated decay transcripts, which are
   translated in the database but not expected to make protein — and
   settles the transcript of 50 more whose protein is unchanged.
-- A protein that still arrives with an unscorable residue, from `--fasta`
-  or `--ensembl-proteome`, is left out of the scan with one warning
-  instead of ending it. New public `scorable_proteins(sequences)`,
-  `scorable_peptide(peptide)` and `SCORABLE_AMINO_ACIDS` state that rule.
-  Explicitly supplied peptides are unaffected: a peptide a caller names
-  is still the model's to accept or refuse.
+- Preserve original protein inputs for every configured predictor and cache
+  (#596). Remove the proposed universal alphabet filter and its unreleased
+  helpers: it discarded supported predictions, bypassed strict cache coverage,
+  and lost whole proteins when only one residue was nonstandard. Predictor
+  validation errors still propagate; partial-window recovery is not added.
 
 ## 5.111.5
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from topiary import scorable_peptide
+from topiary import AMINO_ACIDS
 from topiary.sources import (
     available_tissues,
     best_protein_transcript,
@@ -146,7 +146,7 @@ def test_the_module_docstring_states_the_rule_it_follows():
 #
 # Picking the longest translation handed predictors proteins Ensembl itself
 # marks as incomplete: three CTA genes translate to a sequence starting with
-# X, which no predictor will score, and `topiary --cta` ended there.
+# X, which MHCflurry rejects, and `topiary --cta` ended there.
 # ---------------------------------------------------------------------------
 
 
@@ -208,11 +208,11 @@ def test_best_protein_transcript_without_any_translation():
     assert best_protein_transcript(FakeGene(FakeTranscript("ENST1", None))) is None
 
 
-def test_gene_sequences_are_proteins_a_predictor_can_score():
+def test_reported_gene_sequences_use_standard_residues():
     """The three genes from #573, read from the installed Ensembl release."""
     sequences = sequences_from_gene_names(["IZUMO2", "C16orf90", "LLCFC1"])
 
     assert len(sequences) >= 3
     for name, sequence in sequences.items():
-        assert scorable_peptide(sequence), name
+        assert set(sequence).issubset(AMINO_ACIDS), name
         assert sequence.startswith("M"), name

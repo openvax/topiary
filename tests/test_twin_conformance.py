@@ -134,6 +134,21 @@ TWINS = (
 )
 
 
+def protein_inputs_through_model(model, sequences):
+    return from_predictions(model.predict_proteins_dataframe(sequences))
+
+
+def protein_inputs_through_topiary(model, sequences):
+    return TopiaryPredictor(models=model).predict_from_named_sequences(sequences)
+
+
+# A wrapper must preserve the configured model/cache's accepted input universe.
+PROTEIN_INPUT_PREDICTION_TWINS = (
+    protein_inputs_through_model,
+    protein_inputs_through_topiary,
+)
+
+
 HUMAN_REFERENCE_TWINS = (
     ("audit", lambda cache: reference_genome(sid_data_root("osteosarc_all_variants"), cache)),
     ("six-locus", lambda cache: next(iter(load_osteosarc(cache)[0].values())).genome),

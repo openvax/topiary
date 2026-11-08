@@ -46,7 +46,6 @@ from .evidence import VARCODE_TRANSLATION
 from .sequence_helpers import (
     check_padding_around_mutation,
     peptide_mutation_interval,
-    scorable_proteins,
 )
 
 
@@ -1015,12 +1014,11 @@ class TopiaryPredictor(object):
         Parameters
         ----------
         name_to_sequence_dict : dict (str -> str)
-            Mapping of sequence names to amino acid sequences. A protein
-            carrying a residue outside the twenty standard amino acids —
-            ``X`` where Ensembl does not say which residue it is — is not
-            scanned, because every predictor refuses it; see
-            :func:`~topiary.scorable_proteins`. The other proteins are
-            scanned, and one warning says which were left out.
+            Mapping of sequence names to amino acid sequences. Original
+            names and sequences are passed to each configured predictor or
+            cache. Residue validation belongs to that producer: accepted
+            predictions are retained and input errors propagate. No protein
+            is dropped solely because of its alphabet.
 
         Returns
         -------
@@ -1126,11 +1124,9 @@ class TopiaryPredictor(object):
 
     def _predict_raw_for_model(self, model, name_to_sequence_dict, model_key=None, stage="protein"):
         """Run one model on proteins, preserving source-sequence context."""
-        # Leave out a protein no predictor can score, rather than letting it
-        # end the scan for every other protein in the call (#573).
         model_df = predict_with_cache_miss_report(
             model.predict_proteins_dataframe,
-            scorable_proteins(name_to_sequence_dict),
+            name_to_sequence_dict,
             on_miss=self.cache_miss_handler,
             context=self._cache_miss_context(model, model_key, stage))
         from .protein_predictions import annotate_protein_prediction_context
