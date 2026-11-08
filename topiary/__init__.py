@@ -128,8 +128,8 @@ from .sequence_helpers import (
     peptide_mutation_interval,
     contains_mutant_residues,
     protein_subsequences_around_mutations,
-    scannable_segments,
     scorable_peptide,
+    scorable_proteins,
 )
 from .historical import (
     HistoricalPredictor,
@@ -251,7 +251,7 @@ __all__ = [
     "PROTEIN_SCAN_METADATA_COLUMNS",
     "peptide_occurrence_flanks",
     "SCORABLE_AMINO_ACIDS",
-    "scannable_segments",
+    "scorable_proteins",
     "scorable_peptide",
     "prediction_flank_limits",
     "annotate_protein_prediction_context",

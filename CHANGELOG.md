@@ -9,25 +9,28 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
 ## 5.111.6
 
-- A protein carrying a residue no predictor can score no longer ends the
-  run (#573). `topiary --cta` failed after about 18 seconds and produced
-  nothing, because three CTA proteins begin with `X`, the residue Ensembl
-  writes where it does not know which one it is, and MHCflurry refuses a
-  window covering one — in a message that printed a pandas
-  `<ArrowStringArray>` repr. `--gene-names`, `--fasta` and
-  `--ensembl-proteome` inputs failed the same way.
-- `predict_from_named_sequences` now scans the runs of scorable residues
-  in each protein, so every window that can be scored is scored and only
-  the windows covering an unknown residue are left out, with one warning
-  naming how many proteins and residues were affected. Reported
-  coordinates remain the caller's, and so does the name in a cache-miss
-  report: a protein scanned in runs is still one input. A window's
-  flanking context stops at such a residue, which is where the protein
-  stops saying what the neighbouring residue is.
-- New public `scorable_peptide(peptide)`, `scannable_segments(sequences)`
-  and `SCORABLE_AMINO_ACIDS` state that rule once. Explicitly supplied
-  peptides are unaffected: a peptide a caller names is still the model's
-  to accept or refuse.
+- Gene lookups return the protein a predictor can use, not the longest
+  translation (#573). `topiary --cta` failed after about 18 seconds and
+  produced nothing, because the longest translation of IZUMO2, C16orf90
+  and LLCFC1 is one Ensembl marks as having no annotated start codon, so
+  it begins with `X` — the residue Ensembl writes where it does not know
+  which one it is — and MHCflurry refuses a window covering one, in a
+  message that printed a pandas `<ArrowStringArray>` repr.
+- New public `topiary.sources.best_protein_transcript(gene)` states the
+  choice once: a complete protein-coding translation, then one a
+  predictor can score end to end, then the longest, with ties broken by
+  transcript ID so a release always gives the same answer. `--cta`,
+  `--gene-names` and the tissue sources all use it. Across the 624 CTA
+  proteins of Ensembl 115 this replaces 7 proteins — 5 incomplete
+  translations and 2 nonsense-mediated decay transcripts, which are
+  translated in the database but not expected to make protein — and
+  settles the transcript of 50 more whose protein is unchanged.
+- A protein that still arrives with an unscorable residue, from `--fasta`
+  or `--ensembl-proteome`, is left out of the scan with one warning
+  instead of ending it. New public `scorable_proteins(sequences)`,
+  `scorable_peptide(peptide)` and `SCORABLE_AMINO_ACIDS` state that rule.
+  Explicitly supplied peptides are unaffected: a peptide a caller names
+  is still the model's to accept or refuse.
 
 ## 5.111.5
 
