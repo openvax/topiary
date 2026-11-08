@@ -108,7 +108,7 @@ def test_predictor_filter_and_sort_by_separate():
 def test_default_human_release_is_the_one_pyensembl_exposes():
     import pyensembl
 
-    from topiary.sources import ensembl_genome
+    from topiary import ensembl_genome
 
     # Not "the latest release whose data is installed", and not a number
     # pinned in topiary: whatever the installed pyensembl points at.
