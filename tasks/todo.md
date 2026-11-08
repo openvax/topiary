@@ -44,9 +44,26 @@ four-protein CTA difference and fallback-warning semantics are not claims about
 the integrated policy.
 
 After integration, all 304 source and conformance tests pass, along with lint,
-strict docs and dependency checks. The full suite is running. The conformance tests assert both
+strict docs and dependency checks. On 2b81864, all 6,270 local tests and CI
+passed. The conformance tests assert both
 identical decisions across input routes and observable effects of changing
 filter, sort and exclusion settings; exact source IDs and offsets are checked.
 
 Version 5.111.7 follows #591/#592/#593 (5.111.4-5.111.6). This does not authorize
 merging or renumbering the earlier PRs. Recheck their heads before publication.
+
+## Preserve producer inputs after review (#596)
+
+- [x] Fix the parent #593 before its queued release: remove the unconditional
+  whole-protein alphabet gate and its unreleased helpers.
+- [x] Bring 6ffa6b2 into this PR, retaining both the category conformance tests
+  and the direct/wrapped model and cache tests.
+- [ ] Verify the integrated head with lint, full tests, strict docs and CI.
+
+See `tasks/preserve-model-inputs.md` for the regression specification and proof.
+The parent fix preserves all 624 CTA transcript identities and sequences.
+Predictors retain their own validation errors; general partial-window recovery
+for rejecting models remains tracked in #573.
+
+The integrated #596 fix passes all 22 targeted regression/source-conformance
+cases, lint, strict docs and pip check. Full-suite and CI verification is pending.

@@ -187,7 +187,7 @@ def test_exclude_by_with_unrelated_ref():
     predictor = TopiaryPredictor(
         models=RandomBindingPredictor, alleles=["A0201"],
     )
-    df = predictor.predict_from_named_sequences({"target": "SIINFEKLG"})
+    df = predictor.predict_from_named_sequences({"target": "SIINFEKLX"})
     n_before = len(df)
 
     ref = {"unrelated": "WWWWWWWWWWWWWWWWWW"}

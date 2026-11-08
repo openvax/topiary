@@ -58,6 +58,90 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
+@pytest.mark.parametrize("sequence", ["XMNPQRSTVWYACDEFGHIK", "MNPQRSTUYWACDEFGHIK"])
+@pytest.mark.parametrize("mixed", [False, True])
+@pytest.mark.parametrize("cached", [False, True])
+def test_protein_wrapper_preserves_supported_windows_and_cache_replay(
+        tmp_path, sequence, mixed, cached):
+    """An accepted residue must not discard its protein or its known windows (#596)."""
+    from .test_protein_fallback import ProteinModel, filled_cache
+    from .test_twin_conformance import PROTEIN_INPUT_PREDICTION_TWINS
+
+    sequences = {"gene|transcript": sequence}
+    if mixed:
+        sequences["control"] = "MASIINFEKLGGG"
+    model = ProteinModel()
+    if cached:
+        cache, model = filled_cache(model, sequences)
+        path = tmp_path / "cache.tsv"
+        cache.save(path)
+        producer = CachedPredictor.from_topiary_output(path)
+        assert producer.fallback is None
+    else:
+        producer = model
+
+    columns = ["source_sequence_name", "peptide", "peptide_offset", "peptide_length",
+               "allele", "kind", "value", "score", "prediction_method_name",
+               "predictor_version", "n_flank", "c_flank"]
+    frames = [door(producer, sequences) for door in PROTEIN_INPUT_PREDICTION_TWINS]
+    pd.testing.assert_frame_equal(frames[0][columns], frames[1][columns], check_dtype=False)
+    assert len(frames[1]) == sum(len(seq) - 8 for seq in sequences.values())
+    for row in frames[1].itertuples():
+        source = sequences[row.source_sequence_name]
+        start, end = row.peptide_offset, row.peptide_offset + row.peptide_length
+        assert row.peptide == source[start:end]
+        assert row.n_flank == source[max(0, start - 2):start]
+        assert row.c_flank == source[end:end + 2]
+    assert model.scans == ([] if cached else [sequences, sequences])
+
+
+@pytest.mark.parametrize("error", [ValueError("unsupported input"), RuntimeError("model failed")])
+def test_protein_wrapper_preserves_model_errors(error):
+    from .test_protein_fallback import ProteinModel
+    from .test_twin_conformance import PROTEIN_INPUT_PREDICTION_TWINS
+
+    sequences = {"source": "XMNPQRSTVWY"}
+    model = ProteinModel()
+    calls = []
+
+    def reject(batch):
+        calls.append(batch)
+        raise error
+
+    model.predict_proteins_dataframe = reject
+    for door in PROTEIN_INPUT_PREDICTION_TWINS:
+        with pytest.raises(type(error)) as raised:
+            door(model, sequences)
+        assert raised.value is error
+    assert calls == [sequences, sequences]
+
+
+@pytest.mark.parametrize("source_type", ["cta", "variant:snv"])
+@pytest.mark.parametrize("unknown_in", ["target", "baseline"])
+def test_fragment_and_wildtype_scans_preserve_supported_inputs(source_type, unknown_in):
+    from topiary import from_predictions
+    from .test_protein_fallback import ProteinModel
+
+    clean, unknown = "MASIINFEKLGGG", "XASIINFEKLGGG"
+    sequence, baseline = (unknown, clean) if unknown_in == "target" else (clean, unknown)
+    fragment = ProteinFragment(
+        fragment_id="gene|transcript", source_type=source_type,
+        sequence=sequence, reference_sequence=baseline, target_intervals=[(0, 1)],
+    )
+    expected_wt = from_predictions(ProteinModel().predict_proteins_dataframe(
+        {fragment.fragment_id: baseline})).set_index("peptide_offset")
+    result = TopiaryPredictor(
+        models=ProteinModel(), predict_wt=True, only_novel_epitopes=False,
+    ).predict_from_fragments([fragment])
+    assert len(result) == len(sequence) - 8
+    assert set(result.source_type) == {source_type}
+    for row in result.itertuples():
+        start, end = row.peptide_offset, row.peptide_offset + row.peptide_length
+        assert row.peptide == sequence[start:end]
+        assert row.wt_peptide == baseline[start:end]
+        assert row.wt_value == expected_wt.loc[start, "value"]
+
+
 @pytest.mark.weirdo
 def test_weirdo_model_mixed_ranking_and_cache_replay(tmp_path):
     """The released model must change an opted-in ranking and survive offline replay."""

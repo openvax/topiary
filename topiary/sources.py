@@ -33,7 +33,7 @@ import logging
 import pyensembl
 
 from .dependencies import require_dependency
-from .sequence_helpers import SCORABLE_AMINO_ACIDS
+from .amino_acids import AMINO_ACIDS
 
 
 def ensembl_genome(release=None, species="human"):
@@ -357,16 +357,10 @@ def available_tissues():
 def best_protein_transcript(gene):
     """The transcript whose translation stands for a gene's protein.
 
-    Ensembl translates several transcripts of most genes, and the longest
-    translation is not always the protein to predict against. A transcript
-    whose start codon is not annotated begins with ``X``, the residue
-    Ensembl writes where it does not say which one it is, and no MHC
-    predictor will score a peptide containing one; a nonsense-mediated
-    decay transcript is translated in the database but is not expected to
-    make protein. For IZUMO2, C16orf90 and LLCFC1 — all cancer-testis
-    antigens — the longest translation is an incomplete one, so the
-    longest-translation rule handed predictors a protein starting with
-    ``X`` and ended the whole run (#573).
+    Ensembl can provide several translations for a gene. For IZUMO2,
+    C16orf90 and LLCFC1, choosing only by length selected incomplete-start
+    alternatives beginning with ``X`` and caused MHCflurry to reject the
+    CTA input (#573). This shared choice applies to every gene source.
 
     Parameters
     ----------
@@ -377,23 +371,25 @@ def best_protein_transcript(gene):
     -------
     pyensembl.Transcript or None
         The best transcript by, in order: a complete protein-coding
-        translation first, then one a predictor can score end to end,
+        translation first, then one using only the standard amino-acid alphabet,
         then the longest. Ties go to the lowest transcript ID, so the
         same release always gives the same answer. ``None`` when the gene
         translates no transcript at all.
 
     Notes
     -----
-    Complete means Ensembl annotates both a start and a stop codon, which
-    is how the incomplete translations are told apart. A GTF that
-    annotates no start codons leaves every transcript incomplete, and the
-    remaining rules still choose.
+    Completeness uses PyEnsembl's ``Transcript.complete`` property: annotated
+    three-base start and stop codons and a coding sequence divisible by three.
+    A GTF without annotated start codons leaves every transcript incomplete;
+    the remaining rules still choose. The alphabet preference is a sequence
+    property, not a claim about a predictor's accepted inputs or canonical
+    transcript status. The selected sequence is returned without modification.
     """
     def rank(transcript):
         sequence = transcript.protein_sequence
         return (
             transcript.biotype == "protein_coding" and transcript.complete,
-            SCORABLE_AMINO_ACIDS.issuperset(sequence),
+            set(AMINO_ACIDS).issuperset(sequence),
             len(sequence),
         )
 
