@@ -683,6 +683,28 @@ MT value.
 | `non_cta_sequences()` | Non-CTA protein sequences |
 | `ensembl_proteome()` | All Ensembl proteins |
 | `available_tissues()` | List of tissue names |
+| `select_protein_transcript(transcripts)` | Selected transcript, or `None` if no protein is available |
+
+Gene-name, gene-ID, CTA and tissue sequence sources choose one representative
+protein per gene. They prefer transcripts with a complete annotated start codon
+(three genomic positions), then choose the longest protein among those
+transcripts. Equal-length ties keep the transcript input order. If none has a
+complete annotated start, they retain the longest available protein and log a
+warning naming the gene and transcript. Genes without a protein sequence are
+omitted.
+
+The shared selector is also available as `topiary.select_protein_transcript`.
+It returns the original transcript object without changing its sequence and
+leaves fallback reporting to its caller. Selection uses PyEnsembl's
+`start_codon_complete`, not a leading `M` or the absence of `X`. GENCODE
+[documents incomplete coding starts](https://www.gencodegenes.org/pages/tags.html)
+as a separate annotation property. This preference does not assert that a
+transcript is canonical, has a complete stop, or passes OncoRef's translation
+qualification policy.
+
+Explicit transcript-ID and transcript-name requests return the requested
+sequences. Whole-proteome and non-CTA exclusion sources enumerate all proteins
+instead of selecting representatives.
 
 ### Which genes count as cancer-testis antigens
 

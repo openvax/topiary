@@ -7,6 +7,18 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.111.7
+
+- Gene-name, gene-ID, CTA and tissue sequence sources prefer transcripts with
+  a complete annotated start codon before choosing the longest protein (#594).
+  This selects complete-start alternatives for IZUMO2, C16orf90 and LLCFC1 in
+  Ensembl 115 while preserving their exact transcript IDs and source sequences.
+  If no complete-start protein exists, retain the longest available protein
+  with a warning. Explicit transcript requests remain unchanged.
+- Export `select_protein_transcript` for consumers that need the same choice.
+  The preference is based on annotation, not the first amino acid, and does
+  not assert canonical status or full translation qualification.
+
 ## 5.111.3
 
 - Declare `pyarrow>=18` (gtfparse's floor) and read and write Parquet with

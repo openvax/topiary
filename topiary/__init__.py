@@ -33,6 +33,7 @@ from .cleavage import (
     cleavage_interval_coverage, from_cleavage_results, select_cleavage_sites,
 )
 from .inputs import iter_fasta_records
+from .sources import select_protein_transcript
 from .predictor import (
     TopiaryPredictor,
     describe_prediction_models,
@@ -241,9 +242,10 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.111.3"
+__version__ = "5.111.7"
 
 __all__ = [
+    "select_protein_transcript",
     "PROTEIN_SCAN_METADATA_COLUMNS",
     "peptide_occurrence_flanks",
     "prediction_flank_limits",

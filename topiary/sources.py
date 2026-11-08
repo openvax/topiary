@@ -74,7 +74,8 @@ def ensembl_proteome(release=None, species="human"):
 def sequences_from_gene_names(gene_names, release=None, species="human"):
     """Protein sequences for a list of gene names.
 
-    For each gene, uses the longest protein-coding transcript.
+    For each gene, prefers a complete annotated start codon, then the longest
+    protein. If no such start exists, retains the longest protein with a warning.
 
     Parameters
     ----------
@@ -100,6 +101,8 @@ def sequences_from_gene_names(gene_names, release=None, species="human"):
 
 def sequences_from_gene_ids(gene_ids, release=None, species="human"):
     """Protein sequences for a list of Ensembl gene IDs.
+
+    Uses the same complete-start preference as :func:`sequences_from_gene_names`.
 
     Parameters
     ----------
@@ -191,6 +194,7 @@ def cta_sequences(release=None):
     """Protein sequences from cancer-testis antigen (CTA) genes.
 
     Human only. Uses CTA gene list from PirlyGenes.
+    Uses the same complete-start preference as :func:`sequences_from_gene_names`.
 
     Parameters
     ----------
@@ -278,6 +282,8 @@ def tissue_expressed_gene_ids(tissues, min_ntpm=1.0):
 def tissue_expressed_sequences(tissues, min_ntpm=1.0, release=None):
     """Protein sequences of genes expressed in specified tissues.
 
+    Uses the same complete-start preference as :func:`sequences_from_gene_names`.
+
     Parameters
     ----------
     tissues : list of str
@@ -301,6 +307,40 @@ def available_tissues():
     return sorted(_tissue_column_map(pirlygenes.pan_cancer_expression()))
 
 
+def select_protein_transcript(transcripts):
+    """Choose a gene representative by annotated start completeness, then length.
+
+    Parameters
+    ----------
+    transcripts : iterable of pyensembl.Transcript
+        Transcripts to compare. Missing or empty protein sequences are ignored.
+
+    Returns
+    -------
+    pyensembl.Transcript or None
+        The original transcript with the longest protein among those whose
+        annotated start codon spans three genomic positions. If no available
+        protein has a complete start, returns the longest available transcript;
+        callers can inspect ``start_codon_complete`` to report this fallback.
+        Equal-length ties retain input order. Returns None if no protein exists.
+
+    Notes
+    -----
+    GENCODE distinguishes an unconfirmed coding start (``cds_start_NF``) from
+    protein length: https://www.gencodegenes.org/pages/tags.html. PyEnsembl's
+    ``start_codon_complete`` checks the annotated start's three positions.
+    A leading M does not establish that annotation, and this preference does
+    not assert a complete stop, canonical status or translation qualification.
+    No sequence is trimmed or rewritten. Invalid transcript objects propagate
+    their attribute/data-access errors; absent annotation is not guessed.
+    """
+    return max(
+        (t for t in transcripts if t.protein_sequence),
+        key=lambda t: (t.start_codon_complete, len(t.protein_sequence)),
+        default=None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
@@ -315,7 +355,7 @@ def _get_genome(release, species):
 
 
 def _sequences_for_genes(genome, identifiers, by="name"):
-    """Get protein sequences for genes, picking the longest transcript."""
+    """Resolve genes and load the representative chosen by the shared selector."""
     sequences = {}
     for ident in identifiers:
         try:
@@ -327,14 +367,14 @@ def _sequences_for_genes(genome, identifiers, by="name"):
             logging.warning("Gene %s not found in Ensembl %s", ident, genome)
             continue
         for gene in genes:
-            best_transcript = None
-            best_len = 0
-            for t in gene.transcripts:
-                seq = t.protein_sequence
-                if seq and len(seq) > best_len:
-                    best_transcript = t
-                    best_len = len(seq)
-            if best_transcript:
+            best_transcript = select_protein_transcript(gene.transcripts)
+            if best_transcript is not None:
+                if not best_transcript.start_codon_complete:
+                    logging.warning(
+                        "Gene %s (%s) has no protein with a complete annotated start "
+                        "codon; using longest available transcript %s",
+                        gene.name, gene.id, best_transcript.id,
+                    )
                 key = f"{gene.name}|{best_transcript.id}"
                 sequences[key] = best_transcript.protein_sequence
     return sequences

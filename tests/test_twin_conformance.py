@@ -69,6 +69,7 @@ from topiary.io_isovar import _check_isovar
 from topiary import SelfProteome, iter_fasta_records
 from topiary.inputs import read_fasta, read_peptide_fasta
 from topiary.sources import _check_pirlygenes
+from topiary import sources
 import topiary.dependencies as dependencies
 from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_REPORTS, ROOT as PVACSEQ_ROOT
 from .osteosarc_helpers import load_osteosarc
@@ -132,6 +133,30 @@ TWINS = (
         shared={"overlapping": "depth", "vaf": "vaf"},
     ),
 )
+
+
+GENE_SEQUENCE_SOURCE_TWINS = (
+    lambda: sources.sequences_from_gene_names(["GENE"]),
+    lambda: sources.sequences_from_gene_ids(["GENE_ID"]),
+    sources.cta_sequences,
+    lambda: sources.tissue_expressed_sequences(["testis"]),
+)
+
+
+@pytest.mark.parametrize("complete_start", [False, True])
+def test_gene_sequence_sources_agree_on_transcript_preference(monkeypatch, complete_start):
+    short = SimpleNamespace(id="short", protein_sequence="MACDEFGHIK",
+                            start_codon_complete=complete_start)
+    long = SimpleNamespace(id="long", protein_sequence="XMNPQRSTVWYACDEFGHIK",
+                           start_codon_complete=False)
+    gene = SimpleNamespace(id="GENE_ID", name="GENE", transcripts=[long, short])
+    genome = SimpleNamespace(genes_by_name=lambda name: [gene], gene_by_id=lambda ident: gene)
+    monkeypatch.setattr(sources, "_get_genome", lambda *args: genome)
+    monkeypatch.setattr(sources, "cta_gene_ids", lambda: {gene.id})
+    monkeypatch.setattr(sources, "tissue_expressed_gene_ids", lambda *a, **k: {gene.id})
+    chosen = short if complete_start else long
+    expected = {f"GENE|{chosen.id}": chosen.protein_sequence}
+    assert [load() for load in GENE_SEQUENCE_SOURCE_TWINS] == [expected] * 4
 
 
 HUMAN_REFERENCE_TWINS = (
