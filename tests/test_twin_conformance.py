@@ -165,20 +165,20 @@ def test_antigen_sources_share_prediction_filter_rank_and_exclusion(
     excluded_peptide = sequence[:9]
     target = SimpleNamespace(id="TARGET", name="GENE", transcripts=[
         SimpleNamespace(id="partial", protein_sequence="X" + "A" * 40,
-                        start_codon_complete=False),
-        SimpleNamespace(id="complete", protein_sequence=sequence, start_codon_complete=True),
+                        biotype="protein_coding", complete=False),
+        SimpleNamespace(id="complete", protein_sequence=sequence, biotype="protein_coding", complete=True),
     ])
     tissue = SimpleNamespace(id="TISSUE", name="NORMAL", transcripts=[
         SimpleNamespace(id="partial-normal", protein_sequence="X" + "A" * 40,
-                        start_codon_complete=False),
+                        biotype="protein_coding", complete=False),
         SimpleNamespace(id="complete-normal", protein_sequence=excluded_peptide,
-                        start_codon_complete=True),
+                        biotype="protein_coding", complete=True),
     ])
     genome = SimpleNamespace(
         genes_by_name=lambda name: [target],
         gene_by_id=lambda ident: {"TARGET": target, "TISSUE": tissue}[ident],
     )
-    monkeypatch.setattr(sources, "_get_genome", lambda *a: genome)
+    monkeypatch.setattr(sources, "ensembl_genome", lambda *a: genome)
     monkeypatch.setattr(sources, "cta_gene_ids", lambda: {target.id})
     monkeypatch.setattr(sources, "tissue_expressed_gene_ids", lambda *a, **k: {tissue.id})
     # Use mhctools' real protein scanner with deterministic flank-dependent
@@ -221,12 +221,12 @@ def test_antigen_sources_share_prediction_filter_rank_and_exclusion(
 @pytest.mark.parametrize("complete_start", [False, True])
 def test_gene_sequence_sources_agree_on_transcript_preference(monkeypatch, complete_start):
     short = SimpleNamespace(id="short", protein_sequence="MACDEFGHIK",
-                            start_codon_complete=complete_start)
-    long = SimpleNamespace(id="long", protein_sequence="XMNPQRSTVWYACDEFGHIK",
-                           start_codon_complete=False)
+                            biotype="protein_coding", complete=complete_start)
+    long = SimpleNamespace(id="long", protein_sequence="MMNPQRSTVWYACDEFGHIK",
+                           biotype="protein_coding", complete=False)
     gene = SimpleNamespace(id="GENE_ID", name="GENE", transcripts=[long, short])
     genome = SimpleNamespace(genes_by_name=lambda name: [gene], gene_by_id=lambda ident: gene)
-    monkeypatch.setattr(sources, "_get_genome", lambda *args: genome)
+    monkeypatch.setattr(sources, "ensembl_genome", lambda *args: genome)
     monkeypatch.setattr(sources, "cta_gene_ids", lambda: {gene.id})
     monkeypatch.setattr(sources, "tissue_expressed_gene_ids", lambda *a, **k: {gene.id})
     chosen = short if complete_start else long

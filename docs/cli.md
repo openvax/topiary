@@ -153,6 +153,15 @@ topiary --cta --mhc-predictor netmhcpan --mhc-alleles 'HLA-A*02:01'  # cancer-te
 `--cta` uses the included PirlyGenes integration. The same sources are available in Python
 through `topiary.sources` — see the [quickstart](quickstart.md#ensembl-and-tissue-lookups).
 
+A gene usually has several Ensembl translations. Topiary scans the one that represents
+its protein: a complete protein-coding translation, longest first. An incomplete
+translation starts with `X`, the residue Ensembl writes where it does not know which
+one it is, and no MHC predictor will score a peptide containing one.
+
+A protein sequence you supply yourself with `--fasta`, or one of the incomplete
+translations in `--ensembl-proteome`, can still carry such a residue. Those proteins
+are left out of the scan, with one warning naming how many, rather than ending the run.
+
 ## Filtering and ranking
 
 `--filter-by` and `--sort-by` take [ranking DSL](ranking.md) strings:

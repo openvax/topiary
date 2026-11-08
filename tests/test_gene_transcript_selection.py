@@ -1,17 +1,17 @@
-"""Gene source selection prefers annotated starts, not just protein length."""
+"""All gene-derived sources share representative-transcript selection."""
 
 from types import SimpleNamespace
 
 import pytest
 
 from topiary import sources
-from topiary import select_protein_transcript
+from topiary import best_protein_transcript
 
 
 def transcript(identifier, sequence, complete_start):
     return SimpleNamespace(
         id=identifier, protein_sequence=sequence,
-        start_codon_complete=complete_start,
+        complete=complete_start, biotype="protein_coding",
     )
 
 
@@ -26,7 +26,7 @@ def gene_sources(monkeypatch):
         transcripts_by_name=lambda name: [
             t for t in gene.transcripts if t.id == name],
     )
-    monkeypatch.setattr(sources, "_get_genome", lambda *args: genome)
+    monkeypatch.setattr(sources, "ensembl_genome", lambda *args: genome)
     monkeypatch.setattr(sources, "cta_gene_ids", lambda: {gene.id})
     monkeypatch.setattr(sources, "tissue_expressed_gene_ids", lambda *a, **k: {gene.id})
     return gene
@@ -53,14 +53,12 @@ def test_all_gene_sources_prefer_complete_start(gene_sources, load, partial_pref
 
 
 @pytest.mark.parametrize("load", GENE_LOADERS, ids=["names", "ids", "cta", "tissue"])
-def test_incomplete_only_falls_back_with_identity_warning(gene_sources, load, caplog):
+def test_incomplete_only_uses_shared_fallback(gene_sources, load):
     gene_sources.transcripts = [
         transcript("short", "XACDE", False),
         transcript("partial", "XMNPQRSTVWY", False),
     ]
     assert load() == {"GENE|partial": "XMNPQRSTVWY"}
-    assert "partial" in caplog.text
-    assert "complete annotated start codon" in caplog.text
 
 
 @pytest.mark.parametrize("load", GENE_LOADERS, ids=["names", "ids", "cta", "tissue"])
@@ -94,26 +92,11 @@ def test_explicit_transcript_requests_preserve_partial_sequence(gene_sources):
         "GENE|partial": "XACDEFGHIK"}
 
 
-def test_public_selector_preserves_original_object_and_tie_order():
-    first = transcript("first", "MACDEFGHIK", True)
-    second = transcript("second", "MNPQRSTVWY", True)
-    partial = transcript("partial", "M" * 40, False)
-    assert select_protein_transcript(iter([partial, first, second])) is first
-    assert select_protein_transcript([second, first, partial]) is second
-    assert select_protein_transcript([partial]) is partial
-
-
-@pytest.mark.parametrize("transcripts", [[], [transcript("empty", "", True)],
-                                        [transcript("missing", None, False)]])
-def test_public_selector_without_proteins(transcripts):
-    assert select_protein_transcript(transcripts) is None
-
-
-def test_complete_start_does_not_claim_an_unambiguous_protein():
-    # Annotation completeness and predictor residue support are separate facts.
-    annotated = transcript("annotated", "MXACDEFGHIK", True)
-    partial = transcript("partial", "MACDEFGHIKLMNPQRSTVWY", False)
-    assert select_protein_transcript([partial, annotated]) is annotated
+def test_top_level_selector_is_the_shared_source_selector(gene_sources):
+    selected = transcript("complete", "MACDEFGHIK", True)
+    gene_sources.transcripts = [transcript("partial", "M" * 40, False), selected]
+    assert best_protein_transcript is sources.best_protein_transcript
+    assert best_protein_transcript(gene_sources) is selected
 
 
 @pytest.mark.parametrize("source_flag", ["gene_names", "gene_ids", "cta"])

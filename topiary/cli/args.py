@@ -154,7 +154,9 @@ def _add_input_args(arg_parser):
     )
 
     # -- built-in sequence sources --
-    gene_selection_help = "Prefers a complete annotated start codon, then the longest protein."
+    gene_selection_help = (
+        "Prefers complete protein-coding translations, then standard amino acids, then length."
+    )
     input_group.add_argument(
         "--ensembl-proteome",
         default=False,

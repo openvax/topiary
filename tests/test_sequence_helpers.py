@@ -1,9 +1,15 @@
 """Direct tests for public protein/peptide sequence geometry helpers."""
 
+import logging
+
 import numpy as np
 import pytest
 
-from topiary import peptide_occurrence_flanks
+from topiary import (
+    peptide_occurrence_flanks,
+    scorable_peptide,
+    scorable_proteins,
+)
 from topiary.sequence_helpers import protein_subsequences_around_mutations
 
 
@@ -106,3 +112,69 @@ def test_empty_string_protein_skipped():
     effect = _mock_effect("", 0, 0)
     subseqs, offsets = protein_subsequences_around_mutations([effect], padding_around_mutation=9)
     assert len(subseqs) == 0
+
+
+
+# ---------------------------------------------------------------------------
+# Unscorable residues (#573)
+#
+# A few Ensembl translations carry X where the annotation does not say which
+# residue it is. Every predictor refuses a peptide containing one, which used
+# to end the whole run: `topiary --cta` produced nothing at all, under a
+# message that printed a pandas array repr. The gene-based inputs now choose
+# a complete translation (topiary.sources.best_protein_transcript); a protein
+# that still arrives with an X is left out of the scan instead of ending it.
+# ---------------------------------------------------------------------------
+
+
+def test_scorable_peptide_accepts_only_the_standard_residues():
+    assert scorable_peptide("SIINFEKL")
+    assert not scorable_peptide("XIINFEKL")
+    assert not scorable_peptide("SIINFEKU")
+    assert not scorable_peptide("siinfekl")
+    assert not scorable_peptide("")
+
+
+def test_scorable_proteins_pass_scorable_input_through_unchanged():
+    sequences = {"a": "MASIINFEKLGGG", "b": "QRSTVWYACDEFGH"}
+
+    assert scorable_proteins(sequences) == sequences
+
+
+def test_scorable_proteins_leave_out_what_no_predictor_can_score(caplog):
+    with caplog.at_level(logging.WARNING):
+        scorable = scorable_proteins(
+            {"a": "SIINFEKL", "b": "XSIINFEKL", "c": "SIXNFEKL", "empty": ""})
+
+    assert scorable == {"a": "SIINFEKL"}
+    messages = [record.getMessage() for record in caplog.records]
+    assert len(messages) == 1
+    # Count and example in plain text: the old message ended the run and
+    # printed <ArrowStringArray> rows instead.
+    assert "3 of 4" in messages[0]
+    assert "b" in messages[0] and "ArrowStringArray" not in messages[0]
+
+
+def test_scorable_proteins_say_so_when_nothing_can_be_scanned():
+    with pytest.raises(ValueError, match="None of the 2 protein sequences"):
+        scorable_proteins({"a": "XSIINFEKL", "b": "SIINFEKU"})
+
+
+def test_protein_scan_skips_the_protein_an_unknown_residue_spoils():
+    """One unscorable protein no longer ends the scan for the rest (#573)."""
+    from mhctools import RandomBindingPredictor
+
+    from topiary import TopiaryPredictor
+
+    sequences = {"clean": "MASIINFEKLGG", "unknown": "XMTHCGHLGAAAKL"}
+    predictor = TopiaryPredictor(models=RandomBindingPredictor(
+        alleles=["HLA-A*02:01"], default_peptide_lengths=[9],
+    ))
+
+    df = predictor.predict_from_named_sequences(sequences)
+
+    assert set(df.source_sequence_name) == {"clean"}
+    for row in df.to_dict("records"):
+        source = sequences[row["source_sequence_name"]]
+        offset = row["peptide_offset"]
+        assert source[offset:offset + len(row["peptide"])] == row["peptide"]

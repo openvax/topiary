@@ -553,16 +553,16 @@ class TestWtPeptide:
 
     def test_predict_wt_true_scores_wt_in_baseline_protein_context(self):
         f = ProteinFragment.from_variant(
-            sequence="AAAXXXXBB",
+            sequence="AAAWWWWKK",
             reference_sequence="CCCYYYYDD",
             mutation_start=3, mutation_end=7, inframe=True,
         )
         df = TopiaryPredictor(
             models=ContextSensitivePredictor(), predict_wt=True,
         ).predict_from_fragments([f])
-        row = df[df["peptide"].eq("XXXX")].iloc[0]
+        row = df[df["peptide"].eq("WWWW")].iloc[0]
         assert row["n_flank"] == "AAA"
-        assert row["c_flank"] == "BB"
+        assert row["c_flank"] == "KK"
         assert row["wt_peptide"] == "YYYY"
         # WT baseline context is CCC + YYYY + DD:
         # len("CCC") + 10 * len("DD") = 23.
@@ -570,14 +570,14 @@ class TestWtPeptide:
 
     def test_predict_wt_true_filters_wt_rows_to_baseline_flank_context(self):
         f = ProteinFragment.from_variant(
-            sequence="AAAXXXXBB",
+            sequence="AAAWWWWKK",
             reference_sequence="CCCYYYYDD",
             mutation_start=3, mutation_end=7, inframe=True,
         )
         df = TopiaryPredictor(
             models=AmbiguousWtContextPredictor(), predict_wt=True,
         ).predict_from_fragments([f])
-        row = df[df["peptide"].eq("XXXX")].iloc[0]
+        row = df[df["peptide"].eq("WWWW")].iloc[0]
         assert row["wt_value"] == 23.0
 
 

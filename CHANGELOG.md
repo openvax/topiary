@@ -9,18 +9,72 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
 ## 5.111.7
 
-- Gene-name, gene-ID, CTA and tissue sequence sources prefer transcripts with
-  a complete annotated start codon before choosing the longest protein (#594).
-  This selects complete-start alternatives for IZUMO2, C16orf90 and LLCFC1 in
-  Ensembl 115 while preserving their exact transcript IDs and source sequences.
-  If no complete-start protein exists, retain the longest available protein
-  with a warning. Explicit transcript requests remain unchanged.
-- Export `select_protein_transcript` for consumers that need the same choice.
-  The preference is based on annotation, not the first amino acid, and does
-  not assert canonical status or full translation qualification.
-- CTA and tissue sources delegate to the public gene-ID loader. Equivalent
-  CTA, gene-list and FASTA inputs share prediction, filtering, ranking and
-  exclusion behavior; CLI help now describes the common selection policy.
+- CTA and tissue sources delegate to the public gene-ID loader, sharing the
+  representative-transcript selector introduced in 5.111.6 (#594).
+- Export the same `best_protein_transcript` function from `topiary` for consumers;
+  source API documentation and CLI help refer to that common selection policy.
+- Exercise equivalent CTA, gene-list and FASTA inputs through the shared
+  prediction, filtering, ranking and tissue-exclusion pipeline. Preserve exact
+  transcript requests and the behavior of empty derived gene sets.
+
+## 5.111.6
+
+- Gene lookups return the protein a predictor can use, not the longest
+  translation (#573). `topiary --cta` failed after about 18 seconds and
+  produced nothing, because the longest translation of IZUMO2, C16orf90
+  and LLCFC1 is one Ensembl marks as having no annotated start codon, so
+  it begins with `X` — the residue Ensembl writes where it does not know
+  which one it is — and MHCflurry refuses a window covering one, in a
+  message that printed a pandas `<ArrowStringArray>` repr.
+- New public `topiary.sources.best_protein_transcript(gene)` states the
+  choice once: a complete protein-coding translation, then one a
+  predictor can score end to end, then the longest, with ties broken by
+  transcript ID so a release always gives the same answer. `--cta`,
+  `--gene-names` and the tissue sources all use it. Across the 624 CTA
+  proteins of Ensembl 115 this replaces 7 proteins — 5 incomplete
+  translations and 2 nonsense-mediated decay transcripts, which are
+  translated in the database but not expected to make protein — and
+  settles the transcript of 50 more whose protein is unchanged.
+- A protein that still arrives with an unscorable residue, from `--fasta`
+  or `--ensembl-proteome`, is left out of the scan with one warning
+  instead of ending it. New public `scorable_proteins(sequences)`,
+  `scorable_peptide(peptide)` and `SCORABLE_AMINO_ACIDS` state that rule.
+  Explicitly supplied peptides are unaffected: a peptide a caller names
+  is still the model's to accept or refuse.
+
+## 5.111.5
+
+- `TopiaryPredictor(models=NetMHCpan)` and `models=["netmhcpan"]` run
+  (#580). mhctools' `NetMHCpan`, `NetMHC` and `NetMHCIIpan` are factory
+  functions that run the installed tool to learn its version and return
+  the class for it, not classes; the function object was stored as a
+  configured model and the run failed later with `'function' object has
+  no attribute predict_peptides_dataframe`, while the name raised "is not
+  a peptide predictor".
+- New public `model_from_spec(spec, alleles=None)` builds one model from a
+  `models=` entry — name, class, factory or configured instance — and
+  `TopiaryPredictor` uses it for every entry. It passes `alleles` to a
+  class or factory whose signature takes them rather than asking whether
+  the class is an `AlleleFreePredictor`, which is what mhctools' own
+  command line does, so a model named in Python is built the same way as
+  one named on the command line. Classes that take no alleles without
+  declaring that base, `NetChop`, `NetCleave` and `Pepsickle`, build in
+  Python for the first time.
+
+## 5.111.4
+
+- `SelfProteome.from_ensembl(species="human")` builds again instead of
+  raising `ValueError: Invalid Ensembl release: None` (#581). It passed
+  `release=None` straight to pyensembl, which refuses it, so the
+  zero-configuration human call the docs describe could not run. Release
+  selection now lives in one documented public function,
+  `topiary.sources.ensembl_genome(release=None, species="human")`, which
+  both `from_ensembl` and the `topiary.sources` readers call: `None` means
+  the release pyensembl exposes as `ensembl_grch38` for human, and is
+  refused with "Must specify release for non-human species" otherwise,
+  which non-human `from_ensembl` callers now get in place of pyensembl's
+  message. It replaces the private `_get_genome`, whose rule was already
+  the one every other `release=` argument followed.
 
 ## 5.111.3
 

@@ -132,6 +132,16 @@ Missing required identity returns `None`, which must remain unmatchable.
 Comparator joins use this public rule in both fragment and occurrence prediction;
 a haplotype's selected presenter is not its genotype identity.
 
+`model_from_spec(spec, alleles=None)` builds one configured model from a
+`models=` entry: an mhctools name, a predictor class, a factory such as
+mhctools' `NetMHCpan` (a function that runs the installed tool to learn its
+version and returns the class for it), or an already-configured instance,
+which is used as given. A class or factory is constructed here, and receives
+`alleles` only when its signature takes them, so allele-free models are built
+without them — the rule mhctools' own command line applies, so a model named
+in Python is built the same way as one named on the command line.
+`TopiaryPredictor` calls this for every `models=` entry.
+
 `describe_prediction_models(predictor)` returns one JSON-compatible record per
 configured model. It gives duplicate model instances distinct `model_key` values
 and reports the configured class, stated method/version, alleles, peptide-length
@@ -683,30 +693,20 @@ MT value.
 | `non_cta_sequences()` | Non-CTA protein sequences |
 | `ensembl_proteome()` | All Ensembl proteins |
 | `available_tissues()` | List of tissue names |
-| `select_protein_transcript(transcripts)` | Selected transcript, or `None` if no protein is available |
+| `best_protein_transcript(gene)` | Selected transcript, or `None` if no protein is available |
 
 Gene-name, gene-ID, CTA and tissue sequence sources choose one representative
-protein per gene. They prefer transcripts with a complete annotated start codon
-(three genomic positions), then choose the longest protein among those
-transcripts. Equal-length ties keep the transcript input order. If none has a
-complete annotated start, they retain the longest available protein and log a
-warning naming the gene and transcript. Genes without a protein sequence are
-omitted.
+protein per gene through `best_protein_transcript`. It ranks complete
+protein-coding translations first, then sequences containing only standard
+amino acids, then protein length; transcript-ID order breaks ties. Genes without
+a protein sequence are omitted. The function returns the original transcript
+object and is also exported as `topiary.best_protein_transcript`.
 
 CTA and tissue wrappers resolve their gene sets and pass them to
 `sequences_from_gene_ids`. They use the same transcript selection, protein
 prediction, DSL filtering/ranking and exclusion pipeline as other sequence
 inputs. CTA membership comes from OncoRef through `cta_gene_ids`; it does not
 introduce a second transcript policy or a separate prediction result format.
-
-The shared selector is also available as `topiary.select_protein_transcript`.
-It returns the original transcript object without changing its sequence and
-leaves fallback reporting to its caller. Selection uses PyEnsembl's
-`start_codon_complete`, not a leading `M` or the absence of `X`. GENCODE
-[documents incomplete coding starts](https://www.gencodegenes.org/pages/tags.html)
-as a separate annotation property. This preference does not assert that a
-transcript is canonical, has a complete stop, or passes OncoRef's translation
-qualification policy.
 
 Explicit transcript-ID and transcript-name requests return the requested
 sequences. Whole-proteome and non-CTA exclusion sources enumerate all proteins

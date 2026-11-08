@@ -33,12 +33,12 @@ from .cleavage import (
     cleavage_interval_coverage, from_cleavage_results, select_cleavage_sites,
 )
 from .inputs import iter_fasta_records
-from .sources import select_protein_transcript
 from .predictor import (
     TopiaryPredictor,
     describe_prediction_models,
     fragment_from_effect,
     from_predictions,
+    model_from_spec,
 )
 from .ranking import (
     self_nearest,
@@ -121,12 +121,16 @@ from .properties import (
     add_peptide_properties,
     available_properties,
 )
+from .sources import best_protein_transcript
 from .sequence_helpers import (
+    SCORABLE_AMINO_ACIDS,
     check_padding_around_mutation,
     peptide_occurrence_flanks,
     peptide_mutation_interval,
     contains_mutant_residues,
     protein_subsequences_around_mutations,
+    scorable_peptide,
+    scorable_proteins,
 )
 from .historical import (
     HistoricalPredictor,
@@ -245,9 +249,12 @@ from .amino_acids import (
 __version__ = "5.111.7"
 
 __all__ = [
-    "select_protein_transcript",
+    "best_protein_transcript",
     "PROTEIN_SCAN_METADATA_COLUMNS",
     "peptide_occurrence_flanks",
+    "SCORABLE_AMINO_ACIDS",
+    "scorable_proteins",
+    "scorable_peptide",
     "prediction_flank_limits",
     "annotate_protein_prediction_context",
     "prediction_matches_protein_context",
@@ -299,6 +306,7 @@ __all__ = [
     "normalize_python_types",
     "TopiaryPredictor",
     "describe_prediction_models",
+    "model_from_spec",
     "predict_with_cache_miss_report",
     "PartialPredictionWarning",
     "AMINO_ACIDS",

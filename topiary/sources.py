@@ -30,9 +30,55 @@ proteome, transcript choices and peptide coordinates all move between releases.
 
 import logging
 
-from pyensembl import EnsemblRelease, ensembl_grch38
+import pyensembl
 
 from .dependencies import require_dependency
+from .sequence_helpers import SCORABLE_AMINO_ACIDS
+
+
+def ensembl_genome(release=None, species="human"):
+    """The pyensembl genome Topiary reads for a release and species.
+
+    Every Topiary entry point that takes ``release`` resolves it here, so
+    the proteome a caller gets from :func:`cta_sequences`, from
+    :meth:`topiary.SelfProteome.from_ensembl` and from the command line is
+    the same one.
+
+    Parameters
+    ----------
+    release : int, optional
+        Ensembl release number. ``None`` means the default described under
+        "Which Ensembl release" in the module docstring: for human, the
+        release the installed pyensembl exposes as ``ensembl_grch38``.
+    species : str
+        Species name or latin name (default ``"human"``). Any spelling
+        pyensembl accepts, so ``"homo_sapiens"`` and ``"Homo sapiens"``
+        name the same species as ``"human"``.
+
+    Returns
+    -------
+    pyensembl.Genome
+        The genome for that release. Its data must already be installed
+        (``pyensembl install --release <n> --species <species>``).
+
+    Raises
+    ------
+    ValueError
+        When ``release`` is None for a non-human species. Only human has a
+        default: pyensembl publishes one GRCh38 release as its current
+        human genome, and no equivalent for other species. Choosing a
+        release on the caller's behalf would silently fix the proteome and
+        the coordinates an analysis is reported in.
+    """
+    if release is not None:
+        return pyensembl.EnsemblRelease(release=release, species=species)
+    if pyensembl.normalize_species_name(species) != "homo_sapiens":
+        raise ValueError(
+            "Must specify release for non-human species %r; only human has "
+            "a default Ensembl release (the one pyensembl exposes as "
+            "ensembl_grch38)." % (species,)
+        )
+    return pyensembl.ensembl_grch38
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +102,7 @@ def ensembl_proteome(release=None, species="human"):
     -------
     dict : protein_id -> amino acid sequence
     """
-    genome = _get_genome(release, species)
+    genome = ensembl_genome(release, species)
     sequences = {}
     for protein_id in genome.protein_ids():
         seq = genome.protein_sequence(protein_id)
@@ -74,8 +120,7 @@ def ensembl_proteome(release=None, species="human"):
 def sequences_from_gene_names(gene_names, release=None, species="human"):
     """Protein sequences for a list of gene names.
 
-    For each gene, prefers a complete annotated start codon, then the longest
-    protein. If no such start exists, retains the longest protein with a warning.
+    For each gene, uses the shared :func:`best_protein_transcript` selector.
 
     Parameters
     ----------
@@ -95,14 +140,14 @@ def sequences_from_gene_names(gene_names, release=None, species="human"):
     """
     if not gene_names:
         raise ValueError("gene_names must be a non-empty list")
-    genome = _get_genome(release, species)
+    genome = ensembl_genome(release, species)
     return _sequences_for_genes(genome, gene_names, by="name")
 
 
 def sequences_from_gene_ids(gene_ids, release=None, species="human"):
     """Protein sequences for a list of Ensembl gene IDs.
 
-    Uses the same complete-start preference as :func:`sequences_from_gene_names`.
+    Uses the shared :func:`best_protein_transcript` selector.
 
     Parameters
     ----------
@@ -118,7 +163,7 @@ def sequences_from_gene_ids(gene_ids, release=None, species="human"):
     """
     if not gene_ids:
         raise ValueError("gene_ids must be a non-empty list")
-    genome = _get_genome(release, species)
+    genome = ensembl_genome(release, species)
     return _sequences_for_genes(genome, gene_ids, by="id")
 
 
@@ -139,7 +184,7 @@ def sequences_from_transcript_ids(transcript_ids, release=None, species="human")
     """
     if not transcript_ids:
         raise ValueError("transcript_ids must be a non-empty list")
-    genome = _get_genome(release, species)
+    genome = ensembl_genome(release, species)
     sequences = {}
     for tid in transcript_ids:
         try:
@@ -170,7 +215,7 @@ def sequences_from_transcript_names(transcript_names, release=None, species="hum
     """
     if not transcript_names:
         raise ValueError("transcript_names must be a non-empty list")
-    genome = _get_genome(release, species)
+    genome = ensembl_genome(release, species)
     sequences = {}
     for tname in transcript_names:
         try:
@@ -193,8 +238,7 @@ def sequences_from_transcript_names(transcript_names, release=None, species="hum
 def cta_sequences(release=None):
     """Protein sequences from cancer-testis antigen (CTA) genes.
 
-    Human only. Uses CTA gene list from PirlyGenes.
-    Uses the same complete-start preference as :func:`sequences_from_gene_names`.
+    Human only. Resolves CTA membership, then uses :func:`sequences_from_gene_ids`.
 
     Parameters
     ----------
@@ -228,7 +272,7 @@ def non_cta_sequences(release=None):
     dict : protein_id -> amino acid sequence
     """
     cta_ids = cta_gene_ids()
-    genome = _get_genome(release, "human")
+    genome = ensembl_genome(release, "human")
     sequences = {}
     for protein_id in genome.protein_ids():
         try:
@@ -281,7 +325,7 @@ def tissue_expressed_gene_ids(tissues, min_ntpm=1.0):
 def tissue_expressed_sequences(tissues, min_ntpm=1.0, release=None):
     """Protein sequences of genes expressed in specified tissues.
 
-    Uses the same complete-start preference as :func:`sequences_from_gene_names`.
+    Resolves tissue gene membership, then uses :func:`sequences_from_gene_ids`.
 
     Parameters
     ----------
@@ -305,55 +349,63 @@ def available_tissues():
     return sorted(_tissue_column_map(pirlygenes.pan_cancer_expression()))
 
 
-def select_protein_transcript(transcripts):
-    """Choose a gene representative by annotated start completeness, then length.
-
-    Parameters
-    ----------
-    transcripts : iterable of pyensembl.Transcript
-        Transcripts to compare. Missing or empty protein sequences are ignored.
-
-    Returns
-    -------
-    pyensembl.Transcript or None
-        The original transcript with the longest protein among those whose
-        annotated start codon spans three genomic positions. If no available
-        protein has a complete start, returns the longest available transcript;
-        callers can inspect ``start_codon_complete`` to report this fallback.
-        Equal-length ties retain input order. Returns None if no protein exists.
-
-    Notes
-    -----
-    GENCODE distinguishes an unconfirmed coding start (``cds_start_NF``) from
-    protein length: https://www.gencodegenes.org/pages/tags.html. PyEnsembl's
-    ``start_codon_complete`` checks the annotated start's three positions.
-    A leading M does not establish that annotation, and this preference does
-    not assert a complete stop, canonical status or translation qualification.
-    No sequence is trimmed or rewritten. Invalid transcript objects propagate
-    their attribute/data-access errors; absent annotation is not guessed.
-    """
-    return max(
-        (t for t in transcripts if t.protein_sequence),
-        key=lambda t: (t.start_codon_complete, len(t.protein_sequence)),
-        default=None,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
 
 
-def _get_genome(release, species):
-    if release is None and species == "human":
-        return ensembl_grch38
-    if release is None:
-        raise ValueError("Must specify release for non-human species")
-    return EnsemblRelease(release=release, species=species)
+def best_protein_transcript(gene):
+    """The transcript whose translation stands for a gene's protein.
+
+    Ensembl translates several transcripts of most genes, and the longest
+    translation is not always the protein to predict against. A transcript
+    whose start codon is not annotated begins with ``X``, the residue
+    Ensembl writes where it does not say which one it is, and no MHC
+    predictor will score a peptide containing one; a nonsense-mediated
+    decay transcript is translated in the database but is not expected to
+    make protein. For IZUMO2, C16orf90 and LLCFC1 — all cancer-testis
+    antigens — the longest translation is an incomplete one, so the
+    longest-translation rule handed predictors a protein starting with
+    ``X`` and ended the whole run (#573).
+
+    Parameters
+    ----------
+    gene : pyensembl.Gene
+        The gene whose protein is wanted.
+
+    Returns
+    -------
+    pyensembl.Transcript or None
+        The best transcript by, in order: a complete protein-coding
+        translation first, then one a predictor can score end to end,
+        then the longest. Ties go to the lowest transcript ID, so the
+        same release always gives the same answer. ``None`` when the gene
+        translates no transcript at all.
+
+    Notes
+    -----
+    Complete means Ensembl annotates both a start and a stop codon, which
+    is how the incomplete translations are told apart. A GTF that
+    annotates no start codons leaves every transcript incomplete, and the
+    remaining rules still choose.
+    """
+    def rank(transcript):
+        sequence = transcript.protein_sequence
+        return (
+            transcript.biotype == "protein_coding" and transcript.complete,
+            SCORABLE_AMINO_ACIDS.issuperset(sequence),
+            len(sequence),
+        )
+
+    # Sorted by ID, so the first of several equally good transcripts — which
+    # is the one max() returns — is the same on every run.
+    translated = sorted(
+        (t for t in gene.transcripts if t.protein_sequence), key=lambda t: t.id)
+    return max(translated, key=rank) if translated else None
 
 
 def _sequences_for_genes(genome, identifiers, by="name"):
-    """Resolve genes and load the representative chosen by the shared selector."""
+    """Get protein sequences for genes, one representative protein each."""
     sequences = {}
     for ident in identifiers:
         try:
@@ -365,16 +417,10 @@ def _sequences_for_genes(genome, identifiers, by="name"):
             logging.warning("Gene %s not found in Ensembl %s", ident, genome)
             continue
         for gene in genes:
-            best_transcript = select_protein_transcript(gene.transcripts)
-            if best_transcript is not None:
-                if not best_transcript.start_codon_complete:
-                    logging.warning(
-                        "Gene %s (%s) has no protein with a complete annotated start "
-                        "codon; using longest available transcript %s",
-                        gene.name, gene.id, best_transcript.id,
-                    )
-                key = f"{gene.name}|{best_transcript.id}"
-                sequences[key] = best_transcript.protein_sequence
+            transcript = best_protein_transcript(gene)
+            if transcript:
+                key = f"{gene.name}|{transcript.id}"
+                sequences[key] = transcript.protein_sequence
     return sequences
 
 

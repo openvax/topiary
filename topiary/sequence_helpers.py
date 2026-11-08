@@ -10,8 +10,88 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from collections.abc import Iterable
 from numbers import Integral
+
+from .amino_acids import AMINO_ACIDS
+
+#: Residues an MHC binding predictor can score. Everything else — ``X`` for
+#: an unknown residue, ``U``, ``*`` — is refused by the tools Topiary drives.
+SCORABLE_AMINO_ACIDS = frozenset(AMINO_ACIDS)
+
+
+def scorable_peptide(peptide):
+    """Whether a predictor can score this peptide at all.
+
+    Parameters
+    ----------
+    peptide : str
+        Candidate peptide sequence.
+
+    Returns
+    -------
+    bool
+        True when the peptide is nonempty and every residue is one of the
+        twenty standard amino acids. The MHC predictors Topiary drives
+        refuse anything else rather than scoring it: mhctools raises
+        "Invalid character 'X' in peptide", MHCflurry "peptides have
+        nonstandard amino acids". An unknown residue carries no binding
+        evidence, so there is no score to substitute.
+    """
+    return bool(peptide) and SCORABLE_AMINO_ACIDS.issuperset(peptide)
+
+
+def scorable_proteins(sequences):
+    """The named proteins a predictor can scan, without the ones it cannot.
+
+    A protein sequence carrying ``X`` — the residue Ensembl writes where
+    the annotation does not say which one it is — is refused outright by
+    every predictor Topiary drives, and one such protein ended the scan
+    for every other protein in the same call (#573). Dropping it instead
+    keeps the rest of the run.
+
+    An incomplete translation is the usual source: see
+    :func:`topiary.sources.best_protein_transcript`, which keeps these out
+    of the gene-based inputs in the first place. What reaches here is a
+    protein sequence a caller supplied directly, from a FASTA file or a
+    whole Ensembl proteome.
+
+    Parameters
+    ----------
+    sequences : mapping of str to str
+        Named protein sequences, as passed to a model's protein scanner.
+
+    Returns
+    -------
+    dict of str to str
+        The entries whose sequences :func:`scorable_peptide` accepts, in
+        input order. One summary warning names how many proteins were
+        dropped and one of them.
+
+    Raises
+    ------
+    ValueError
+        When no protein is left to scan, rather than returning predictions
+        for nothing.
+    """
+    scorable = {
+        name: sequence for name, sequence in sequences.items()
+        if scorable_peptide(sequence)
+    }
+    if len(scorable) == len(sequences):
+        return scorable
+    dropped = [name for name in sequences if name not in scorable]
+    if not scorable:
+        raise ValueError(
+            "None of the %d protein sequences can be scored: every one "
+            "contains a residue outside the twenty standard amino acids. "
+            "For example %s." % (len(sequences), dropped[0]))
+    logging.warning(
+        "Not scanning %d of %d protein sequences: they contain residues no "
+        "MHC predictor can score. For example %s.",
+        len(dropped), len(sequences), dropped[0])
+    return scorable
 
 
 def peptide_occurrence_flanks(source_sequence, peptide, peptide_offset):
