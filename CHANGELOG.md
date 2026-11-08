@@ -9,6 +9,10 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
 ## 5.111.5
 
+- Preserve configured predictor instances even when they implement `__call__`
+  (#597); callable predictors are not invoked again as factories, and their
+  existing allele configuration is retained.
+
 - `TopiaryPredictor(models=NetMHCpan)` and `models=["netmhcpan"]` run
   (#580). mhctools' `NetMHCpan`, `NetMHC` and `NetMHCIIpan` are factory
   functions that run the installed tool to learn its version and return
