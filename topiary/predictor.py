@@ -187,7 +187,7 @@ def model_from_spec(spec, alleles=None):
         - a factory that returns a configured predictor, which is what
           mhctools' ``NetMHCpan``, ``NetMHC`` and ``NetMHCIIpan`` are:
           functions that run the installed tool to learn its version and
-          return the class for it;
+          return a configured instance of the matching class;
         - an already-configured predictor instance,
           ``NetMHCpan42(alleles=[...])``, used as given.
     alleles : list of str, optional
@@ -212,9 +212,14 @@ def model_from_spec(spec, alleles=None):
     """
     if isinstance(spec, str):
         spec = _resolve_model_name(spec)
-    # Predictor instances are not callable, so anything callable here is a
-    # class or a factory to build one. A factory is called like a class:
-    # mhctools returns configured instances from both.
+    # A configured predictor may also be callable. Preserve its identity and
+    # configuration before interpreting callable objects as factories (#597).
+    # Classes expose these methods too, but still need construction.
+    if not isinstance(spec, type) and (
+        callable(getattr(spec, "predict_dataframe", None))
+        or callable(getattr(spec, "predict_peptides_dataframe", None))
+    ):
+        return spec
     if not callable(spec):
         return spec
     parameters = signature(spec).parameters

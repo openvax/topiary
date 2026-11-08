@@ -73,8 +73,8 @@ def test_bare_predictor_class_autowraps():
 # Version-selecting factories (#580)
 #
 # mhctools' NetMHCpan, NetMHC and NetMHCIIpan are functions that run the
-# installed tool to learn its version and return the class for it, not
-# classes. ``models=NetMHCpan`` used to store the function itself, and the
+# installed tool to learn its version and instantiate the matching class.
+# ``models=NetMHCpan`` used to store the function itself, and the
 # run failed later with "'function' object has no attribute
 # predict_peptides_dataframe". The stand-ins below have the same shape, so
 # these tests do not need an installed NetMHCpan.
@@ -103,6 +103,25 @@ def test_model_factory_is_called_like_a_class():
     assert isinstance(predictor.models[0], RandomBindingPredictor)
     assert predictor.models[0].alleles == ["HLA-A*02:01"]
     assert len(predictor.predict_from_named_peptides({"flu": "GILGFVFTL"})) > 0
+
+
+@pytest.mark.parametrize("alleles", [None, ["HLA-B*07:02"]])
+@pytest.mark.parametrize("door_index", range(3))
+def test_configured_callable_predictor_is_preserved(alleles, door_index):
+    """A configured predictor is an instance even if it is callable (#597)."""
+    from .test_twin_conformance import MODEL_SPEC_TWINS
+
+    class CallablePredictor(RandomBindingPredictor):
+        def __call__(self, *args, **kwargs):
+            raise AssertionError("Configured predictor was reconstructed")
+
+    model = CallablePredictor(alleles=["HLA-A*02:01"], default_peptide_lengths=[9])
+    configured = MODEL_SPEC_TWINS[door_index](model, alleles=alleles)
+    assert configured is model
+    assert configured.alleles == ["HLA-A*02:01"]
+    result = TopiaryPredictor(models=configured).predict_from_named_peptides({"flu": "GILGFVFTL"})
+    assert result.peptide.tolist() == ["GILGFVFTL"]
+    assert result.allele.tolist() == ["HLA-A*02:01"]
 
 
 def test_model_factory_without_alleles_is_built_without_them():
