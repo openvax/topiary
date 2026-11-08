@@ -690,6 +690,7 @@ MT value.
 | `tissue_expressed_gene_ids(tissues)` | `set` of Ensembl gene IDs |
 | `cta_gene_ids(source, tier)` | `set` of CTA Ensembl gene IDs |
 | `cta_sequences()` | CTA protein sequences |
+| `ensembl_genome(release=None, species="human")` | Shared genome resolver, also exported from `topiary` |
 | `non_cta_sequences()` | Non-CTA protein sequences |
 | `ensembl_proteome()` | All Ensembl proteins |
 | `available_tissues()` | List of tissue names |

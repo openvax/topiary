@@ -121,7 +121,7 @@ from .properties import (
     add_peptide_properties,
     available_properties,
 )
-from .sources import best_protein_transcript
+from .sources import best_protein_transcript, ensembl_genome
 from .sequence_helpers import (
     check_padding_around_mutation,
     peptide_occurrence_flanks,
@@ -247,6 +247,7 @@ __version__ = "5.111.7"
 
 __all__ = [
     "best_protein_transcript",
+    "ensembl_genome",
     "PROTEIN_SCAN_METADATA_COLUMNS",
     "peptide_occurrence_flanks",
     "prediction_flank_limits",

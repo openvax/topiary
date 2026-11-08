@@ -65,6 +65,7 @@ from topiary import (
     parse as parse_dsl,
 )
 from topiary import from_cleavage_results
+from topiary import model_from_spec
 from topiary.io_isovar import _check_isovar
 from topiary import SelfProteome, iter_fasta_records
 from topiary.inputs import read_fasta, read_peptide_fasta
@@ -76,6 +77,13 @@ from .osteosarc_helpers import load_osteosarc
 from .sid_data import sid_data_root
 from topiary import build_sv_interest_report
 from topiary.cli.sv_interest import main as sv_interest_main
+
+
+MODEL_SPEC_TWINS = (
+    model_from_spec,
+    lambda spec, alleles=None: TopiaryPredictor(models=spec, alleles=alleles).models[0],
+    lambda spec, alleles=None: TopiaryPredictor(models=[spec], alleles=alleles).models[0],
+)
 
 
 SELF_MATCH_TWINS = (
