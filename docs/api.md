@@ -693,6 +693,12 @@ complete annotated start, they retain the longest available protein and log a
 warning naming the gene and transcript. Genes without a protein sequence are
 omitted.
 
+CTA and tissue wrappers resolve their gene sets and pass them to
+`sequences_from_gene_ids`. They use the same transcript selection, protein
+prediction, DSL filtering/ranking and exclusion pipeline as other sequence
+inputs. CTA membership comes from OncoRef through `cta_gene_ids`; it does not
+introduce a second transcript policy or a separate prediction result format.
+
 The shared selector is also available as `topiary.select_protein_transcript`.
 It returns the original transcript object without changing its sequence and
 leaves fallback reporting to its caller. Selection uses PyEnsembl's

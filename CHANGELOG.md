@@ -18,6 +18,9 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 - Export `select_protein_transcript` for consumers that need the same choice.
   The preference is based on annotation, not the first amino acid, and does
   not assert canonical status or full translation qualification.
+- CTA and tissue sources delegate to the public gene-ID loader. Equivalent
+  CTA, gene-list and FASTA inputs share prediction, filtering, ranking and
+  exclusion behavior; CLI help now describes the common selection policy.
 
 ## 5.111.3
 

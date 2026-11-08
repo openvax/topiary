@@ -70,6 +70,20 @@ def test_gene_without_protein_is_omitted(gene_sources, load):
     assert load() == {}
 
 
+@pytest.mark.parametrize("source", ["cta", "tissue"])
+def test_empty_derived_gene_set_has_no_sequences(monkeypatch, source):
+    monkeypatch.setattr(sources, "cta_gene_ids", lambda: set())
+    monkeypatch.setattr(sources, "tissue_expressed_gene_ids", lambda *a, **k: set())
+    load = sources.cta_sequences if source == "cta" else lambda: sources.tissue_expressed_sequences(["testis"])
+    assert load() == {}
+
+
+@pytest.mark.parametrize("load", [sources.sequences_from_gene_names, sources.sequences_from_gene_ids])
+def test_explicit_empty_gene_list_remains_an_input_error(load):
+    with pytest.raises(ValueError, match="non-empty list"):
+        load([])
+
+
 def test_explicit_transcript_requests_preserve_partial_sequence(gene_sources):
     partial = transcript("partial", "XACDEFGHIK", False)
     partial.gene = gene_sources

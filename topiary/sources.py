@@ -207,8 +207,7 @@ def cta_sequences(release=None):
     dict : "GENE_NAME|TRANSCRIPT_ID" -> amino acid sequence
     """
     gene_ids = cta_gene_ids()
-    genome = _get_genome(release, "human")
-    return _sequences_for_genes(genome, list(gene_ids), by="id")
+    return sequences_from_gene_ids(list(gene_ids), release=release) if gene_ids else {}
 
 
 
@@ -297,8 +296,7 @@ def tissue_expressed_sequences(tissues, min_ntpm=1.0, release=None):
     dict : "GENE_NAME|TRANSCRIPT_ID" -> amino acid sequence
     """
     gene_ids = tissue_expressed_gene_ids(tissues, min_ntpm=min_ntpm)
-    genome = _get_genome(release, "human")
-    return _sequences_for_genes(genome, list(gene_ids), by="id")
+    return sequences_from_gene_ids(list(gene_ids), release=release) if gene_ids else {}
 
 
 def available_tissues():
