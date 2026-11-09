@@ -7,6 +7,16 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.111.7
+
+- CTA and tissue sources delegate to the public gene-ID loader, sharing the
+  representative-transcript selector introduced in 5.111.6 (#594).
+- Export the same `best_protein_transcript` function from `topiary` for consumers;
+  source API documentation and CLI help refer to that common selection policy.
+- Exercise equivalent CTA, gene-list and FASTA inputs through the shared
+  prediction, filtering, ranking and tissue-exclusion pipeline. Preserve exact
+  transcript requests and the behavior of empty derived gene sets.
+
 ## 5.111.6
 
 - Gene lookups select a representative transcript using its annotation,

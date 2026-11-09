@@ -120,7 +120,7 @@ def ensembl_proteome(release=None, species="human"):
 def sequences_from_gene_names(gene_names, release=None, species="human"):
     """Protein sequences for a list of gene names.
 
-    For each gene, uses the longest protein-coding transcript.
+    For each gene, uses the shared :func:`best_protein_transcript` selector.
 
     Parameters
     ----------
@@ -146,6 +146,8 @@ def sequences_from_gene_names(gene_names, release=None, species="human"):
 
 def sequences_from_gene_ids(gene_ids, release=None, species="human"):
     """Protein sequences for a list of Ensembl gene IDs.
+
+    Uses the shared :func:`best_protein_transcript` selector.
 
     Parameters
     ----------
@@ -236,7 +238,7 @@ def sequences_from_transcript_names(transcript_names, release=None, species="hum
 def cta_sequences(release=None):
     """Protein sequences from cancer-testis antigen (CTA) genes.
 
-    Human only. Uses CTA gene list from PirlyGenes.
+    Human only. Resolves CTA membership, then uses :func:`sequences_from_gene_ids`.
 
     Parameters
     ----------
@@ -249,8 +251,7 @@ def cta_sequences(release=None):
     dict : "GENE_NAME|TRANSCRIPT_ID" -> amino acid sequence
     """
     gene_ids = cta_gene_ids()
-    genome = ensembl_genome(release, "human")
-    return _sequences_for_genes(genome, list(gene_ids), by="id")
+    return sequences_from_gene_ids(list(gene_ids), release=release) if gene_ids else {}
 
 
 
@@ -324,6 +325,8 @@ def tissue_expressed_gene_ids(tissues, min_ntpm=1.0):
 def tissue_expressed_sequences(tissues, min_ntpm=1.0, release=None):
     """Protein sequences of genes expressed in specified tissues.
 
+    Resolves tissue gene membership, then uses :func:`sequences_from_gene_ids`.
+
     Parameters
     ----------
     tissues : list of str
@@ -337,8 +340,7 @@ def tissue_expressed_sequences(tissues, min_ntpm=1.0, release=None):
     dict : "GENE_NAME|TRANSCRIPT_ID" -> amino acid sequence
     """
     gene_ids = tissue_expressed_gene_ids(tissues, min_ntpm=min_ntpm)
-    genome = ensembl_genome(release, "human")
-    return _sequences_for_genes(genome, list(gene_ids), by="id")
+    return sequences_from_gene_ids(list(gene_ids), release=release) if gene_ids else {}
 
 
 def available_tissues():

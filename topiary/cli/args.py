@@ -154,6 +154,9 @@ def _add_input_args(arg_parser):
     )
 
     # -- built-in sequence sources --
+    gene_selection_help = (
+        "Prefers complete protein-coding translations, then standard amino acids, then length."
+    )
     input_group.add_argument(
         "--ensembl-proteome",
         default=False,
@@ -164,14 +167,13 @@ def _add_input_args(arg_parser):
         "--gene-names",
         default=None,
         nargs="*",
-        help="Gene names to predict (e.g. BRAF TP53 EGFR). "
-             "Uses longest protein-coding transcript.",
+        help="Gene names to predict (e.g. BRAF TP53 EGFR). " + gene_selection_help,
     )
     input_group.add_argument(
         "--gene-ids",
         default=None,
         nargs="*",
-        help="Ensembl gene IDs to predict.",
+        help="Ensembl gene IDs to predict. " + gene_selection_help,
     )
     input_group.add_argument(
         "--transcript-ids",
@@ -184,7 +186,7 @@ def _add_input_args(arg_parser):
         default=False,
         action="store_true",
         help="Predict across CTA (cancer-testis antigen) proteins. "
-             "Human only. Requires pirlygenes.",
+             "Human only. Requires pirlygenes. " + gene_selection_help,
     )
     input_group.add_argument(
         "--ensembl-release",

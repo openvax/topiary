@@ -175,7 +175,7 @@ from topiary.sources import (
     available_tissues,
 )
 
-# Specific genes (uses longest protein-coding transcript)
+# Specific genes (uses the shared representative-transcript selector)
 seqs = sequences_from_gene_names(["BRAF", "TP53", "EGFR"])
 
 # By Ensembl ID

@@ -694,6 +694,24 @@ MT value.
 | `non_cta_sequences()` | Non-CTA protein sequences |
 | `ensembl_proteome()` | All Ensembl proteins |
 | `available_tissues()` | List of tissue names |
+| `best_protein_transcript(gene)` | Selected transcript, or `None` if no protein is available |
+
+Gene-name, gene-ID, CTA and tissue sequence sources choose one representative
+protein per gene through `best_protein_transcript`. It ranks complete
+protein-coding translations first, then sequences containing only standard
+amino acids, then protein length; transcript-ID order breaks ties. Genes without
+a protein sequence are omitted. The function returns the original transcript
+object and is also exported as `topiary.best_protein_transcript`.
+
+CTA and tissue wrappers resolve their gene sets and pass them to
+`sequences_from_gene_ids`. They use the same transcript selection, protein
+prediction, DSL filtering/ranking and exclusion pipeline as other sequence
+inputs. CTA membership comes from OncoRef through `cta_gene_ids`; it does not
+introduce a second transcript policy or a separate prediction result format.
+
+Explicit transcript-ID and transcript-name requests return the requested
+sequences. Whole-proteome and non-CTA exclusion sources enumerate all proteins
+instead of selecting representatives.
 
 ### Which genes count as cancer-testis antigens
 

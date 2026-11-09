@@ -70,6 +70,7 @@ from topiary.io_isovar import _check_isovar
 from topiary import SelfProteome, iter_fasta_records
 from topiary.inputs import read_fasta, read_peptide_fasta
 from topiary.sources import _check_pirlygenes
+from topiary import sources
 import topiary.dependencies as dependencies
 from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_REPORTS, ROOT as PVACSEQ_ROOT
 from .osteosarc_helpers import load_osteosarc
@@ -140,6 +141,105 @@ TWINS = (
         shared={"overlapping": "depth", "vaf": "vaf"},
     ),
 )
+
+
+GENE_SEQUENCE_SOURCE_TWINS = (
+    lambda: sources.sequences_from_gene_names(["GENE"]),
+    lambda: sources.sequences_from_gene_ids(["GENE_ID"]),
+    sources.cta_sequences,
+    lambda: sources.tissue_expressed_sequences(["testis"]),
+)
+
+
+ANTIGEN_SEQUENCE_INPUT_TWINS = (
+    ("cta", lambda fasta: ["--cta"]),
+    ("gene-name", lambda fasta: ["--gene-names", "GENE"]),
+    ("gene-id", lambda fasta: ["--gene-ids", "TARGET"]),
+    ("fasta", lambda fasta: ["--fasta", str(fasta)]),
+)
+
+
+@pytest.mark.parametrize("exclusion_mode,excluded_peptides", [
+    ("exact", {"MNPQRSTVW"}),
+    ("substring", {"MNPQRSTVW", "NPQRSTVWY"}),
+])
+def test_antigen_sources_share_prediction_filter_rank_and_exclusion(
+        monkeypatch, tmp_path, exclusion_mode, excluded_peptides):
+    """The same protein must undergo the same decisions regardless of its source."""
+    from topiary.cli import args as cli
+    from .test_protein_fallback import ProteinModel
+
+    sequence = "MNPQRSTVWYACDEFGHIK"
+    excluded_peptide = sequence[:9]
+    target = SimpleNamespace(id="TARGET", name="GENE", transcripts=[
+        SimpleNamespace(id="partial", protein_sequence="X" + "A" * 40,
+                        biotype="protein_coding", complete=False),
+        SimpleNamespace(id="complete", protein_sequence=sequence, biotype="protein_coding", complete=True),
+    ])
+    tissue = SimpleNamespace(id="TISSUE", name="NORMAL", transcripts=[
+        SimpleNamespace(id="partial-normal", protein_sequence="X" + "A" * 40,
+                        biotype="protein_coding", complete=False),
+        SimpleNamespace(id="complete-normal", protein_sequence=excluded_peptide,
+                        biotype="protein_coding", complete=True),
+    ])
+    genome = SimpleNamespace(
+        genes_by_name=lambda name: [target],
+        gene_by_id=lambda ident: {"TARGET": target, "TISSUE": tissue}[ident],
+    )
+    monkeypatch.setattr(sources, "ensembl_genome", lambda *a: genome)
+    monkeypatch.setattr(sources, "cta_gene_ids", lambda: {target.id})
+    monkeypatch.setattr(sources, "tissue_expressed_gene_ids", lambda *a, **k: {tissue.id})
+    # Use mhctools' real protein scanner with deterministic flank-dependent
+    # measurements. Source loading, Topiary prediction, DSL and exclusions run.
+    monkeypatch.setattr(cli, "predictors_from_args", lambda args: [ProteinModel()])
+    fasta = tmp_path / "antigen.fasta"
+    fasta.write_text(f">GENE|complete\n{sequence}\n")
+    filtered = ["--filter-by", "affinity.value <= 350"]
+    ranked = filtered + ["--sort-by", "affinity.value", "--sort-direction", "asc"]
+    settings = {
+        "all": [], "filtered": filtered, "ranked": ranked,
+        "excluded": ranked + ["--exclude-tissues", "testis", "--exclude-mode", exclusion_mode],
+    }
+    results = {}
+    for setting, options in settings.items():
+        frames = []
+        for name, input_args in ANTIGEN_SEQUENCE_INPUT_TWINS:
+            args = cli.arg_parser.parse_args([
+                "--mhc-predictor", "random", "--mhc-alleles", "HLA-A*02:01",
+                *input_args(fasta), *options,
+            ])
+            frame = cli.predict_epitopes_from_args(args).reset_index(drop=True)
+            assert set(frame.source_sequence_name) == {"GENE|complete"}, name
+            for row in frame.itertuples():
+                assert row.peptide == sequence[row.peptide_offset:row.peptide_offset + len(row.peptide)]
+            frames.append(frame)
+        for other in frames[1:]:
+            pd.testing.assert_frame_equal(frames[0], other)
+        results[setting] = frames[0]
+
+    assert len(results["all"]) == len(sequence) - 9 + 1
+    assert 0 < len(results["filtered"]) < len(results["all"])
+    assert set(results["filtered"].peptide) == set(results["ranked"].peptide)
+    assert results["ranked"].value.tolist() == sorted(results["ranked"].value)
+    assert results["filtered"].value.tolist() != results["ranked"].value.tolist()
+    assert excluded_peptide in set(results["ranked"].peptide)
+    assert set(results["excluded"].peptide) == set(results["ranked"].peptide) - excluded_peptides
+
+
+@pytest.mark.parametrize("complete_start", [False, True])
+def test_gene_sequence_sources_agree_on_transcript_preference(monkeypatch, complete_start):
+    short = SimpleNamespace(id="short", protein_sequence="MACDEFGHIK",
+                            biotype="protein_coding", complete=complete_start)
+    long = SimpleNamespace(id="long", protein_sequence="MMNPQRSTVWYACDEFGHIK",
+                           biotype="protein_coding", complete=False)
+    gene = SimpleNamespace(id="GENE_ID", name="GENE", transcripts=[long, short])
+    genome = SimpleNamespace(genes_by_name=lambda name: [gene], gene_by_id=lambda ident: gene)
+    monkeypatch.setattr(sources, "ensembl_genome", lambda *args: genome)
+    monkeypatch.setattr(sources, "cta_gene_ids", lambda: {gene.id})
+    monkeypatch.setattr(sources, "tissue_expressed_gene_ids", lambda *a, **k: {gene.id})
+    chosen = short if complete_start else long
+    expected = {f"GENE|{chosen.id}": chosen.protein_sequence}
+    assert [load() for load in GENE_SEQUENCE_SOURCE_TWINS] == [expected] * 4
 
 
 def protein_inputs_through_model(model, sequences):

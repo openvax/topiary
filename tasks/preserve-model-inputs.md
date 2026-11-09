@@ -44,4 +44,9 @@ were restored; the producer's accepted input must drive those tests.
 
 Lint (Ruff and mypy), strict docs and pip check pass. The Ensembl 115 audit
 confirms all 624 CTA transcript identities and sequences are unchanged.
-The required full suite is running before publication of the parent-PR fix.
+The parent fix is pushed as 6ffa6b2. Its first full local run aborted when
+the disk filled; after space recovered it is rerunning with pytest configured
+to discard passing temporary fixtures immediately. This changes fixture
+retention, not test selection. The integrated child branch passes all 22
+focused regression and source-conformance cases, lint, strict docs and pip check.
+Full suites and CI remain pending.
