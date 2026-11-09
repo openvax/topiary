@@ -66,3 +66,10 @@ Full validation of 4bd3421: 6,350 passed, one inventory regression. A cache's
 conservative selection bounds must not advertise the native producer's
 `protein_flank_lengths` contract. Rename the cache method, leave model inventory
 and row annotation unchanged, and rerun both focused and full checks.
+
+Full validation of b78d7be passed all 6,351 tests (94% coverage). Final review
+identified cross-partition duplicate model inputs: clean and X-containing
+proteins can share a retained peptide/context. Consolidate all retained windows
+into one batch when context is known, preserving one score per identical input
+(as mhctools' native scanner does). Keep native clean-only/unknown-context
+behavior. Add a batch-dependent producer regression before rerunning release gates.

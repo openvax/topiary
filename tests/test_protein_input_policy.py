@@ -192,7 +192,7 @@ def test_windows_override_preserves_original_context_and_offline_replay(
         )
         assert row.c_flank == sequence[row.peptide_offset + 9 : row.peptide_offset + 11]
         assert row.value == 100 + sum(map(ord, row.n_flank + row.c_flank))
-    assert len(model.batches) == (2 if offsets and not cached else 1)
+    assert len(model.batches) == 1
     if cached:
         path = tmp_path / "selected.tsv"
         producer.save(path)
@@ -451,3 +451,36 @@ def test_selected_window_geometry_is_validated(windows):
     for model in [ProteinModel(), CachedPredictor(fallback=ProteinModel())]:
         with pytest.raises(ValueError, match="Selected protein window"):
             predict_protein_windows(model, {"p": CLEAN}, windows)
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_mixed_inputs_reuse_one_prediction_for_identical_retained_context(cached):
+    from dataclasses import replace
+    from topiary import CachedPredictor
+
+    class BatchDependentModel(RejectingProteinModel):
+        def predict_with_flanks(self, peptides, n_flanks, c_flanks):
+            results = super().predict_with_flanks(peptides, n_flanks, c_flanks)
+            return [
+                replace(
+                    result,
+                    preds=tuple(
+                        replace(pred, value=pred.value + len(self.batches))
+                        for pred in result.preds
+                    ),
+                )
+                for result in results
+            ]
+
+    model = BatchDependentModel()
+    producer = CachedPredictor(fallback=model) if cached else model
+    result = TopiaryPredictor(
+        models=producer, protein_x_policy="windows"
+    ).predict_from_named_sequences({"unknown": UNKNOWN, "clean": CLEAN})
+    shared = result[result.peptide_offset == 3]
+    assert set(shared.source_sequence_name) == {"unknown", "clean"}
+    assert shared.value.nunique() == 1
+    assert len(model.batches) == 1
+    # A result table must remain suitable for a cache: repeated identical model
+    # inputs cannot acquire contradictory measurements from separate batches.
+    CachedPredictor(result)

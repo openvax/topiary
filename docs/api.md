@@ -127,8 +127,9 @@ retaining its sparse-kind semantics and strict coverage for selected windows.
 `validate_protein_predictions(..., windows=...)` validates that subset.
 
 `predict_x_free_proteins(model, sequences)` composes these steps for the `windows`
-policy: clean proteins use the native scan; X inputs use selected windows. Unknown
-context excludes affected X inputs with a warning. Model/configuration errors
+policy: all retained windows share one batch so identical inputs reuse one
+prediction across proteins. Clean-only inputs retain the native scan. Unknown
+context excludes affected X inputs with a warning and scans clean inputs normally. Model/configuration errors
 are not suppressed. WT windows that cannot be scored leave missing WT values
 without removing candidate predictions.
 

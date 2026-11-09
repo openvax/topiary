@@ -237,7 +237,7 @@ def predict_protein_windows(model, named_sequences, windows):
 
 
 def predict_x_free_proteins(model, named_sequences):
-    """Scan clean proteins normally and select usable windows from X inputs.
+    """Scan original X-free windows, reusing identical inputs across all proteins.
 
     Parameters
     ----------
@@ -251,34 +251,34 @@ def predict_x_free_proteins(model, named_sequences):
     Returns
     -------
     pandas.DataFrame
-        Native clean-protein rows plus selected original X-free occurrences.
+        Selected original occurrences, batched together when X is present and
+        context is known. Clean-only inputs retain the native scan path.
         No backend call is made for an empty selection. Unrelated model errors
         and missing coverage for retained windows remain strict.
     """
     from .predictor import from_predictions
 
-    clean = {
-        name: seq for name, seq in named_sequences.items() if "X" not in seq.upper()
-    }
+    if not named_sequences:
+        return from_predictions([])
     unknown = {name: seq for name, seq in named_sequences.items() if "X" in seq.upper()}
-    frames = [model.predict_proteins_dataframe(clean)] if clean else []
-    if unknown:
-        limits = protein_scan_flank_lengths(model)
-        if limits is None:
-            warnings.warn(
-                f"Skipped {len(unknown)} protein scan input(s) containing X because "
-                f"{type(model).__name__} has unknown protein flank limits; "
-                f"example source names: {list(unknown)[:3]!r}.",
-                ProteinInputWarning,
-                stacklevel=2,
-            )
-        else:
-            windows = x_free_protein_windows(
-                unknown, model.default_peptide_lengths, flank_lengths=limits
-            )
-            if windows:
-                frames.append(predict_protein_windows(model, unknown, windows))
-    populated = [from_predictions(frame) for frame in frames if not frame.empty]
-    return (
-        pd.concat(populated, ignore_index=True) if populated else from_predictions([])
+    if not unknown:
+        return model.predict_proteins_dataframe(named_sequences)
+    limits = protein_scan_flank_lengths(model)
+    if limits is None:
+        warnings.warn(
+            f"Skipped {len(unknown)} protein scan input(s) containing X because "
+            f"{type(model).__name__} has unknown protein flank limits; "
+            f"example source names: {list(unknown)[:3]!r}.",
+            ProteinInputWarning,
+            stacklevel=2,
+        )
+        clean = {
+            name: seq for name, seq in named_sequences.items() if name not in unknown
+        }
+        return (
+            model.predict_proteins_dataframe(clean) if clean else from_predictions([])
+        )
+    windows = x_free_protein_windows(
+        named_sequences, model.default_peptide_lengths, flank_lengths=limits
     )
+    return predict_protein_windows(model, named_sequences, windows)
