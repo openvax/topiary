@@ -46,21 +46,23 @@ For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 - Preserve configured predictor instances even when they implement `__call__`
   (#597); callable predictors are not invoked again as factories, and their
   existing allele configuration is retained.
+- Preserve allele-free predictor classes with forwarding `**kwargs`
+  constructors (#598); these classes are built without global alleles,
+  as they were before factory support.
 
 - `TopiaryPredictor(models=NetMHCpan)` and `models=["netmhcpan"]` run
   (#580). mhctools' `NetMHCpan`, `NetMHC` and `NetMHCIIpan` are factory
   functions that run the installed tool to learn its version and return
-  the class for it, not classes; the function object was stored as a
+  a configured instance of the matching class; the function object was stored as a
   configured model and the run failed later with `'function' object has
   no attribute predict_peptides_dataframe`, while the name raised "is not
   a peptide predictor".
 - New public `model_from_spec(spec, alleles=None)` builds one model from a
   `models=` entry — name, class, factory or configured instance — and
-  `TopiaryPredictor` uses it for every entry. It passes `alleles` to a
-  class or factory whose signature takes them rather than asking whether
-  the class is an `AlleleFreePredictor`, which is what mhctools' own
-  command line does, so a model named in Python is built the same way as
-  one named on the command line. Classes that take no alleles without
+  `TopiaryPredictor` uses it for every entry. Declared `AlleleFreePredictor`
+  classes are built without alleles; other classes and factories receive
+  `alleles` when their signature accepts them, following mhctools'
+  command-line construction rule. Classes that take no alleles without
   declaring that base, `NetChop`, `NetCleave` and `Pepsickle`, build in
   Python for the first time.
 
