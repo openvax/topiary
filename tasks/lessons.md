@@ -45,3 +45,12 @@ required flank context. Never join across gaps or invent molecular termini.
 Keep producer acceptance (`allow`) distinct from clean-window selection, and
 remove exception-message matching when structural input selection solves the
 reported failure.
+
+## Integration samples must not depend on set iteration order
+
+Sampling the first dictionary entries from a set-derived gene collection makes
+real-data coverage depend on the Python hash seed. Sort test inputs and deliberately
+include relevant edge cases when available. Assert expected policy warnings at
+every affected prediction call; do not blanket-ignore them or rely on a clean
+sample. Wait for the completed traceback before attributing a failure: a surviving
+temporary directory may belong to an active test rather than the failed test.

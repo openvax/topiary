@@ -30,6 +30,32 @@ def _small_predictor(**kwargs):
     )
 
 
+def _small_tissue_sample(sequences, include_unknown):
+    ordered = sorted(sequences.items())
+    clean = [
+        (name, sequence) for name, sequence in ordered if "X" not in sequence.upper()
+    ]
+    unknown = [
+        (name, sequence) for name, sequence in ordered if "X" in sequence.upper()
+    ]
+    # Exercise a real unknown-residue input when this reference contains one,
+    # rather than depending on hash-seed-specific gene iteration order.
+    return dict(clean[:2] + unknown[:1] if include_unknown and unknown else clean[:3])
+
+
+def _predict_with_checked_x_policy(predictor, sequences):
+    excluded = {name for name, sequence in sequences.items() if "X" in sequence.upper()}
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ProteinInputWarning)
+        frame = predictor.predict_from_named_sequences(sequences)
+    assert [warning.category for warning in caught] == (
+        [ProteinInputWarning] if excluded else []
+    )
+    assert not set(frame.source_sequence_name) & excluded
+    assert not frame.peptide.str.contains("X", case=False).any()
+    return frame
+
+
 # ---------------------------------------------------------------------------
 # Test: gene name → predict → filter → exclude
 # ---------------------------------------------------------------------------
@@ -55,19 +81,15 @@ def test_gene_names_to_predictions():
 
 
 @pytest.mark.pirlygenes
-def test_tissue_restricted_predict():
+@pytest.mark.parametrize(
+    "include_unknown", [False, True], ids=["clean", "with-unknown"]
+)
+def test_tissue_restricted_predict(include_unknown):
     """Can predict from tissue-restricted sequences."""
     seqs = tissue_expressed_sequences(["testis"], min_ntpm=100.0)
-    small = dict(list(seqs.items())[:3])
-    predictor = _small_predictor()
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", ProteinInputWarning)
-        df = predictor.predict_from_named_sequences(small)
+    small = _small_tissue_sample(seqs, include_unknown)
+    df = _predict_with_checked_x_policy(_small_predictor(), small)
     assert len(df) > 0
-    excluded = {name for name, sequence in small.items() if "X" in sequence.upper()}
-    assert len(caught) == bool(excluded)
-    assert not set(df.source_sequence_name) & excluded
-    assert not df.peptide.str.contains("X", case=False).any()
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +117,10 @@ def test_tissue_exclusion_reduces_predictions():
 
 
 @pytest.mark.pirlygenes
-def test_first_principles_workflow():
+@pytest.mark.parametrize(
+    "include_unknown", [False, True], ids=["clean", "with-unknown"]
+)
+def test_first_principles_workflow(include_unknown):
     """
     First-principles CTA-like workflow:
       1. Predict from genes expressed in reproductive tissues
@@ -104,13 +129,15 @@ def test_first_principles_workflow():
     """
     # 1. Targets: genes expressed in reproductive tissues
     target_seqs = tissue_expressed_sequences(
-        ["testis", "placenta", "ovary"], min_ntpm=1.0,
+        ["testis", "placenta", "ovary"],
+        min_ntpm=1.0,
     )
-    small_targets = dict(list(target_seqs.items())[:3])
+    small_targets = _small_tissue_sample(target_seqs, include_unknown)
 
     # 2. Vital organ proteome (for exclusion)
     vital_seqs = tissue_expressed_sequences(
-        ["heart_muscle", "lung", "liver"], min_ntpm=10.0,
+        ["heart_muscle", "lung", "liver"],
+        min_ntpm=10.0,
     )
 
     # 3. Predict with filter + rank
@@ -120,7 +147,7 @@ def test_first_principles_workflow():
         filter_by=Affinity <= 500,
         sort_by=Affinity.score,
     )
-    df = predictor.predict_from_named_sequences(small_targets)
+    df = _predict_with_checked_x_policy(predictor, small_targets)
 
     # 4. Exclude peptides found in vital organs (substring match)
     df = exclude_by(df, vital_seqs, mode="substring")
