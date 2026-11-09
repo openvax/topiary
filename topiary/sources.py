@@ -33,6 +33,7 @@ import logging
 import pyensembl
 
 from .dependencies import require_dependency
+from .amino_acids import AMINO_ACIDS
 
 
 def ensembl_genome(release=None, species="human"):
@@ -351,8 +352,54 @@ def available_tissues():
 # ---------------------------------------------------------------------------
 
 
+def best_protein_transcript(gene):
+    """The transcript whose translation stands for a gene's protein.
+
+    Ensembl can provide several translations for a gene. For IZUMO2,
+    C16orf90 and LLCFC1, choosing only by length selected incomplete-start
+    alternatives beginning with ``X`` and caused MHCflurry to reject the
+    CTA input (#573). This shared choice applies to every gene source.
+
+    Parameters
+    ----------
+    gene : pyensembl.Gene
+        The gene whose protein is wanted.
+
+    Returns
+    -------
+    pyensembl.Transcript or None
+        The best transcript by, in order: a complete protein-coding
+        translation first, then one using only the standard amino-acid alphabet,
+        then the longest. Ties go to the lowest transcript ID, so the
+        same release always gives the same answer. ``None`` when the gene
+        translates no transcript at all.
+
+    Notes
+    -----
+    Completeness uses PyEnsembl's ``Transcript.complete`` property: annotated
+    three-base start and stop codons and a coding sequence divisible by three.
+    A GTF without annotated start codons leaves every transcript incomplete;
+    the remaining rules still choose. The alphabet preference is a sequence
+    property, not a claim about a predictor's accepted inputs or canonical
+    transcript status. The selected sequence is returned without modification.
+    """
+    def rank(transcript):
+        sequence = transcript.protein_sequence
+        return (
+            transcript.biotype == "protein_coding" and transcript.complete,
+            set(AMINO_ACIDS).issuperset(sequence),
+            len(sequence),
+        )
+
+    # Sorted by ID, so the first of several equally good transcripts — which
+    # is the one max() returns — is the same on every run.
+    translated = sorted(
+        (t for t in gene.transcripts if t.protein_sequence), key=lambda t: t.id)
+    return max(translated, key=rank) if translated else None
+
+
 def _sequences_for_genes(genome, identifiers, by="name"):
-    """Get protein sequences for genes, picking the longest transcript."""
+    """Get protein sequences for genes, one representative protein each."""
     sequences = {}
     for ident in identifiers:
         try:
@@ -364,16 +411,10 @@ def _sequences_for_genes(genome, identifiers, by="name"):
             logging.warning("Gene %s not found in Ensembl %s", ident, genome)
             continue
         for gene in genes:
-            best_transcript = None
-            best_len = 0
-            for t in gene.transcripts:
-                seq = t.protein_sequence
-                if seq and len(seq) > best_len:
-                    best_transcript = t
-                    best_len = len(seq)
-            if best_transcript:
-                key = f"{gene.name}|{best_transcript.id}"
-                sequences[key] = best_transcript.protein_sequence
+            transcript = best_protein_transcript(gene)
+            if transcript:
+                key = f"{gene.name}|{transcript.id}"
+                sequences[key] = transcript.protein_sequence
     return sequences
 
 

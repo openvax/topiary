@@ -18,8 +18,9 @@ MISSING = "AAAAAAAAA"
 
 
 @pytest.mark.parametrize("door", CACHE_MISS_PREDICTION_TWINS)
-def test_strict_and_reporting_policies_drive_both_prediction_doors(door):
-    inputs = {"covered": PEPTIDE, "missing": MISSING, "also_covered": PEPTIDE}
+@pytest.mark.parametrize("missing", [MISSING, "XACDEFGHI"])
+def test_strict_and_reporting_policies_drive_both_prediction_doors(door, missing):
+    inputs = {"covered": PEPTIDE, "missing": missing, "also_covered": PEPTIDE}
     model = _covering_cache([PEPTIDE])
     strict = TopiaryPredictor(models=[model], raise_on_error=False)
     with pytest.raises(CachedPredictorCoverageError):
@@ -34,7 +35,7 @@ def test_strict_and_reporting_policies_drive_both_prediction_doors(door):
     assert failure["source_sequence_name"] == "missing" and failure["scope"] == "model_input"
     assert failure["model_key"] == failure["prediction_method_name"] == "netmhcpan"
     assert failure["predictor_version"] == "4.2" and failure["error_type"] == "CachedPredictorCoverageError"
-    assert MISSING in failure["message"]
+    assert missing in failure["message"]
 
 
 @pytest.mark.parametrize("door", CACHE_MISS_PREDICTION_TWINS)

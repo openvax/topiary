@@ -1019,11 +1019,16 @@ class TopiaryPredictor(object):
     # ------------------------------------------------------------------
 
     def predict_from_named_sequences(self, name_to_sequence_dict):
-        """
+        """Scan proteins and score every window a model can score.
+
         Parameters
         ----------
         name_to_sequence_dict : dict (str -> str)
-            Mapping of sequence names to amino acid sequences.
+            Mapping of sequence names to amino acid sequences. Original
+            names and sequences are passed to each configured predictor or
+            cache. Residue validation belongs to that producer: accepted
+            predictions are retained and input errors propagate. No protein
+            is dropped solely because of its alphabet.
 
         Returns
         -------
@@ -1130,8 +1135,10 @@ class TopiaryPredictor(object):
     def _predict_raw_for_model(self, model, name_to_sequence_dict, model_key=None, stage="protein"):
         """Run one model on proteins, preserving source-sequence context."""
         model_df = predict_with_cache_miss_report(
-            model.predict_proteins_dataframe, name_to_sequence_dict,
-            on_miss=self.cache_miss_handler, context=self._cache_miss_context(model, model_key, stage))
+            model.predict_proteins_dataframe,
+            name_to_sequence_dict,
+            on_miss=self.cache_miss_handler,
+            context=self._cache_miss_context(model, model_key, stage))
         from .protein_predictions import annotate_protein_prediction_context
         model_df = annotate_protein_prediction_context(model_df, model)
         return self._attach_model_key(

@@ -2,8 +2,10 @@
 
 import pytest
 
+from topiary import AMINO_ACIDS
 from topiary.sources import (
     available_tissues,
+    best_protein_transcript,
     cta_sequences,
     ensembl_proteome,
     non_cta_sequences,
@@ -137,3 +139,80 @@ def test_the_module_docstring_states_the_rule_it_follows():
     for name in ("ensembl_proteome", "sequences_from_gene_names", "cta_sequences",
                  "non_cta_sequences", "tissue_expressed_sequences"):
         assert "release : int, optional" in getattr(sources, name).__doc__, name
+
+
+# ---------------------------------------------------------------------------
+# Representative transcript (#573)
+#
+# Picking the longest translation handed predictors proteins Ensembl itself
+# marks as incomplete: three CTA genes translate to a sequence starting with
+# X, which MHCflurry rejects, and `topiary --cta` ended there.
+# ---------------------------------------------------------------------------
+
+
+class FakeTranscript:
+    """The transcript attributes best_protein_transcript reads."""
+
+    def __init__(self, transcript_id, protein_sequence, complete=True,
+                 biotype="protein_coding"):
+        self.id = transcript_id
+        self.protein_sequence = protein_sequence
+        self.complete = complete
+        self.biotype = biotype
+
+
+class FakeGene:
+    def __init__(self, *transcripts):
+        self.transcripts = list(transcripts)
+
+
+def test_best_protein_transcript_prefers_a_complete_translation():
+    incomplete = FakeTranscript("ENST2", "X" + "A" * 200, complete=False)
+    complete = FakeTranscript("ENST1", "M" + "A" * 100)
+
+    assert best_protein_transcript(FakeGene(incomplete, complete)) is complete
+
+
+def test_best_protein_transcript_skips_nonsense_mediated_decay():
+    decay = FakeTranscript("ENST1", "M" + "A" * 200, biotype="nonsense_mediated_decay")
+    coding = FakeTranscript("ENST2", "M" + "A" * 100)
+
+    assert best_protein_transcript(FakeGene(decay, coding)) is coding
+
+
+def test_best_protein_transcript_takes_the_longest_of_equally_good_ones():
+    short = FakeTranscript("ENST1", "M" + "A" * 100)
+    long = FakeTranscript("ENST2", "M" + "A" * 200)
+
+    assert best_protein_transcript(FakeGene(short, long)) is long
+
+
+def test_best_protein_transcript_breaks_ties_by_id():
+    """Two transcripts of the same protein must not alternate between runs."""
+    first = FakeTranscript("ENST1", "MAAA")
+    second = FakeTranscript("ENST2", "MAAA")
+
+    assert best_protein_transcript(FakeGene(second, first)) is first
+    assert best_protein_transcript(FakeGene(first, second)) is first
+
+
+def test_best_protein_transcript_falls_back_when_nothing_is_complete():
+    """A GTF annotating no start codons still gets a representative."""
+    short = FakeTranscript("ENST1", "MAAA", complete=False)
+    long = FakeTranscript("ENST2", "MAAAAAA", complete=False)
+
+    assert best_protein_transcript(FakeGene(short, long)) is long
+
+
+def test_best_protein_transcript_without_any_translation():
+    assert best_protein_transcript(FakeGene(FakeTranscript("ENST1", None))) is None
+
+
+def test_reported_gene_sequences_use_standard_residues():
+    """The three genes from #573, read from the installed Ensembl release."""
+    sequences = sequences_from_gene_names(["IZUMO2", "C16orf90", "LLCFC1"])
+
+    assert len(sequences) >= 3
+    for name, sequence in sequences.items():
+        assert set(sequence).issubset(AMINO_ACIDS), name
+        assert sequence.startswith("M"), name

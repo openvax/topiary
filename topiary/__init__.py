@@ -243,7 +243,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.111.5"
+__version__ = "5.111.6"
 
 __all__ = [
     "ensembl_genome",
