@@ -127,6 +127,7 @@ from .sequence_helpers import (
     contains_mutant_residues,
     protein_subsequences_around_mutations,
 )
+from .sources import ensembl_genome
 from .historical import (
     HistoricalPredictor,
     HISTORICAL_KEY_COLUMNS,
@@ -241,9 +242,10 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.111.3"
+__version__ = "5.111.4"
 
 __all__ = [
+    "ensembl_genome",
     "PROTEIN_SCAN_METADATA_COLUMNS",
     "peptide_occurrence_flanks",
     "prediction_flank_limits",

@@ -164,8 +164,9 @@ from mhctools import NetMHCpan
 
 ref = SelfProteome.from_ensembl(species="human", release=115)
 # Default include="non_cta" strips CTAs using oncoref membership via pirlygenes.
-# release= names the installed Ensembl annotation release. It has to be given:
-# the signature's default of None is rejected by pyensembl.
+# release= names the installed Ensembl annotation release. Omitting it reads
+# the release pyensembl currently exposes for human, which moves when
+# pyensembl is upgraded; name one for a reproducible analysis.
 
 predictor = TopiaryPredictor(
     models=[NetMHCpan(alleles=["HLA-A*02:01"])],
@@ -217,8 +218,9 @@ presentation. Supply presentation observations separately when available.
 ref = SelfProteome.from_ensembl(species="human", release=115)
 ```
 
-**Non-human users** must either use `include="all"` or supply their own
-CTA source, because oncoref's CTA membership is human-only today:
+**Non-human users** must name a `release=` — only human has a default — and
+either use `include="all"` or supply their own CTA source, because oncoref's
+CTA membership is human-only today:
 
 ```python
 ref = SelfProteome.from_ensembl(species="mouse", release=102, include="all")

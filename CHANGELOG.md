@@ -7,6 +7,21 @@ between published tags; older pre-5.0 notes are retained below.
 
 For current interfaces, see the [consumer guide](docs/consumer-guide.md).
 
+## 5.111.4
+
+- `SelfProteome.from_ensembl(species="human")` builds again instead of
+  raising `ValueError: Invalid Ensembl release: None` (#581). It passed
+  `release=None` straight to pyensembl, which refuses it, so the
+  zero-configuration human call the docs describe could not run. Release
+  selection now lives in one documented public function,
+  `topiary.sources.ensembl_genome(release=None, species="human")`, which
+  both `from_ensembl` and the `topiary.sources` readers call: `None` means
+  the release pyensembl exposes as `ensembl_grch38` for human, and is
+  refused with "Must specify release for non-human species" otherwise,
+  which non-human `from_ensembl` callers now get in place of pyensembl's
+  message. It replaces the private `_get_genome`, whose rule was already
+  the one every other `release=` argument followed.
+
 ## 5.111.3
 
 - Declare `pyarrow>=18` (gtfparse's floor) and read and write Parquet with

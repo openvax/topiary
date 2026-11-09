@@ -556,6 +556,12 @@ class SelfProteome:
     ) -> "SelfProteome":
         """Build from a pyensembl EnsemblRelease.
 
+        ``release`` selects the Ensembl annotation release, resolved by
+        :func:`topiary.sources.ensembl_genome`: ``None`` means the release
+        the installed pyensembl exposes as ``ensembl_grch38`` for human,
+        and is refused for other species, which have no default. Pass a
+        release explicitly for any analysis meant to be reproducible.
+
         ``include`` accepts ``"all"``, ``"non_cta"``,
         ``"protected_tissues"``, or a callable ``(gene_id) -> bool``.
 
@@ -589,9 +595,9 @@ class SelfProteome:
           ``ValueError`` explaining that pirlygenes tissue data is
           human-only.
         """
-        from pyensembl import EnsemblRelease
+        from topiary.sources import ensembl_genome
 
-        genome = EnsemblRelease(release=release, species=species)
+        genome = ensembl_genome(release, species)
         include_label, gene_filter = _resolve_ensembl_scope(
             include, species, cta_source,
             cta_tier=cta_tier,
