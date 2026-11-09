@@ -131,6 +131,23 @@ def test_model_factory_without_alleles_is_built_without_them():
     assert isinstance(predictor.models[0], RandomBindingPredictor)
 
 
+@pytest.mark.parametrize("alleles", [None, ["HLA-A*02:01"]])
+@pytest.mark.parametrize("door_index", range(3))
+def test_allele_free_forwarding_class_ignores_global_alleles(alleles, door_index):
+    """An allele-free class stays allele-free with a **kwargs signature (#598)."""
+    from mhctools import Calis
+    from .test_twin_conformance import MODEL_SPEC_TWINS
+
+    class WrappedCalis(Calis):
+        def __init__(self, **options):
+            super().__init__(**options)
+
+    model = MODEL_SPEC_TWINS[door_index](WrappedCalis, alleles=alleles)
+    assert isinstance(model, WrappedCalis)
+    result = TopiaryPredictor(models=model).predict_from_named_peptides({"flu": "GILGFVFTL"})
+    assert result.peptide.tolist() == ["GILGFVFTL"]
+
+
 def test_model_factory_needing_alleles_says_so():
     with pytest.raises(ValueError, match="alleles required"):
         TopiaryPredictor(models=version_selecting_stand_in)
