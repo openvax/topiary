@@ -1,7 +1,10 @@
 # Changelog
 
-## 5.111.8
+## 5.111.9
 
+- Make real-tissue workflow tests deterministic and explicitly check both clean
+  samples and expected X exclusions. This release includes the protein X policy
+  merged under the unpublished 5.111.8 version.
 - Skip whole protein scan inputs containing X by default, with a count and
   example source names in one warning. Clean inputs continue and all-excluded
   batches return an empty prediction table instead of aborting (#573).
