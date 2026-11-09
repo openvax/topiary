@@ -70,6 +70,138 @@ def test_bare_predictor_class_autowraps():
 
 
 # ---------------------------------------------------------------------------
+# Version-selecting factories (#580)
+#
+# mhctools' NetMHCpan, NetMHC and NetMHCIIpan are functions that run the
+# installed tool to learn its version and instantiate the matching class.
+# ``models=NetMHCpan`` used to store the function itself, and the
+# run failed later with "'function' object has no attribute
+# predict_peptides_dataframe". The stand-ins below have the same shape, so
+# these tests do not need an installed NetMHCpan.
+# ---------------------------------------------------------------------------
+
+
+def version_selecting_stand_in(alleles=None, default_peptide_lengths=[9]):
+    """A factory shaped like mhctools' NetMHCpan: returns an instance."""
+    return RandomBindingPredictor(
+        alleles=alleles, default_peptide_lengths=default_peptide_lengths,
+    )
+
+
+def allele_free_stand_in(default_peptide_lengths=[9]):
+    """A factory for a model that takes no alleles."""
+    return RandomBindingPredictor(
+        alleles=["HLA-A*02:01"], default_peptide_lengths=default_peptide_lengths,
+    )
+
+
+def test_model_factory_is_called_like_a_class():
+    predictor = TopiaryPredictor(
+        models=version_selecting_stand_in, alleles=["HLA-A*02:01"],
+    )
+
+    assert isinstance(predictor.models[0], RandomBindingPredictor)
+    assert predictor.models[0].alleles == ["HLA-A*02:01"]
+    assert len(predictor.predict_from_named_peptides({"flu": "GILGFVFTL"})) > 0
+
+
+@pytest.mark.parametrize("alleles", [None, ["HLA-B*07:02"]])
+@pytest.mark.parametrize("door_index", range(3))
+def test_configured_callable_predictor_is_preserved(alleles, door_index):
+    """A configured predictor is an instance even if it is callable (#597)."""
+    from .test_twin_conformance import MODEL_SPEC_TWINS
+
+    class CallablePredictor(RandomBindingPredictor):
+        def __call__(self, *args, **kwargs):
+            raise AssertionError("Configured predictor was reconstructed")
+
+    model = CallablePredictor(alleles=["HLA-A*02:01"], default_peptide_lengths=[9])
+    configured = MODEL_SPEC_TWINS[door_index](model, alleles=alleles)
+    assert configured is model
+    assert configured.alleles == ["HLA-A*02:01"]
+    result = TopiaryPredictor(models=configured).predict_from_named_peptides({"flu": "GILGFVFTL"})
+    assert result.peptide.tolist() == ["GILGFVFTL"]
+    assert result.allele.tolist() == ["HLA-A*02:01"]
+
+
+def test_model_factory_without_alleles_is_built_without_them():
+    """A factory that takes no alleles is built without them, as on the CLI."""
+    predictor = TopiaryPredictor(models=[allele_free_stand_in])
+
+    assert isinstance(predictor.models[0], RandomBindingPredictor)
+
+
+@pytest.mark.parametrize("alleles", [None, ["HLA-A*02:01"]])
+@pytest.mark.parametrize("door_index", range(3))
+def test_allele_free_forwarding_class_ignores_global_alleles(alleles, door_index):
+    """An allele-free class stays allele-free with a **kwargs signature (#598)."""
+    from mhctools import Calis
+    from .test_twin_conformance import MODEL_SPEC_TWINS
+
+    class WrappedCalis(Calis):
+        def __init__(self, **options):
+            super().__init__(**options)
+
+    model = MODEL_SPEC_TWINS[door_index](WrappedCalis, alleles=alleles)
+    assert isinstance(model, WrappedCalis)
+    result = TopiaryPredictor(models=model).predict_from_named_peptides({"flu": "GILGFVFTL"})
+    assert result.peptide.tolist() == ["GILGFVFTL"]
+
+
+def test_model_factory_needing_alleles_says_so():
+    with pytest.raises(ValueError, match="alleles required"):
+        TopiaryPredictor(models=version_selecting_stand_in)
+
+
+def test_a_registered_factory_name_resolves_to_the_factory(monkeypatch):
+    """A name means in Python what it means on the command line (#580).
+
+    mhctools registers ``netmhcpan`` for a factory; resolving the name used
+    to raise "is not a peptide predictor" because the registry entry was
+    not a class.
+    """
+    import mhctools.cli
+
+    from topiary.predictor import _build_model_lookup
+
+    monkeypatch.setattr(mhctools.cli, "mhc_predictors", {
+        "stand-in-pan": version_selecting_stand_in,
+    })
+    _build_model_lookup.cache_clear()
+    try:
+        predictor = TopiaryPredictor(
+            models=["stand-in-pan"], alleles=["HLA-A*02:01"],
+        )
+    finally:
+        _build_model_lookup.cache_clear()
+
+    assert isinstance(predictor.models[0], RandomBindingPredictor)
+    assert len(predictor.predict_from_named_peptides({"flu": "GILGFVFTL"})) > 0
+
+
+def test_both_doors_onto_mhctools_build_the_same_model():
+    """``models=`` and mhctools' own CLI builder agree on one model.
+
+    The predictor path used to construct classes itself and the command
+    line went through mhctools, so a factory worked on one and not the
+    other.
+    """
+    from mhctools.cli import predictors_from_args
+
+    from topiary import model_from_spec
+    from topiary.cli.args import create_arg_parser
+
+    args = create_arg_parser().parse_args([
+        "--mhc-predictor", "random", "--mhc-alleles", "HLA-A*02:01",
+    ])
+    from_cli = predictors_from_args(args)[0]
+    from_spec = model_from_spec("random", alleles=["HLA-A*02:01"])
+
+    assert type(from_spec) is type(from_cli)
+    assert from_spec.alleles == from_cli.alleles
+
+
+# ---------------------------------------------------------------------------
 # String model names
 # ---------------------------------------------------------------------------
 

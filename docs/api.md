@@ -132,6 +132,16 @@ Missing required identity returns `None`, which must remain unmatchable.
 Comparator joins use this public rule in both fragment and occurrence prediction;
 a haplotype's selected presenter is not its genotype identity.
 
+`model_from_spec(spec, alleles=None)` builds one configured model from a
+`models=` entry: an mhctools name, a predictor class, a factory such as
+mhctools' `NetMHCpan` (a function that runs the installed tool to learn its
+version and returns the class for it), or an already-configured instance,
+which is used as given. A class or factory is constructed here, and receives
+`alleles` only when its signature takes them, so allele-free models are built
+without them — the rule mhctools' own command line applies, so a model named
+in Python is built the same way as one named on the command line.
+`TopiaryPredictor` calls this for every `models=` entry.
+
 `describe_prediction_models(predictor)` returns one JSON-compatible record per
 configured model. It gives duplicate model instances distinct `model_key` values
 and reports the configured class, stated method/version, alleles, peptide-length
