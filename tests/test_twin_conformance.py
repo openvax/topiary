@@ -247,10 +247,10 @@ def protein_inputs_through_model(model, sequences):
 
 
 def protein_inputs_through_topiary(model, sequences):
-    return TopiaryPredictor(models=model).predict_from_named_sequences(sequences)
+    return TopiaryPredictor(models=model, protein_x_policy="allow").predict_from_named_sequences(sequences)
 
 
-# A wrapper must preserve the configured model/cache's accepted input universe.
+# Opting in to X must preserve the configured model/cache's accepted inputs.
 PROTEIN_INPUT_PREDICTION_TWINS = (
     protein_inputs_through_model,
     protein_inputs_through_topiary,
@@ -2100,3 +2100,39 @@ FASTA_INPUT_TWINS = (
     ("peptides", read_peptide_fasta),
     ("self_proteome", SelfProteome.from_fasta),
 )
+
+
+def selected_windows_through_native(model, sequences, windows):
+    frame = from_predictions(model.predict_proteins_dataframe(sequences))
+    selected = set(windows)
+    return frame.loc[[
+        (row.source_sequence_name, row.peptide_offset, row.peptide_length) in selected
+        for row in frame.itertuples()]].reset_index(drop=True)
+
+
+def selected_windows_through_helper(model, sequences, windows):
+    from topiary import predict_protein_windows
+    return from_predictions(predict_protein_windows(model, sequences, windows))
+
+
+PROTEIN_WINDOW_PREDICTION_TWINS = (
+    selected_windows_through_native, selected_windows_through_helper,
+)
+
+
+@pytest.mark.parametrize("flanked", [False, True])
+@pytest.mark.parametrize("cached", [False, True])
+def test_selected_windows_match_native_scanner(flanked, cached):
+    from .test_protein_fallback import ProteinModel, filled_cache
+
+    model = ProteinModel(lengths=(8, 9))
+    model.uses_flanking_sequences = flanked
+    # Exact native comparison includes X and U; this API selects geometry,
+    # while x_free_protein_windows independently applies the X policy.
+    sequences = {"first": "XMNPQRSTUYWACDEFGHIK", "second": "XMNPQRSTUYWACDEFGHIK"}
+    windows = [("first", 3, 8), ("first", 5, 9), ("second", 5, 9)]
+    producer = filled_cache(model, sequences)[0] if cached else model
+    columns = ["source_sequence_name", "peptide_offset", "peptide", "allele", "kind", "value", "score", "n_flank", "c_flank"]
+    frames = [door(producer, sequences, windows).sort_values(columns[:2])[columns].reset_index(drop=True)
+              for door in PROTEIN_WINDOW_PREDICTION_TWINS]
+    pd.testing.assert_frame_equal(frames[0], frames[1], check_dtype=False)

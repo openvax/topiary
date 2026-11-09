@@ -67,7 +67,31 @@ def annotate_protein_prediction_context(predictions, model):
     return frame
 
 
-def validate_protein_predictions(predictions, sequences, model, *, peptide_lengths):
+def _protein_windows(sequences, peptide_lengths, windows=None):
+    """Normalize scan geometry shared by validation, selection and cache lookup."""
+    if not isinstance(sequences, Mapping) or any(
+            not isinstance(name, str) or not name or not isinstance(sequence, str)
+            for name, sequence in sequences.items()):
+        raise ValueError("Protein inputs must map nonempty names to sequence strings")
+    lengths = list(peptide_lengths)
+    if any(isinstance(length, bool) or not isinstance(length, Integral) or length <= 0 for length in lengths):
+        raise ValueError("Protein window lengths must be positive integers")
+    if windows is None:
+        return [(name, offset, length) for name, sequence in sequences.items()
+                for length in dict.fromkeys(lengths) for offset in range(len(sequence) - length + 1)]
+    selected = []
+    for name, offset, length in windows:
+        if (name not in sequences or isinstance(offset, bool) or not isinstance(offset, Integral)
+                or offset < 0 or isinstance(length, bool) or not isinstance(length, Integral)
+                or length not in lengths or offset + length > len(sequences[name])):
+            raise ValueError("Selected protein window has an invalid source, offset or length")
+        selected.append((name, int(offset), int(length)))
+    if len(set(selected)) != len(selected):
+        raise ValueError("Selected protein windows must be unique")
+    return selected
+
+
+def validate_protein_predictions(predictions, sequences, model, *, peptide_lengths, windows=None):
     """Validate and normalize one configured model's protein-scan response.
 
     Parameters
@@ -86,6 +110,10 @@ def validate_protein_predictions(predictions, sequences, model, *, peptide_lengt
         Requested positive window lengths. Extra lengths emitted by a scanner
         are validated but excluded from the returned frame. Model configuration
         is not changed. Empty proteins or lengths with no windows require no rows.
+    windows : iterable of tuple, optional
+        Selected ``(source_name, offset, length)`` triples. When supplied,
+        coverage is required only for these occurrences; extra occurrences at
+        requested lengths are errors. Omit to validate the entire protein scan.
 
     Returns
     -------
@@ -100,13 +128,8 @@ def validate_protein_predictions(predictions, sequences, model, *, peptide_lengt
     """
     from .cached import _flank_flag, _flank_key, prediction_matches_protein_context
 
-    if not isinstance(sequences, Mapping) or any(
-            not isinstance(name, str) or not name or not isinstance(sequence, str)
-            for name, sequence in sequences.items()):
-        raise ValueError("Protein inputs must map nonempty names to sequence strings")
     lengths = list(peptide_lengths)
-    if any(isinstance(length, bool) or not isinstance(length, Integral) or length <= 0 for length in lengths):
-        raise ValueError("Protein window lengths must be positive integers")
+    selected_windows = _protein_windows(sequences, lengths, windows)
     if not callable(getattr(model, "kind_support", None)):
         raise TypeError("Protein fallback must declare kind_support")
     support = {str(getattr(kind, "value", kind)): spec for kind, spec in model.kind_support().items()}
@@ -117,14 +140,12 @@ def validate_protein_predictions(predictions, sequences, model, *, peptide_lengt
     if any(spec["mhc_dependence"] != "none" for spec in support.values()) and not alleles:
         raise ValueError("Protein fallback requires configured alleles")
     expected = set()
-    for name, sequence in sequences.items():
-        for length in set(lengths):
-            for offset in range(len(sequence) - length + 1):
-                for kind, spec in support.items():
-                    mode = spec["mhc_dependence"]
-                    for allele in alleles if mode == "single_allele" else [None]:
-                        expected.add((name, offset, length, kind,
-                                      prediction_mhc_scope(allele, dependence=mode, allele_set=alleles)))
+    for name, offset, length in selected_windows:
+        for kind, spec in support.items():
+            mode = spec["mhc_dependence"]
+            for allele in alleles if mode == "single_allele" else [None]:
+                expected.add((name, offset, length, kind,
+                              prediction_mhc_scope(allele, dependence=mode, allele_set=alleles)))
     raw = pd.DataFrame(predictions).copy()
     if not raw.columns.is_unique:
         raise ValueError("Protein fallback columns must be unique")

@@ -26,3 +26,22 @@ complete and incomplete caches, nonstandard residues, offsets, flanks and
 wild-type baselines. Preserve accepted data and the producer's original errors.
 Do not rewrite test fixtures to avoid residues a test producer already supports;
 that can hide a regression in a newly added global filter.
+
+## Separate an explicit input policy from model capabilities
+
+The user explicitly chose whole-protein X rejection by default, with an option
+for intentional use. Implement that policy centrally across antigen sources,
+fragments and baselines. Keep preservation tests under the override instead of
+removing X fixtures, and do not infer that all other nonstandard residues should
+also be excluded. A rejection warning must identify excluded inputs; unrelated
+producer errors and strict cache gaps must not disappear behind broad catches.
+
+## An override must match the requested retained data
+
+The user clarified that the X override should process the non-X portions, not
+merely retry an unchanged X-containing protein and discard it on rejection.
+Select valid original windows before inference, preserving coordinates and
+required flank context. Never join across gaps or invent molecular termini.
+Keep producer acceptance (`allow`) distinct from clean-window selection, and
+remove exception-message matching when structural input selection solves the
+reported failure.

@@ -103,6 +103,35 @@ policy composition and interpretation of missing results.
 | `min_gene_expression` | float | Minimum gene FPKM (variant inputs). |
 | `min_transcript_expression` | float | Minimum transcript FPKM (variant inputs). |
 | `raise_on_error` | bool | Raise on variant-effect errors vs. skip. |
+| `protein_x_policy` | "skip", "windows", "allow" | Default `skip`: exclude whole X-containing scan inputs with a warning. `windows`: score only X-free peptides and required context. `allow`: pass through unchanged with strict errors. Applies to fragment and WT scans. |
+
+`filter_protein_sequences(named_sequences, allow_x=False)` exposes the same input
+selection used by `TopiaryPredictor`. It returns a new mapping, preserving the
+names, sequences and order of retained inputs. `ProteinInputWarning` reports
+exclusions. An all-excluded prediction batch returns an empty table without
+calling the producer. The policy does not alter exact peptide/occurrence inputs
+or reference exclusion sets; see the [CLI policy](cli.md#input-modes).
+
+`protein_scan_flank_lengths(model)` reads declared N/C context limits, returning
+`None` when they are unknown. For caches, `protein_window_flank_limits()` combines
+stored/fallback bounds conservatively without declaring a single producer
+configuration to model inventory. `x_free_protein_windows(sequences, peptide_lengths,
+flank_lengths=(0, 0))` returns `(source_name, offset, length)` triples whose peptide
+and required context contain no X. It never shifts coordinates or joins regions.
+
+`predict_protein_windows(model, sequences, windows)` scores selected occurrences
+with original context. Native mhctools inputs are deduplicated and batched;
+DataFrame producers use the exact-occurrence API. `CachedPredictor` accepts the
+same triples through `predict_proteins_dataframe(sequences, windows=...)`,
+retaining its sparse-kind semantics and strict coverage for selected windows.
+`validate_protein_predictions(..., windows=...)` validates that subset.
+
+`predict_x_free_proteins(model, sequences)` composes these steps for the `windows`
+policy: all retained windows share one batch so identical inputs reuse one
+prediction across proteins. Clean-only inputs retain the native scan. Unknown
+context excludes affected X inputs with a warning and scans clean inputs normally. Model/configuration errors
+are not suppressed. WT windows that cannot be scored leave missing WT values
+without removing candidate predictions.
 
 ### Prediction methods
 

@@ -1,9 +1,10 @@
 """Integration tests exercising the full topiary workflow end-to-end."""
 
 import pytest
+import warnings
 from mhctools import RandomBindingPredictor
 
-from topiary import Affinity, TopiaryPredictor
+from topiary import Affinity, ProteinInputWarning, TopiaryPredictor
 from topiary.inputs import exclude_by
 from topiary.sources import (
     sequences_from_gene_names,
@@ -59,8 +60,14 @@ def test_tissue_restricted_predict():
     seqs = tissue_expressed_sequences(["testis"], min_ntpm=100.0)
     small = dict(list(seqs.items())[:3])
     predictor = _small_predictor()
-    df = predictor.predict_from_named_sequences(small)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ProteinInputWarning)
+        df = predictor.predict_from_named_sequences(small)
     assert len(df) > 0
+    excluded = {name for name, sequence in small.items() if "X" in sequence.upper()}
+    assert len(caught) == bool(excluded)
+    assert not set(df.source_sequence_name) & excluded
+    assert not df.peptide.str.contains("X", case=False).any()
 
 
 # ---------------------------------------------------------------------------

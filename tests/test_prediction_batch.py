@@ -22,11 +22,11 @@ MISSING = "AAAAAAAAA"
 def test_strict_and_reporting_policies_drive_both_prediction_doors(door, missing):
     inputs = {"covered": PEPTIDE, "missing": missing, "also_covered": PEPTIDE}
     model = _covering_cache([PEPTIDE])
-    strict = TopiaryPredictor(models=[model], raise_on_error=False)
+    strict = TopiaryPredictor(models=[model], raise_on_error=False, protein_x_policy="allow")
     with pytest.raises(CachedPredictorCoverageError):
         door(strict, inputs)
     failures = []
-    reporting = TopiaryPredictor(models=[model], cache_miss_handler=failures.append)
+    reporting = TopiaryPredictor(models=[model], cache_miss_handler=failures.append, protein_x_policy="allow")
     with pytest.warns(PartialPredictionWarning, match="skipped 1"):
         actual = door(reporting, inputs)
     expected = door(strict, {key: value for key, value in inputs.items() if key != "missing"})

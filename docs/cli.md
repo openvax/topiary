@@ -157,13 +157,33 @@ A gene usually has several Ensembl translations. All gene-derived inputs use
 `best_protein_transcript`: complete protein-coding translations first, then
 standard amino-acid sequences, then length, with transcript-ID tie breaking.
 
-Resolved protein sequences, including explicit FASTA or transcript inputs, reach
-the configured predictor or cache unchanged. Each producer owns residue validation;
-accepted predictions are retained and validation errors propagate. Topiary does
-not discard a protein merely because it contains `X` or another nonstandard
-residue. It also does not retry a rejecting model on selected windows. Cache
-coverage remains strict unless `--cache-miss-report` explicitly requests partial
-results; see [cached predictions](cached.md).
+By default, Topiary skips protein scan inputs containing `X` (case-insensitive),
+including all their clean windows, and warns with a count and example source
+names. Other proteins continue normally; if every input is excluded, the command
+succeeds with an empty prediction table. This shared policy covers CTA, gene,
+tissue, FASTA, transcript, proteome and variant/fragment scans. An excluded WT
+baseline leaves WT prediction values missing without removing the candidate.
+It acts on the actual scan input, after region or variant-fragment extraction.
+
+Use `--protein-x-policy windows` (Python: `protein_x_policy="windows"`) to
+process the usable parts of these proteins. Only windows whose peptide and
+required model flanks contain no `X` are scored. Names and offsets still refer
+to the original protein. An internal `X` never becomes a new terminus, and
+regions on either side are never concatenated. For example, a 9-residue window
+in `XASIINFEKLGGG` can start at offset 3 or 4 with a model requiring two residues
+of context on each side; shorter flanks are allowed only at the true boundary.
+Models without flanking inputs can use more windows.
+
+The model or cache must declare its required context. Unknown limits cause the
+X-containing inputs to be skipped with a warning; clean proteins continue.
+Stored predictions retain their original context and values. Missing retained
+cache windows still raise unless `--cache-miss-report` requests partial results;
+see [cached predictions](cached.md).
+
+`--protein-x-policy allow` explicitly passes original proteins unchanged to a
+model that supports X, retaining strict producer errors. Use `windows` for the
+X-free override. Other residues, exact peptide/peptide-occurrence inputs and
+reference exclusion sets retain their existing validation and semantics.
 
 ## Filtering and ranking
 

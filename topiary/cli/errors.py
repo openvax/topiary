@@ -21,6 +21,16 @@ def add_error_args(arg_parser):
     )
 
     error_group.add_argument(
+        "--protein-x-policy",
+        default="skip",
+        choices=("skip", "windows", "allow"),
+        help="Policy for proteins containing X: skip whole proteins (default), "
+             "score only X-free windows and required flanks (windows), or pass "
+             "unchanged to a supporting model with strict errors (allow). "
+             "Also applies to fragments and wild-type scans, not exact peptides.",
+    )
+
+    error_group.add_argument(
         "--skip-variant-errors",
         default=False,
         action="store_true",
