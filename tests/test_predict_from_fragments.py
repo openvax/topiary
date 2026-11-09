@@ -558,7 +558,7 @@ class TestWtPeptide:
             mutation_start=3, mutation_end=7, inframe=True,
         )
         df = TopiaryPredictor(
-            models=ContextSensitivePredictor(), predict_wt=True,
+            models=ContextSensitivePredictor(), predict_wt=True, allow_x_in_proteins=True,
         ).predict_from_fragments([f])
         row = df[df["peptide"].eq("XXXX")].iloc[0]
         assert row["n_flank"] == "AAA"
@@ -575,7 +575,7 @@ class TestWtPeptide:
             mutation_start=3, mutation_end=7, inframe=True,
         )
         df = TopiaryPredictor(
-            models=AmbiguousWtContextPredictor(), predict_wt=True,
+            models=AmbiguousWtContextPredictor(), predict_wt=True, allow_x_in_proteins=True,
         ).predict_from_fragments([f])
         row = df[df["peptide"].eq("XXXX")].iloc[0]
         assert row["wt_value"] == 23.0

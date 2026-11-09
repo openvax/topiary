@@ -157,13 +157,24 @@ A gene usually has several Ensembl translations. All gene-derived inputs use
 `best_protein_transcript`: complete protein-coding translations first, then
 standard amino-acid sequences, then length, with transcript-ID tie breaking.
 
-Resolved protein sequences, including explicit FASTA or transcript inputs, reach
-the configured predictor or cache unchanged. Each producer owns residue validation;
-accepted predictions are retained and validation errors propagate. Topiary does
-not discard a protein merely because it contains `X` or another nonstandard
-residue. It also does not retry a rejecting model on selected windows. Cache
-coverage remains strict unless `--cache-miss-report` explicitly requests partial
-results; see [cached predictions](cached.md).
+By default, Topiary skips protein scan inputs containing `X` (case-insensitive),
+including all their clean windows, and warns with a count and example source
+names. Other proteins continue normally; if every input is excluded, the command
+succeeds with an empty prediction table. This shared policy covers CTA, gene,
+tissue, FASTA, transcript, proteome and variant/fragment scans. An excluded WT
+baseline leaves WT prediction values missing without removing the candidate.
+It acts on the actual scan input, after region or variant-fragment extraction.
+
+Use `--allow-x-in-proteins` (Python: `allow_x_in_proteins=True`) to pass the original
+inputs to a model or cache that supports them. This preserves sequences, offsets,
+flanks and scores. If mhctools/MHCflurry rejects residues, Topiary isolates the
+affected proteins and skips them for that model with a warning. It retries whole
+inputs, preserving context. Successful models can still return their predictions
+for those proteins. Unrecognized validation errors and other model failures still
+raise; the override does not suppress arbitrary errors. Other residues and exact
+peptide/peptide-occurrence inputs retain producer validation. Cache
+coverage for retained inputs remains strict unless `--cache-miss-report` requests
+partial results; see [cached predictions](cached.md).
 
 ## Filtering and ranking
 

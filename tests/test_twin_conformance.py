@@ -247,10 +247,10 @@ def protein_inputs_through_model(model, sequences):
 
 
 def protein_inputs_through_topiary(model, sequences):
-    return TopiaryPredictor(models=model).predict_from_named_sequences(sequences)
+    return TopiaryPredictor(models=model, allow_x_in_proteins=True).predict_from_named_sequences(sequences)
 
 
-# A wrapper must preserve the configured model/cache's accepted input universe.
+# Opting in to X must preserve the configured model/cache's accepted inputs.
 PROTEIN_INPUT_PREDICTION_TWINS = (
     protein_inputs_through_model,
     protein_inputs_through_topiary,

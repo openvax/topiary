@@ -1,69 +1,55 @@
-# Shared antigen source pipeline
+# Protein X policy (#573)
 
 ## Spec
 
-CTA and tissue wrappers resolve gene membership and delegate to the public
-`sequences_from_gene_ids` loader. Gene names, gene IDs, CTA genes and tissue
-genes all use one representative-transcript selector. Resolved proteins enter
-the ordinary predictor, DSL filtering/ranking and exclusion path; categories
-do not introduce separate scoring or result formats.
+Topiary skips entire protein scan inputs containing `X` (case-insensitive) by
+default, before any predictor or cache sees them. One warning per scan stage
+reports the count and a bounded plain-Python list of source names. Clean inputs
+continue unchanged; an all-excluded batch returns the normal empty prediction
+schema without invoking the producer. This deliberately excludes even clean
+windows from those proteins, avoiding changes to offsets or flank context.
 
-PR #593 was revised during this work to fix the same transcript-selection bug.
-This PR now follows it and uses its `best_protein_transcript(gene)` unchanged,
-exporting that same function from `topiary`. No competing selector is added.
-That inherited policy ranks complete protein-coding translations, then standard
-amino-acid sequences, then length, with transcript-ID tie breaking. Source API
-docs and CLI help must describe the inherited policy consistently.
+Apply the same public selection helper to named protein scans, all antigen
+categories, variant/fragment scans, and wild-type protein baselines. A rejected
+baseline leaves WT prediction values missing while retaining candidate rows.
+The policy acts on the actual scan input (after explicit regions or variant
+fragment extraction). Exact peptide/occurrence APIs and reference exclusion
+sets retain their existing semantics. Do not generalize X to U or other residues.
 
-Preserve exact transcript-ID/name requests and empty derived CTA/tissue sets.
-Explicit empty gene lists remain input errors. Whole-proteome and non-CTA
-exclusion sets enumerate proteins rather than choosing representatives.
-Variant/RNA inputs preserve their supported translation and mutation coordinates.
+Expose `allow_x_in_proteins=True` and `--allow-x-in-proteins` to pass original
+proteins through for capable models and caches. Preserve sequence identity,
+offsets, flanks, cached scores and cache-coverage policy. Override rejection
+handling recognizes only mhctools' exact X-rejection signature and MHCflurry's
+counted nonstandard-residue signature. Producers currently use bare ValueError
+for both residue and unrelated model failures. Bisect failing batches and skip
+only singleton inputs containing X that raise one of these recognized errors.
+Successful batches pass through unchanged. Do not broadly suppress ValueErrors.
+This is the assumed opt-in recovery policy after the optional clarification;
+unknown custom-model validation errors and runtime failures remain strict.
+The missing typed producer contract is tracked in openvax/mhctools#659.
 
 ## Plan
 
-- [x] Reproduce the reported IZUMO2, C16orf90 and LLCFC1 choices on Ensembl 115.
-- [x] Trace category membership, source resolution, prediction and exclusion.
-- [x] Make CTA and tissue wrappers use the public gene-ID loader.
-- [x] Reconcile #593 into this branch and remove the alternative selector.
-- [x] Export the inherited public selector and update CLI/API documentation.
-- [x] Cover every gene source, fallback, missing proteins and explicit inputs.
-- [x] Compare equivalent CTA, gene-name, gene-ID and FASTA inputs through real
-  protein scanning, filters, ranking and exact/shared-8-mer tissue exclusions.
-- [ ] Run lint, full tests, strict docs and dependency checks on integrated code.
-- [ ] Update PR #595 to follow #593 and verify CI on the integrated head.
-- [ ] After the preceding release queue lands, merge and deploy from clean master.
+- [x] Trace common protein/fragment/WT paths and current upstream validation.
+- [x] Record the default policy and distinguish it from model capabilities.
+- [x] Add default and override conformance regressions, including mixed/all-X
+      inputs, cache replay/misses, CTA/gene/tissue/FASTA, fragments and WT.
+- [x] Implement the shared public selection helper, Python/CLI option and docs.
+- [x] Settle override rejection handling without masking other failures.
+- [x] Bump version and update changelog; review diff and source-category coverage.
+- [ ] Pass focused tests, lint, full suite, strict docs and pip check.
+- [ ] Open PR, verify CI, merge, wait master CI and deploy from clean master.
+- [ ] Verify published artifacts and behavior, then inspect next open work.
 
 ## Review
 
-The original complete-start-only implementation passed 6,256 local tests on
-3c3a080. It selected ENST00000293405 (IZUMO2), ENST00000437192 (C16orf90), and
-ENST00000409607 (primary-locus LLCFC1), preserving the separate LLCFC1 alternate
-locus. That implementation is superseded here by #593's shared selector; its
-four-protein CTA difference and fallback-warning semantics are not claims about
-the integrated policy.
+The new policy suite passes 39 cases. Native MHCflurry 2.3.16 validation was
+reproduced without model weights and recovered a mixed batch. Lint, strict docs
+and pip check pass. The initial full run had 6,309 passes and six expected
+policy-transition failures: five synthetic X fixtures now explicitly opt in;
+the real tissue test verifies default exclusion warnings and clean predictions.
+Final integrated/full verification and CI are pending.
 
-After integration, all 304 source and conformance tests pass, along with lint,
-strict docs and dependency checks. On 2b81864, all 6,270 local tests and CI
-passed. The conformance tests assert both
-identical decisions across input routes and observable effects of changing
-filter, sort and exclusion settings; exact source IDs and offsets are checked.
-
-Version 5.111.7 follows #591/#592/#593 (5.111.4-5.111.6). This does not authorize
-merging or renumbering the earlier PRs. Recheck their heads before publication.
-
-## Preserve producer inputs after review (#596)
-
-- [x] Fix the parent #593 before its queued release: remove the unconditional
-  whole-protein alphabet gate and its unreleased helpers.
-- [x] Bring 6ffa6b2 into this PR, retaining both the category conformance tests
-  and the direct/wrapped model and cache tests.
-- [ ] Verify the integrated head with lint, full tests, strict docs and CI.
-
-See `tasks/preserve-model-inputs.md` for the regression specification and proof.
-The parent fix preserves all 624 CTA transcript identities and sequences.
-Predictors retain their own validation errors; general partial-window recovery
-for rejecting models remains tracked in #573.
-
-The integrated #596 fix passes all 22 targeted regression/source-conformance
-cases, lint, strict docs and pip check. Full-suite and CI verification is pending.
+Prior source-unification work shipped as 5.111.7 (PR #595) with all
+6,293 local tests, PR/master CI, strict docs and dependency checks passing.
+Its producer-input contract remains covered under the explicit X override.

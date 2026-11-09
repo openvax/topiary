@@ -28,6 +28,7 @@ from .reconciliation import (
     reconcile_evidence, evidence_views, normalize_rna_observation, union_rna_observations,
 )
 from .prediction_batch import predict_with_cache_miss_report, PartialPredictionWarning
+from .protein_inputs import filter_protein_sequences, predict_proteins_with_x_recovery, ProteinInputWarning
 from .peptide_occurrences import predict_peptide_occurrences
 from .cleavage import (
     cleavage_interval_coverage, from_cleavage_results, select_cleavage_sites,
@@ -243,7 +244,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.111.7"
+__version__ = "5.111.8"
 
 __all__ = [
     "best_protein_transcript",
@@ -303,6 +304,9 @@ __all__ = [
     "describe_prediction_models",
     "model_from_spec",
     "predict_with_cache_miss_report",
+    "filter_protein_sequences",
+    "predict_proteins_with_x_recovery",
+    "ProteinInputWarning",
     "PartialPredictionWarning",
     "AMINO_ACIDS",
     "AMINO_ACID_INDEX",

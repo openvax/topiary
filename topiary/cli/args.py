@@ -656,6 +656,7 @@ def predict_epitopes_from_args(args):
         min_gene_expression=args.rna_min_gene_expression,
         only_novel_epitopes=args.only_novel_epitopes,
         raise_on_error=not args.skip_variant_errors,
+        allow_x_in_proteins=getattr(args, "allow_x_in_proteins", False),
         predict_wt=getattr(args, "predict_wt", False),
         cache_miss_handler=cache_misses.append if report_cache_misses else None,
     )

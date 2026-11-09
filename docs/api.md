@@ -103,6 +103,22 @@ policy composition and interpretation of missing results.
 | `min_gene_expression` | float | Minimum gene FPKM (variant inputs). |
 | `min_transcript_expression` | float | Minimum transcript FPKM (variant inputs). |
 | `raise_on_error` | bool | Raise on variant-effect errors vs. skip. |
+| `allow_x_in_proteins` | bool | Default `False`: skip whole protein scan inputs containing X with a warning. Set `True` to pass them unchanged to a supporting producer. Also applies to fragment and WT scans. |
+
+`filter_protein_sequences(named_sequences, allow_x=False)` exposes the same input
+selection used by `TopiaryPredictor`. It returns a new mapping, preserving the
+names, sequences and order of retained inputs. `ProteinInputWarning` reports
+exclusions. An all-excluded prediction batch returns an empty table without
+calling the producer. The policy does not alter exact peptide/occurrence inputs
+or reference exclusion sets; see the [CLI policy](cli.md#input-modes).
+
+`predict_proteins_with_x_recovery(predict_batch, named_sequences, ...)` exposes
+the corresponding per-producer recovery path. Successful batches pass through;
+recognized mhctools/MHCflurry residue rejections are isolated to whole X-containing
+inputs. One warning reports exclusions. Cache gaps remain strict unless the
+separate `on_cache_miss` handler is supplied. This compatibility path recognizes
+the existing bare `ValueError` messages precisely; it does not suppress other
+validation failures or infer support from a model's base-class defaults.
 
 ### Prediction methods
 

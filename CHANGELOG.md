@@ -1,5 +1,19 @@
 # Changelog
 
+## 5.111.8
+
+- Skip whole protein scan inputs containing X by default, with a count and
+  example source names in one warning. Clean inputs continue and all-excluded
+  batches return an empty prediction table instead of aborting (#573).
+- Apply one shared policy across antigen categories, named proteins, variant
+  fragments and WT baseline scans. Excluding a WT baseline leaves WT scores
+  missing while retaining the candidate's predictions.
+- Add `allow_x_in_proteins=True` / `--allow-x-in-proteins` for intentional use
+  with supporting models and caches, preserving exact sequences and context.
+  Recognized mhctools/MHCflurry residue rejections are isolated and skipped per
+  model; unrelated errors and strict cache misses still raise. Export the shared
+  `filter_protein_sequences`, `predict_proteins_with_x_recovery` and `ProteinInputWarning` APIs.
+
 Each 5.x section names a published PyPI release (except the current release
 while its PR is open). Changes merged under unpublished version numbers are
 included in the release that shipped them. Links show the complete changes

@@ -58,6 +58,46 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
+@pytest.mark.parametrize("allow_x", [False, True])
+def test_antigen_sources_share_x_policy_and_cli_override(monkeypatch, tmp_path, allow_x):
+    from types import SimpleNamespace
+    from topiary import ProteinInputWarning, sources
+    from topiary.cli import args as cli
+    from .test_protein_fallback import ProteinModel
+    from .test_twin_conformance import ANTIGEN_SEQUENCE_INPUT_TWINS, GENE_SEQUENCE_SOURCE_TWINS
+
+    sequence = "XMNPQRSTVWYACDEFGHIK"
+    target = SimpleNamespace(id="TARGET", name="GENE", transcripts=[
+        SimpleNamespace(id="transcript", protein_sequence=sequence,
+                        biotype="protein_coding", complete=True),
+    ])
+    genome = SimpleNamespace(genes_by_name=lambda name: [target], gene_by_id=lambda ident: target)
+    monkeypatch.setattr(sources, "ensembl_genome", lambda *a: genome)
+    monkeypatch.setattr(sources, "cta_gene_ids", lambda: {target.id})
+    monkeypatch.setattr(sources, "tissue_expressed_gene_ids", lambda *a, **k: {target.id})
+    monkeypatch.setattr(cli, "predictors_from_args", lambda args: [ProteinModel()])
+    fasta = tmp_path / "antigen.fasta"
+    fasta.write_text(f">GENE|transcript\n{sequence}\n")
+    frames = []
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ProteinInputWarning)
+        for _, input_args in ANTIGEN_SEQUENCE_INPUT_TWINS:
+            args = cli.arg_parser.parse_args([
+                "--mhc-predictor", "random", "--mhc-alleles", "HLA-A*02:01",
+                *input_args(fasta), *(["--allow-x-in-proteins"] if allow_x else []),
+            ])
+            frames.append(cli.predict_epitopes_from_args(args))
+        for load in GENE_SEQUENCE_SOURCE_TWINS:
+            inputs = load()
+            assert inputs == {"GENE|transcript": sequence}  # No source/category sidecar filter.
+            frames.append(TopiaryPredictor(models=ProteinModel(), allow_x_in_proteins=allow_x)
+                          .predict_from_named_sequences(inputs))
+    assert len(caught) == (0 if allow_x else len(frames))
+    for frame in frames:
+        pd.testing.assert_frame_equal(frame, frames[0])
+        assert len(frame) == (len(sequence) - 8 if allow_x else 0)
+
+
 @pytest.mark.parametrize("sequence", ["XMNPQRSTVWYACDEFGHIK", "MNPQRSTUYWACDEFGHIK"])
 @pytest.mark.parametrize("mixed", [False, True])
 @pytest.mark.parametrize("cached", [False, True])
@@ -132,6 +172,7 @@ def test_fragment_and_wildtype_scans_preserve_supported_inputs(source_type, unkn
         {fragment.fragment_id: baseline})).set_index("peptide_offset")
     result = TopiaryPredictor(
         models=ProteinModel(), predict_wt=True, only_novel_epitopes=False,
+        allow_x_in_proteins=True,
     ).predict_from_fragments([fragment])
     assert len(result) == len(sequence) - 8
     assert set(result.source_type) == {source_type}

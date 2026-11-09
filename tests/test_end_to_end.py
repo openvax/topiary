@@ -185,7 +185,7 @@ def test_exclude_by_exact_full_pipeline():
 def test_exclude_by_with_unrelated_ref():
     """Reference with no shared peptides → nothing excluded."""
     predictor = TopiaryPredictor(
-        models=RandomBindingPredictor, alleles=["A0201"],
+        models=RandomBindingPredictor, alleles=["A0201"], allow_x_in_proteins=True,
     )
     df = predictor.predict_from_named_sequences({"target": "SIINFEKLX"})
     n_before = len(df)
