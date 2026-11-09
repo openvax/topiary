@@ -21,12 +21,13 @@ def add_error_args(arg_parser):
     )
 
     error_group.add_argument(
-        "--allow-x-in-proteins",
-        default=False,
-        action="store_true",
-        help="Pass proteins containing X to the predictor/cache. By default, "
-             "skip their entire scan with a warning and continue with clean inputs. "
-             "Applies to protein, fragment and wild-type scans, not exact peptides.",
+        "--protein-x-policy",
+        default="skip",
+        choices=("skip", "windows", "allow"),
+        help="Policy for proteins containing X: skip whole proteins (default), "
+             "score only X-free windows and required flanks (windows), or pass "
+             "unchanged to a supporting model with strict errors (allow). "
+             "Also applies to fragments and wild-type scans, not exact peptides.",
     )
 
     error_group.add_argument(

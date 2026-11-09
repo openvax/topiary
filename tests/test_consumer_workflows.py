@@ -58,8 +58,8 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
-@pytest.mark.parametrize("allow_x", [False, True])
-def test_antigen_sources_share_x_policy_and_cli_override(monkeypatch, tmp_path, allow_x):
+@pytest.mark.parametrize("policy", ["skip", "windows", "allow"])
+def test_antigen_sources_share_x_policy_and_cli_override(monkeypatch, tmp_path, policy):
     from types import SimpleNamespace
     from topiary import ProteinInputWarning, sources
     from topiary.cli import args as cli
@@ -84,18 +84,18 @@ def test_antigen_sources_share_x_policy_and_cli_override(monkeypatch, tmp_path, 
         for _, input_args in ANTIGEN_SEQUENCE_INPUT_TWINS:
             args = cli.arg_parser.parse_args([
                 "--mhc-predictor", "random", "--mhc-alleles", "HLA-A*02:01",
-                *input_args(fasta), *(["--allow-x-in-proteins"] if allow_x else []),
+                *input_args(fasta), "--protein-x-policy", policy,
             ])
             frames.append(cli.predict_epitopes_from_args(args))
         for load in GENE_SEQUENCE_SOURCE_TWINS:
             inputs = load()
             assert inputs == {"GENE|transcript": sequence}  # No source/category sidecar filter.
-            frames.append(TopiaryPredictor(models=ProteinModel(), allow_x_in_proteins=allow_x)
+            frames.append(TopiaryPredictor(models=ProteinModel(), protein_x_policy=policy)
                           .predict_from_named_sequences(inputs))
-    assert len(caught) == (0 if allow_x else len(frames))
+    assert len(caught) == (len(frames) if policy == "skip" else 0)
     for frame in frames:
         pd.testing.assert_frame_equal(frame, frames[0])
-        assert len(frame) == (len(sequence) - 8 if allow_x else 0)
+        assert len(frame) == ({"skip": 0, "allow": len(sequence) - 8, "windows": len(sequence) - 11}[policy])
 
 
 @pytest.mark.parametrize("sequence", ["XMNPQRSTVWYACDEFGHIK", "MNPQRSTUYWACDEFGHIK"])
@@ -172,7 +172,7 @@ def test_fragment_and_wildtype_scans_preserve_supported_inputs(source_type, unkn
         {fragment.fragment_id: baseline})).set_index("peptide_offset")
     result = TopiaryPredictor(
         models=ProteinModel(), predict_wt=True, only_novel_epitopes=False,
-        allow_x_in_proteins=True,
+        protein_x_policy="allow",
     ).predict_from_fragments([fragment])
     assert len(result) == len(sequence) - 8
     assert set(result.source_type) == {source_type}

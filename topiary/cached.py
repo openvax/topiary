@@ -1160,7 +1160,44 @@ class CachedPredictor:
             )
         return pd.DataFrame(output).reindex(columns=list(_CACHE_COLUMNS))
 
-    def predict_proteins_dataframe(self, name_to_sequence: Mapping[str, str]) -> pd.DataFrame:
+    def protein_flank_lengths(self) -> tuple[int, int] | None:
+        """Return conservative context limits for selecting original windows.
+
+        Returns
+        -------
+        tuple of int or None
+            Maximum declared N/C limits across stored rows and the fallback.
+            Explicit peptide-only rows (including legacy blank context) need
+            no flanks. Any unknown used context returns None. Observed strings
+            never establish a missing limit. This declaration is for selection;
+            stored rows retain their own inference flags and limits.
+        """
+        from .protein_inputs import protein_scan_flank_lengths
+
+        limits = []
+        columns = ["prediction_flanks_supplied", "prediction_n_flank_limit",
+                   "prediction_c_flank_limit", "n_flank", "c_flank"]
+        for row in self._df.reindex(columns=columns).drop_duplicates().to_dict("records"):
+            flag = _flank_flag(row.get("prediction_flanks_supplied"))
+            if flag is False or (flag is None and not any(_flank_key(row.get(c)) for c in ("n_flank", "c_flank"))):
+                limits.append((0, 0))
+            else:
+                declared = prediction_flank_limits(row)
+                if flag is None or None in declared:
+                    return None
+                n_limit, c_limit = declared
+                assert n_limit is not None and c_limit is not None
+                limits.append((n_limit, c_limit))
+        if self.fallback is not None:
+            declared = protein_scan_flank_lengths(self.fallback)
+            if declared is None:
+                return None
+            limits.append(declared)
+        return (max((n for n, _ in limits), default=0), max((c for _, c in limits), default=0))
+
+    def predict_proteins_dataframe(
+        self, name_to_sequence: Mapping[str, str], *, windows=None,
+    ) -> pd.DataFrame:
         """Scan requested windows, filling missing contexts through a live scanner.
 
         Parameters
@@ -1169,6 +1206,11 @@ class CachedPredictor:
             Original named proteins. ``default_peptide_lengths`` selects the
             windows. Empty inputs and proteins shorter than every selected
             length return an empty frame without calling a fallback.
+        windows : iterable of tuple, optional
+            Explicit ``(source_name, offset, length)`` triples at the configured
+            lengths. Only these original occurrences require coverage. A live
+            fallback scores them with their original context; no full scan or
+            artificial termini are introduced. Omit to scan all windows.
 
         Returns
         -------
@@ -1179,8 +1221,8 @@ class CachedPredictor:
 
         Notes
         -----
-        A configured fallback with ``predict_proteins_dataframe`` scans each
-        affected full protein once. Its complete output is validated before
+        Without explicit ``windows``, a fallback with
+        ``predict_proteins_dataframe`` scans each affected full protein once. Its complete output is validated before
         missing measurements are inserted. Original cache hits remain intact,
         and any failed scanner batch leaves this cache unchanged. The fallback's
         configuration is never mutated. Assigning :attr:`alleles` selects the
@@ -1192,16 +1234,14 @@ class CachedPredictor:
         kinds/genotypes; a live fallback must cover its declared kinds and the
         requested alleles. Subsequent queries and file replay need no inference.
         """
-        if not isinstance(name_to_sequence, Mapping) or any(
-                not isinstance(name, str) or not name or not isinstance(sequence, str)
-                for name, sequence in name_to_sequence.items()):
-            raise ValueError("Protein inputs must map nonempty names to sequence strings")
-        positions: dict[str, list[tuple[str, int, int]]] = {}
+        from .protein_predictions import _protein_windows
+
         lengths = self.default_peptide_lengths
-        for name, sequence in name_to_sequence.items():
-            for length in lengths:
-                for offset in range(len(sequence) - length + 1):
-                    positions.setdefault(sequence[offset:offset + length], []).append((name, offset, length))
+        selected_windows = _protein_windows(name_to_sequence, lengths, windows)
+        positions: dict[str, list[tuple[str, int, int]]] = {}
+        for name, offset, length in selected_windows:
+            peptide = name_to_sequence[name][offset:offset + length]
+            positions.setdefault(peptide, []).append((name, offset, length))
         if not positions:
             return pd.DataFrame(columns=list(PROTEIN_SCAN_COLUMNS))
         scanner = getattr(self.fallback, "predict_proteins_dataframe", None)
@@ -1256,15 +1296,23 @@ class CachedPredictor:
             return pd.DataFrame(expanded, columns=list(PROTEIN_SCAN_COLUMNS))
         affected_names = {key[-2] for key in missing}
         affected = {name: sequence for name, sequence in name_to_sequence.items() if name in affected_names}
-        parameters = inspect.signature(scanner).parameters
-        kwargs = {"peptide_lengths": lengths} if "peptide_lengths" in parameters else {}
-        raw = self._conform_predictor_output(scanner(affected, **kwargs))
+        affected_windows = None
+        if windows is None:
+            parameters = inspect.signature(scanner).parameters
+            kwargs = {"peptide_lengths": lengths} if "peptide_lengths" in parameters else {}
+            raw = self._conform_predictor_output(scanner(affected, **kwargs))
+        else:
+            from .protein_inputs import predict_protein_windows
+            affected_windows = [window for window in selected_windows if window[0] in affected]
+            raw = self._conform_predictor_output(
+                predict_protein_windows(self.fallback, affected, affected_windows))
         # Work on a detached cache state: identity adoption, validation, and
         # coverage checks must all succeed before anything becomes a cache hit.
         trial = copy(self)
         trial._verify_fallback_version(raw)
         from .protein_predictions import validate_protein_predictions
-        fresh = validate_protein_predictions(raw, affected, self.fallback, peptide_lengths=lengths)
+        fresh = validate_protein_predictions(
+            raw, affected, self.fallback, peptide_lengths=lengths, windows=affected_windows)
         normalized = self._normalize(fresh)
         conflicts = conflicting_predictions(normalized)
         if not conflicts.empty:

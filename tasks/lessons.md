@@ -35,3 +35,13 @@ fragments and baselines. Keep preservation tests under the override instead of
 removing X fixtures, and do not infer that all other nonstandard residues should
 also be excluded. A rejection warning must identify excluded inputs; unrelated
 producer errors and strict cache gaps must not disappear behind broad catches.
+
+## An override must match the requested retained data
+
+The user clarified that the X override should process the non-X portions, not
+merely retry an unchanged X-containing protein and discard it on rejection.
+Select valid original windows before inference, preserving coordinates and
+required flank context. Never join across gaps or invent molecular termini.
+Keep producer acceptance (`allow`) distinct from clean-window selection, and
+remove exception-message matching when structural input selection solves the
+reported failure.

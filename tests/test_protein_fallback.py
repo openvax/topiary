@@ -43,6 +43,10 @@ class ProteinModel(BasePredictor):
             results.append(PeptideResult(preds=tuple(preds)))
         return results
 
+    def predict(self, peptides, n_flanks=None, c_flanks=None):
+        return self.predict_with_flanks(peptides, n_flanks or [""] * len(peptides),
+                                       c_flanks or [""] * len(peptides))
+
     def predict_dataframe(self, peptides, **kwargs):
         return from_predictions([p for result in self.predict_with_flanks(
             peptides, kwargs.get("n_flanks") or [""] * len(peptides),

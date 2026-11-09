@@ -165,16 +165,25 @@ tissue, FASTA, transcript, proteome and variant/fragment scans. An excluded WT
 baseline leaves WT prediction values missing without removing the candidate.
 It acts on the actual scan input, after region or variant-fragment extraction.
 
-Use `--allow-x-in-proteins` (Python: `allow_x_in_proteins=True`) to pass the original
-inputs to a model or cache that supports them. This preserves sequences, offsets,
-flanks and scores. If mhctools/MHCflurry rejects residues, Topiary isolates the
-affected proteins and skips them for that model with a warning. It retries whole
-inputs, preserving context. Successful models can still return their predictions
-for those proteins. Unrecognized validation errors and other model failures still
-raise; the override does not suppress arbitrary errors. Other residues and exact
-peptide/peptide-occurrence inputs retain producer validation. Cache
-coverage for retained inputs remains strict unless `--cache-miss-report` requests
-partial results; see [cached predictions](cached.md).
+Use `--protein-x-policy windows` (Python: `protein_x_policy="windows"`) to
+process the usable parts of these proteins. Only windows whose peptide and
+required model flanks contain no `X` are scored. Names and offsets still refer
+to the original protein. An internal `X` never becomes a new terminus, and
+regions on either side are never concatenated. For example, a 9-residue window
+in `XASIINFEKLGGG` can start at offset 3 or 4 with a model requiring two residues
+of context on each side; shorter flanks are allowed only at the true boundary.
+Models without flanking inputs can use more windows.
+
+The model or cache must declare its required context. Unknown limits cause the
+X-containing inputs to be skipped with a warning; clean proteins continue.
+Stored predictions retain their original context and values. Missing retained
+cache windows still raise unless `--cache-miss-report` requests partial results;
+see [cached predictions](cached.md).
+
+`--protein-x-policy allow` explicitly passes original proteins unchanged to a
+model that supports X, retaining strict producer errors. Use `windows` for the
+X-free override. Other residues, exact peptide/peptide-occurrence inputs and
+reference exclusion sets retain their existing validation and semantics.
 
 ## Filtering and ranking
 

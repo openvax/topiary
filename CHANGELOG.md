@@ -8,11 +8,15 @@
 - Apply one shared policy across antigen categories, named proteins, variant
   fragments and WT baseline scans. Excluding a WT baseline leaves WT scores
   missing while retaining the candidate's predictions.
-- Add `allow_x_in_proteins=True` / `--allow-x-in-proteins` for intentional use
-  with supporting models and caches, preserving exact sequences and context.
-  Recognized mhctools/MHCflurry residue rejections are isolated and skipped per
-  model; unrelated errors and strict cache misses still raise. Export the shared
-  `filter_protein_sequences`, `predict_proteins_with_x_recovery` and `ProteinInputWarning` APIs.
+- Add `protein_x_policy="windows"` / `--protein-x-policy windows` to score
+  only X-free peptide windows and required model flanks. Original source names,
+  offsets and true termini are preserved; internal gaps are never joined.
+  `allow` explicitly retains the unfiltered contract for supporting models.
+- Selected-window cache scans fill and replay only requested occurrences while
+  preserving stored context, sparse kinds and strict coverage. Unknown scanner
+  context skips X inputs with a warning. Unrelated model errors remain strict.
+- Export shared protein filtering, context declaration, X-free window selection
+  and selected-window prediction APIs for downstream consumers.
 
 Each 5.x section names a published PyPI release (except the current release
 while its PR is open). Changes merged under unpublished version numbers are

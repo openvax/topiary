@@ -448,9 +448,9 @@ class TestFrameShiftEndToEnd:
         predictor_novel = _predictor(
             padding_around_mutation=padding,
             only_novel_epitopes=True,
-            allow_x_in_proteins=True,
+            protein_x_policy="allow",
         )
-        predictor_all = _predictor(padding_around_mutation=padding, allow_x_in_proteins=True)
+        predictor_all = _predictor(padding_around_mutation=padding, protein_x_policy="allow")
 
         effects = EffectCollection([effect])
         df_all = predictor_all.predict_from_mutation_effects(effects)
@@ -503,7 +503,7 @@ class TestFrameShiftEndToEnd:
         effect = self._make_real_frameshift_effect()
         from varcode import EffectCollection
 
-        df = _predictor(allow_x_in_proteins=True).predict_from_mutation_effects(EffectCollection([effect]))
+        df = _predictor(protein_x_policy="allow").predict_from_mutation_effects(EffectCollection([effect]))
         aff = df[df["kind"] == "pMHC_affinity"]
         assert not aff.empty
         assert (aff["overlaps_target"] == aff["contains_mutant_residues"]).all()

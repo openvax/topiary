@@ -20,7 +20,7 @@ from types import MappingProxyType
 import numpy as np
 import pandas as pd
 
-from .protein_inputs import filter_protein_sequences, predict_proteins_with_x_recovery
+from .protein_inputs import filter_protein_sequences, predict_x_free_proteins
 
 from .filters import (
     apply_effect_expression_filters,
@@ -790,7 +790,7 @@ class TopiaryPredictor(object):
         predict_wt=False,
         name=None,
         cache_miss_handler=None,
-        allow_x_in_proteins=False,
+        protein_x_policy="skip",
     ):
         """
         Parameters
@@ -920,14 +920,14 @@ class TopiaryPredictor(object):
             See :func:`predict_with_cache_miss_report`. Independent of
             ``raise_on_error``, which only controls variant annotation errors.
 
-        allow_x_in_proteins : bool, default False
-            By default, skip entire protein scan inputs containing X (case
-            insensitive) and warn, while continuing with the other inputs.
-            Applies to named proteins, fragments and wild-type protein scans.
-            Set True to pass original sequences to the configured models/cache.
-            Recognized mhctools/MHCflurry X rejections skip only the affected
-            input for that model and warn; unrelated errors remain strict.
-            Exact peptide and peptide-occurrence APIs are unaffected.
+        protein_x_policy : {"skip", "windows", "allow"}, default "skip"
+            Skip whole protein inputs containing X (case insensitive) and warn.
+            ``windows`` instead scores original X-free peptide windows whose
+            required model flanks are also X-free, preserving coordinates and
+            true termini. Unknown model context skips affected X inputs with a
+            warning. ``allow`` passes original inputs unchanged to models that
+            support X; model errors remain strict. Applies to named proteins,
+            fragments and WT scans; exact peptide APIs are unaffected.
         """
         # --- model setup ---
         raw_models = models or mhc_models or (mhc_model and [mhc_model])
@@ -969,7 +969,9 @@ class TopiaryPredictor(object):
         if cache_miss_handler is not None and not callable(cache_miss_handler):
             raise TypeError("cache_miss_handler must be callable or None")
         self.cache_miss_handler = cache_miss_handler
-        self.allow_x_in_proteins = allow_x_in_proteins
+        if protein_x_policy not in {"skip", "windows", "allow"}:
+            raise ValueError("protein_x_policy must be skip, windows or allow")
+        self.protein_x_policy = protein_x_policy
         self.self_proteome = self_proteome
         self.predict_self_nearest = predict_self_nearest
         self.predict_wt = predict_wt
@@ -1038,7 +1040,8 @@ class TopiaryPredictor(object):
         ----------
         name_to_sequence_dict : dict (str -> str)
             Mapping of sequence names to amino acid sequences. Proteins with
-            X are skipped with a warning unless ``allow_x_in_proteins=True``.
+            X are skipped with a warning by default; ``protein_x_policy="windows"``
+            retains only usable X-free windows with their original context.
             Retained names and sequences pass unchanged to each producer.
             An all-excluded batch returns an empty prediction table.
 
@@ -1134,7 +1137,7 @@ class TopiaryPredictor(object):
                     "peptides to score."
                 )
         name_to_sequence_dict = filter_protein_sequences(
-            name_to_sequence_dict, allow_x=self.allow_x_in_proteins)
+            name_to_sequence_dict, allow_x=self.protein_x_policy != "skip")
         if not name_to_sequence_dict:
             return from_predictions([])
         dfs = []
@@ -1150,10 +1153,11 @@ class TopiaryPredictor(object):
 
     def _predict_raw_for_model(self, model, name_to_sequence_dict, model_key=None, stage="protein"):
         """Run one model on proteins, preserving source-sequence context."""
-        model_df = predict_proteins_with_x_recovery(
-            model.predict_proteins_dataframe,
+        model_df = predict_with_cache_miss_report(
+            (lambda inputs: predict_x_free_proteins(model, inputs))
+            if self.protein_x_policy == "windows" else model.predict_proteins_dataframe,
             name_to_sequence_dict,
-            on_cache_miss=self.cache_miss_handler,
+            on_miss=self.cache_miss_handler,
             context=self._cache_miss_context(model, model_key, stage))
         from .protein_predictions import annotate_protein_prediction_context
         model_df = annotate_protein_prediction_context(model_df, model)
@@ -1503,7 +1507,7 @@ class TopiaryPredictor(object):
         }
 
         baseline_by_fragment_id = filter_protein_sequences(
-            baseline_by_fragment_id, allow_x=self.allow_x_in_proteins)
+            baseline_by_fragment_id, allow_x=self.protein_x_policy != "skip")
 
         valid = (
             df["wt_peptide"].notna()

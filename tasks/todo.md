@@ -1,55 +1,63 @@
 # Protein X policy (#573)
 
-## Spec
+## Revised spec after user clarification
 
-Topiary skips entire protein scan inputs containing `X` (case-insensitive) by
-default, before any predictor or cache sees them. One warning per scan stage
-reports the count and a bounded plain-Python list of source names. Clean inputs
-continue unchanged; an all-excluded batch returns the normal empty prediction
-schema without invoking the producer. This deliberately excludes even clean
-windows from those proteins, avoiding changes to offsets or flank context.
+The default skips whole protein scan inputs containing X (case insensitive),
+warns with count/example names, continues with clean inputs, and returns a valid
+empty table when all inputs are excluded. The requested override scores only
+X-free windows of the original proteins. It never joins across an X, removes
+residues to shift coordinates, or treats an internal X gap as a new terminus.
+For flank-aware models, the required original N/C context must also be X-free.
 
-Apply the same public selection helper to named protein scans, all antigen
-categories, variant/fragment scans, and wild-type protein baselines. A rejected
-baseline leaves WT prediction values missing while retaining candidate rows.
-The policy acts on the actual scan input (after explicit regions or variant
-fragment extraction). Exact peptide/occurrence APIs and reference exclusion
-sets retain their existing semantics. Do not generalize X to U or other residues.
+Expose one `protein_x_policy`: `skip` (default), `windows` (requested clean-window
+scan), and explicit `allow` (the original unfiltered producer/cache contract for
+models supporting X). `allow` keeps producer errors strict; it is not the
+recommended recovery mode. CLI `--protein-x-policy windows` is the requested
+override. Replace the unreleased allow-X flag and error-message recovery helper.
 
-Expose `allow_x_in_proteins=True` and `--allow-x-in-proteins` to pass original
-proteins through for capable models and caches. Preserve sequence identity,
-offsets, flanks, cached scores and cache-coverage policy. Override rejection
-handling recognizes only mhctools' exact X-rejection signature and MHCflurry's
-counted nonstandard-residue signature. Producers currently use bare ValueError
-for both residue and unrelated model failures. Bisect failing batches and skip
-only singleton inputs containing X that raise one of these recognized errors.
-Successful batches pass through unchanged. Do not broadly suppress ValueErrors.
-This is the assumed opt-in recovery policy after the optional clarification;
-unknown custom-model validation errors and runtime failures remain strict.
-The missing typed producer contract is tracked in openvax/mhctools#659.
+Apply this once across CTA/gene/tissue/FASTA, variant/fragment and WT scans.
+Retain names, original offsets, flank context and measurement identity. Candidate
+rows survive missing WT windows with NaN WT predictions. Exact peptide APIs and
+reference exclusion sets keep their existing semantics. Do not generalize to U
+or another alphabet policy.
+
+Use the model's declared scanner context to select windows before inference.
+Batch native mhctools inputs through its aligned prediction API; reuse explicit
+occurrence validation for legacy DataFrame-only producers. Extend native protein-cache queries with explicit selected windows, preserving
+sparse-kind semantics. Use fallback and stored declarations to establish a
+conservative window contract. Do not infer limits from observed flank lengths;
+unknown/ambiguous context must be reported and conservatively exclude affected
+X inputs, while clean inputs continue. Preserve strict cache misses for retained
+windows and the existing explicit cache-miss reporting policy.
 
 ## Plan
 
-- [x] Trace common protein/fragment/WT paths and current upstream validation.
-- [x] Record the default policy and distinguish it from model capabilities.
-- [x] Add default and override conformance regressions, including mixed/all-X
-      inputs, cache replay/misses, CTA/gene/tissue/FASTA, fragments and WT.
-- [x] Implement the shared public selection helper, Python/CLI option and docs.
-- [x] Settle override rejection handling without masking other failures.
-- [x] Bump version and update changelog; review diff and source-category coverage.
-- [ ] Pass focused tests, lint, full suite, strict docs and pip check.
-- [ ] Open PR, verify CI, merge, wait master CI and deploy from clean master.
-- [ ] Verify published artifacts and behavior, then inspect next open work.
+- [x] Trace shared scan, cache, exact-occurrence and flank-declaration contracts.
+- [x] Record the user's correction and revised input policy before edits.
+- [x] Replace exception-message recovery with deterministic X-free selection.
+- [x] Add shared public window selection/prediction helpers and Python/CLI policy.
+- [x] Verify clean runs, internal/leading/trailing/consecutive X, short/all-X
+      inputs, multiple lengths/models, asymmetric flanks, repeated peptides,
+      original coordinates, cache replay/misses, sources, fragments and WT.
+- [x] Preserve explicit `allow` producer conformance tests and all other residues.
+- [x] Update docs/changelog/PR #600 and record the revised local validation.
+- [ ] Pass lint, full suite, docs and pip check, then PR and master CI.
+- [ ] Merge and deploy 5.111.8, verify published artifacts and behavior.
 
-## Review
+## Review and release status
 
-The new policy suite passes 39 cases. Native MHCflurry 2.3.16 validation was
-reproduced without model weights and recovered a mixed batch. Lint, strict docs
-and pip check pass. The initial full run had 6,309 passes and six expected
-policy-transition failures: five synthetic X fixtures now explicitly opt in;
-the real tissue test verifies default exclusion warnings and clean predictions.
-Final integrated/full verification and CI are pending.
+PR #600 at 3c3a8b3 implemented default whole-protein exclusion and optional
+producer-rejection recovery. That design is superseded by the user's request to
+process only the non-X portions. Its 6,334-test pass is evidence for that earlier
+head, not final validation of this revised design.
 
-Prior source-unification work shipped as 5.111.7 (PR #595) with all
-6,293 local tests, PR/master CI, strict docs and dependency checks passing.
-Its producer-input contract remains covered under the explicit X override.
+GitHub Actions/Checks has a confirmed outage:
+https://www.githubstatus.com/incidents/tp8cghg7tlc4
+The first CI attempt passed all 16 executed jobs, then failed with an internal
+server error before dependent jobs were scheduled. A retry was already running
+when the user clarified the override. No merge or publication has happened.
+Release state/evidence: /tmp/topiary-573-release-state.json.
+
+Revised implementation: 374 focused policy/cache/native-conformance tests pass.
+Lint, strict docs, and pip check pass. Full ./test.sh is running; final validation
+will be recorded against the new head before merge.
