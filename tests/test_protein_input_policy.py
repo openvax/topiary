@@ -423,7 +423,11 @@ def test_cached_sparse_kinds_and_distinct_declared_contexts_are_preserved():
             from_predictions(raw.iloc[::2] if kind == "pMHC_presentation" else raw)
         )
     cache = CachedPredictor(pd.concat(frame, ignore_index=True))
-    assert cache.protein_flank_lengths() == (3, 3)
+    assert cache.protein_window_flank_limits() == (3, 3)
+    from topiary import describe_prediction_models
+
+    (inventory,) = describe_prediction_models(TopiaryPredictor(models=cache))
+    assert inventory["protein_flank_lengths"] is None
     result = TopiaryPredictor(
         models=cache, protein_x_policy="windows"
     ).predict_from_named_sequences(inputs)

@@ -61,3 +61,8 @@ Release state/evidence: /tmp/topiary-573-release-state.json.
 Revised implementation: 374 focused policy/cache/native-conformance tests pass.
 Lint, strict docs, and pip check pass. Full ./test.sh is running; final validation
 will be recorded against the new head before merge.
+
+Full validation of 4bd3421: 6,350 passed, one inventory regression. A cache's
+conservative selection bounds must not advertise the native producer's
+`protein_flank_lengths` contract. Rename the cache method, leave model inventory
+and row annotation unchanged, and rerun both focused and full checks.

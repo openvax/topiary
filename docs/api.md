@@ -113,7 +113,9 @@ calling the producer. The policy does not alter exact peptide/occurrence inputs
 or reference exclusion sets; see the [CLI policy](cli.md#input-modes).
 
 `protein_scan_flank_lengths(model)` reads declared N/C context limits, returning
-`None` when they are unknown. `x_free_protein_windows(sequences, peptide_lengths,
+`None` when they are unknown. For caches, `protein_window_flank_limits()` combines
+stored/fallback bounds conservatively without declaring a single producer
+configuration to model inventory. `x_free_protein_windows(sequences, peptide_lengths,
 flank_lengths=(0, 0))` returns `(source_name, offset, length)` triples whose peptide
 and required context contain no X. It never shifts coordinates or joins regions.
 

@@ -1160,7 +1160,7 @@ class CachedPredictor:
             )
         return pd.DataFrame(output).reindex(columns=list(_CACHE_COLUMNS))
 
-    def protein_flank_lengths(self) -> tuple[int, int] | None:
+    def protein_window_flank_limits(self) -> tuple[int, int] | None:
         """Return conservative context limits for selecting original windows.
 
         Returns

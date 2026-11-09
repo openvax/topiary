@@ -69,8 +69,10 @@ def protein_scan_flank_lengths(model):
         Maximum N/C context lengths, or None when context is unknown. Unknown
         is not zero; observed short flanks never establish a scanner limit.
     """
-    from .cached import prediction_flank_limits
+    from .cached import CachedPredictor, prediction_flank_limits
 
+    if isinstance(model, CachedPredictor):
+        return model.protein_window_flank_limits()
     resolver = getattr(model, "protein_flank_lengths", None)
     limits = (
         resolver()
