@@ -39,6 +39,7 @@ from .ranking import (
 from .io import _model_version_str
 from .wide import _concat_frames
 from mhctools.pred import COLUMNS as _PRED_COLUMNS
+from mhctools.wrapper_base import AlleleFreePredictor
 
 from .protein_fragment import ProteinFragment, unique_fragments
 from .prediction_batch import predict_with_cache_miss_report
@@ -191,11 +192,11 @@ def model_from_spec(spec, alleles=None):
         - an already-configured predictor instance,
           ``NetMHCpan42(alleles=[...])``, used as given.
     alleles : list of str, optional
-        Alleles for a model that is built here. Passed only to a class or
-        factory whose signature takes ``alleles``, so allele-free
-        predictors (whole-peptide and cleavage models) are built without
-        them. This is the rule mhctools' own command line applies, so a
-        model named on the command line and in Python is built the same way.
+        Alleles for a model that is built here. Classes declaring the
+        ``AlleleFreePredictor`` base are always built without alleles.
+        Other classes and factories receive them only if their signature
+        accepts ``alleles`` or arbitrary keyword arguments, following
+        mhctools' command-line construction rule.
 
     Returns
     -------
@@ -222,6 +223,10 @@ def model_from_spec(spec, alleles=None):
         return spec
     if not callable(spec):
         return spec
+    # Preserve the declared class contract even when a forwarding constructor
+    # exposes **kwargs rather than the allele-free parent's signature (#598).
+    if isinstance(spec, type) and issubclass(spec, AlleleFreePredictor):
+        return spec()
     parameters = signature(spec).parameters
     takes_alleles = "alleles" in parameters or any(
         parameter.kind is Parameter.VAR_KEYWORD
