@@ -32,17 +32,18 @@ def add_protein_change_args(arg_parser):
 
 
 def genome_from_args(args):
-    if args.genome:
+    from .references import source_options, validate_source_options
+
+    if getattr(args, "genome", None):
         from varcode.reference import infer_genome
 
         genome, _ = infer_genome(args.genome)
+        validate_source_options(args, [genome])
         return genome
     else:
-        from pyensembl import ensembl_grch38
+        from ..sources import ensembl_genome
 
-        # no genome specified, assume it can be inferred from the file(s)
-        # we're loading
-        return ensembl_grch38
+        return ensembl_genome(**source_options(args))
 
 
 def transcript_sort_key(transcript):

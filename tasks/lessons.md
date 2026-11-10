@@ -54,3 +54,27 @@ include relevant edge cases when available. Assert expected policy warnings at
 every affected prediction call; do not blanket-ignore them or rely on a clean
 sample. Wait for the completed traceback before attributing a failure: a surviving
 temporary directory may belong to an active test rather than the failed test.
+
+## Separate antigen origin, host background and presenting MHC
+
+The user pointed out that a murine host can carry human HLA. Do not propose
+one global species identity that forces antigen sequences, host/self-reference
+proteomes and MHC alleles to agree. Source coordinates must match their source
+assembly; normal/reference comparisons need explicit identities; presenting
+alleles remain independently configured. Deliberate xenografts and transgenic
+models are valid. Human-only CTA data constrains its antigen source, not the
+host species. Pascolo et al. 1997 (PMID 9182675) demonstrates HLA-A2.1-restricted
+responses in transgenic mice: https://pubmed.ncbi.nlm.nih.gov/9182675/.
+
+For Topiary #586, remove silent human source/reference defaults without banning
+intentional cross-species analyses. Also verify current CLI composition rules
+before giving examples: 5.111.9 rejects combining direct sequence sources with
+variant inputs, while variant inputs can still use reference exclusions.
+
+## Test counts do not establish behavioral coverage
+
+The user challenged the headline test count. Mutation probes showed two full
+workflow cases passed with filtering, ranking and exclusion disabled (#603).
+Report what a regression test detects, including before/after values, and use
+small targeted mutations to verify new behavior. Parameter combinations and
+green CI are useful evidence but are not independent proof of each claim.

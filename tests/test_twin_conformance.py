@@ -151,6 +151,39 @@ GENE_SEQUENCE_SOURCE_TWINS = (
 )
 
 
+def _protein_change_reference(species, release):
+    from topiary.cli.protein_changes import genome_from_args
+    return genome_from_args(SimpleNamespace(
+        genome=None, species=species, ensembl_release=release))
+
+
+SEQUENCE_REFERENCE_TWINS = (sources.ensembl_genome, _protein_change_reference)
+
+
+@pytest.mark.parametrize("species,release,expected_species,expected_release", [
+    ("human", None, "homo_sapiens", None),
+    ("Homo sapiens", 75, "homo_sapiens", 75),
+    ("Mus musculus", 102, "mus_musculus", 102),
+    ("mouse", None, "mus_musculus", None),
+])
+def test_sequence_and_protein_change_sources_share_reference_defaults(
+    species, release, expected_species, expected_release
+):
+    import pyensembl
+    genomes = []
+    for resolve in SEQUENCE_REFERENCE_TWINS:
+        if species == "mouse" and release is None:
+            with pytest.raises(ValueError, match="specify release"):
+                resolve(species=species, release=release)
+        else:
+            genomes.append(resolve(species=species, release=release))
+    if genomes:
+        assert genomes[0] == genomes[1]
+        assert genomes[0].species.latin_name == expected_species
+        assert genomes[0].release == (
+            pyensembl.ensembl_grch38.release if expected_release is None else expected_release)
+
+
 ANTIGEN_SEQUENCE_INPUT_TWINS = (
     ("cta", lambda fasta: ["--cta"]),
     ("gene-name", lambda fasta: ["--gene-names", "GENE"]),

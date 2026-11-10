@@ -153,6 +153,62 @@ topiary --cta --mhc-predictor netmhcpan --mhc-alleles 'HLA-A*02:01'  # cancer-te
 `--cta` uses the included PirlyGenes integration. The same sources are available in Python
 through `topiary.sources` — see the [quickstart](quickstart.md#ensembl-and-tissue-lookups).
 
+### Source species, reference backgrounds and MHC
+
+`--species` selects the antigen sequence source. Human is the default for direct
+inputs; a non-human built-in source requires `--ensembl-release`. Species names
+and aliases follow PyEnsembl (`mouse` and `Mus musculus` select the same species).
+`--mhc-alleles` is independent: using mouse proteins with a human HLA allele is
+valid, including HLA-transgenic models ([Pascolo et al., PMID 9182675](https://pubmed.ncbi.nlm.nih.gov/9182675/)).
+
+```bash
+# Mouse proteins presented by mouse MHC
+topiary --gene-names Trp53 --species mouse --ensembl-release 102 \
+  --mhc-predictor netmhcpan --mhc-alleles 'H2-Kb'
+
+# The same source with human HLA, for an HLA-transgenic model
+topiary --gene-names Trp53 --species mouse --ensembl-release 102 \
+  --mhc-predictor netmhcpan --mhc-alleles 'HLA-A*02:01'
+
+# Human antigens with an explicitly selected mouse comparison background
+topiary --gene-names TP53 --species human \
+  --exclude-ensembl --exclude-species mouse --exclude-ensembl-release 102 \
+  --mhc-predictor netmhcpan --mhc-alleles 'HLA-A*02:01'
+```
+
+Built-in exclusions normally inherit the source species and release. For variant
+inputs, this comes from the annotations actually loaded, including references in
+MAF and JSON files. `--genome` still chooses variant coordinates; it is rejected
+for direct sequence inputs, where `--species` / `--ensembl-release` select the
+source. For protein changes, either form can select the annotation. If source
+species/release flags accompany an annotated input, they must agree with it.
+
+`--exclude-species` starts an independent reference context; its release is
+`--exclude-ensembl-release`, never a number borrowed from another species.
+Explicit human references may use the current human default; non-human references
+require a release. `--exclude-ensembl-release` alone keeps the inferred source
+species and overrides its background release. Mixed-species annotations,
+multiple annotation releases and custom annotations without a numbered Ensembl
+release require an explicit background when using built-in exclusions. They
+remain usable without that ambiguous built-in comparison.
+
+FASTA/CSV inputs carry no inferred species metadata: choose `--species` and a
+release explicitly when they should determine a non-human built-in background.
+Additional `--exclude-fasta` files can supply other backgrounds; all their
+sequences are retained even if different files reuse a header. Combining them
+excludes matches to the union. Run separate comparisons if you need separate
+human and mouse results. Exclusions are sequence matching, not a simulation of
+host antigen processing or transplant immunity.
+
+`--cta` is human-only in the **antigen-source** context. `--exclude-non-cta` and
+`--exclude-tissues` are human-only in the **background** context. Human CTA
+antigens with a mouse background are valid; requesting mouse CTA membership or
+applying the human tissue-expression table as mouse data gives an error.
+
+Before 5.112, built-in exclusions defaulted to human even for mouse variants.
+They now follow the actual input annotation. To request a different reference
+deliberately, use the exclusion-specific options instead of changing source flags.
+
 A gene usually has several Ensembl translations. All gene-derived inputs use
 `best_protein_transcript`: complete protein-coding translations first, then
 standard amino-acid sequences, then length, with transcript-ID tie breaking.
@@ -222,7 +278,7 @@ Remove peptides found in reference proteomes, for tumor-specific or
 pathogen-specific selection:
 
 ```bash
---exclude-ensembl                    # human Ensembl proteome
+--exclude-ensembl                    # source annotation's Ensembl proteome
 --exclude-non-cta                    # non-CTA proteins (requires pirlygenes)
 --exclude-tissues heart_muscle lung  # genes expressed in these tissues
 --exclude-fasta reference.fasta      # custom reference sequences
