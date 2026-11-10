@@ -1,5 +1,18 @@
 # Changelog
 
+## 5.112.0
+
+- Add `--species` for antigen sequence sources and independent
+  `--exclude-species` / `--exclude-ensembl-release` settings for built-in
+  backgrounds. Human defaults remain available; mouse inputs, HLA-transgenic
+  mice and human xenografts keep their explicitly requested MHC alleles (#586).
+- Built-in exclusions inherit the actual single input annotation species and
+  release, including MAF/JSON references. Explicit source options must agree with
+  loaded annotations; ambiguous references require an explicit background.
+  Human-only CTA and tissue membership is validated in its own source context.
+- Preserve every exclusion sequence when independent FASTA files or reference
+  sources reuse a record name (#604).
+
 ## 5.111.9
 
 - Make real-tissue workflow tests deterministic and explicitly check both clean

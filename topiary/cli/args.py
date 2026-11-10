@@ -37,8 +37,17 @@ from .rna import (
 from .sequence import add_sequence_args
 from .errors import add_error_args
 from .outputs import add_output_args
+from .references import (
+    exclusion_options,
+    has_builtin_exclusions,
+    require_human,
+    require_release,
+    source_options,
+    validate_source_options,
+)
 from .protein_changes import (
     add_protein_change_args,
+    genome_from_args,
     protein_change_effects_from_args,
 )
 from ..inputs import (
@@ -136,7 +145,7 @@ def _add_input_args(arg_parser):
         default=False,
         action="store_true",
         help="Exclude peptides found in the Ensembl proteome "
-             "(default: human GRCh38).",
+             "(default: the source species/release; human GRCh38 for unannotated inputs).",
     )
     input_group.add_argument(
         "--exclude-non-cta",
@@ -150,7 +159,18 @@ def _add_input_args(arg_parser):
         default=None,
         nargs="*",
         help="Exclude peptides from genes expressed in these tissues "
-             "(e.g. heart_muscle lung brain). Requires pirlygenes.",
+             "(e.g. heart_muscle lung brain). Human only. Requires pirlygenes.",
+    )
+    input_group.add_argument(
+        "--exclude-species",
+        help="Species for built-in exclusions, independent of antigen origin and MHC. "
+             "Explicitly selecting it starts a separate reference context; pair it "
+             "with --exclude-ensembl-release (required for non-human species).",
+    )
+    input_group.add_argument(
+        "--exclude-ensembl-release", type=int,
+        help="Ensembl release for built-in exclusions. Defaults to the source release "
+             "unless --exclude-species selects an independent reference context.",
     )
 
     # -- built-in sequence sources --
@@ -189,11 +209,19 @@ def _add_input_args(arg_parser):
              "Human only. Requires pirlygenes. " + gene_selection_help,
     )
     input_group.add_argument(
+        "--species",
+        help="Species of the antigen sequence source, independent of MHC alleles "
+             "(default: human for direct inputs, actual annotation for variants). "
+             "Non-human built-in sources require --ensembl-release. For variants, "
+             "an explicit value must match their annotations.",
+    )
+    input_group.add_argument(
         "--ensembl-release",
         default=None,
         type=int,
         help=(
-            "Ensembl release number. Without it, human uses the release the "
+            "Source Ensembl release number. For variant inputs, an explicit value "
+            "must match their annotations. Without it, direct human inputs use the release the "
             "installed pyensembl exposes as ensembl_grch38, whose data must "
             "already be installed; pass one to pin an analysis."
         ),
@@ -445,7 +473,7 @@ def _parse_regions(region_strings):
 
 def _get_direct_input(args):
     """Check for direct peptide/sequence inputs. Returns (dict, is_peptides) or (None, None)."""
-    release = getattr(args, "ensembl_release", None)
+    options = source_options(args)
 
     # File-based sources
     peptide_csv = getattr(args, "peptide_csv", None)
@@ -468,6 +496,10 @@ def _get_direct_input(args):
         raise ValueError(
             "Only one sequence source may be specified (file or built-in)"
         )
+    if use_cta:
+        require_human(options, "--cta")
+    elif builtin_sources:
+        require_release(options, "--ensembl-release")
 
     is_peptides = False
     sequences = None
@@ -483,15 +515,15 @@ def _get_direct_input(args):
     elif fasta:
         sequences = read_fasta(fasta)
     elif use_ensembl:
-        sequences = ensembl_proteome(release=release)
+        sequences = ensembl_proteome(**options)
     elif gene_names:
-        sequences = sequences_from_gene_names(gene_names, release=release)
+        sequences = sequences_from_gene_names(gene_names, **options)
     elif gene_id_list:
-        sequences = sequences_from_gene_ids(gene_id_list, release=release)
+        sequences = sequences_from_gene_ids(gene_id_list, **options)
     elif transcript_id_list:
-        sequences = sequences_from_transcript_ids(transcript_id_list, release=release)
+        sequences = sequences_from_transcript_ids(transcript_id_list, **options)
     elif use_cta:
-        sequences = cta_sequences(release=release)
+        sequences = cta_sequences(release=options["release"])
 
     if sequences is None:
         return None, None
@@ -527,6 +559,8 @@ def _validate_input_modes(args):
         return
 
     incompatible_flags = []
+    if getattr(args, "genome", None):
+        incompatible_flags.append("--genome (use --species / --ensembl-release for direct inputs)")
     if getattr(args, "vcf", None):
         incompatible_flags.append("--vcf")
     if getattr(args, "maf", None):
@@ -615,9 +649,10 @@ def predict_epitopes_from_args(args):
     _validate_required_prediction_args(args)
     cache_misses = []
     report_cache_misses = bool(getattr(args, "cache_miss_report", None))
+    reference_options = None
 
     def finish(df):
-        df = _apply_exclusion(df, args)
+        df = _apply_exclusion(df, args, reference_options=reference_options)
         if report_cache_misses:
             df.attrs["topiary_cache_misses"] = cache_misses
         return df
@@ -640,6 +675,21 @@ def predict_epitopes_from_args(args):
         gene_expression_dict = rna_gene_expression_dict_from_args(args)
         transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
         expr_data = expression_data_from_args(args)
+
+    # Read actual loaded annotations: --genome can be ignored by MAF, and VCF /
+    # JSON can supply their own references. None of this consults MHC alleles.
+    genomes = []
+    if (has_builtin_exclusions(args)
+            or getattr(args, "species", None) is not None
+            or getattr(args, "ensembl_release", None) is not None):
+        if variants is not None:
+            genomes.extend(variant.genome for variant in variants)
+        if getattr(args, "protein_change", None):
+            genomes.append(genome_from_args(args))
+        elif direct_input is None and not genomes and getattr(args, "genome", None):
+            genomes.append(genome_from_args(args))
+    validate_source_options(args, genomes)
+    reference_options = exclusion_options(args, genomes)
 
     if cached_predictor_in_use(args):
         models = cached_predictor_from_args(args)
@@ -701,32 +751,38 @@ def _require_variant_input(args):
         raise CommandLineError(INPUT_SOURCE_ERROR)
 
 
-def _apply_exclusion(df, args):
+def _apply_exclusion(df, args, reference_options=None):
     """Apply all exclusion sources to the predictions."""
+    options = reference_options or exclusion_options(args)
     if not isinstance(df, pd.DataFrame) or df.empty:
         return df
 
-    release = getattr(args, "ensembl_release", None)
     mode = getattr(args, "exclude_mode", "substring")
 
     # Collect all reference sequences into one dict
     ref_sequences = {}
 
+    def add_reference(sequences):
+        # Header identities are local to a source. Two FASTAs (e.g. human and
+        # mouse backgrounds) may reuse a header without losing either protein.
+        source_index = len(ref_sequences)
+        ref_sequences.update({(source_index, name): seq for name, seq in sequences.items()})
+
     exclude_paths = getattr(args, "exclude_fasta", None)
     if exclude_paths:
         for path in exclude_paths:
-            ref_sequences.update(read_fasta(path))
+            add_reference(read_fasta(path))
 
     if getattr(args, "exclude_ensembl", False):
-        ref_sequences.update(ensembl_proteome(release=release))
+        add_reference(ensembl_proteome(**options))
 
     if getattr(args, "exclude_non_cta", False):
-        ref_sequences.update(non_cta_sequences(release=release))
+        add_reference(non_cta_sequences(release=options["release"]))
 
     exclude_tissues = getattr(args, "exclude_tissues", None)
     if exclude_tissues:
-        ref_sequences.update(
-            tissue_expressed_sequences(exclude_tissues, release=release)
+        add_reference(
+            tissue_expressed_sequences(exclude_tissues, release=options["release"])
         )
 
     if ref_sequences:

@@ -58,6 +58,59 @@ from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_CORPUS, ROOT as PVACSEQ_C
 from .test_twin_conformance import DSL_MEASUREMENT_TWINS
 
 
+def test_cli_species_contexts_change_sequences_and_exclusions_not_mhc(monkeypatch, tmp_path):
+    """Actual loaders → native predictor → exclusions → CSV for four contexts."""
+    from types import SimpleNamespace
+    from mhcgnomes import parse as parse_allele
+    from topiary import sources
+    from topiary.cli.script import main
+
+    human, mouse = "homo_sapiens", "mus_musculus"
+    peptides = {human: "SIINFEKLA", mouse: "AAAAAAAAA"}
+    control = "VVVVVVVVV"
+    calls = []
+
+    def genome(release, species):
+        calls.append((species, release))
+
+        def genes(name):
+            return [SimpleNamespace(name=name, transcripts=[SimpleNamespace(
+                id=species + "-" + name, biotype="protein_coding", complete=True,
+                protein_sequence=control if name == "CONTROL" else peptides[species],
+            )])]
+
+        return SimpleNamespace(genes_by_name=genes,
+                               protein_ids=lambda: ["shared_header"],
+                               protein_sequence=lambda ident: peptides[species])
+
+    monkeypatch.setattr(sources, "ensembl_genome", genome)
+    scenarios = [
+        ("human", [], "HLA-A*02:01", human, None, human, None, [control]),
+        ("mouse", ["--species", "mouse", "--ensembl-release", "102"],
+         "H2-Kb", mouse, 102, mouse, 102, [control]),
+        ("transgenic", ["--species", "Mus musculus", "--ensembl-release", "102"],
+         "HLA-A*02:01", mouse, 102, mouse, 102, [control]),
+        ("xenograft", ["--exclude-species", "mouse", "--exclude-ensembl-release", "102"],
+         "HLA-A*02:01", human, None, mouse, 102, [peptides[human], control]),
+    ]
+    for name, flags, allele, source, release, background, background_release, expected in scenarios:
+        calls.clear()
+        path = tmp_path / (name + ".csv")
+        assert main([
+            "--gene-names", "GENE", "CONTROL", "--exclude-ensembl",
+            "--mhc-predictor", "random", "--mhc-alleles", allele,
+            "--mhc-peptide-lengths", "9", "--output-csv", str(path), *flags,
+        ]) == 0
+        frame = pd.read_csv(path)
+        assert sorted(frame.peptide) == sorted(expected), name
+        assert frame.allele.unique().tolist() == [parse_allele(allele).to_string()], name
+        expected_names = {"CONTROL|" + source + "-CONTROL"}
+        if peptides[human] in expected:
+            expected_names.add("GENE|" + source + "-GENE")
+        assert set(frame.source_sequence_name) == expected_names, name
+        assert calls == [(source, release), (background, background_release)], name
+
+
 @pytest.mark.parametrize("policy", ["skip", "windows", "allow"])
 def test_antigen_sources_share_x_policy_and_cli_override(monkeypatch, tmp_path, policy):
     from types import SimpleNamespace
