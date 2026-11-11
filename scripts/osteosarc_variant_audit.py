@@ -131,7 +131,7 @@ def audit_variant(record, genome):
     from varcode import Variant
 
     return Variant(ensembl_contig(record["chrom"]), record["pos"], record["ref"],
-                   record["alt"], ensembl=genome)
+                   record["alt"], genome=genome)
 
 
 def fragment_files(directory):

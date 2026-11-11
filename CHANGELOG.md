@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.113.1
+
+- The tests and the `scripts/osteosarc_rna_overlay.py` and
+  `scripts/osteosarc_variant_audit.py` scripts pass Varcode's `genome=`
+  instead of its deprecated `ensembl=` (#599). Varcode 11.13.0 warns on
+  `ensembl=`, and Topiary's suite makes warnings errors; Varcode 12.0 removes
+  it (openvax/varcode#693). Topiary's library code didn't use it, and
+  `genome=` works with every Varcode since 6.0, so the supported range is
+  unchanged.
+
 ## 5.113.0
 
 - `--protein-change` now chooses its transcript with the same rule as every

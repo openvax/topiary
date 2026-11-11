@@ -24,8 +24,8 @@ pytestmark = pytest.mark.netmhc
 # what do we expect from them? Are they SNVs?
 variants = VariantCollection(
     [
-        Variant(contig=10, start=100018900, ref="C", alt="T", ensembl=ensembl_grch37),
-        Variant(contig=11, start=32861682, ref="G", alt="A", ensembl=ensembl_grch37),
+        Variant(contig=10, start=100018900, ref="C", alt="T", genome=ensembl_grch37),
+        Variant(contig=11, start=32861682, ref="G", alt="A", genome=ensembl_grch37),
     ]
 )
 
