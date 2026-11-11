@@ -1,5 +1,27 @@
 # Changelog
 
+## 5.113.0
+
+- `--protein-change` now chooses its transcript with the same rule as every
+  other antigen source. It took the longest protein, breaking ties on
+  nucleotide length and then transcript name, while the gene sources preferred
+  a complete protein-coding translation; the two doors could score peptides
+  from different transcripts of one gene in one release.
+- New public `topiary.representative_transcript(transcripts)` holds that one
+  ranking — complete protein-coding first, then standard amino acids, then
+  length, ties by transcript ID. `best_protein_transcript(gene)` is now that
+  function over a gene's transcripts, with an unchanged signature and result,
+  and `--protein-change` applies it to the transcripts carrying its reference
+  residue. `transcript_sort_key` and `best_transcript` are gone from
+  `topiary.cli.protein_changes`.
+- Few changes follow in practice: of eight common substitutions read from both
+  GRCh37.75 and GRCh38.115, one moves — IDH1 R132 on GRCh37, where two complete
+  414 aa translations tie and the choice becomes IDH1-001 (ENST00000345146)
+  rather than IDH1-006 (ENST00000415913).
+- `tests/test_twin_conformance.py` now drives all five doors — gene names, gene
+  IDs, CTA, tissue and `--protein-change` — to one transcript, so a future
+  second rule fails a test rather than diverging quietly.
+
 ## 5.112.1
 
 - Re-pin three osteosarc effect expectations for Varcode 11.11.1, which

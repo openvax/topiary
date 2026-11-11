@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from topiary.cli.args import _apply_exclusion
-from topiary.cli.protein_changes import best_transcript, genome_from_args
+from topiary.cli.protein_changes import genome_from_args, protein_change_effects_from_args
 from topiary.cli.rna import (
     rna_gene_expression_dict_from_args,
     rna_transcript_expression_dict_from_args,
@@ -94,44 +94,63 @@ def test_genome_from_args_explicit():
 
 
 # ---------------------------------------------------------------------------
-# best_transcript
+# transcript choice behind --protein-change
 # ---------------------------------------------------------------------------
 
 
-def _mock_transcript(protein_len, seq_len, name):
+def protein_change_transcripts(monkeypatch, *transcripts, change="M5K"):
+    """Which transcript --protein-change picks out of the given candidates."""
+    from topiary import sources
+
+    gene = SimpleNamespace(id="GENE_ID", gene_id="GENE_ID", name="GENE",
+                           gene_name="GENE", transcripts=list(transcripts))
+    for candidate in transcripts:
+        candidate.gene = gene
+    genome = SimpleNamespace(
+        gene_names=lambda: {"GENE"},
+        genes_by_name=lambda name: [gene],
+    )
+    monkeypatch.setattr(sources, "ensembl_genome", lambda **kwargs: genome)
+    args = SimpleNamespace(
+        genome=None, species="human", ensembl_release=None,
+        protein_change=[("GENE", change)],
+    )
+    return [effect.transcript for effect in protein_change_effects_from_args(args)]
+
+
+def candidate_transcript(identifier, sequence, complete=True,
+                         biotype="protein_coding"):
     return SimpleNamespace(
-        protein_sequence="M" * protein_len,
-        sequence="A" * seq_len,
-        name=name,
+        id=identifier, name=identifier, transcript_id=identifier,
+        protein_sequence=sequence, sequence="A" * (3 * len(sequence)),
+        complete=complete, biotype=biotype, is_protein_coding=True,
     )
 
 
-def test_best_transcript_longest_protein_wins():
-    t1 = _mock_transcript(100, 500, "TX-001")
-    t2 = _mock_transcript(200, 400, "TX-002")
-    assert best_transcript([t1, t2]).name == "TX-002"
+def test_protein_change_prefers_a_complete_translation_over_a_longer_one(monkeypatch):
+    """A longer partial translation no longer outranks a complete one."""
+    partial = candidate_transcript("ENST02", "XACDM" + "G" * 40, complete=False)
+    complete = candidate_transcript("ENST01", "ACDEM")
+    assert protein_change_transcripts(monkeypatch, partial, complete) == [complete]
 
 
-def test_best_transcript_tiebreak_by_seq_length():
-    t1 = _mock_transcript(100, 500, "TX-001")
-    t2 = _mock_transcript(100, 600, "TX-002")
-    assert best_transcript([t1, t2]).name == "TX-002"
+def test_protein_change_takes_the_longest_of_equally_complete_translations(monkeypatch):
+    short = candidate_transcript("ENST01", "ACDEM")
+    long = candidate_transcript("ENST02", "ACDEM" + "G" * 40)
+    assert protein_change_transcripts(monkeypatch, short, long) == [long]
 
 
-def test_best_transcript_tiebreak_by_name():
-    t1 = _mock_transcript(100, 500, "EGFR-002")
-    t2 = _mock_transcript(100, 500, "EGFR-001")
-    assert best_transcript([t1, t2]).name == "EGFR-001"
+def test_protein_change_breaks_ties_by_transcript_id(monkeypatch):
+    first = candidate_transcript("ENST01", "ACDEM")
+    second = candidate_transcript("ENST02", "ACDEM")
+    assert protein_change_transcripts(monkeypatch, second, first) == [first]
+    assert protein_change_transcripts(monkeypatch, first, second) == [first]
 
 
-def test_best_transcript_single():
-    t = _mock_transcript(100, 500, "TX-001")
-    assert best_transcript([t]).name == "TX-001"
-
-
-def test_best_transcript_empty_raises():
-    with pytest.raises(AssertionError):
-        best_transcript([])
+def test_protein_change_without_a_matching_transcript_yields_no_effect(monkeypatch):
+    """The residue named by the change is not the one the transcript has."""
+    assert protein_change_transcripts(
+        monkeypatch, candidate_transcript("ENST01", "ACDEQ")) == []
 
 
 # ---------------------------------------------------------------------------

@@ -134,9 +134,11 @@ not treated as transcript alternatives merely because all lack a genomic
 variant ([#421](https://github.com/openvax/topiary/issues/421)). Exact duplicate
 fragments still follow the pipeline's normal deduplication.
 
-Where several transcripts match, topiary takes the one with the longest protein
-sequence, breaking ties on transcript length and then name. A change can
-therefore land on a different transcript as the annotation release changes; pass
+Where several transcripts carry the named reference residue, topiary picks
+between them with `representative_transcript`, the same rule the gene sources
+use: complete protein-coding translations first, then standard amino-acid
+sequences, then length, with transcript-ID tie breaking. A change can therefore
+land on a different transcript as the annotation release changes; pass
 `--ensembl-release` to pin it. The chosen transcript is named in the
 `transcript_id` and `transcript_name` columns.
 
@@ -212,6 +214,8 @@ deliberately, use the exclusion-specific options instead of changing source flag
 A gene usually has several Ensembl translations. All gene-derived inputs use
 `best_protein_transcript`: complete protein-coding translations first, then
 standard amino-acid sequences, then length, with transcript-ID tie breaking.
+`--protein-change` applies that same ranking, through the shared
+`representative_transcript`, to the transcripts carrying its reference residue.
 
 By default, Topiary skips protein scan inputs containing `X` (case-insensitive),
 including all their clean windows, and warns with a count and example source

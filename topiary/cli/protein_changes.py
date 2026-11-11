@@ -46,37 +46,11 @@ def genome_from_args(args):
         return ensembl_genome(**source_options(args))
 
 
-def transcript_sort_key(transcript):
-    """
-    Key function used to sort transcripts. Taking the negative of
-    protein sequence length and nucleotide sequence length so that
-    the transcripts with longest sequences come first in the list. This couldn't
-    be accomplished with `reverse=True` since we're also sorting by
-    transcript name (which places TP53-001 before TP53-002).
-    """
-    return (
-        -len(transcript.protein_sequence),
-        -len(transcript.sequence),
-        transcript.name,
-    )
-
-
-def best_transcript(transcripts):
-    """
-    Given a set of coding transcripts, choose the one with the longest
-    protein sequence and in cases of ties use the following tie-breaking
-    criteria:
-        - transcript sequence (including UTRs)
-        - transcript name (so TP53-001 should come before TP53-202)
-    """
-    assert len(transcripts) > 0
-    sorted_list = sorted(transcripts, key=transcript_sort_key)
-    return sorted_list[0]
-
-
 def protein_change_effects_from_args(args):
     from varcode import EffectCollection
     from varcode.effects import Substitution
+
+    from ..sources import representative_transcript
 
     genome = genome_from_args(args)
     valid_gene_names = set(genome.gene_names())
@@ -122,8 +96,10 @@ def protein_change_effects_from_args(args):
                     # transcript
                     continue
                 candidate_transcripts.append(candidate_transcript)
-        if len(candidate_transcripts) > 0:
-            transcript = best_transcript(candidate_transcripts)
+        # The same choice every other antigen source makes, over the
+        # transcripts that carry this change rather than over the whole gene.
+        transcript = representative_transcript(candidate_transcripts)
+        if transcript is not None:
             effects.append(
                 Substitution(
                     variant=None,

@@ -125,7 +125,7 @@ from .properties import (
     add_peptide_properties,
     available_properties,
 )
-from .sources import best_protein_transcript, ensembl_genome
+from .sources import best_protein_transcript, ensembl_genome, representative_transcript
 from .sequence_helpers import (
     check_padding_around_mutation,
     peptide_occurrence_flanks,
@@ -247,10 +247,11 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.112.1"
+__version__ = "5.113.0"
 
 __all__ = [
     "best_protein_transcript",
+    "representative_transcript",
     "ensembl_genome",
     "PROTEIN_SCAN_METADATA_COLUMNS",
     "peptide_occurrence_flanks",
