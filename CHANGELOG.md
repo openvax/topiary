@@ -1,5 +1,16 @@
 # Changelog
 
+## 5.112.1
+
+- Re-pin three osteosarc effect expectations for Varcode 11.11.1, which
+  restored `top_priority_effect`'s transcript-name tie-breakers
+  (openvax/varcode#727). ADCY10, IFT122 and PDZRN4 are now reported on another
+  of their gene's equally ranked transcripts: `p.L1236M` becomes `p.L1328M`,
+  `p.R849H` becomes `p.R648H` and `p.E417V` becomes `p.E677V`. The substituted
+  residue and every RNA observation behind it are unchanged, and the pins for
+  earlier Varcode releases still apply, as a new test asserts from both sides
+  of the release.
+
 ## 5.112.0
 
 - Add `--species` for antigen sequence sources and independent
