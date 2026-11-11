@@ -31,6 +31,20 @@ VARCODE11_COMPARISONS = {
     "SULT6B1-chr2-37171433": ("FrameShift", "p.N209fs", 208, 233),
 }
 
+# Varcode 11.11.1 restored top_priority_effect's transcript-name tie-breakers
+# (openvax/varcode#727): where two effects tie on effect class, biotype,
+# completeness, CDS length, transcript length and exon count, the lower-numbered
+# transcript wins again, where the tie had gone to whichever effect came first.
+# Each of these three variants is now reported on another of its gene's equally
+# ranked transcripts, so the substituted residue keeps its identity and moves
+# position. The RNA evidence -- reads, fragments, filters, status -- is
+# untouched, as the rest of each pinned outcome asserts.
+VARCODE_11_11_1_COMPARISONS = {
+    "ADCY10-chr1-167824546": ("Substitution", "p.L1328M", 1327, 1328),
+    "IFT122-chr3-129502728": ("Substitution", "p.R648H", 647, 648),
+    "PDZRN4-chr12-41572809": ("Substitution", "p.E677V", 676, 677),
+}
+
 
 def records():
     return json.loads((ROOT / "checked-inventory.json").read_text())["variants"]
@@ -64,6 +78,12 @@ def pinned_rna_outcome(variant_id, varcode_version):
         expected.update(predicted_effect_class=kind, predicted_effect=description,
                         predicted_effect_aa_mutation_start_offset=start,
                         predicted_effect_aa_mutation_end_offset=end)
+    if (Version(varcode_version) >= Version("11.11.1")
+            and variant_id in VARCODE_11_11_1_COMPARISONS):
+        kind, description, start, end = VARCODE_11_11_1_COMPARISONS[variant_id]
+        expected.update(predicted_effect_class=kind, predicted_effect=description,
+                        predicted_effect_aa_mutation_start_offset=start,
+                        predicted_effect_aa_mutation_end_offset=end)
     return expected
 
 
@@ -79,6 +99,22 @@ def test_pinned_deletion_vocabularies_preserve_every_other_field(varcode_version
         historical["transcript_ids"] = sorted(historical["transcript_ids"])
         assert {k: v for k, v in expected.items() if k != "predicted_effect"} == {
             k: v for k, v in historical.items() if k != "predicted_effect"}
+
+
+@pytest.mark.parametrize("variant_id", sorted(VARCODE_11_11_1_COMPARISONS))
+def test_restored_tie_breakers_move_only_the_reported_effect(variant_id):
+    """Varcode 11.11.1 renames the position; the RNA observation is the same."""
+    before = pinned_rna_outcome(variant_id, "11.11.0")
+    after = pinned_rna_outcome(variant_id, "11.11.1")
+    kind, description, start, end = VARCODE_11_11_1_COMPARISONS[variant_id]
+    assert after["predicted_effect"] == description != before["predicted_effect"]
+    assert after["predicted_effect_class"] == kind == before["predicted_effect_class"]
+    assert (after["predicted_effect_aa_mutation_start_offset"],
+            after["predicted_effect_aa_mutation_end_offset"]) == (start, end)
+    moved = {"predicted_effect", "predicted_effect_aa_mutation_start_offset",
+             "predicted_effect_aa_mutation_end_offset"}
+    assert {k: v for k, v in before.items() if k not in moved} == {
+        k: v for k, v in after.items() if k not in moved}
 
 
 @pytest.fixture(scope="module")
