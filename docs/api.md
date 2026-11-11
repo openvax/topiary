@@ -724,6 +724,7 @@ MT value.
 | `ensembl_proteome()` | All Ensembl proteins |
 | `available_tissues()` | List of tissue names |
 | `best_protein_transcript(gene)` | Selected transcript, or `None` if no protein is available |
+| `representative_transcript(transcripts)` | The same choice over any candidate transcripts |
 
 Gene-name, gene-ID, CTA and tissue sequence sources choose one representative
 protein per gene through `best_protein_transcript`. It ranks complete
@@ -731,6 +732,13 @@ protein-coding translations first, then sequences containing only standard
 amino acids, then protein length; transcript-ID order breaks ties. Genes without
 a protein sequence are omitted. The function returns the original transcript
 object and is also exported as `topiary.best_protein_transcript`.
+
+`best_protein_transcript(gene)` is that ranking over every transcript a gene
+has. `representative_transcript(transcripts)` is the ranking itself, for a
+narrower set of candidates: `--protein-change` passes it the transcripts whose
+protein carries the named reference residue, so naming a gene and naming a
+change within it reach the same transcript. Both are exported from `topiary`
+and return `None` when no candidate translates.
 
 CTA and tissue wrappers resolve their gene sets and pass them to
 `sequences_from_gene_ids`. They use the same transcript selection, protein

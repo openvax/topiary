@@ -275,6 +275,60 @@ def test_gene_sequence_sources_agree_on_transcript_preference(monkeypatch, compl
     assert [load() for load in GENE_SEQUENCE_SOURCE_TWINS] == [expected] * 4
 
 
+def gene_source_transcript_id(load):
+    """The transcript a gene sequence source chose, out of its "GENE|ID" key."""
+    (key,) = load()
+    return key.split("|")[1]
+
+
+def protein_change_transcript_id():
+    """The transcript --protein-change chose for the same gene."""
+    from topiary.cli.protein_changes import protein_change_effects_from_args
+
+    effects = protein_change_effects_from_args(SimpleNamespace(
+        genome=None, species="human", ensembl_release=None,
+        protein_change=[("GENE", "M5K")]))
+    (effect,) = effects
+    return effect.transcript.id
+
+
+TRANSCRIPT_CHOICE_TWINS = tuple(
+    (name, lambda load=load: gene_source_transcript_id(load))
+    for name, load in zip(("gene-name", "gene-id", "cta", "tissue"),
+                          GENE_SEQUENCE_SOURCE_TWINS)
+) + (("protein-change", protein_change_transcript_id),)
+
+
+@pytest.mark.parametrize("complete_start", [False, True])
+def test_antigen_and_protein_change_doors_choose_the_same_transcript(
+        monkeypatch, complete_start):
+    """Naming a gene and naming a change in it must reach one transcript.
+
+    Both translations carry the M that `M5K` names, so both are candidates
+    for the protein change and the choice is the only thing under test.
+    """
+    short = SimpleNamespace(id="ENST01", name="GENE-001", protein_sequence="ACDEMGHIK",
+                            biotype="protein_coding", complete=complete_start,
+                            is_protein_coding=True, sequence="A" * 27)
+    long = SimpleNamespace(id="ENST02", name="GENE-002",
+                           protein_sequence="ACDEMGHIK" + "G" * 20,
+                           biotype="protein_coding", complete=False,
+                           is_protein_coding=True, sequence="A" * 87)
+    gene = SimpleNamespace(id="GENE_ID", gene_id="GENE_ID", name="GENE",
+                           gene_name="GENE", transcripts=[long, short])
+    for transcript in gene.transcripts:
+        transcript.gene = gene
+    genome = SimpleNamespace(genes_by_name=lambda name: [gene],
+                             gene_by_id=lambda ident: gene,
+                             gene_names=lambda: {"GENE"})
+    monkeypatch.setattr(sources, "ensembl_genome", lambda *args, **kwargs: genome)
+    monkeypatch.setattr(sources, "cta_gene_ids", lambda: {gene.id})
+    monkeypatch.setattr(sources, "tissue_expressed_gene_ids", lambda *a, **k: {gene.id})
+
+    chosen = short if complete_start else long
+    assert [door() for _, door in TRANSCRIPT_CHOICE_TWINS] == [chosen.id] * 5
+
+
 def protein_inputs_through_model(model, sequences):
     return from_predictions(model.predict_proteins_dataframe(sequences))
 

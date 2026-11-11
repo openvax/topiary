@@ -350,31 +350,35 @@ def available_tissues():
 
 
 # ---------------------------------------------------------------------------
-# Internals
+# Transcript selection
 # ---------------------------------------------------------------------------
 
 
-def best_protein_transcript(gene):
-    """The transcript whose translation stands for a gene's protein.
+def representative_transcript(transcripts):
+    """The transcript whose translation stands for a protein.
 
-    Ensembl can provide several translations for a gene. For IZUMO2,
-    C16orf90 and LLCFC1, choosing only by length selected incomplete-start
-    alternatives beginning with ``X`` and caused MHCflurry to reject the
-    CTA input (#573). This shared choice applies to every gene source.
+    Ensembl can provide several translations of the same protein. For
+    IZUMO2, C16orf90 and LLCFC1, choosing only by length selected
+    incomplete-start alternatives beginning with ``X`` and caused MHCflurry
+    to reject the CTA input (#573). This is topiary's one answer to "which
+    translation?", shared by every gene source and by ``--protein-change``.
 
     Parameters
     ----------
-    gene : pyensembl.Gene
-        The gene whose protein is wanted.
+    transcripts : iterable of pyensembl.Transcript
+        The candidates to choose between: a gene's transcripts, or the
+        subset of them that carries some further feature, such as the
+        reference residue a protein change names. Candidates without a
+        protein sequence are ignored.
 
     Returns
     -------
     pyensembl.Transcript or None
         The best transcript by, in order: a complete protein-coding
-        translation first, then one using only the standard amino-acid alphabet,
-        then the longest. Ties go to the lowest transcript ID, so the
-        same release always gives the same answer. ``None`` when the gene
-        translates no transcript at all.
+        translation first, then one using only the standard amino-acid
+        alphabet, then the longest. Ties go to the lowest transcript ID, so
+        the same release always gives the same answer. ``None`` when no
+        candidate translates.
 
     Notes
     -----
@@ -396,8 +400,33 @@ def best_protein_transcript(gene):
     # Sorted by ID, so the first of several equally good transcripts — which
     # is the one max() returns — is the same on every run.
     translated = sorted(
-        (t for t in gene.transcripts if t.protein_sequence), key=lambda t: t.id)
+        (t for t in transcripts if t.protein_sequence), key=lambda t: t.id)
     return max(translated, key=rank) if translated else None
+
+
+def best_protein_transcript(gene):
+    """The transcript whose translation stands for a gene's protein.
+
+    The gene-wide question, answered by :func:`representative_transcript`
+    over every transcript the gene has.
+
+    Parameters
+    ----------
+    gene : pyensembl.Gene
+        The gene whose protein is wanted.
+
+    Returns
+    -------
+    pyensembl.Transcript or None
+        The chosen transcript, or ``None`` when the gene translates no
+        transcript at all.
+    """
+    return representative_transcript(gene.transcripts)
+
+
+# ---------------------------------------------------------------------------
+# Internals
+# ---------------------------------------------------------------------------
 
 
 def _sequences_for_genes(genome, identifiers, by="name"):
