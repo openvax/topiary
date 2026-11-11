@@ -177,7 +177,7 @@ def build(root):
             raise ValueError("BAM is not the expected GRCh38 reference")
         for row in variants.itertuples(index=False):
             variant = Variant(row.chromosome_name, int(row.vcf_pos), row.reference,
-                              row.variant, ensembl=87, convert_ucsc_contig_names=True)
+                              row.variant, genome=87, convert_ucsc_contig_names=True)
             # Coordinate-level collection requires no gene annotation download.
             # Use the public trimming, collection and classification functions;
             # expression/gene identity comes from the source table, not Ensembl 87.

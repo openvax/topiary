@@ -1135,7 +1135,7 @@ def test_real_repeated_isovar_translations_survive_import_and_reload(tmp_path, i
         names = [read.query_name for read in bam]
     assert (len(names), len(set(names))) == (manifest["records"], manifest["templates"])
     genome = reference_genome(sid_data_root("osteosarc_all_variants"), tmp_path / "reference")
-    variant = Variant("MT", 12994, "G", "A", ensembl=genome)
+    variant = Variant("MT", 12994, "G", "A", genome=genome)
     with pysam.AlignmentFile(reads) as bam:
         upstream, = isovar.run_isovar(
             [variant], bam, read_collector=isovar.ReadCollector(**POLICY),

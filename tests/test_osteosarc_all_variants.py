@@ -193,9 +193,9 @@ def test_the_translation_oracle_places_edits_by_varcodes_convention(strand, exon
     def at(position):
         return transcript_offset(exons, strand, position)
 
-    insertion = Variant("1", 104, "G", "GTT", ensembl=None)
-    substitution = Variant("1", 104, "G", "T", ensembl=None)
-    deletion = Variant("1", 103, "GAC", "G", ensembl=None)
+    insertion = Variant("1", 104, "G", "GTT", genome=None)
+    substitution = Variant("1", 104, "G", "T", genome=None)
+    deletion = Variant("1", 103, "GAC", "G", genome=None)
 
     assert edit_offset(exons, strand, insertion) == max(at(104), at(105))
     assert edit_offset(exons, strand, substitution) == at(104)

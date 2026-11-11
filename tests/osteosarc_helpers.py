@@ -136,7 +136,7 @@ def load_osteosarc(directory, dataset="osteosarc"):
     variants = {
         record["gene"]: Variant(
             record["chrom"].removeprefix("chr"), int(record["pos"]),
-            record["ref"], record["alt"], ensembl=genome,
+            record["ref"], record["alt"], genome=genome,
         ) for record in selection["variants"]
     }
     bams = {}
