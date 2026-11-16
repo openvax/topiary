@@ -166,6 +166,10 @@ Every pull request bumps `__version__` in `topiary/__init__.py` and adds a
 [RELEASING.md](https://github.com/openvax/topiary/blob/master/RELEASING.md)
 describes the release steps.
 
+The development installer uses `python` from the active environment. Set
+`PYTHON=/path/to/python ./develop.sh` to select an interpreter explicitly;
+additional arguments are passed to pip.
+
 ## License
 
 Apache License 2.0. See [LICENSE](https://github.com/openvax/topiary/blob/master/LICENSE).
