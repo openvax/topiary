@@ -2,6 +2,10 @@
 
 ## 5.113.2
 
+- Replace the obsolete Vaxrank migration-source pin with the published 3.56.1
+  consumer. Its integration fixture now supplies explicit target intervals
+  and synthetic antigen admission through the current table contract.
+
 - Document cutoff OR/AND behavior, explicit-filter precedence, protein CSV
   input, variant padding, allele files and inherited tool options. Use the
   current peptide-length flag in the CLI guide (#609).

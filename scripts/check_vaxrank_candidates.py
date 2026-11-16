@@ -252,7 +252,7 @@ def test_occurrence_policy_matches_vaxrank_sources_windows_constructs_and_native
         SelectionCriterion, evaluate_selection_policy, replay_selection_policy,
         read_lens, read_pvacseq,
     )
-    from vaxrank.epitope_dataset import EpitopeDataset
+    from vaxrank.epitope_dataset import ANTIGEN_COLUMN, EpitopeDataset
     from vaxrank.epitope_dsl import (
         default_score_expr, genotype_lookup, score_predictions,
         prediction_group_columns, resolve_default_methods, resolve_default_versions,
@@ -274,6 +274,20 @@ def test_occurrence_policy_matches_vaxrank_sources_windows_constructs_and_native
                              only_novel_epitopes=True).predict_from_fragments([fragment])
     # Carry the original translated context alongside the measurement table.
     direct["source_sequence"] = fragment.sequence
+    # The table adapter intentionally does not infer targetability or antigen
+    # admission. Supply this synthetic consumer fixture's explicit intervals
+    # and test-only admission, rather than treating all imported rows as targets.
+    fixture_antigen = VaccineAntigen(
+        kind="mutation", amino_acids=fragment.sequence,
+        targetable_mask=TargetableMask(tuple(
+            AminoAcidInterval(start, end) for start, end in fragment.target_intervals)),
+        tumor_specificity=TumorSpecificityAttestation(
+            status="admitted", evidence_kind="synthetic_fixture",
+            evidence_source="check_vaxrank_candidates", patient_specific=True,
+            rationale_code="test_only",
+        ),
+    )
+    direct[ANTIGEN_COLUMN] = to_native_json(fixture_antigen)
     combined = combine_sources({
         "direct": TopiaryResult(direct),
         "normalized": source(),
