@@ -1,5 +1,11 @@
 # Changelog
 
+## 5.113.2
+
+- Document cutoff OR/AND behavior, explicit-filter precedence, protein CSV
+  input, variant padding, allele files and inherited tool options. Use the
+  current peptide-length flag in the CLI guide (#609).
+
 ## 5.113.1
 
 - The tests and the `scripts/osteosarc_rna_overlay.py` and
