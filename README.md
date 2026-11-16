@@ -152,7 +152,7 @@ with fresh predictions in one ranking.
 ## Development
 
 ```bash
-./develop.sh                          # editable install (uses uv)
+./develop.sh                          # editable install with the selected Python
 pip install -r requirements-dev.txt   # lint, test and docs tools
 ./lint.sh
 ./test.sh                             # full suite: needs Ensembl data and predictors
@@ -165,6 +165,10 @@ Every pull request bumps `__version__` in `topiary/__init__.py` and adds a
 [CHANGELOG](https://github.com/openvax/topiary/blob/master/CHANGELOG.md) entry;
 [RELEASING.md](https://github.com/openvax/topiary/blob/master/RELEASING.md)
 describes the release steps.
+
+The development installer uses `python` from the active environment. Set
+`PYTHON=/path/to/python ./develop.sh` to select an interpreter explicitly;
+additional arguments are passed to pip.
 
 ## License
 

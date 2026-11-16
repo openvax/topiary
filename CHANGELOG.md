@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.113.3
+
+- Make the development installer directly executable, select its interpreter
+  with `PYTHON` (default `python`), and forward pip arguments.
+
 ## 5.113.2
 
 - Replace the obsolete Vaxrank migration-source pin with the published 3.56.1

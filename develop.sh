@@ -1,3 +1,4 @@
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-uv pip install -e .
+"${PYTHON:-python}" -m pip install -e "." "$@"
