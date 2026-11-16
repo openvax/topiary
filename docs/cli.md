@@ -45,8 +45,10 @@ and bash under `failglob`) reject the command before topiary sees it.
 The historical `*-iedb` names run installed tools locally and have no HTTP
 fallback. See [MHCTools' compatibility-wrapper requirements](https://openvax.github.io/mhctools/predictors/binding/#compatibility-names-for-the-old-iedb-predictors).
 
+Alternatively, use `--mhc-alleles-file alleles.txt` with one allele per line.
+
 Peptide lengths for sliding-window scans come from the predictor unless you set
-them: `--mhc-epitope-lengths 8,9,10,11`.
+them: `--mhc-peptide-lengths 8,9,10,11`.
 
 ## Input modes
 
@@ -73,6 +75,9 @@ topiary \
   --output-csv results.csv
 ```
 
+`--sequence-csv proteins.csv` accepts a `sequence` column and an optional
+`name` column, with the same sliding-window behavior as `--fasta`.
+
 Restrict the scan to parts of each sequence with `--regions NAME:START-END`
 (0-indexed, half-open):
 
@@ -95,7 +100,8 @@ topiary \
 
 `--maf`, `--variant` and `--json-variants` take the same pipeline from other
 variant formats. [RNA expression](expression.md) can annotate and filter these
-rows.
+rows. Use `--padding-around-mutation N` to include N extra amino acids on
+each side of a mutation; by default padding follows the selected peptide lengths.
 
 ### A protein change with no genomic coordinate
 
@@ -269,7 +275,13 @@ topiary \
 ```
 
 `--ic50-cutoff`, `--percentile-cutoff` and `--presentation-cutoff` are shorthand
-for the common single-threshold filters. For variant runs, `--predict-wt` scores
+for the common single-threshold filters. Multiple cutoffs combine with OR by
+default (`--filter-logic any`): `--ic50-cutoff 500 --percentile-cutoff 2` keeps
+a prediction passing either cutoff. Add `--filter-logic all` to require every
+cutoff. An explicit `--filter-by` expression replaces the cutoff shorthands;
+its own Boolean operators determine the filter.
+
+For variant runs, `--predict-wt` scores
 each wildtype peptide too, which is what `wt.*` reads:
 
 ```bash
@@ -375,6 +387,20 @@ its type.
 Output paths, `--mhc-predictor-path` and the inputs are checked before any
 predictor is loaded, so these fail in the first second rather than after the
 run.
+
+## Options supplied by the underlying tools
+
+Topiary also accepts options from
+[Varcode](https://openvax.github.io/varcode/) and
+[MHCTools](https://openvax.github.io/mhctools/):
+
+- `--genome-fasta PATH` supplies the reference genome FASTA for variant inputs.
+- `--include-filtered` includes VCF records marked as filtered.
+- `--download-reference-genome-data` permits downloading missing reference data.
+- `--mhc-predictor-models-path PATH` selects the predictor model directory.
+- `--mixmhcpred-python PATH` selects the Python interpreter for MixMHCpred.
+
+Run `topiary --help` for defaults and the complete list of accepted options.
 
 ## Installation details
 

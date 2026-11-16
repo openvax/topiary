@@ -36,9 +36,9 @@ jobs:
           python-version: "3.12"
       - name: Install the coordinated downstream consumer
         run: |
-          # Exact Vaxrank 3.49 migration commit: older published consumers cap
-          # Varcode below 11. Install both candidates with normal resolution.
-          bash scripts/pip_install.sh pytest 'vaxrank @ git+https://github.com/openvax/vaxrank.git@b5c1c9b8348072b005283f5e78096fed1e570300' -e .
+          # Exercise the published consumer with normal dependency resolution.
+          # 3.56.1 uses Variant.genome instead of the deprecated ensembl alias.
+          bash scripts/pip_install.sh pytest 'vaxrank==3.56.1' -e .
           python -m pip check
       - name: Verify table features through DSL scoring and vaccine construction
         run: python -m pytest scripts/check_vaxrank_candidates.py -q

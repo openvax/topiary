@@ -85,27 +85,22 @@ tests or suppress their errors.
 
 ## Downstream verification
 
-CI runs the real Vaxrank candidate scoring and vaccine-construction workflow.
-During the coordinated Topiary 5.109 / Vaxrank 3.49 migration it installs the
-exact Vaxrank migration commit: the previous published consumer caps Varcode
-below 11. Use a separate consumer environment to repeat that check locally:
+CI runs the real Vaxrank candidate scoring and vaccine-construction workflow
+with the published Vaxrank 3.56.1 consumer. Use a separate consumer environment
+to repeat that check locally:
 
 ```bash
 "$PYTHON" -m venv .venv/vaxrank-consumer
 VAXRANK_PYTHON="$PWD/.venv/vaxrank-consumer/bin/python"
-"$VAXRANK_PYTHON" -m pip install pytest 'vaxrank @ git+https://github.com/openvax/vaxrank.git@b5c1c9b8348072b005283f5e78096fed1e570300' -e .
+"$VAXRANK_PYTHON" -m pip install pytest 'vaxrank==3.56.1' -e .
 "$VAXRANK_PYTHON" -m pip check
 "$VAXRANK_PYTHON" -m pytest scripts/check_vaxrank_candidates.py -q
 ```
 
 The separate consumer environment keeps this check independent of the release
-environment's core integrations. Varcode 11.1 and Isovar 1.78 must already be
-published; installation uses normal dependency resolution.
-
-After Vaxrank 3.49 publishes, replace the source pin with its published version
-in CI and this example ([Topiary #567](https://github.com/openvax/topiary/issues/567)).
-Do not leave temporary migration-source pins after the corresponding release
-is published.
+environment's core integrations. Installation uses normal dependency resolution.
+Update this published consumer pin when validating a newer Vaxrank release;
+do not restore a temporary source-migration pin after its release is published.
 
 CI also installs the normal wheel without extras and runs RNA assembly,
 reference/CTA inputs, Weirdo ranking and typed cache replay outside the source
