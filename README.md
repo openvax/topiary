@@ -152,7 +152,7 @@ with fresh predictions in one ranking.
 ## Development
 
 ```bash
-./develop.sh                          # editable install (uses uv)
+./develop.sh                          # editable install with the selected Python
 pip install -r requirements-dev.txt   # lint, test and docs tools
 ./lint.sh
 ./test.sh                             # full suite: needs Ensembl data and predictors
