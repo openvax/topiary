@@ -44,18 +44,6 @@ def add_filter_args(arg_parser):
     )
 
     filter_group.add_argument(
-        "--wildtype-ligandome-directory",
-        help="".join(
-            [
-                "Directory of 'self' ligand peptide sets, in files named ",
-                "by allele (e.g. 'A0201'). Any predicted mutant epitope which ",
-                "is in the files associated with the given alleles is treated as ",
-                "wildtype (non-mutated).",
-            ]
-        ),
-    )
-
-    filter_group.add_argument(
         "--presentation-cutoff",
         help=(
             "Drop epitopes with presentation (EL) percentile rank above "

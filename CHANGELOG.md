@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.113.4
+
+- Remove the ignored `--wildtype-ligandome-directory` option (#613).
+  Passing it now fails with an argument error before predictor setup.
+  Use `--exclude-fasta`, `--exclude-ensembl`, `--exclude-non-cta`, or
+  `--exclude-tissues` for supported self-sequence exclusion.
+
 ## 5.113.3
 
 - Make the development installer directly executable, select its interpreter
