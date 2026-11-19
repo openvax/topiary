@@ -71,7 +71,9 @@ both lowercased:
 | `--gene-expression gene_tpm:quant.sf:Name:TPM` | Salmon | `TPM` | `gene_tpm_tpm` |
 
 The name is a prefix, not the finished column name: to filter on `gene_tpm`,
-name the source `gene` (or leave the name out), not `gene_tpm`.
+name the source `gene` (or leave the name out), not `gene_tpm`. A column that
+already starts with the name is not prefixed again, and repeating an option
+numbers the default names (`gene_1`, `gene_2`).
 
 ### Transcript selection
 

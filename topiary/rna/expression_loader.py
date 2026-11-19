@@ -255,6 +255,7 @@ def parse_expression_spec(spec):
     The name is a column *prefix*: joined values land in
     ``{name}_{column}`` (lower case), so ``gene:file.tsv:Name:TPM`` adds
     ``gene_tpm`` while ``gene_tpm:file.tsv:Name:TPM`` adds ``gene_tpm_tpm``.
+    A column that already starts with the name is not prefixed again.
 
     Returns (name, filepath, id_col, val_cols).
     """

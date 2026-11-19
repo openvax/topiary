@@ -9,6 +9,7 @@ from mhctools import Kind
 from .nodes import (
     stated_values,
     ALLELE_SET_COLUMN,
+    _CONTEXT_KEYWORDS,
     BestAlleleField,
     Column,
     EvalContext,
@@ -187,20 +188,20 @@ def _keep_allele_free_evidence(ctx, node, mask):
 
 
 #: Output columns whose meaning is lower-is-better whichever prediction kind
-#: the row holds: an IC50 in nM, or a percentile rank.  ``--sort-direction
-#: auto`` sorts a bare reference to one of them ascending, like the DSL keys
-#: that read the same numbers (``affinity``, ``affinity.rank``), so
+#: the row holds: a percentile rank in any peptide scope (``percentile_rank``,
+#: ``wt_percentile_rank``, ``self_nearest_percentile_rank``, ...) or an IC50
+#: in nM (``affinity``, ``wt_affinity``).  Under ``sort_direction="auto"`` a
+#: bare column reference to one of them sorts ascending, like the DSL field
+#: that reads the same column (``affinity.rank``, ``wt.affinity.rank``), so
 #: ``--sort-by percentile_rank`` puts the strongest binder first (#572).
-#: ``value`` is deliberately absent: it is an IC50 on affinity rows and a
-#: higher-is-better score on others, so its direction can't be read off the
-#: column name.
-LOWER_IS_BETTER_COLUMNS = frozenset({
-    "affinity",
-    "percentile_rank",
-    "wt_affinity",
-    "wt_percentile_rank",
-    "self_nearest_percentile_rank",
-})
+#: The rank columns are derived from the scope keywords so a new scope can't
+#: be left out.  ``value`` is deliberately absent: it is an IC50 on affinity
+#: rows and a higher-is-better score on others, so its direction can't be
+#: read off the column name.
+LOWER_IS_BETTER_COLUMNS = frozenset(
+    {"percentile_rank", "affinity", "wt_affinity"}
+    | {f"{scope}_percentile_rank" for scope in _CONTEXT_KEYWORDS}
+)
 
 
 def _infer_sort_direction(node):

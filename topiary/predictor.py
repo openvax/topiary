@@ -847,7 +847,9 @@ class TopiaryPredictor(object):
 
         sort_direction : "auto", "asc", or "desc"
             Direction for every sort key; "auto" infers per-key
-            (asc for percentile_rank and raw affinity, desc otherwise).
+            (asc for percentile_rank and raw affinity, whether named by
+            a DSL field or by a bare column in
+            :data:`topiary.LOWER_IS_BETTER_COLUMNS`; desc otherwise).
 
         default_methods : dict, optional
             Per-kind default ``prediction_method_name``, forwarded to
