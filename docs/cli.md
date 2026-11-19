@@ -400,7 +400,8 @@ Topiary also accepts options from
 - `--mhc-predictor-models-path PATH` selects the predictor model directory.
 - `--mixmhcpred-python PATH` selects the Python interpreter for MixMHCpred.
 
-Run `topiary --help` for defaults and the complete list of accepted options.
+Run `topiary --help` for defaults and the complete list of accepted options,
+and `topiary --version` to print the installed version.
 
 ## Installation details
 

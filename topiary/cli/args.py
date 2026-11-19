@@ -21,6 +21,7 @@ import pandas as pd
 from mhctools.cli import add_mhc_args, predictors_from_args
 from varcode.cli import add_variant_args, variant_collection_from_args
 
+from .. import __version__
 from .cached_predictor import (
     add_cached_predictor_args,
     cached_predictor_from_args,
@@ -284,6 +285,12 @@ def create_arg_parser(
             "Run 'topiary --help' to see all options."
         ),
         formatter_class=RawDescriptionHelpFormatter,
+    )
+    arg_parser.add_argument(
+        "--version",
+        action="version",
+        version=f"topiary {__version__}",
+        help="Print the installed Topiary version and exit",
     )
     if expression:
         add_expression_args(arg_parser)

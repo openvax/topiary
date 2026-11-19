@@ -243,3 +243,18 @@ def test_rna_transcript_expression_cufflinks_deprecation(
     assert caplog.messages == [
         f"{named} is deprecated; use {replacement} instead."
     ]
+
+
+# ---------------------------------------------------------------------------
+# --version (#574)
+# ---------------------------------------------------------------------------
+
+
+def test_version_flag_prints_installed_version_and_exits(capsys):
+    import topiary
+    from topiary.cli.script import main
+
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--version"])
+    assert exit_info.value.code == 0
+    assert capsys.readouterr().out.strip() == f"topiary {topiary.__version__}"

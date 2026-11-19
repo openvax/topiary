@@ -1,5 +1,28 @@
 # Changelog
 
+## 5.114.0
+
+- `topiary --version` prints the installed version and exits (part of #574).
+
+- `--sort-by percentile_rank` now puts the strongest binder first under the
+  default `--sort-direction auto` (#572). `auto` already sorted the DSL keys
+  `affinity` and `affinity.rank` ascending, as its help says, but a bare
+  reference to the lower-is-better output columns (`percentile_rank`,
+  `affinity`, `wt_percentile_rank`, `wt_affinity`,
+  `self_nearest_percentile_rank`) fell through to "everything else" and
+  sorted worst-first. The set is public as
+  `topiary.ranking.LOWER_IS_BETTER_COLUMNS`. `apply_sort(...,
+  sort_direction="auto")` with `Column("percentile_rank")` changes the same
+  way; an explicit `asc` or `desc` is unaffected, and `value` still sorts
+  descending because its direction depends on the prediction kind.
+
+- The `--gene-expression` help example now yields the `gene_tpm` column that
+  the `--filter-by` examples use (#571). The leading name is a column prefix,
+  so the old example `gene_tpm:quant.sf:Name:TPM` produced `gene_tpm_tpm`;
+  the help, the expression guide and `parse_expression_spec` now show
+  `gene:quant.sf:Name:TPM` and state the `{name}_{column}` rule. Column
+  naming itself is unchanged.
+
 ## 5.113.6
 
 Fixes #622.
