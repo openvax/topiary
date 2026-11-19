@@ -9,10 +9,9 @@ import re
 
 import numpy as np
 import pandas as pd
-from .alleles import canonical_allele_name
+from .alleles import _canonical_allele_or_missing, derive_mhc_class
 from mhctools.pred import value_unit
 
-from .io_pvacseq import derive_mhc_class
 from .peptide_occurrences import predict_peptide_occurrences
 from .ranking import (
     apply_filter, as_dsl_node, evaluate_scores, format_allele_set, is_stated,
@@ -60,10 +59,6 @@ def _identity(values):
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
-def _allele(value):
-    return canonical_allele_name(value) if is_stated(value) else ""
-
-
 def candidate_identifier(sample, peptide, allele):
     """Return the stable sample/peptide/canonical-MHC candidate identity.
 
@@ -80,7 +75,7 @@ def candidate_identifier(sample, peptide, allele):
         The identity used by combine_sources and projected policy groups.
         Alleles are canonicalized through mhcgnomes.
     """
-    allele = _allele(allele)
+    allele = _canonical_allele_or_missing(allele, missing="")
     if not allele or not is_stated(peptide):
         return None
     if not is_stated(sample):
@@ -164,7 +159,9 @@ def combine_sources(sources, *, sample_name=None):
         frame["source_label"] = label
         frame["source_row"] = np.arange(len(frame))
         frame["candidate_sample"] = samples
-        frame["candidate_allele"] = frame.allele.map(_allele)
+        frame["candidate_allele"] = frame.allele.map(
+            lambda value: _canonical_allele_or_missing(value, missing="")
+        )
         frame["candidate_mhc_class"] = derive_mhc_class(frame.candidate_allele)
         frame["protein_sequence_id"] = proteins.map(lambda s: _identity([s]) if is_stated(s) else None)
         for column, source_column in SOURCE_PREDICTION_COLUMNS.items():
@@ -517,7 +514,7 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
                     actual = format_allele_set(split_allele_set(prediction.get("allele_set"))) if historical else format_allele_set(getattr(model, "alleles", []))
                     if not genotype or genotype != actual:
                         raise ValueError("Haplotype re-scoring requires allele_set matching the configured model")
-                elif dependence != "none" and _allele(prediction.get("allele")) != row.candidate_allele:
+                elif dependence != "none" and _canonical_allele_or_missing(prediction.get("allele"), missing="") != row.candidate_allele:
                     continue
                 matched_kinds.add(kind)
                 add_prediction(prediction, dependence, model, historical,

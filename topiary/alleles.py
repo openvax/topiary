@@ -439,3 +439,119 @@ def canonical_allele_names_or_raw(values, species=None):
                 names[value] = value
         result.append(names[value])
     return result
+
+
+def _canonical_allele_or_missing(value, *, missing=None, species=None):
+    """Canonicalize a stated allele or return *missing* when absent."""
+    # Imported here because topiary.ranking.nodes imports this module.
+    from .ranking.nodes import is_stated
+
+    if pd.api.types.is_scalar(value) and not is_stated(value):
+        return missing
+    return canonical_allele_name(value, species=species)
+
+
+def _is_only_null_allele_rejection(parsed):
+    """Whether *parsed* is a valid allele identity rejected solely for a null chain."""
+    if not isinstance(parsed, ALLELE_RESULT_TYPES):
+        return False
+    if isinstance(parsed, mhcgnomes.Pair) and not (
+            isinstance(parsed.alpha, mhcgnomes.Allele)
+            and isinstance(parsed.beta, mhcgnomes.Allele)
+            and parsed.alpha.species == parsed.beta.species
+            and parsed.alpha.is_class2_alpha and parsed.beta.is_class2_beta):
+        return False
+    chains = allele_chains(parsed)
+    return (
+        any(chain.annotation_null for chain in chains)
+        and not any(
+            chain.is_allele_group or set(chain.annotations).intersection({"G", "P"})
+            for chain in chains
+        )
+    )
+
+
+def _normalize_allele_name_or_raw(value):
+    """Canonicalize an allele name, keeping unparseable raw spellings like mhctools CLI.
+
+    Valid specific alleles canonicalize through :func:`canonical_allele_name`.
+    Strings that mhcgnomes cannot parse fall back to
+    ``str(value).strip().replace("*", "")``, matching
+    ``mhctools.cli.mhc_alleles_from_args``. Parsed non-alleles (allele groups,
+    G/P typings, genes, serotypes, invalid pairs) still raise
+    :class:`AlleleError`. Null-annotated alleles that otherwise form a valid
+    allele identity keep their canonical spelling so unrequested null-allele
+    rows in a shared cache do not block lookups for requested alleles.
+    """
+    stripped = str(value).strip()
+    try:
+        return canonical_allele_name(stripped)
+    except AlleleError as error:
+        if isinstance(error.__cause__, mhcgnomes.ParseError):
+            return stripped.replace("*", "")
+        if error.parsed is not None and _is_only_null_allele_rejection(error.parsed):
+            return error.parsed.to_string()
+        raise
+
+
+def _class_of_allele(allele):
+    """Return ``"I"`` / ``"II"`` for an allele string, else ``pd.NA``.
+
+    Parsed with mhcgnomes rather than matched on a name prefix.  The
+    prefix test read ``HLA-A/B/C`` as class I and ``HLA-D*`` as class
+    II, which left every other real allele unclassified: the
+    non-classical human class I genes (``HLA-E``, ``-F``, ``-G``) and
+    all non-human MHC (mouse ``H2-Kb``, ``BoLA``, ``Mamu``, ``SLA``).
+    Unclassified is not a harmless answer — ``pd.NA`` drops a row from
+    the ``class_i`` *and* ``class_ii`` filters alike, so the peptide
+    simply isn't there.
+
+    The class comes from mhcgnomes' own ``is_class1`` / ``is_class2``
+    predicates rather than from reading its ``mhc_class`` label, which
+    distinguishes ``Ia`` / ``Ib`` / ``IIa`` / ``IIb``.  Collapsing those
+    to ``I`` / ``II`` by string prefix would be the same kind of guess
+    this function exists to stop making — one layer up.
+    """
+    if not isinstance(allele, str) or not allele.strip():
+        return pd.NA
+    try:
+        parsed = mhcgnomes.parse(allele)
+    except Exception:  # noqa: BLE001 — mhcgnomes raises many types
+        return pd.NA
+    if not getattr(parsed, "has_mhc_class", False):
+        # Parsed as something without a class of its own — a bare
+        # species, say.
+        return pd.NA
+    if parsed.is_class1:
+        return "I"
+    if parsed.is_class2:
+        return "II"
+    return pd.NA
+
+
+def derive_mhc_class(allele_series: pd.Series) -> pd.Series:
+    """Map an allele Series to its MHC class (``"I"`` / ``"II"`` / NA).
+
+    Useful for stamping the ``mhc_class`` column on a DataFrame that
+    doesn't already have it (e.g. a fresh ``TopiaryPredictor`` result),
+    so the :data:`topiary.class_i` / :data:`topiary.class_ii` filters
+    work without rooting through ``Metadata.kind_support``.
+
+    Parameters
+    ----------
+    allele_series : pandas.Series
+        Allele strings (mhcgnomes-normalized or raw).
+
+    Returns
+    -------
+    pandas.Series
+        Same index as the input.  Class I (including the non-classical
+        ``HLA-E`` / ``-F`` / ``-G`` and non-human MHC) → ``"I"``; class
+        II → ``"II"``; anything mhcgnomes can't place → ``pd.NA``.
+    """
+    if allele_series.empty:
+        return allele_series.map(_class_of_allele)
+    # Alleles repeat heavily; parse each distinct one once.
+    unique = pd.Series(allele_series.dropna().unique())
+    resolved = dict(zip(unique, unique.map(_class_of_allele)))
+    return allele_series.map(lambda a: resolved.get(a, pd.NA))

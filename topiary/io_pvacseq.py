@@ -63,7 +63,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .alleles import canonical_allele_names_or_raw
+from .alleles import _class_of_allele, canonical_allele_names_or_raw, derive_mhc_class
 from .ranking import stated_values
 from .report_geometry import mutation_intervals_from_positions
 from .evidence import (
@@ -425,71 +425,6 @@ def _coords_variant_id(df: pd.DataFrame) -> pd.Series:
             UserWarning, stacklevel=3,
         )
     return ids
-
-
-def _class_of_allele(allele):
-    """Return ``"I"`` / ``"II"`` for an allele string, else ``pd.NA``.
-
-    Parsed with mhcgnomes rather than matched on a name prefix.  The
-    prefix test read ``HLA-A/B/C`` as class I and ``HLA-D*`` as class
-    II, which left every other real allele unclassified: the
-    non-classical human class I genes (``HLA-E``, ``-F``, ``-G``) and
-    all non-human MHC (mouse ``H2-Kb``, ``BoLA``, ``Mamu``, ``SLA``).
-    Unclassified is not a harmless answer — ``pd.NA`` drops a row from
-    the ``class_i`` *and* ``class_ii`` filters alike, so the peptide
-    simply isn't there.
-
-    The class comes from mhcgnomes' own ``is_class1`` / ``is_class2``
-    predicates rather than from reading its ``mhc_class`` label, which
-    distinguishes ``Ia`` / ``Ib`` / ``IIa`` / ``IIb``.  Collapsing those
-    to ``I`` / ``II`` by string prefix would be the same kind of guess
-    this function exists to stop making — one layer up.
-    """
-    if not isinstance(allele, str) or not allele.strip():
-        return pd.NA
-    import mhcgnomes
-
-    try:
-        parsed = mhcgnomes.parse(allele)
-    except Exception:  # noqa: BLE001 — mhcgnomes raises many types
-        return pd.NA
-    if not getattr(parsed, "has_mhc_class", False):
-        # Parsed as something without a class of its own — a bare
-        # species, say.
-        return pd.NA
-    if parsed.is_class1:
-        return "I"
-    if parsed.is_class2:
-        return "II"
-    return pd.NA
-
-
-def derive_mhc_class(allele_series: pd.Series) -> pd.Series:
-    """Map an allele Series to its MHC class (``"I"`` / ``"II"`` / NA).
-
-    Useful for stamping the ``mhc_class`` column on a DataFrame that
-    doesn't already have it (e.g. a fresh ``TopiaryPredictor`` result),
-    so the :data:`topiary.class_i` / :data:`topiary.class_ii` filters
-    work without rooting through ``Metadata.kind_support``.
-
-    Parameters
-    ----------
-    allele_series : pandas.Series
-        Allele strings (mhcgnomes-normalized or raw).
-
-    Returns
-    -------
-    pandas.Series
-        Same index as the input.  Class I (including the non-classical
-        ``HLA-E`` / ``-F`` / ``-G`` and non-human MHC) → ``"I"``; class
-        II → ``"II"``; anything mhcgnomes can't place → ``pd.NA``.
-    """
-    if allele_series.empty:
-        return allele_series.map(_class_of_allele)
-    # Alleles repeat heavily; parse each distinct one once.
-    unique = pd.Series(allele_series.dropna().unique())
-    resolved = dict(zip(unique, unique.map(_class_of_allele)))
-    return allele_series.map(lambda a: resolved.get(a, pd.NA))
 
 
 def _summarize_mhc_class(allele_series):

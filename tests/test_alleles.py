@@ -346,8 +346,38 @@ def test_lenient_and_strict_agree(value):
 def test_the_api_is_exported_from_the_package():
     names = {
         "AlleleError", "allele_expression_caveats", "allele_rejection_reason",
-        "canonical_allele_name", "canonical_allele_names_or_raw", "parse_allele", "resolve_old_allele_name",
+        "canonical_allele_name", "canonical_allele_names_or_raw", "derive_mhc_class",
+        "parse_allele", "resolve_old_allele_name",
     }
     assert names <= set(topiary.__all__)
     for name in names:
         assert getattr(topiary, name) is getattr(topiary.alleles, name)
+
+
+def test_derive_mhc_class_reexported_from_io_pvacseq():
+    from topiary import io_pvacseq
+
+    assert io_pvacseq.derive_mhc_class is topiary.alleles.derive_mhc_class
+
+
+@pytest.mark.parametrize("raw", [
+    "HLA-A0201",
+    "H-2-Kb",
+    "HLA-DQA1*01:01;DQB1*06:02",
+    "HLA-A*02:01N",
+    "BoLA-amani.1",
+    " Custom*01 ",
+])
+def test_normalize_allele_name_or_raw_matches_mhctools(raw):
+    from mhctools.allele_normalization import normalize_allele_name_or_raw
+    from topiary.alleles import _normalize_allele_name_or_raw
+
+    assert _normalize_allele_name_or_raw(raw) == normalize_allele_name_or_raw(raw)
+
+
+@pytest.mark.parametrize("bad", ["A2", "HLA-A", "HLA-A*02", "HLA-A*02:01:01G", "HLA-A*02:01/HLA-A*02:02"])
+def test_normalize_allele_name_or_raw_still_refuses_non_alleles(bad):
+    from topiary.alleles import _normalize_allele_name_or_raw
+
+    with pytest.raises(AlleleError):
+        _normalize_allele_name_or_raw(bad)

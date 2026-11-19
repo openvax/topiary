@@ -177,3 +177,32 @@ def test_custom_json_encoder_is_still_supported():
     fragment = ProteinFragment(fragment_id="custom", sequence="M", annotations={"x": 1j})
     encoded = fragment.to_json(default=lambda value: [value.real, value.imag])
     assert json.loads(encoded)["annotations"]["x"] == [0.0, 1.0]
+
+
+def test_fragment_json_text_preserves_mixed_key_sorting_semantics():
+    from enum import IntEnum, StrEnum
+    from topiary.io_protein_fragment import _json_text
+
+    class Code(IntEnum):
+        TWO = 2
+
+    class Label(StrEnum):
+        TAG = "tag"
+
+    cases = [
+        {1: "one", "b": "bee", False: "f", None: "n", 1.5: "half", Code.TWO: "two", Label.TAG: "t"},
+        {1: "first", "1": "second"},
+        {"nested": [{10: "x", "2": "y"}, (True, {None: 0, "a": 1})]},
+        {float("nan"): "nan", float("inf"): "inf", float("-inf"): "ninf", -0.0: "negzero"},
+    ]
+    for case in cases:
+        expected = json.dumps(json.loads(json.dumps(case)), sort_keys=True)
+        assert _json_text(case) == expected
+
+    with pytest.raises(TypeError, match="keys must be"):
+        _json_text({(1, 2): "bad"})
+
+    cyclic = {}
+    cyclic["self"] = cyclic
+    with pytest.raises(ValueError, match="Circular reference"):
+        _json_text(cyclic)

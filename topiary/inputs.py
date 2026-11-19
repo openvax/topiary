@@ -83,6 +83,13 @@ def read_sequence_csv(path):
 # ---------------------------------------------------------------------------
 
 
+def _read_fasta_mapping(path: str | PathLike[str], *, empty_label: str) -> dict[str, str]:
+    sequences = dict(iter_fasta_records(path))
+    if not sequences:
+        logging.warning("No %s found in FASTA file: %s", empty_label, path)
+    return sequences
+
+
 def read_fasta(path: str | PathLike[str]) -> dict[str, str]:
     """Read a FASTA file of protein/amino acid sequences.
 
@@ -96,10 +103,7 @@ def read_fasta(path: str | PathLike[str]) -> dict[str, str]:
         last record wins; use :func:`iter_fasta_records` to retain every record.
         Parsing and malformed-input errors follow that shared record reader.
     """
-    sequences = dict(iter_fasta_records(path))
-    if not sequences:
-        logging.warning("No sequences found in FASTA file: %s", path)
-    return sequences
+    return _read_fasta_mapping(path, empty_label="sequences")
 
 
 def read_peptide_fasta(path: str | PathLike[str]) -> dict[str, str]:
@@ -115,10 +119,7 @@ def read_peptide_fasta(path: str | PathLike[str]) -> dict[str, str]:
         last record wins; use :func:`iter_fasta_records` to retain every record.
         Parsing and malformed-input errors follow that shared record reader.
     """
-    sequences = dict(iter_fasta_records(path))
-    if not sequences:
-        logging.warning("No peptides found in FASTA file: %s", path)
-    return sequences
+    return _read_fasta_mapping(path, empty_label="peptides")
 
 
 def iter_fasta_records(path: str | PathLike[str]) -> Iterator[tuple[str, str]]:

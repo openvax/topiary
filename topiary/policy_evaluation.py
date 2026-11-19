@@ -211,7 +211,7 @@ def _partition_decisions(frame, positions, context, policy, partition):
                 record[column] = values.iloc[0] if len(values) else None
         if not rows and is_stated(record.get("candidate_sample")):
             from .candidates import candidate_identifier
-            from .io_pvacseq import derive_mhc_class
+            from .alleles import derive_mhc_class
             record["candidate_id"] = candidate_identifier(record["candidate_sample"], identity.get("peptide"), identity.get("allele"))
             record["candidate_mhc_class"] = derive_mhc_class(pd.Series([identity.get("allele")])).iloc[0]
         record.update(

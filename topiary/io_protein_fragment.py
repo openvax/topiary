@@ -44,13 +44,58 @@ def _fragment_to_row(f: ProteinFragment) -> dict:
     return row
 
 
+def _stringify_json_key(key) -> str:
+    """Convert a JSON-allowed dict key to its JSON string representation."""
+    if isinstance(key, str):
+        return key if type(key) is str else str.__str__(key)
+    if isinstance(key, bool):
+        return "true" if key else "false"
+    if isinstance(key, int):
+        return str(int(key))
+    if isinstance(key, float):
+        return json.dumps(float(key))
+    if key is None:
+        return "null"
+    raise TypeError(
+        f"keys must be str, int, float, bool or None, not {type(key).__name__}"
+    )
+
+
+def _stringify_json_keys(value, _seen: set[int] | None = None):
+    """Recursively stringify dict keys using JSON's key-encoding rules."""
+    if isinstance(value, dict):
+        marker = id(value)
+        seen = set() if _seen is None else _seen
+        if marker in seen:
+            raise ValueError("Circular reference detected")
+        seen.add(marker)
+        try:
+            return {
+                _stringify_json_key(k): _stringify_json_keys(v, seen)
+                for k, v in value.items()
+            }
+        finally:
+            seen.remove(marker)
+    if isinstance(value, (list, tuple)):
+        marker = id(value)
+        seen = set() if _seen is None else _seen
+        if marker in seen:
+            raise ValueError("Circular reference detected")
+        seen.add(marker)
+        try:
+            return [_stringify_json_keys(v, seen) for v in value]
+        finally:
+            seen.remove(marker)
+    return value
+
+
 def _json_text(value) -> str:
-    """JSON with keys sorted after JSON has made every key a string.
+    """JSON with keys sorted after converting every dict key to its JSON string.
 
     Sorting first fails on mixed key types (``{1: ..., "b": ...}``) that
     JSON itself stores without complaint.
     """
-    return json.dumps(json.loads(json.dumps(value)), sort_keys=True)
+    return json.dumps(_stringify_json_keys(value), sort_keys=True)
 
 
 def _row_to_fragment(row: dict) -> ProteinFragment:

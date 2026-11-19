@@ -8,6 +8,7 @@ from .alleles import (
     allele_rejection_reason,
     canonical_allele_name,
     canonical_allele_names_or_raw,
+    derive_mhc_class,
     parse_allele,
     resolve_old_allele_name,
 )
@@ -191,7 +192,6 @@ from .io_isovar_hypotheses import (
 from .io_exacto import read_exacto, read_exacto_fragments, EXACTO_SCHEMAS, EXACTO_SCHEMA_COMMIT
 from .isovar_rna_support import normalize_isovar_rna_support
 from .io_pvacseq import (
-    derive_mhc_class,
     detect_pvacseq_format,
     melt_pvacseq_algorithms,
     read_pvacseq,

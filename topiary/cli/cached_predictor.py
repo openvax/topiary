@@ -23,8 +23,8 @@ Supported formats mirror :class:`CachedPredictor`'s ``from_*`` loaders.
 """
 
 from mhctools.cli import mhc_alleles_from_args
-from mhctools.allele_normalization import normalize_allele_name_or_raw
 
+from ..alleles import _normalize_allele_name_or_raw
 from ..cached import CachedPredictor
 from ..ranking import is_stated, stated_values
 
@@ -239,7 +239,7 @@ def _restrict_to_requested_alleles(cache, args):
     if not requested:
         return cache
 
-    available = {str(a): normalize_allele_name_or_raw(str(a))
+    available = {str(a): _normalize_allele_name_or_raw(str(a))
                  for a in cache.alleles if is_stated(a)}
     wanted = set(requested)
     covered_raw = {raw for raw, norm in available.items() if norm in wanted}
