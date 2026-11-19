@@ -620,9 +620,10 @@ def test_equal_and_missing_measurements_compose_without_order_dependence(door, r
             assert sorted(answer.peptide) == sorted(frame.peptide)
             if expected is not None:
                 order = ["SIINFEKL", "SIINFEKL", "GILGFVFTL"]
-                # Result sorting infers direction: affinity values ascend,
-                # arbitrary numeric columns descend unless transformed.
-                if door == "result_sort" and column != "value":
+                # Result sorting infers direction: affinity values and
+                # the percentile_rank column ascend (#572); arbitrary
+                # numeric columns descend unless transformed.
+                if door == "result_sort" and column == "review_score":
                     order = order[::-1]
                 assert answer.peptide.tolist() == order
     pd.testing.assert_frame_equal(frame, original)
