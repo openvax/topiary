@@ -97,6 +97,7 @@ from .ranking import (
     UnaryOp,
     apply_filter,
     apply_sort,
+    LOWER_IS_BETTER_COLUMNS,
     class_i,
     class_ii,
     evaluate_scores,
@@ -247,7 +248,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.113.4"
+__version__ = "5.114.0"
 
 __all__ = [
     "best_protein_transcript",
@@ -395,6 +396,7 @@ __all__ = [
     "UnaryOp",
     "apply_filter",
     "apply_sort",
+    "LOWER_IS_BETTER_COLUMNS",
     "class_i",
     "class_ii",
     "evaluate_scores",

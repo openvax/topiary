@@ -453,7 +453,17 @@ Everything below works in Python and in string form (`--filter-by`,
 
 `--sort-direction` controls whether lower or higher values rank first. The
 default is `auto`: raw affinity values and percentile ranks sort ascending,
-while all other sort expressions sort descending.
+while all other sort expressions sort descending. That holds whether the
+number is named by a DSL key (`affinity`, `affinity.rank`,
+`wt.affinity.rank`) or by a bare output column: `percentile_rank` and its
+scoped forms (`wt_percentile_rank`, `self_nearest_percentile_rank`, ...), and
+`column(affinity)` / `column(wt_affinity)`. The parentheses matter for the
+last two, because a bare `affinity` is the DSL key and `wt_affinity` means
+affinity from a predictor named `wt`. Any other bare column, including
+`value` (an IC50 on affinity rows but a higher-is-better score on others),
+sorts descending; pass `--sort-direction asc` to reverse it. Only a bare
+reference is recognised: arithmetic or a transform on the column
+(`percentile_rank * 2`) is an ordinary expression and sorts descending.
 
 ## peptide_view — one value per peptide
 

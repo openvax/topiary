@@ -186,3 +186,67 @@ def test_expression_transform_repr_roundtrip():
     df = _make_prediction_df()
     df["gene_tpm"] = [42.5, 42.5, 15.3]
     assert abs(expr.evaluate(df) - expr2.evaluate(df)) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# The documented CLI examples produce the column the filter hints name (#571)
+# ---------------------------------------------------------------------------
+
+
+def _gene_expression_help_examples():
+    """Every ``--gene-expression SPEC`` example in that option's help text."""
+    import re
+
+    from topiary.cli.args import create_arg_parser
+
+    parser = create_arg_parser()
+    action = next(
+        action for action in parser._actions
+        if "--gene-expression" in action.option_strings
+    )
+    return re.findall(r"--gene-expression (\S+)", action.help)
+
+
+def test_gene_expression_help_examples_yield_the_gene_tpm_filter_column():
+    import os
+
+    from topiary.cli.args import create_arg_parser
+    from topiary.cli.rna import expression_data_from_args
+    from topiary.ranking import apply_filter
+
+    salmon = os.path.join(os.path.dirname(__file__), "data", "salmon_quant.sf")
+    examples = _gene_expression_help_examples()
+    assert len(examples) == 2
+    for example in examples:
+        parts = example.split(":")
+        file_index = next(i for i, part in enumerate(parts) if part.endswith(".sf"))
+        parts[file_index] = salmon
+        args = create_arg_parser().parse_args(
+            ["--gene-expression", ":".join(parts)]
+        )
+        result = _attach_expression_data(
+            _make_prediction_df(), expression_data_from_args(args),
+        )
+        assert "gene_tpm" in result.columns, example
+        assert "gene_tpm_tpm" not in result.columns, example
+        # The deprecated --rna-min-gene-expression help and the --filter-by
+        # examples both point at this exact expression.
+        kept = apply_filter(result, parse("gene_tpm >= 20"))
+        assert set(kept["gene_id"]) == {"ENSG00000157764"}, example
+
+
+def test_gene_expression_name_is_a_prefix_not_a_column_name():
+    import os
+
+    from topiary.cli.args import create_arg_parser
+    from topiary.cli.rna import expression_data_from_args
+
+    salmon = os.path.join(os.path.dirname(__file__), "data", "salmon_quant.sf")
+    args = create_arg_parser().parse_args(
+        ["--gene-expression", f"gene_tpm:{salmon}:Name:TPM"]
+    )
+    result = _attach_expression_data(
+        _make_prediction_df(), expression_data_from_args(args),
+    )
+    assert "gene_tpm_tpm" in result.columns
+    assert "gene_tpm" not in result.columns

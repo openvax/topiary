@@ -93,7 +93,10 @@ def add_filter_args(arg_parser):
         "--sort-direction",
         help=(
             "Sort direction for --sort-by: 'asc', 'desc', or 'auto'. "
-            "'auto' sorts raw affinity values and percentile ranks ascending, "
+            "'auto' sorts raw affinity values and percentile ranks ascending "
+            "(DSL keys such as 'affinity' and 'affinity.rank', and the "
+            "percentile_rank output column in any scope, e.g. "
+            "'percentile_rank' or 'wt_percentile_rank'), "
             "and sorts everything else descending."
         ),
         choices=["auto", "asc", "desc"],
