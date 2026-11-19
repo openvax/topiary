@@ -1,6 +1,7 @@
 """CLI integration tests for --sort-by / --filter-by parsing via _build_filter_and_sort."""
 
 import pandas as pd
+import pytest
 
 from topiary.cli import args as cli_args
 from topiary.cli.args import create_arg_parser, _build_filter_and_sort
@@ -8,6 +9,7 @@ from topiary.ranking import (
     Affinity,
     BinOp,
     BoolOp,
+    Column,
     Comparison,
     DSLNode,
     Field,
@@ -303,6 +305,76 @@ def test_sort_direction_auto_presentation_rank_sorts_ascending():
     ])
     result = apply_sort(df, sort_by, sort_direction=sort_direction)
     assert list(result["peptide"]) == ["BBB", "AAA"]
+
+
+def _affinity_rows_worst_first():
+    return pd.DataFrame([
+        dict(
+            source_sequence_name="v1", peptide="AAA", peptide_offset=0,
+            allele="A", kind="pMHC_affinity", score=0.1, value=5000.0,
+            affinity=5000.0, percentile_rank=10.0, gene_tpm=1.0,
+        ),
+        dict(
+            source_sequence_name="v1", peptide="BBB", peptide_offset=1,
+            allele="A", kind="pMHC_affinity", score=0.9, value=50.0,
+            affinity=50.0, percentile_rank=0.1, gene_tpm=9.0,
+        ),
+    ])
+
+
+@pytest.mark.parametrize("column", ["percentile_rank", "affinity"])
+def test_sort_direction_auto_raw_lower_is_better_column_sorts_ascending(column):
+    # #572: the raw output column must rank like the DSL key that reads the
+    # same number, not fall through to "everything else sorts descending".
+    args = _make_args(f"column({column})")
+    _, sort_by, sort_direction = _build_filter_and_sort(args)
+    assert sort_direction == "auto"
+    assert isinstance(sort_by[0], Column)
+    result = apply_sort(
+        _affinity_rows_worst_first(), sort_by, sort_direction=sort_direction,
+    )
+    assert list(result["peptide"]) == ["BBB", "AAA"]
+
+
+def test_sort_by_bare_percentile_rank_matches_dsl_rank_key():
+    frame = _affinity_rows_worst_first()
+    orders = []
+    for expression in ["percentile_rank", "affinity.rank"]:
+        args = _make_args(expression)
+        _, sort_by, sort_direction = _build_filter_and_sort(args)
+        result = apply_sort(frame, sort_by, sort_direction=sort_direction)
+        orders.append(list(result["peptide"]))
+    assert orders == [["BBB", "AAA"], ["BBB", "AAA"]]
+
+
+def test_sort_direction_auto_other_raw_column_still_sorts_descending():
+    args = _make_args("gene_tpm")
+    _, sort_by, sort_direction = _build_filter_and_sort(args)
+    result = apply_sort(
+        _affinity_rows_worst_first(), sort_by, sort_direction=sort_direction,
+    )
+    assert list(result["peptide"]) == ["BBB", "AAA"]
+    reversed_frame = _affinity_rows_worst_first().iloc[::-1].reset_index(drop=True)
+    result = apply_sort(reversed_frame, sort_by, sort_direction=sort_direction)
+    assert list(result["peptide"]) == ["BBB", "AAA"]
+
+
+def test_sort_direction_explicit_desc_overrides_lower_is_better_column():
+    args = _make_args("percentile_rank", extra_args=["--sort-direction", "desc"])
+    _, sort_by, sort_direction = _build_filter_and_sort(args)
+    result = apply_sort(
+        _affinity_rows_worst_first().iloc[::-1].reset_index(drop=True),
+        sort_by, sort_direction=sort_direction,
+    )
+    assert list(result["peptide"]) == ["AAA", "BBB"]
+
+
+def test_lower_is_better_columns_are_public():
+    from topiary.ranking import LOWER_IS_BETTER_COLUMNS
+
+    assert {"percentile_rank", "affinity"} <= LOWER_IS_BETTER_COLUMNS
+    assert "value" not in LOWER_IS_BETTER_COLUMNS
+    assert "score" not in LOWER_IS_BETTER_COLUMNS
 
 
 def test_sort_by_comma_separated_keys_breaks_ties():

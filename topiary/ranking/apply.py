@@ -10,6 +10,7 @@ from .nodes import (
     stated_values,
     ALLELE_SET_COLUMN,
     BestAlleleField,
+    Column,
     EvalContext,
     Field,
     _kind_value,
@@ -84,7 +85,6 @@ def _collect_column_names(node):
         if isinstance(n, FillMissing) and hasattr(n.inner, 'col_name'):
             # fillna explicitly permits an absent numeric Column. Its eval
             # still checks contradictions when evidence is present.
-            from .nodes import Column
             if isinstance(n.inner, Column):
                 continue
         col_name = getattr(n, "col_name", None)
@@ -186,6 +186,23 @@ def _keep_allele_free_evidence(ctx, node, mask):
     return mask | (candidates & peptide_kept)
 
 
+#: Output columns whose meaning is lower-is-better whichever prediction kind
+#: the row holds: an IC50 in nM, or a percentile rank.  ``--sort-direction
+#: auto`` sorts a bare reference to one of them ascending, like the DSL keys
+#: that read the same numbers (``affinity``, ``affinity.rank``), so
+#: ``--sort-by percentile_rank`` puts the strongest binder first (#572).
+#: ``value`` is deliberately absent: it is an IC50 on affinity rows and a
+#: higher-is-better score on others, so its direction can't be read off the
+#: column name.
+LOWER_IS_BETTER_COLUMNS = frozenset({
+    "affinity",
+    "percentile_rank",
+    "wt_affinity",
+    "wt_percentile_rank",
+    "self_nearest_percentile_rank",
+})
+
+
 def _infer_sort_direction(node):
     """Natural sort direction for a node (asc = smaller is better).
 
@@ -193,8 +210,13 @@ def _infer_sort_direction(node):
     peptide — they change *which* row is read, never whether small or
     large is better, so ``peptide_view(Affinity.value)`` and
     ``Affinity.best_value`` sort ascending like the bare field.
+
+    A bare column reference sorts ascending when it names one of
+    :data:`LOWER_IS_BETTER_COLUMNS`; any other column sorts descending.
     """
     node = _unwrap_peptide_view(node)
+    if isinstance(node, Column) and node.col_name in LOWER_IS_BETTER_COLUMNS:
+        return "asc"
     if isinstance(node, (Field, BestAlleleField)):
         if node.field == "percentile_rank":
             return "asc"
@@ -431,8 +453,8 @@ def apply_sort(df, sort_nodes, sort_direction="auto", *, group_keys=None,
     *sort_nodes* is one expression or a list of them, each anything
     :func:`as_dsl_node` accepts; ``None`` or an empty list is a no-op.
     The first is the primary key.  Each node's direction is inferred
-    from its shape (percentile_rank → asc; affinity.value → asc; other →
-    desc) when *sort_direction* is ``"auto"``; otherwise the string
+    from its shape (percentile_rank → asc; affinity.value → asc; a bare
+    column in :data:`LOWER_IS_BETTER_COLUMNS` → asc; other → desc) when *sort_direction* is ``"auto"``; otherwise the string
     value is used for all nodes.
 
     A group with no value for a key is neutral on it: it takes the
