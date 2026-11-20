@@ -1,4 +1,3 @@
-from .sv_interest import build_sv_interest_report, write_sv_interest_report, SV_PROTEIN_EVIDENCE_TIERS
 from .serialization import normalize_python_types
 from .report_geometry import map_peptide_intervals, mutation_intervals_from_positions
 from .alleles import (
@@ -189,7 +188,7 @@ from .io_isovar_hypotheses import (
     read_isovar_hypotheses,
     read_isovar_patient_background_pairs,
 )
-from .io_exacto import read_exacto, read_exacto_fragments, EXACTO_SCHEMAS, EXACTO_SCHEMA_COMMIT
+from .io_exacto import read_exacto, read_exacto_fragments
 from .isovar_rna_support import normalize_isovar_rna_support
 from .io_pvacseq import (
     detect_pvacseq_format,
@@ -247,7 +246,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.113.4"
+__version__ = "5.113.5"
 
 __all__ = [
     "best_protein_transcript",
@@ -264,11 +263,6 @@ __all__ = [
     "read_isovar_patient_background_pairs",
     "read_exacto",
     "read_exacto_fragments",
-    "EXACTO_SCHEMAS",
-    "EXACTO_SCHEMA_COMMIT",
-    "build_sv_interest_report",
-    "write_sv_interest_report",
-    "SV_PROTEIN_EVIDENCE_TIERS",
     "map_peptide_intervals",
     "mutation_intervals_from_positions",
     "combine_sources",

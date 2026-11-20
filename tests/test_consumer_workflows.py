@@ -564,30 +564,6 @@ def test_saved_profiles_replay_exact_scores_and_change_selection(tmp_path, form)
             pd.testing.assert_series_equal(actual, wanted, check_exact=True)
 
 
-def test_sv_interest_api_and_cli_retain_and_rank_the_same_nominations(tmp_path):
-    import json
-    from .test_sv_interest import catalogue, export
-    from .test_twin_conformance import SV_INTEREST_REPORT_TWINS
-    build, cli = SV_INTEREST_REPORT_TWINS
-    cat, orfs = catalogue(), [export(), export("INTRON", priority=4)]
-    expected = build(cat, orfs)
-    catalogue_path = tmp_path / "catalogue.json"
-    catalogue_path.write_text(json.dumps(cat))
-    args = ["--catalogue", str(catalogue_path), "--output-prefix", str(tmp_path / "report")]
-    for i, record in enumerate(orfs):
-        path = tmp_path / (str(i) + ".json")
-        path.write_text(json.dumps(record))
-        args.extend(["--orf-export", str(path)])
-    assert cli(args) == 0
-    assert json.loads((tmp_path / "report.json").read_text()) == json.loads(json.dumps(expected))
-    assert expected["candidates"][0]["event_id"] == "UTR"
-    # Changing actual transcript evidence changes ranking through both doors.
-    orfs[1]["candidates"][0]["start_evidence_summary"]["priority"] = 1
-    (tmp_path / "1.json").write_text(json.dumps(orfs[1]))
-    changed = build(cat, orfs)
-    assert changed["candidates"][0]["event_id"] == "INTRON"
-    assert cli(args) == 0
-    assert json.loads((tmp_path / "report.json").read_text()) == json.loads(json.dumps(changed))
 
 
 def _repeated_measurements(values, **columns):
@@ -1217,47 +1193,6 @@ def test_isovar_label_completeness_controls_filtering_after_reload(tmp_path, wid
                 assert observed.df.protein_umis_complete.isna().all()
 
 
-@pytest.mark.isovar
-def test_released_isovar_sv_producers_compose_with_report_api_and_cli(tmp_path):
-    from copy import deepcopy
-    from importlib.metadata import version
-    import json
-
-    from isovar import export_sv_rna_orfs, compare_sv_rna_predictions
-    from packaging.version import Version
-    from topiary import build_sv_interest_report, write_sv_interest_report
-    from .test_twin_conformance import SV_INTEREST_REPORT_TWINS
-
-    root = Path(__file__).parent / "data" / "isovar_exports"
-    orfs = export_sv_rna_orfs(json.loads((root / "orfs-input.json").read_text()))
-    comparison = compare_sv_rna_predictions(*json.loads((root / "comparison-input.json").read_text()))
-    expected_orfs = json.loads((root / "orfs-v4.json").read_text())
-    occurrence_support_released = Version(version("isovar")) >= Version("1.62.2")
-    if not occurrence_support_released:
-        expected_orfs = deepcopy(expected_orfs)
-        expected_orfs["candidates"][0]["occurrences"][0].pop("rna_support")
-    assert orfs == expected_orfs
-    assert comparison == json.loads((root / "comparison-v3.json").read_text())
-    catalogue = dict(targets={orfs["event_id"]: {}, comparison["event_id"]: {}})
-    api, cli = SV_INTEREST_REPORT_TWINS
-    expected = api(catalogue, [orfs], comparisons=[comparison])
-    inputs = {"catalogue": catalogue, "orf-export": orfs, "comparison": comparison}
-    args = []
-    for flag, data in inputs.items():
-        path = tmp_path / (flag + ".json")
-        path.write_text(json.dumps(data))
-        args.extend(["--" + flag, str(path)])
-    assert cli(args + ["--output-prefix", str(tmp_path / "cli")]) == 0
-    assert json.loads((tmp_path / "cli.json").read_text()) == json.loads(json.dumps(expected))
-    assert {p["kind"] for p in expected["protein_hypotheses"]} == {"exploratory_orf", "annotated_frame"}
-    assert all(p["translation_observed"] is False for p in expected["protein_hypotheses"])
-    exploratory, = [p for p in expected["protein_hypotheses"] if p["kind"] == "exploratory_orf"]
-    occurrence = exploratory["source_observations"][0]["candidate"]["occurrences"][0]
-    if occurrence_support_released:
-        assert occurrence["rna_support"] == orfs["candidates"][0]["occurrences"][0]["rna_support"]
-        assert occurrence["rna_support"]["scope"] == "full_interval_junction_linked_witnesses_for_occurrence"
-    else:
-        assert "rna_support" not in occurrence
 
 
 def test_isovar_v2_zero_and_unknown_labels_and_missing_identity_survive_reload(tmp_path):
@@ -3935,28 +3870,6 @@ def test_known_junction_geometry_survives_novel_only_context_rescanning():
     assert novel.overlaps_target.all()
 
 
-@pytest.mark.parametrize("departure,priority", [("breakpoint_junction", 10),
-                                               ("splice_ambiguous_event_junction", 75),
-                                               (None, 75)])
-def test_sv_annotated_product_requires_its_own_event_linkage_in_both_doors(tmp_path, departure, priority):
-    import json
-    from .test_sv_interest import catalogue
-    from .test_twin_conformance import SV_INTEREST_REPORT_TWINS
-    build, cli = SV_INTEREST_REPORT_TWINS
-    translated = {} if departure is None else dict(departure_relations=[departure])
-    comparison = dict(schema="isovar.sv_rna_prediction_comparison.v1", event_id="UTR", sample_id="T2",
-                      rna_source="library", hypotheses=[dict(kind="annotated_frame", hypothesis_id="frame",
-                      amino_acids="MKK", nucleotide_sequence="ATGAAAAAA", complete_candidate=False,
-                      paths={"path": dict(linkage="breakpoint_junction", candidate=translated)})])
-    cat = catalogue()
-    expected = build(cat, comparisons=[comparison])
-    assert expected["protein_hypotheses"][0]["evidence_priority"] == priority
-    assert expected["protein_hypotheses"][0]["event_linkage_relations"] == ([] if departure is None else [departure])
-    (tmp_path / "catalogue.json").write_text(json.dumps(cat))
-    (tmp_path / "comparison.json").write_text(json.dumps(comparison))
-    assert cli(["--catalogue", str(tmp_path / "catalogue.json"), "--comparison", str(tmp_path / "comparison.json"),
-                "--output-prefix", str(tmp_path / "report")]) == 0
-    assert json.loads((tmp_path / "report.json").read_text()) == json.loads(json.dumps(expected))
 
 
 def test_cli_output_can_be_read_back_by_topiary(cli_output_request, tmp_path, capsys):
