@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections import defaultdict
 
-from .alleles import canonical_allele_name
+from .alleles import _canonical_allele_or_missing
 import numpy as np
 import pandas as pd
 
@@ -90,7 +90,7 @@ def match_self_peptides(reference, peptides, *, max_mismatches=0, max_edits=None
     alleles = [None] * len(peptides) if alleles is None else list(alleles)
     if len(alleles) != len(peptides):
         raise ValueError("alleles must supply one allele per query")
-    alleles = [_allele(value) for value in alleles]
+    alleles = [_canonical_allele_or_missing(value) for value in alleles]
     if isinstance(excluded_gene_ids, str):
         raise TypeError("excluded_gene_ids must be an iterable of gene IDs")
     excluded = sorted(set(excluded_gene_ids))
@@ -217,7 +217,7 @@ def self_matches_in_windows(windows, reference, *, peptide_lengths, alleles=None
         named = alleles.get(name, ())
         if isinstance(named, str):
             raise TypeError("Window alleles must be an iterable, not one string")
-        genotype = list(dict.fromkeys(_allele(allele) for allele in named)) or [None]
+        genotype = list(dict.fromkeys(_canonical_allele_or_missing(allele) for allele in named)) or [None]
         for length in lengths:
             count = max(0, len(sequence) - length + 1)
             coverage.append(dict(window_id=name, peptide_length=length, n_occurrences=count,
@@ -233,10 +233,6 @@ def self_matches_in_windows(windows, reference, *, peptide_lengths, alleles=None
     for column in ("window_id", "window_sequence", "peptide_offset"):
         frame[column] = [queries[index][column] for index in frame.query_index]
     return TopiaryResult(frame, extra={**result.extra, "self_window_coverage": coverage})
-
-
-def _allele(value):
-    return None if value is None or (pd.api.types.is_scalar(value) and pd.isna(value)) or value == "" else canonical_allele_name(value)
 
 
 def _digest(value):
@@ -261,10 +257,12 @@ def _evidence_records(data, *, observation):
                for key, value in raw.items()}
         if not isinstance(row["peptide"], str) or not row["peptide"]:
             raise ValueError("Evidence peptide must be a nonempty string")
-        row["allele"] = _allele(row.get("allele"))
+        row["allele"] = _canonical_allele_or_missing(row.get("allele"))
         if row.get("allele_set"):
             from .ranking import format_allele_set, split_allele_set
-            row["allele_set"] = format_allele_set(_allele(name) for name in split_allele_set(row["allele_set"]))
+            row["allele_set"] = format_allele_set(
+                _canonical_allele_or_missing(name) for name in split_allele_set(row["allele_set"])
+            )
         if observation:
             if any(not isinstance(row[key], str) or not row[key] for key in ("evidence_id", "source")):
                 raise ValueError("Observation evidence_id and source must be nonempty strings")

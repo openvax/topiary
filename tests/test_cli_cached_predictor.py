@@ -591,3 +591,17 @@ class TestCacheHonorsTheRequest:
                 "--mhc-cache-file", cache, "--mhc-alleles", "HLA-A*02:01",
                 "--mhc-peptide-lengths", "9",
             ])
+
+    def test_raw_unrecognized_allele_matches_cached_rows(self, tmp_path):
+        cache = _topiary_cache_csv(tmp_path / "raw.csv", [
+            _cache_row("SIINFEKL", "BoLA-amani.1"),
+            _cache_row("SIINFEKL", "Custom*01"),
+        ])
+        df = _run([
+            "--peptide-csv", self._peptides(tmp_path),
+            "--mhc-cache-file", cache,
+            "--mhc-cache-format", "topiary_output",
+            "--mhc-alleles", "Custom*01",
+        ])
+
+        assert set(df["allele"]) == {"Custom*01"}

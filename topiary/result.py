@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 import pandas as pd
 
-from .io import Metadata, _model_version_str, _models_from_dataframe
+from .io import Metadata, _model_version_str, _models_from_dataframe, _version_from_rows
 from .wide import detect_form, _concat_frames
 
 
@@ -801,16 +801,6 @@ def _models_from_observed_rows(df, fallback_models):
             version = fallback.get(method_str, "")
         models[method_str] = version
     return models
-
-
-def _version_from_rows(rows):
-    if "predictor_version" not in rows.columns:
-        return ""
-    for version in rows["predictor_version"]:
-        version_str = _model_version_str(version)
-        if version_str:
-            return version_str
-    return ""
 
 
 def _identity_columns(results, on):
