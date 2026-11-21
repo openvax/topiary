@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.113.6
+
+Fixes #622.
+
+- Lift the `varcode<12` cap to `varcode>=12.0.1,<13` (alongside `isovar>=1.91.2,<2`
+  and `pyensembl>=2.35.0,<3.0.0`), unblocking downstream `vaxrank` and consumers
+  on Varcode 12.x.
+
 ## 5.113.4
 
 - Remove the ignored `--wildtype-ligandome-directory` option (#613).
