@@ -205,7 +205,7 @@ def support(fragment):
 Isovar is installed with Topiary. `fragments_from_variants` imports it when
 given an `alignment_file`; other inputs retain lazy startup.
 
-Topiary requires `isovar>=1.91.2,<2` and `osteosarc>=0.15.5,<0.16`.
+Topiary requires `isovar>=1.78.0,<2` and `osteosarc>=0.15.5,<0.16`.
 The Isovar minimum preserves Varcode 11 candidate alternatives and their
 patient baselines. It also includes the high-depth read-support optimization;
 it does not bound assembly time for every input. Historical shared bundles and
@@ -215,7 +215,7 @@ an older release can import cleanly and still return wrong evidence (1.17.x
 miscounts reads at insertion boundaries), so Topiary refuses it with an
 upgrade instruction. Upgrade with `pip install --upgrade topiary`.
 
-Topiary supports `varcode>=12.0.1,<13`. Its default transcript-model annotation
+Topiary supports `varcode>=11.1.0,<13`. Its default transcript-model annotation
 retains alternative comparisons on ordinary effects: a preferred intronic
 result can still have a protein-changing exon-skip alternative. Topiary uses
 Varcode's shared traversal, selects the transcript by expression when supplied

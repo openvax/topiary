@@ -1115,7 +1115,7 @@ DEPENDENCY_TWINS = (
         ("run_isovar", "ProteinSequenceCreator"),
         _check_isovar,
         "assembling protein fragments from RNA alignments",
-        "<2,>=1.91.2",
+        "<2,>=1.78.0",
     ),
     (
         "pirlygenes",

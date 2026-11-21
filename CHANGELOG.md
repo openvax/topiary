@@ -4,9 +4,9 @@
 
 Fixes #622.
 
-- Lift the `varcode<12` cap to `varcode>=12.0.1,<13` (alongside `isovar>=1.91.2,<2`
-  and `pyensembl>=2.35.0,<3.0.0`), unblocking downstream `vaxrank` and consumers
-  on Varcode 12.x.
+- Lift the `varcode<12` cap to `varcode>=11.1.0,<13`, allowing `topiary` to run
+  on Varcode 12.x alongside `isovar>=1.91.2` while preserving backwards
+  compatibility with Varcode 11.x consumers.
 
 ## 5.113.4
 

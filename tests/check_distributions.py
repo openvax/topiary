@@ -32,7 +32,7 @@ def check_runtime_metadata(metadata):
     assert any(value in ("pandas>=3,<4", "pandas<4,>=3") for value in requirements)
     assert any(value in ("osteosarc>=0.15.5,<0.16", "osteosarc<0.16,>=0.15.5")
                for value in requirements)
-    assert any(value in ("varcode>=12.0.1,<13", "varcode<13,>=12.0.1")
+    assert any(value in ("varcode>=11.1.0,<13", "varcode<13,>=11.1.0")
                for value in requirements)
     assert "pyarrow>=18" in requirements
     for name in ("isovar", "pirlygenes", "oncoref", "weirdo"):
