@@ -11,8 +11,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from topiary.io_exacto import EXACTO_SCHEMA_COMMIT, EXACTO_SCHEMAS
 from topiary import (
-    EXACTO_SCHEMA_COMMIT, EXACTO_SCHEMAS, combine_sources, read_exacto,
+    combine_sources, read_exacto,
     read_exacto_fragments, read_tsv, reconcile_evidence,
 )
 

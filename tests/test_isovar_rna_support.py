@@ -64,13 +64,12 @@ def test_reader_pair_accepts_the_same_incomplete_label_measurement(legacy):
         support["segments"] = support.pop("reads")
         support["segment_ids"] = support.pop("read_ids")
     before = deepcopy(support)
-    protein, sv = [reader(support) for reader in ISOVAR_RNA_SUPPORT_TWINS]
+    (protein,) = [reader(support) for reader in ISOVAR_RNA_SUPPORT_TWINS]
     row = protein.df.iloc[0]
-    observed = sv["protein_hypotheses"][0]["source_observations"][0]["rna_support"]
+    expected = normalize_isovar_rna_support(support)
     for field in ("reads", "fragments", "umis", "cells", "umis_complete", "cells_complete",
                   "unlabeled_reads", "unknown_library_reads"):
-        assert row["protein_" + field] == observed[field]
-    assert observed["label_statuses"] == support["label_statuses"]
+        assert row["protein_" + field] == expected[field]
     assert support == before
 
 

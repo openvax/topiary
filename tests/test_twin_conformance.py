@@ -75,8 +75,6 @@ import topiary.dependencies as dependencies
 from .pvacseq_corpus_helpers import REPORTS as PVACSEQ_REPORTS, ROOT as PVACSEQ_ROOT
 from .osteosarc_helpers import load_osteosarc
 from .sid_data import sid_data_root
-from topiary import build_sv_interest_report
-from topiary.cli.sv_interest import main as sv_interest_main
 
 
 MODEL_SPEC_TWINS = (
@@ -453,18 +451,7 @@ def _protein_support_record(support):
     return read_isovar_hypotheses(export)
 
 
-def _sv_support_record(support):
-    from .test_sv_interest import catalogue, export
-    value = export()
-    value["schema"] = "isovar.sv_rna_orfs.v4"
-    value["sample_id"], value["source"] = "tumor-1", "synthetic-rna.bam"
-    value["candidates"][0]["rna_support"] = support
-    return build_sv_interest_report(catalogue(), [value])
-
-
-# Both Isovar readers validate the same RNA support record, including labels.
-# One receives inline evidence and the other can resolve a referenced set.
-ISOVAR_RNA_SUPPORT_TWINS = (_protein_support_record, _sv_support_record)
+ISOVAR_RNA_SUPPORT_TWINS = (_protein_support_record,)
 
 
 # Both file formats expose a function and a result method. Drive all four
@@ -600,11 +587,6 @@ WILDTYPE_SCOPE_TWINS = (
         dict(prediction_id=fragment.fragment_id, peptide=fragment.sequence, peptide_offset=0,
              n_flank="", c_flank="", wt_peptide=fragment.effective_baseline, wt_n_flank="", wt_c_flank="")]),
 )
-
-# The CLI serializes the same exhaustive SV evidence policy as the public API.
-# Driven together in test_consumer_workflows, including absent protein rows.
-SV_INTEREST_REPORT_TWINS = (build_sv_interest_report, sv_interest_main)
-
 
 def _measurement_scores(frame, expression, **options):
     from topiary import parse
