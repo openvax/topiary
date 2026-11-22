@@ -215,7 +215,7 @@ an older release can import cleanly and still return wrong evidence (1.17.x
 miscounts reads at insertion boundaries), so Topiary refuses it with an
 upgrade instruction. Upgrade with `pip install --upgrade topiary`.
 
-Topiary supports `varcode>=11.1.0,<12`. Its default transcript-model annotation
+Topiary supports `varcode>=11.1.0,<13`. Its default transcript-model annotation
 retains alternative comparisons on ordinary effects: a preferred intronic
 result can still have a protein-changing exon-skip alternative. Topiary uses
 Varcode's shared traversal, selects the transcript by expression when supplied

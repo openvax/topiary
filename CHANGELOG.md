@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.113.6
+
+Fixes #622.
+
+- Lift the `varcode<12` cap to `varcode>=11.1.0,<13`, allowing `topiary` to run
+  on Varcode 12.x alongside `isovar>=1.91.2` while preserving backwards
+  compatibility with Varcode 11.x consumers.
+
 ## 5.113.4
 
 - Remove the ignored `--wildtype-ligandome-directory` option (#613).
