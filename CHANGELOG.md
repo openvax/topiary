@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.114.1
+
+- Make the mypy gate less brittle. `mypy` and `pandas-stubs` are pinned to
+  compatible ranges (`>=2.4,<3`, `>=3,<4`) instead of exact versions, so the
+  stubs track the pandas range CI tests. The untyped `mhcgnomes` and `mhctools`
+  imports are declared once in a `[[tool.mypy.overrides]]` table instead of
+  inline `# type: ignore[import-untyped]` comments. No runtime change.
+
 ## 5.114.0
 
 - `topiary --version` prints the installed version and exits (part of #574).

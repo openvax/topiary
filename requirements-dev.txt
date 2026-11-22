@@ -5,5 +5,5 @@ pytest
 pytest-cov
 pytest-xdist
 mkdocs-material
-mypy==2.4.0
-pandas-stubs==3.0.5.260914
+mypy>=2.4,<3
+pandas-stubs>=3,<4
