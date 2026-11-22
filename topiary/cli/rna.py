@@ -18,6 +18,11 @@ def add_expression_args(arg_parser):
             "Load expression quantification to annotate predictions. "
             "Values become columns accessible in --filter-by and --sort-by. "
             "Format: [name:]file[:id_col[:val_col]]. "
+            "The name is a column prefix, not a column name: a value "
+            "column becomes {name}_{column} in lower case (unless it "
+            "already starts with the name), so a single --gene-expression "
+            "with the default name 'gene' and a TPM column gives 'gene_tpm'. "
+            "Repeating an option numbers the default names (gene_1, gene_2). "
             "Common formats (Salmon .sf, Kallisto abundance.tsv, RSEM, "
             "StringTie .gtf, Cufflinks .fpkm_tracking) are auto-detected."
         ),
@@ -30,7 +35,8 @@ def add_expression_args(arg_parser):
         help=(
             "Gene-level expression file, joined on gene_id. "
             "Example: --gene-expression salmon_quant.sf "
-            "or --gene-expression gene_tpm:quant.sf:Name:TPM"
+            "or --gene-expression gene:quant.sf:Name:TPM "
+            "(either one adds the column 'gene_tpm')"
         ),
     )
     expr_group.add_argument(

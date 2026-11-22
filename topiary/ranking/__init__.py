@@ -92,7 +92,13 @@ from .nodes import (
     shuffled,
     wt,
 )
-from .apply import apply_filter, apply_sort, evaluate_scores, evaluate_filter
+from .apply import (
+    LOWER_IS_BETTER_COLUMNS,
+    apply_filter,
+    apply_sort,
+    evaluate_scores,
+    evaluate_filter,
+)
 from .parser import as_dsl_node, as_dsl_nodes, parse
 from .population import PopulationMaximum, DenseRank, FillMissing, OrdinalRank, ordinal_rank
 
@@ -146,6 +152,7 @@ __all__ = [
     # Public entry points
     "apply_filter",
     "apply_sort",
+    "LOWER_IS_BETTER_COLUMNS",
     "evaluate_scores",
     "evaluate_filter",
     "parse",

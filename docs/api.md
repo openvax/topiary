@@ -97,7 +97,7 @@ policy composition and interpretation of missing results.
 | `alleles` | list of str | HLA alleles. Used to construct model classes. |
 | `filter_by` | DSLNode or str | Boolean filter expression (e.g. `Affinity <= 500` or `"affinity <= 500 \| el.rank <= 2"`). |
 | `sort_by` | DSLNode or list of DSLNode | Sort expression(s). Lexicographic tiebreakers; NaN falls through. |
-| `sort_direction` | "auto", "asc", or "desc" | Direction for sort keys (auto infers per-key). |
+| `sort_direction` | "auto", "asc", or "desc" | Direction for sort keys (auto infers per-key: percentile ranks and raw affinity ascending, everything else descending). |
 | `padding_around_mutation` | int | Residues around mutation for candidate epitopes. |
 | `only_novel_epitopes` | bool | Keep known mutation/target/junction overlaps; exclude unknown geometry. Does not establish tumor specificity. |
 | `min_gene_expression` | float | Minimum gene FPKM (variant inputs). |
