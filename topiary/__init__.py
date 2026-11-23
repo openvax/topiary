@@ -247,7 +247,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.114.1"
+__version__ = "5.114.2"
 
 __all__ = [
     "best_protein_transcript",

@@ -678,7 +678,14 @@ def predict_epitopes_from_args(args):
         if any(getattr(args, name, None) for name in (
             "vcf", "maf", "variant", "json_variants",
         )):
-            variants = variant_collection_from_args(args)
+            variant_args = args
+            if (getattr(args, "genome", None) is None
+                    and getattr(args, "ensembl_release", None) is not None):
+                from copy import copy
+                from ..sources import ensembl_genome
+                variant_args = copy(args)
+                variant_args.genome = ensembl_genome(**source_options(args))
+            variants = variant_collection_from_args(variant_args)
         gene_expression_dict = rna_gene_expression_dict_from_args(args)
         transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
         expr_data = expression_data_from_args(args)
