@@ -1,18 +1,29 @@
 """Portable provenance from Varcode's native candidate wrappers."""
 
+import hashlib
 import json
 
 from serializable.helpers import to_json
 
 
+def _compact_genomic_positions(positions):
+    """Replace huge per-base genomic coordinate arrays with a deterministic digest."""
+    payload = json.dumps(positions, separators=(",", ":")).encode("utf-8")
+    return len(positions), hashlib.sha256(payload).hexdigest()
+
+
 def _plain_record(value):
     """Keep type identity as data, without Serializable's reconstruction tags."""
     cls = value.pop("__class__", None)
-    if cls is None:
-        return value
-    if cls["__module__"] == "builtins" and cls["__name__"] in ("tuple", "set"):
-        return value["__value__"]
-    value["record_type"] = cls["__module__"] + "." + cls["__name__"]
+    if cls is not None:
+        if cls["__module__"] == "builtins" and cls["__name__"] in ("tuple", "set"):
+            return value["__value__"]
+        value["record_type"] = cls["__module__"] + "." + cls["__name__"]
+    if isinstance(value.get("genomic_positions"), list):
+        positions = value.pop("genomic_positions")
+        count, sha256 = _compact_genomic_positions(positions)
+        value["genomic_positions_count"] = count
+        value["genomic_positions_sha256"] = sha256
     return value
 
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.114.2
+
+- Compact `evidence["genomic_positions"]` arrays inside
+  `varcode_candidate_provenance()` into deterministic `genomic_positions_count`
+  and `genomic_positions_sha256` fields while retaining `exon_runs`, avoiding
+  multi-megabyte per-variant provenance payloads on long genes (#624).
+- Forward `--ensembl-release` (and `--species`) into variant loading when
+  `--genome` is not explicitly set, so `--vcf`/`--maf`/`--variant` runs do not
+  silently ignore `--ensembl-release` (#610).
+
 ## 5.114.1
 
 - Make the mypy gate less brittle. `mypy` and `pandas-stubs` are pinned to
