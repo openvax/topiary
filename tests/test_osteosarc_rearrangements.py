@@ -64,7 +64,8 @@ def test_observed_rearrangement_rna_does_not_imply_a_coding_peptide(
         assert all(hashlib.sha256(original[k].encode()).hexdigest() in pinned["sam_sha256"]
                    for k in ("sam", "partner_sam"))
     result = reconstruct_fusion(fusion, refs, reads)
-    assert result["reasons"] == ["no_exact_collinear_annotated_donor"]
+    # isovar >= 1.93.0 renamed no_exact_collinear_annotated_donor -> no_orf_source (#721).
+    assert result["reasons"] in (["no_orf_source"], ["no_exact_collinear_annotated_donor"])
     assert result["schema"] == "isovar.fusion_rna.v3"
     assert result["status"] == "unresolved"
     assert len(result["paths"]) == 1
