@@ -6,11 +6,11 @@ Species selects sequence annotations, never the predictor's allele vocabulary.
 
 from numbers import Integral
 
-import pyensembl
-
 
 def source_options(args):
     """Normalize the direct-input defaults without opening annotation data."""
+    import pyensembl
+
     species = getattr(args, "species", None)
     return {
         "species": pyensembl.normalize_species_name(
@@ -21,6 +21,8 @@ def source_options(args):
 
 
 def _genome_species(genome):
+    import pyensembl
+
     species = getattr(genome, "species", None)
     name = getattr(species, "latin_name", species)
     if not name:
@@ -97,6 +99,8 @@ def exclusion_options(args, genomes=()):
         return None
 
     if species is not None:
+        import pyensembl
+
         options = {
             "species": pyensembl.normalize_species_name(species),
             "release": release,

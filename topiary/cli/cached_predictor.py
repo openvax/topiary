@@ -22,11 +22,12 @@ pre-computed prediction files without invoking a live MHC predictor:
 Supported formats mirror :class:`CachedPredictor`'s ``from_*`` loaders.
 """
 
-from mhctools.cli import mhc_alleles_from_args
+from __future__ import annotations
 
-from ..alleles import _normalize_allele_name_or_raw
-from ..cached import CachedPredictor
-from ..ranking import is_stated, stated_values
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..cached import CachedPredictor
 
 
 _CACHE_FORMATS = (
@@ -213,6 +214,8 @@ def _requested_alleles(args):
         args, "mhc_alleles_file", None
     ):
         return []
+    from mhctools.cli import mhc_alleles_from_args
+
     return list(mhc_alleles_from_args(args))
 
 
@@ -239,6 +242,10 @@ def _restrict_to_requested_alleles(cache, args):
     if not requested:
         return cache
 
+    from ..alleles import _normalize_allele_name_or_raw
+    from ..cached import CachedPredictor
+    from ..ranking import is_stated, stated_values
+
     available = {str(a): _normalize_allele_name_or_raw(str(a))
                  for a in cache.alleles if is_stated(a)}
     wanted = set(requested)
@@ -263,6 +270,8 @@ def _restrict_to_requested_alleles(cache, args):
 def _build_cached_predictor(args) -> CachedPredictor:
     """Load the cache named by the CLI args, without applying the
     request-coverage checks :func:`cached_predictor_from_args` adds."""
+    from ..cached import CachedPredictor
+
     cache_dir = getattr(args, "mhc_cache_directory", None)
     cache_file = getattr(args, "mhc_cache_file", None)
 

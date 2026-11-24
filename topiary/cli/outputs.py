@@ -21,10 +21,7 @@ import json
 import sys
 from pathlib import Path
 
-import pandas as pd
-
-from ..io import _encode_json, _json_columns
-from ..serialization import normalize_python_types
+from .help import style_table_header
 
 
 # Six significant digits. A predictor reporting 6.296 was written as
@@ -182,6 +179,8 @@ def _write_html(df, path):
     and is left alone.
     """
     display = df.copy()
+    import pandas as pd
+
     for column in display.columns:
         if pd.api.types.is_float_dtype(display[column]):
             display[column] = display[column].map(
@@ -420,6 +419,10 @@ def _provenance_key_column(df):
 
 def _write_provenance_sidecar(df, path, provenance_columns):
     """Write deduplicated per-variant provenance JSON once per variant (#570)."""
+    import pandas as pd
+
+    from ..serialization import normalize_python_types
+
     key_col = _provenance_key_column(df)
     records = {}
     for row_idx, row in df.iterrows():
@@ -531,6 +534,8 @@ def write_outputs(
     # Dicts and lists such as measurement_context would otherwise be written
     # as Python reprs, which only Python can read back. Missing cells stay
     # missing: these outputs carry no topiary encoding declaration.
+    from ..io import _encode_json, _json_columns
+
     json_columns = _json_columns(df)
     if json_columns:
         df = df.copy()
@@ -555,7 +560,8 @@ def write_outputs(
                   float_format=_format_float)
 
     if not args.output_csv and not args.output_html and len(df):
-        print(df.head(_PREVIEW_ROWS).loc[:, preview_columns].to_string(index=False))
+        preview = df.head(_PREVIEW_ROWS).loc[:, preview_columns].to_string(index=False)
+        print(style_table_header(preview, sys.stdout))
         if len(df) > _PREVIEW_ROWS:
             print(
                 f"Showing {_PREVIEW_ROWS} of {len(df)} prediction rows "

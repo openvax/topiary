@@ -127,6 +127,21 @@ inputs, and `--output-csv results.csv` saves every row instead of printing a
 preview. The [command-line guide](https://openvax.github.io/topiary/cli/)
 lists predictor names, input modes, output columns and exit status.
 
+### Tab completion
+
+`topiary` supports shell tab completion through `argcomplete`. Enable it once
+for every OpenVax command-line tool:
+
+```bash
+activate-global-python-argcomplete
+```
+
+Or register only `topiary` in your shell startup file:
+
+```bash
+eval "$(register-python-argcomplete topiary)"
+```
+
 ## Documentation
 
 The full documentation is at
