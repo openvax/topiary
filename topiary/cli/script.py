@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -34,11 +35,7 @@ import shutil
 import sys
 
 import argcomplete
-from mhcgnomes.errors import ParseError as AlleleParseError
 
-from ..cached import CachedPredictorCoverageError, PredictorSetupError
-from ..ranking import stated_values
-from ..serialization import normalize_python_types
 from .args import (
     CommandLineError,
     _has_prediction_input,
@@ -68,35 +65,54 @@ def _exit_with_error(message):
     arg_parser.exit(1, f"{arg_parser.prog}: error: {message}\n")
 
 
-# Each of these names something the caller can act on: a missing input
-# file, a bad argument, a missing optional dependency, an allele mhcgnomes
-# cannot parse, predictor setup still to finish, or a cache that cannot
-# answer for this peptide.
-#
-# They are narrow deliberately. Bare KeyError would swallow an unrelated
-# dict-lookup bug, and bare RuntimeError is worse: NotImplementedError and
-# RecursionError subclass it, so an unimplemented abstract method would
-# print as a clean user error. Those must keep reaching the user as
-# tracebacks. SystemError is left out too; it means an interpreter fault.
-_ACTIONABLE_ERRORS = (
-    OSError, ValueError, ImportError, AlleleParseError,
-    PredictorSetupError, CachedPredictorCoverageError,
-)
+def actionable_error_types():
+    """Return the tuple of actionable exception classes for CLI error reporting.
+
+    Each type names something the caller can act on: a missing input file, a
+    bad argument, a missing optional dependency, an allele ``mhcgnomes``
+    cannot parse, predictor setup still to finish, or a cache that cannot
+    answer for a peptide.
+
+    The list is narrow deliberately: bare ``KeyError`` would swallow an
+    unrelated dict-lookup bug, and ``RuntimeError`` would swallow
+    ``NotImplementedError`` or ``RecursionError``. Optional heavy exception
+    classes are looked up from already-loaded modules so parser construction
+    and tab completion never trigger heavy imports.
+    """
+    types = [OSError, ValueError, ImportError]
+    mhcgnomes_errors = sys.modules.get("mhcgnomes.errors")
+    if mhcgnomes_errors is not None:
+        parse_error = getattr(mhcgnomes_errors, "ParseError", None)
+        if isinstance(parse_error, type):
+            types.append(parse_error)
+    cached_module = sys.modules.get("topiary.cached")
+    if cached_module is not None:
+        for name in ("PredictorSetupError", "CachedPredictorCoverageError"):
+            err_type = getattr(cached_module, name, None)
+            if isinstance(err_type, type):
+                types.append(err_type)
+    return tuple(types)
 
 
-def _error_message(error):
-    """One line for an actionable error.
+def format_actionable_error(error):
+    """Format one user-facing error line for an actionable CLI failure.
 
-    ``str`` suits every type above: CachedPredictorCoverageError defines
-    ``__str__``, so its message arrives without KeyError's repr quoting.
-    Removing that ``__str__`` would bring the quoting back (#296, #302,
-    #304). An allele error says which kind of input it was about, since
-    mhcgnomes' own text only names the string. Topiary's own
-    :class:`topiary.AlleleError` is a ValueError whose message already
-    says that, so it passes through unchanged.
+    ``str`` suits every actionable type: ``CachedPredictorCoverageError``
+    defines ``__str__``, so its message arrives without ``KeyError``'s repr
+    quoting (#296, #302, #304). An ``mhcgnomes`` allele parse error says
+    which kind of input it was about, since ``mhcgnomes``'s own text only
+    names the string. Topiary's own :class:`topiary.AlleleError` is a
+    ``ValueError`` whose message already says that, so it passes through
+    unchanged.
     """
     message = str(error) or type(error).__name__
-    if isinstance(error, AlleleParseError):
+    mhcgnomes_errors = sys.modules.get("mhcgnomes.errors")
+    parse_error = (
+        getattr(mhcgnomes_errors, "ParseError", None)
+        if mhcgnomes_errors is not None
+        else None
+    )
+    if isinstance(parse_error, type) and isinstance(error, parse_error):
         return f"could not parse MHC allele: {message}"
     return message
 
@@ -174,8 +190,8 @@ def main(args_list=None):
     ):
         try:
             print_default_columns(args)
-        except _ACTIONABLE_ERRORS as e:
-            _exit_with_error(_error_message(e))
+        except actionable_error_types() as e:
+            _exit_with_error(format_actionable_error(e))
         return 0
     cache_misses = []
     try:
@@ -186,6 +202,8 @@ def main(args_list=None):
         with redirect_stdout(sys.stderr):
             df = predict_epitopes_from_args(args)
         if report_path is not None:
+            from ..serialization import normalize_python_types
+
             cache_misses = df.attrs["topiary_cache_misses"]
             report_path.write_text(json.dumps(normalize_python_types(dict(
                 schema="topiary.cache_miss_report.v1", complete=not cache_misses,
@@ -194,8 +212,8 @@ def main(args_list=None):
     except CommandLineError as e:
         # A ValueError subclass, so it must precede the general clause.
         arg_parser.error(str(e))
-    except _ACTIONABLE_ERRORS as e:
-        _exit_with_error(_error_message(e))
+    except actionable_error_types() as e:
+        _exit_with_error(format_actionable_error(e))
     try:
         write_outputs(df, args)
         sys.stdout.flush()
@@ -205,9 +223,11 @@ def main(args_list=None):
         with open(os.devnull, "w") as sink:
             os.dup2(sink.fileno(), sys.stdout.fileno())
         return 3 if cache_misses else 0
-    except _ACTIONABLE_ERRORS as e:
+    except actionable_error_types() as e:
         # BrokenPipeError is an OSError, so it must stay the first clause.
-        _exit_with_error(_error_message(e))
+        _exit_with_error(format_actionable_error(e))
+
+    from ..ranking import stated_values
 
     counts = []
     for column, label in (("peptide", "unique peptide"), ("allele", "named allele")):

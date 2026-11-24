@@ -4,9 +4,6 @@ Commandline arguments for expression data and legacy RNA expression filtering.
 
 import logging
 
-from ..rna import load_cufflinks_fpkm_dict, load_transcript_fpkm_dict_from_gtf
-from ..rna.expression_loader import load_expression_from_spec
-
 logger = logging.getLogger(__name__)
 
 
@@ -80,6 +77,8 @@ def expression_data_from_args(args):
         ("variant", "variant_expression", "variant"),
     ]:
         specs = getattr(args, attr, []) or []
+        if specs:
+            from ..rna.expression_loader import load_expression_from_spec
         for i, spec in enumerate(specs):
             suffix = f"_{i + 1}" if len(specs) > 1 else ""
             name, id_col, df = load_expression_from_spec(
@@ -142,6 +141,8 @@ def add_rna_args(arg_parser):
 
 def rna_gene_expression_dict_from_args(args):
     if args.rna_gene_fpkm_tracking_file:
+        from ..rna import load_cufflinks_fpkm_dict
+
         logging.warning(
             "--rna-gene-fpkm-tracking-file is deprecated; use --gene-expression instead.")
         return load_cufflinks_fpkm_dict(args.rna_gene_fpkm_tracking_file)
@@ -156,10 +157,14 @@ def rna_gene_expression_dict_from_args(args):
 
 def rna_transcript_expression_dict_from_args(args):
     if args.rna_transcript_fpkm_tracking_file:
+        from ..rna import load_cufflinks_fpkm_dict
+
         logging.warning(
             "--rna-transcript-fpkm-tracking-file is deprecated; use --transcript-expression instead.")
         return load_cufflinks_fpkm_dict(args.rna_transcript_fpkm_tracking_file)
     elif args.rna_transcript_fpkm_gtf_file:
+        from ..rna import load_transcript_fpkm_dict_from_gtf
+
         logging.warning(
             "--rna-transcript-fpkm-gtf-file is deprecated; use --transcript-expression instead.")
         return load_transcript_fpkm_dict_from_gtf(args.rna_transcript_fpkm_gtf_file)

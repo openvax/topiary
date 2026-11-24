@@ -14,23 +14,22 @@
 Common commandline arguments used by scripts
 """
 
-from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from importlib import import_module
 import logging
 from pathlib import Path
 import re
 
-import pandas as pd
 from mhctools.cli import add_mhc_args, predictors_from_args
 from varcode.cli import add_variant_args, variant_collection_from_args
 
 from .. import __version__
-from ..alleles import _class_of_allele
 from .cached_predictor import (
     add_cached_predictor_args,
     cached_predictor_from_args,
     cached_predictor_in_use,
 )
 from .filtering import add_filter_args
+from .help import HelpArgumentParser
 from .rna import (
     add_expression_args,
     add_rna_args,
@@ -54,33 +53,66 @@ from .protein_changes import (
     genome_from_args,
     protein_change_effects_from_args,
 )
-from ..inputs import (
-    exclude_by,
-    read_fasta,
-    read_peptide_csv,
-    read_peptide_fasta,
-    read_sequence_csv,
-    slice_regions,
-)
-from ..sources import (
-    cta_sequences,
-    ensembl_proteome,
-    non_cta_sequences,
-    sequences_from_gene_names,
-    sequences_from_gene_ids,
-    sequences_from_transcript_ids,
-    tissue_expressed_sequences,
-)
-from ..predictor import TopiaryPredictor
-from ..ranking import (
-    Affinity,
-    BoolOp,
-    KindAccessor,
-    Presentation,
-    kind_matches,
-    parse,
-    resolve_qualified_kind,
-)
+
+LAZY_RUNTIME_IMPORTS = {
+    "_class_of_allele": ("..alleles", "_class_of_allele"),
+    "exclude_by": ("..inputs", "exclude_by"),
+    "read_fasta": ("..inputs", "read_fasta"),
+    "read_peptide_csv": ("..inputs", "read_peptide_csv"),
+    "read_peptide_fasta": ("..inputs", "read_peptide_fasta"),
+    "read_sequence_csv": ("..inputs", "read_sequence_csv"),
+    "slice_regions": ("..inputs", "slice_regions"),
+    "cta_sequences": ("..sources", "cta_sequences"),
+    "ensembl_proteome": ("..sources", "ensembl_proteome"),
+    "non_cta_sequences": ("..sources", "non_cta_sequences"),
+    "sequences_from_gene_names": ("..sources", "sequences_from_gene_names"),
+    "sequences_from_gene_ids": ("..sources", "sequences_from_gene_ids"),
+    "sequences_from_transcript_ids": ("..sources", "sequences_from_transcript_ids"),
+    "tissue_expressed_sequences": ("..sources", "tissue_expressed_sequences"),
+    "TopiaryPredictor": ("..predictor", "TopiaryPredictor"),
+    "Affinity": ("..ranking", "Affinity"),
+    "BoolOp": ("..ranking", "BoolOp"),
+    "KindAccessor": ("..ranking", "KindAccessor"),
+    "Presentation": ("..ranking", "Presentation"),
+    "kind_matches": ("..ranking", "kind_matches"),
+    "parse": ("..ranking", "parse"),
+    "resolve_qualified_kind": ("..ranking", "resolve_qualified_kind"),
+}
+
+
+def resolve_runtime_symbol(name):
+    """Return a lazily imported runtime symbol, honoring module attribute overrides.
+
+    Parameters
+    ----------
+    name : str
+        Symbol name defined in :data:`LAZY_RUNTIME_IMPORTS`.
+
+    Returns
+    -------
+    object
+        Resolved attribute from the corresponding Topiary submodule (or any
+        override patched onto ``topiary.cli.args``).
+    """
+    if name in globals():
+        return globals()[name]
+    if name in LAZY_RUNTIME_IMPORTS:
+        module_name, attr_name = LAZY_RUNTIME_IMPORTS[name]
+        module = import_module(module_name, package=__package__)
+        value = getattr(module, attr_name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __getattr__(name):
+    """PEP 562: defer heavy runtime imports until execution or explicit access."""
+    return resolve_runtime_symbol(name)
+
+
+def __dir__():
+    """Include lazily imported runtime symbols in interactive discovery."""
+    return sorted(set(globals()) | set(LAZY_RUNTIME_IMPORTS))
 
 
 def _add_input_args(arg_parser):
@@ -273,7 +305,7 @@ def create_arg_parser(
     output=True,
     direct_inputs=True,
 ):
-    arg_parser = ArgumentParser(
+    arg_parser = HelpArgumentParser(
         prog="topiary",
         description=(
             "Predict, filter, and rank MHC-presented peptides from "
@@ -287,7 +319,6 @@ def create_arg_parser(
             "--mhc-cache-format topiary_output --peptide-csv peptides.csv\n\n"
             "Run 'topiary --help' to see all options."
         ),
-        formatter_class=RawDescriptionHelpFormatter,
     )
     arg_parser.add_argument(
         "--version",
@@ -342,21 +373,27 @@ def _build_filter_and_sort(args):
 
     filter_clauses = []
     if ranking_text:
-        filter_clauses.append(parse(ranking_text))
+        filter_clauses.append(resolve_runtime_symbol("parse")(ranking_text))
     else:
         if args.ic50_cutoff is not None:
-            filter_clauses.append(Affinity.value <= args.ic50_cutoff)
+            filter_clauses.append(
+                resolve_runtime_symbol("Affinity").value <= args.ic50_cutoff
+            )
         if args.percentile_cutoff is not None:
-            filter_clauses.append(Affinity.rank <= args.percentile_cutoff)
+            filter_clauses.append(
+                resolve_runtime_symbol("Affinity").rank <= args.percentile_cutoff
+            )
         if has_presentation:
-            filter_clauses.append(Presentation.rank <= args.presentation_cutoff)
+            filter_clauses.append(
+                resolve_runtime_symbol("Presentation").rank <= args.presentation_cutoff
+            )
 
     if not filter_clauses:
         filter_by = None
     elif len(filter_clauses) == 1:
         filter_by = filter_clauses[0]
     else:
-        filter_by = BoolOp(combine_op, filter_clauses)
+        filter_by = resolve_runtime_symbol("BoolOp")(combine_op, filter_clauses)
         # Flatten same-op chains for a cleaner string form
         filter_by = _flatten_boolop(filter_by)
 
@@ -370,15 +407,16 @@ def _build_filter_and_sort(args):
 
 def _flatten_boolop(node):
     """Flatten BoolOp(op, [BoolOp(op, [...]), ...]) into a single BoolOp."""
-    if not isinstance(node, BoolOp):
+    bool_op_cls = resolve_runtime_symbol("BoolOp")
+    if not isinstance(node, bool_op_cls):
         return node
     flat = []
     for c in node.children:
-        if isinstance(c, BoolOp) and c.op is node.op:
+        if isinstance(c, bool_op_cls) and c.op is node.op:
             flat.extend(c.children)
         else:
             flat.append(c)
-    return BoolOp(node.op, flat)
+    return bool_op_cls(node.op, flat)
 
 
 def _split_top_level_commas(text):
@@ -425,13 +463,15 @@ def _parse_sort_expr(text):
         raise ValueError("Empty sort key in --sort-by")
 
     if _looks_like_plain_kind_name(text):
-        kind, method = resolve_qualified_kind(text)
-        accessor = KindAccessor(kind, method=method)
-        if kind_matches(kind, Affinity.kind):
+        kind, method = resolve_runtime_symbol("resolve_qualified_kind")(text)
+        accessor = resolve_runtime_symbol("KindAccessor")(kind, method=method)
+        if resolve_runtime_symbol("kind_matches")(
+            kind, resolve_runtime_symbol("Affinity").kind
+        ):
             return accessor.value
         return accessor.score
 
-    return parse(text)
+    return resolve_runtime_symbol("parse")(text)
 
 
 def _looks_like_plain_kind_name(text):
@@ -441,7 +481,7 @@ def _looks_like_plain_kind_name(text):
     if any(ch in text for ch in ".()[]+-*/"):
         return False
     try:
-        resolve_qualified_kind(text)
+        resolve_runtime_symbol("resolve_qualified_kind")(text)
         return True
     except ValueError:
         return False
@@ -515,25 +555,33 @@ def _get_direct_input(args):
     sequences = None
 
     if peptide_csv:
-        sequences = read_peptide_csv(peptide_csv)
+        sequences = resolve_runtime_symbol("read_peptide_csv")(peptide_csv)
         is_peptides = True
     elif peptide_fasta:
-        sequences = read_peptide_fasta(peptide_fasta)
+        sequences = resolve_runtime_symbol("read_peptide_fasta")(peptide_fasta)
         is_peptides = True
     elif sequence_csv:
-        sequences = read_sequence_csv(sequence_csv)
+        sequences = resolve_runtime_symbol("read_sequence_csv")(sequence_csv)
     elif fasta:
-        sequences = read_fasta(fasta)
+        sequences = resolve_runtime_symbol("read_fasta")(fasta)
     elif use_ensembl:
-        sequences = ensembl_proteome(**options)
+        sequences = resolve_runtime_symbol("ensembl_proteome")(**options)
     elif gene_names:
-        sequences = sequences_from_gene_names(gene_names, **options)
+        sequences = resolve_runtime_symbol("sequences_from_gene_names")(
+            gene_names, **options
+        )
     elif gene_id_list:
-        sequences = sequences_from_gene_ids(gene_id_list, **options)
+        sequences = resolve_runtime_symbol("sequences_from_gene_ids")(
+            gene_id_list, **options
+        )
     elif transcript_id_list:
-        sequences = sequences_from_transcript_ids(transcript_id_list, **options)
+        sequences = resolve_runtime_symbol("sequences_from_transcript_ids")(
+            transcript_id_list, **options
+        )
     elif use_cta:
-        sequences = cta_sequences(release=options["release"])
+        sequences = resolve_runtime_symbol("cta_sequences")(
+            release=options["release"]
+        )
 
     if sequences is None:
         return None, None
@@ -547,7 +595,7 @@ def _get_direct_input(args):
         )
     if region_strings:
         regions = _parse_regions(region_strings)
-        sequences = slice_regions(sequences, regions)
+        sequences = resolve_runtime_symbol("slice_regions")(sequences, regions)
 
     return sequences, is_peptides
 
@@ -703,7 +751,8 @@ def _validate_predictor_alleles(args):
     if not predictors:
         return
     raw_alleles = _raw_cli_alleles(args)
-    class2 = [allele for allele in raw_alleles if _class_of_allele(allele) == "II"]
+    class_of_allele = resolve_runtime_symbol("_class_of_allele")
+    class2 = [allele for allele in raw_alleles if class_of_allele(allele) == "II"]
     if class2:
         predictor_label = predictors[0]
         noun = "allele" if len(class2) == 1 else "alleles"
@@ -793,7 +842,7 @@ def predict_epitopes_from_args(args):
     skip_errors = bool(
         args.skip_variant_errors or getattr(args, "skip_errors", False)
     )
-    predictor = TopiaryPredictor(
+    predictor = resolve_runtime_symbol("TopiaryPredictor")(
         models=models,
         padding_around_mutation=args.padding_around_mutation,
         filter_by=filter_by,
@@ -850,6 +899,8 @@ def _require_variant_input(args):
 
 def _apply_exclusion(df, args, reference_options=None):
     """Apply all exclusion sources to the predictions."""
+    import pandas as pd
+
     options = reference_options or exclusion_options(args)
     if not isinstance(df, pd.DataFrame) or df.empty:
         return df
@@ -867,21 +918,26 @@ def _apply_exclusion(df, args, reference_options=None):
 
     exclude_paths = getattr(args, "exclude_fasta", None)
     if exclude_paths:
+        read_fasta = resolve_runtime_symbol("read_fasta")
         for path in exclude_paths:
             add_reference(read_fasta(path))
 
     if getattr(args, "exclude_ensembl", False):
-        add_reference(ensembl_proteome(**options))
+        add_reference(resolve_runtime_symbol("ensembl_proteome")(**options))
 
     if getattr(args, "exclude_non_cta", False):
-        add_reference(non_cta_sequences(release=options["release"]))
+        add_reference(
+            resolve_runtime_symbol("non_cta_sequences")(release=options["release"])
+        )
 
     exclude_tissues = getattr(args, "exclude_tissues", None)
     if exclude_tissues:
         add_reference(
-            tissue_expressed_sequences(exclude_tissues, release=options["release"])
+            resolve_runtime_symbol("tissue_expressed_sequences")(
+                exclude_tissues, release=options["release"]
+            )
         )
 
     if ref_sequences:
-        df = exclude_by(df, ref_sequences, mode=mode)
+        df = resolve_runtime_symbol("exclude_by")(df, ref_sequences, mode=mode)
     return df

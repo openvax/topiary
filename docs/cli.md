@@ -403,6 +403,24 @@ Topiary also accepts options from
 Run `topiary --help` for defaults and the complete list of accepted options,
 and `topiary --version` to print the installed version.
 
+## Tab completion
+
+`topiary` supports shell tab completion through `argcomplete`. Enable it once
+for every OpenVax command-line tool:
+
+```bash
+activate-global-python-argcomplete
+```
+
+Or register only `topiary` in your shell profile (`~/.bashrc`, `~/.zshrc`, etc.):
+
+```bash
+eval "$(register-python-argcomplete topiary)"
+```
+
+On interactive color terminals, `topiary --help` styles headings and option
+flags using a single cyan hue and respects `NO_COLOR` and `TERM=dumb`.
+
 ## Installation details
 
 `pip install topiary` requires Python 3.11 or newer and brings in Osteosarc and

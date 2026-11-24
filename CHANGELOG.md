@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.117.0
+
+- **CLI tab completion, shared subtle help styling, and import-light startup (`#588`)**:
+  - Raised the runtime dependency floor from `argcomplete>=1.10` to `argcomplete>=3` in `requirements.txt` and added the `# PYTHON_ARGCOMPLETE_OK` global-activation marker at the top of `topiary/cli/script.py`.
+  - Added `topiary/cli/help.py` (`color_enabled`, `style_help`, `style_table_header`, `classify_status`, `style_status`, `HelpFormatter`, and `HelpArgumentParser` with `color=False` on Python 3.14+ and plain `format_help()`) using the shared OpenVax single-hue cyan theme (`\033[36m` flags, bold cyan headings and table headers, bold `usage:`), honoring TTY detection, `NO_COLOR`, and `TERM=dumb`, and wired `HelpArgumentParser` into `topiary/cli/args.py` and `style_table_header` into preview tables in `topiary/cli/outputs.py`.
+  - Converted `topiary/__init__.py` to PEP 562 lazy `__getattr__` / `__dir__` (preserving all 272 top-level exports in `__all__` and static `TYPE_CHECKING` aliases) and deferred heavy runtime imports across `topiary/cli/{script,args,cached_predictor,outputs,rna,references}.py`, cutting CLI startup / tab-completion import cost from ~1.7 s to ~60 ms with zero heavy modules (`pandas`, `numpy`, `pyarrow`, `torch`, `mhcflurry`, `pyensembl`, `pysam`) loaded.
+  - Documented `activate-global-python-argcomplete` and `eval "$(register-python-argcomplete topiary)"` in `README.md` and `docs/cli.md`, and added subprocess tab-completion, lazy-import, and help-styling tests in `tests/test_cli_completion_and_help.py`.
+
 ## 5.116.0
 
 - **Chemistry-aware peptide cache identity (`#569`)**: added public
