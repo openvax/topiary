@@ -15,11 +15,16 @@
 3. Checks the version isn't already published on PyPI
    (`scripts/check_pypi_release.py`; fail-closed, so an unreachable or
    malformed PyPI response stops the release)
-4. Runs `./lint.sh` (ruff and the declared mypy scope)
-5. Runs `./test.sh` (pytest with coverage)
-6. Builds sdist and wheel via `python -m build`
-7. Uploads to PyPI via twine
-8. Creates the git tag (`v{version}`) and pushes only that exact tag ref
+4. Verifies the release environment (`scripts/check_release_environment.py`):
+   refuses stale build-generated `topiary.egg-info` shadowing editable
+   `.dist-info` metadata, verifies the selected distribution version matches
+   `topiary/__init__.py`, and verifies the complete runtime dependency contract
+   matches `requirements.txt` before lint or tests run
+5. Runs `./lint.sh` (ruff and the declared mypy scope)
+6. Runs `./test.sh` (pytest with coverage)
+7. Builds sdist and wheel via `python -m build`
+8. Uploads to PyPI via twine
+9. Creates the git tag (`v{version}`) and pushes only that exact tag ref
 
 The dry run exercises the authenticated push path and catches unavailable
 endpoints, common credential failures, and obvious ref conflicts before
@@ -63,9 +68,25 @@ python3 -m venv .venv
 export PYTHON="$PWD/.venv/bin/python"
 "$PYTHON" -m pip install -e . -r requirements-dev.txt
 "$PYTHON" -m pip check
+"$PYTHON" scripts/check_release_environment.py
 "$PYTHON" -m pip inspect > .venv/environment.json
 ./lint.sh
 ./test.sh
+```
+
+If a prior distribution build left an ignored `topiary.egg-info/` directory in
+the repository root, `importlib.metadata.distribution("topiary")` from the
+checkout cwd can select that stale `.egg-info` ahead of the refreshed PEP 660
+`.dist-info` in `.venv` — even after `pip install -e . --no-deps
+--no-build-isolation` and `pip check` both succeed (#565). Run
+`scripts/check_release_environment.py` (also run automatically by `deploy.sh`
+before `./lint.sh` and `./test.sh`), and if stale local build metadata is
+reported, remove only `topiary.egg-info` and refresh the editable install:
+
+```bash
+rm -rf topiary.egg-info
+"$PYTHON" -m pip install -e . --no-deps --no-build-isolation
+"$PYTHON" scripts/check_release_environment.py
 ```
 
 The environment report records installed versions and editable source paths.

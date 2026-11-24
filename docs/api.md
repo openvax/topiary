@@ -42,7 +42,8 @@ RNA-local interval. Missing counts stay null. Status is `passing`, `filtered`,
 `filter_status_unavailable`, `no_usable_reads`, `no_alt_reads`,
 `no_predicted_coding_change` or `no_protein_sequence`. This reports recorded
 filters, not clinical suitability. Acquisition failures are not biological
-results. See [the all-variant audit](osteosarc-variant-outcomes.md).
+results. See [the all-variant audit](https://github.com/openvax/topiary/blob/master/tests/data/osteosarc_audits/osteosarc-variant-outcomes.md)
+in `tests/data/osteosarc_audits/`.
 
 ## Amino-acid data
 

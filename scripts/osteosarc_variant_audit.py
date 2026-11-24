@@ -606,7 +606,7 @@ def report(root):
             lines.append(f"| {row['case_id']} | {row['status']} | {rna['num_alt_reads']} / {rna['num_alt_fragments']} | "
                          f"{len(rna['protein_sequence']) if rna['protein_sequence'] else '—'} | {'; '.join(rna['failed_filters'])} |")
     lines.extend(["", "## Structural and larger-deletion leads", "",
-                  "See the source-pinned [RNA path audit](../../docs/osteosarc-rna-audit.md).",
+                  "See the source-pinned [RNA path audit](../../tests/data/osteosarc_audits/osteosarc-rna-audit.md).",
                   "GABBR1–SLC29A1 and OTUD7A–FMN1 have observed RNA paths but unresolved coding frames; no peptide is invented.",
                   "DLG5's sequence-resolved DNA junction audit is complete (Isovar PR #298); RNA junction and coding frame remain unresolved. No internal-deletion protein is inferred for a canonical-start-loss event.",
                   "AFF3/KEAP1 ordinary intron-spanning RNA cannot discriminate the intronic deletion from reference.",

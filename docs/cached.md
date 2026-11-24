@@ -27,15 +27,26 @@ The cache answers `predict_proteins_dataframe` and
 `predict_peptides_dataframe` calls from the table, so every
 `predict_from_*` method on `TopiaryPredictor` works unchanged.
 
-For whole-peptide half-life tables, use `predict_from_named_peptides` to replay
-the complete peptides originally scored. Known allele-independent kinds retain
-`mhc_dependence="none"` without a live fallback; caching a measurement does not
-make it allele-specific. A fallback's explicit kind metadata takes precedence.
-Measurement contexts survive loading, queries and saving. Rows sharing a cache
-key must agree on those semantics as well as their numerical measurements;
-contradictory contexts are rejected. The cache does not yet index distinct
-chemistry or assay conditions as separate queries: keep those experiments in
-separate caches ([#288](https://github.com/openvax/topiary/issues/288)).
+For whole-peptide half-life tables, use `predict_from_named_peptides` (or
+`predict_peptide_occurrences`) to replay the complete peptides originally
+scored. Known allele-independent kinds retain `mhc_dependence="none"` without
+a live fallback; caching a measurement does not make it allele-specific. A
+fallback's explicit kind metadata takes precedence. Measurement contexts
+survive loading, queries and saving. Rows sharing a cache key must agree on
+those semantics as well as their numerical measurements; contradictory contexts
+are rejected.
+
+When predictions carry an `mhctools.PeptideInput` (`peptide_input` column),
+the cache keys on its canonical `peptide_inference_identity`
+(`PeptideInput.inference_identity_sha256` — sequence, N-/C-terminal chemistry,
+attachments, and `PeptideContext`, excluding source occurrence coordinates).
+Chemically distinct forms (such as free versus acetylated termini, attachments,
+or different assay matrices) stay separate in prediction, cache lookup, wide
+tables, and round-trip serialization, while tumor-source protein-scan contexts
+(`n_flank` / `c_flank`) and administered chemical forms never substitute for
+each other. Plain sequence strings retain backwards compatibility with legacy
+caches and natural unmodified peptides; missing or unsupported contexts stay
+missing (`None` / `NaN`) rather than being coerced to an unfavourable score.
 
 `save()` writes structured contexts using Topiary's typed CSV/TSV codec,
 including metadata comments, or Parquet. Both delimited formats accept a `.gz`
@@ -60,15 +71,18 @@ df = predictor.predict_from_named_sequences(proteins)
 ```
 
 A failed sequence loses **all its rows for the affected model**, including any
-covered windows. Other sequences and other models continue. Full sequences are
-used when isolating misses, so flank-dependent predictions keep their original
-context. Reports identify `source_sequence_name`, `model_key`, method/version,
-`stage` (`protein`, `peptide`, `wildtype`, or `self_nearest`), error type and
-message. WT or self-nearest failures leave their comparator scores missing;
-they do not remove successful primary predictions. Successful rows remain
-ordinary DataFrame rows, so retain the separate report even after filtering.
-`PartialPredictionWarning` also signals incomplete results. Unrelated exceptions
-and failures in the handler still raise.
+covered windows. Other sequences and other models continue. Failed batches are
+split only as needed to isolate the failing input, using full sequences so
+flank-dependent predictions keep their original context. Whole-peptide,
+fragment, occurrence, wildtype, and self-nearest prediction paths share this
+policy; no predictions are fabricated. Reports identify `source_sequence_name`,
+`model_key`, method/version, `stage` (`protein`, `peptide`, `occurrence`,
+`wildtype`, or `self_nearest`), error type and message. WT or self-nearest
+failures leave their comparator scores missing; they do not remove successful
+primary predictions. Successful rows remain ordinary DataFrame rows, so retain
+the separate report even after filtering. `PartialPredictionWarning` also
+signals incomplete results. Unrelated exceptions and failures in the handler
+still raise.
 
 The CLI uses a mandatory JSON sidecar for this opt-in mode:
 
@@ -79,16 +93,16 @@ topiary --fasta proteins.fasta --mhc-cache-file predictions.csv \
 
 The sidecar records `complete`, `prediction_rows` (after filters), and `failures`,
 including when all inputs fail or all succeed. Exit status **3** means a partial
-prediction run; **0** means no reported cache misses. A malformed command line
-exits 2 with the usage text; any other fatal error, including a cache that
-cannot answer without this option, exits 1 with one line. CSV stdout remains
-parseable. The report is written before the
-prediction output, and its path must differ from inputs and outputs.
-`complete` concerns cache coverage only, not biological evidence, filtering,
-or variant annotation skipped under `--skip-variant-errors`.
+prediction run (including runs with zero successful predictions); **0** means no
+reported cache misses. A malformed command line exits 2 with the usage text; any
+other fatal error, including a cache that cannot answer without this option,
+exits 1 with one line. CSV stdout remains parseable. The report is written
+before the prediction output, and its path must differ from inputs and outputs.
+`complete` concerns cache coverage only, not biological evidence, filtering, or
+variant annotation skipped under `--skip-variant-errors`.
 
-Lower-level callers can use the public `predict_with_cache_miss_report` policy.
-See the [implementation and compatibility notes](cache-miss-reporting.md).
+Lower-level callers can use the public `predict_with_cache_miss_report` policy
+directly.
 
 ## Selecting lengths and retrieving different values
 

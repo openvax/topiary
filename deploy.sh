@@ -53,6 +53,10 @@ git push --dry-run origin "HEAD:${RELEASE_REF}"
 # Stop on an existing release OR an unverifiable lookup, before any gates run.
 "${PYTHON}" scripts/check_pypi_release.py topiary "${VERSION}"
 
+# Verify selected editable metadata matches source and is not shadowed by stale
+# build-generated topiary.egg-info before running expensive lint/test gates (#565).
+"${PYTHON}" scripts/check_release_environment.py
+
 # Lint
 ./lint.sh
 

@@ -381,6 +381,45 @@ def _with_optional_allele_set_key(df, group_keys):
     return group_keys
 
 
+def _with_optional_peptide_identity_key(df, group_keys):
+    """Add ``peptide_inference_identity`` to the group key when needed.
+
+    Two chemically distinct forms of the same sequence (for example free
+    versus acetylated termini, attachments, or explicit ``PeptideContext``
+    assay conditions) must stay distinct groups in DSL filtering and ranking,
+    and modified chemistry must never silently project onto plain-sequence
+    MHC rows. When every populated identity is only the natural unmodified
+    sequence shorthand (for example stacking plain-string ``PeptiVerse``
+    output beside a plain-string MHC predictor that omits ``peptide_input``),
+    keep the narrower peptide key so ``peptide_view`` still joins them.
+    """
+    group_keys = list(group_keys)
+    column = "peptide_inference_identity"
+    if (
+        column not in df.columns
+        or column in group_keys
+        or "peptide" not in group_keys
+        or not _has_real_values(df[column])
+    ):
+        return group_keys
+    stated = df.loc[stated_values(df[column]), ["peptide", column]]
+    if stated.groupby("peptide")[column].nunique().gt(1).any():
+        group_keys.insert(group_keys.index("peptide") + 1, column)
+        return group_keys
+    from mhctools import PeptideInput
+    from mhctools.unsupported_residue import UnsupportedResidueError
+
+    for peptide, identity in stated.drop_duplicates().itertuples(index=False):
+        try:
+            natural_id = str(PeptideInput(str(peptide).strip().upper()).inference_identity_sha256)
+        except (ValueError, UnsupportedResidueError):
+            natural_id = None
+        if str(identity).strip() != natural_id:
+            group_keys.insert(group_keys.index("peptide") + 1, column)
+            return group_keys
+    return group_keys
+
+
 def _with_optional_sample_key(df, group_keys):
     group_keys = list(group_keys)
     if (
@@ -410,7 +449,9 @@ def _pick_group_keys(df):
         for key in ("source_label", "prediction_run_name"):
             if key in df.columns and _has_real_values(df[key]):
                 keys.insert(0, key)
-    return _with_optional_sample_key(df, _with_optional_allele_set_key(df, keys))
+    return _with_optional_sample_key(
+        df, _with_optional_peptide_identity_key(df, _with_optional_allele_set_key(df, keys)),
+    )
 
 
 def _check_inferred_group_keys(df, keys):

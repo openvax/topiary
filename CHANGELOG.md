@@ -1,5 +1,49 @@
 # Changelog
 
+## 5.116.0
+
+- **Chemistry-aware peptide cache identity (`#569`)**: added public
+  `coerce_peptide_input()`, `peptide_chemical_identity()`,
+  `peptide_inference_identity()`, `peptide_record_identity()`, and
+  `prediction_peptide_input_matches()` aligned with `mhctools.PeptideInput`'s
+  canonical `chemical_identity_sha256` / `inference_identity_sha256` /
+  `record_identity_sha256` contract.
+  - Added `peptide_inference_identity` to `PREDICTION_KEY_COLUMNS` and
+    `peptide_input` to `PREDICTION_CONTEXT_COLUMNS` so chemically distinct
+    forms (`n_term`, `c_term`, `attachments`, `PeptideContext`) never collide
+    or substitute for each other in `CachedPredictor`, `TopiaryPredictor`,
+    `predict_peptide_occurrences`, DSL ranking, wide/long tables, or
+    TSV/CSV/Parquet round-trips.
+  - Tumor-source protein-scan contexts (`n_flank` / `c_flank`) and administered
+    terminal chemistry stay strictly separate, repeated epitopes at distinct
+    source coordinates retain distinct occurrence/record provenance, plain
+    sequence strings retain full backwards compatibility with legacy caches,
+    and missing or unsupported contexts stay missing (`None` / `NaN`).
+- **Release environment preflight (`#565`)**: added
+  `scripts/check_release_environment.py` (wired into `deploy.sh` before
+  `./lint.sh` and `./test.sh` and documented in `RELEASING.md`) to detect stale
+  build-generated `topiary.egg-info` shadowing refreshed editable `.dist-info`
+  metadata and validate the selected distribution version, editable import
+  location, and complete `requirements.txt` dependency contract before
+  expensive test gates.
+- **Nested offline Isovar test robustness & diagnostics (`#568`)**: pinned
+  single-threaded BLAS/OpenMP/Accelerate execution and calibrated per-mode
+  timeouts in `tests/test_collection.py`, adding a JSONL progress recorder and
+  timeout diagnostic formatter that preserves child stdout/stderr, the active
+  test nodeid, and the slowest completed tests on timeout without weakening
+  offline or unselected-reference assertions.
+- **Strengthened tissue workflow integration test (`#603`)**: replaced random
+  scores and column-only checks in
+  `tests/test_integration.py::test_first_principles_workflow` with
+  deterministic predictions and explicit before/after assertions proving
+  `filter_by`, `sort_by`, and `exclude_by(..., mode="substring")` behavior
+  alongside real reproductive/vital-organ tissue sequences and X-policy checks.
+- **Docs cleanup (`#584`)**: folded surviving user-facing cache-miss reporting
+  prose from `docs/cache-miss-reporting.md` into `docs/cached.md` and deleted
+  the obsolete spec page; moved the four dataset-specific `osteosarc-*.md`
+  audit records out of the published MkDocs nav to
+  `tests/data/osteosarc_audits/` with a pointer in `docs/index.md`.
+
 ## 5.115.0
 
 - **NetMHC legacy macaque allele resolution (`#582`)**: added public

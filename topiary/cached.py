@@ -30,6 +30,7 @@ Fallback semantics
 from __future__ import annotations
 
 import functools
+import math
 import re
 from copy import copy
 from decimal import Decimal, InvalidOperation
@@ -43,10 +44,13 @@ from typing import Any, Callable, Iterable, List, Mapping, Optional, Union
 
 import numpy as np
 import pandas as pd
-from .alleles import canonical_allele_name, _normalize_native_allele_name_or_raw
+from mhctools import PeptideInput
+from mhctools.unsupported_residue import UnsupportedResidueError
 
+from .alleles import canonical_allele_name, _normalize_native_allele_name_or_raw
 from .io import _float_precision_kwargs
 from .predictor import from_predictions
+from .serialization import normalize_python_types
 from .wide import group_token
 from .ranking import (
     KIND_MHC_DEPENDENCE, is_stated, stated_values, mhc_dependence,
@@ -80,6 +84,11 @@ _CACHE_COLUMNS = (
     "prediction_flanks_supplied", "prediction_mhc_dependence",
     "prediction_n_flank_limit", "prediction_c_flank_limit",
     "measurement_context",
+    # Administered chemical form and assay/model-input context from
+    # mhctools.PeptideInput. ``peptide_inference_identity`` keys the cache on
+    # sequence + terminal chemistry + attachments + PeptideContext while
+    # keeping source occurrence provenance in ``peptide_input`` separate.
+    "peptide_input", "peptide_inference_identity",
 )
 
 #: Columns a sliding-window protein scan emits, in mhctools' vocabulary.
@@ -162,6 +171,7 @@ PREDICTION_VALUE_COLUMNS = (
 #: attempt at this dropped them.
 PREDICTION_CONTEXT_COLUMNS = (
     "source_sequence_name", "peptide_offset", "sample_name",
+    "peptide_input",
 )
 
 
@@ -170,7 +180,218 @@ PREDICTION_KEY_COLUMNS = (
     "n_flank", "c_flank", "allele_set",
     "prediction_flanks_supplied", "prediction_mhc_dependence",
     "prediction_n_flank_limit", "prediction_c_flank_limit",
+    "peptide_inference_identity",
 )
+
+
+def _clean_peptide_input_mapping(mapping: Mapping[Any, Any]) -> dict[str, Any]:
+    """Normalize serialized Parquet/JSON structures for ``PeptideInput.from_dict``."""
+    def _clean(value: Any, *, integer_field: bool = False) -> Any:
+        if isinstance(value, np.ndarray):
+            return [_clean(item) for item in value.tolist()]
+        if isinstance(value, Mapping):
+            return {
+                str(k): _clean(v, integer_field=str(k) in {"source_start", "schema_version"})
+                for k, v in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [_clean(item) for item in value]
+        value = normalize_python_types(value)
+        if isinstance(value, float) and math.isnan(value):
+            return None
+        if integer_field and isinstance(value, float) and not isinstance(value, bool):
+            if math.isfinite(value) and value == int(value):
+                return int(value)
+        return value
+
+    return _clean(mapping)
+
+
+def coerce_peptide_input(value: Any) -> PeptideInput | None:
+    """Validate and normalize a peptide chemical/context input, or return ``None``.
+
+    Parameters
+    ----------
+    value : mhctools.PeptideInput, mapping, str, or None
+        An exact :class:`mhctools.PeptideInput`, its serialized dictionary
+        representation (including Parquet or typed CSV/TSV round-tripped
+        mappings), a canonical peptide string shorthand, or a missing value
+        (``None``, ``NaN``, ``pd.NA``, or blank string).
+
+    Returns
+    -------
+    mhctools.PeptideInput or None
+        Validated ``PeptideInput`` carrying exact sequence, terminal chemistry,
+        attachments, optional :class:`mhctools.PeptideContext`, and source
+        occurrence provenance. Missing values return ``None`` rather than
+        inventing defaults.
+
+    Raises
+    ------
+    TypeError
+        If *value* is not a ``PeptideInput``, mapping, string, or missing value.
+    ValueError
+        If *value* carries invalid terminal chemistry, attachments, context,
+        coordinates, or non-canonical residues.
+    """
+    if isinstance(value, PeptideInput):
+        return value
+    if isinstance(value, Mapping):
+        return PeptideInput.from_dict(_clean_peptide_input_mapping(value))
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or not is_stated(text):
+            return None
+        return PeptideInput(text.upper())
+    if pd.api.types.is_scalar(value) and pd.isna(value):
+        return None
+    raise TypeError(
+        "Expected mhctools.PeptideInput, serialized mapping, peptide string, "
+        f"or None; got {type(value).__name__}"
+    )
+
+
+def peptide_chemical_identity(value: Any) -> str | None:
+    """Return ``PeptideInput.chemical_identity_sha256`` or ``None`` when absent.
+
+    Captures sequence, N-/C-terminal chemistry, and attachments only; excludes
+    both :class:`mhctools.PeptideContext` and source occurrence provenance.
+
+    Parameters
+    ----------
+    value : mhctools.PeptideInput, mapping, str, or None
+        Input accepted by :func:`coerce_peptide_input`.
+
+    Returns
+    -------
+    str or None
+        SHA-256 hex digest of the chemical form, or ``None`` when *value* is
+        missing.
+    """
+    parsed = coerce_peptide_input(value)
+    return None if parsed is None else str(parsed.chemical_identity_sha256)
+
+
+def peptide_inference_identity(value: Any) -> str | None:
+    """Return ``PeptideInput.inference_identity_sha256`` or ``None`` when absent.
+
+    Captures sequence, N-/C-terminal chemistry, attachments, and model-input
+    :class:`mhctools.PeptideContext`, while excluding source occurrence
+    provenance (``occurrence_id``, ``source_sequence_name``, ``source_start``,
+    ``source_gene``, ``source_species``). This is the canonical cache-key
+    identity used by :class:`CachedPredictor`.
+
+    Parameters
+    ----------
+    value : mhctools.PeptideInput, mapping, str, or None
+        Input accepted by :func:`coerce_peptide_input`.
+
+    Returns
+    -------
+    str or None
+        SHA-256 hex digest of the chemistry and model-input context, or
+        ``None`` when *value* is missing.
+    """
+    parsed = coerce_peptide_input(value)
+    return None if parsed is None else str(parsed.inference_identity_sha256)
+
+
+def peptide_record_identity(value: Any) -> str | None:
+    """Return ``PeptideInput.record_identity_sha256`` or ``None`` when absent.
+
+    Captures the full :class:`mhctools.PeptideInput` record, including source
+    occurrence provenance (``occurrence_id``, ``source_sequence_name``,
+    ``source_start``, ``source_gene``, ``source_species``), so repeated
+    epitopes at different source coordinates have distinct record identities.
+
+    Parameters
+    ----------
+    value : mhctools.PeptideInput, mapping, str, or None
+        Input accepted by :func:`coerce_peptide_input`.
+
+    Returns
+    -------
+    str or None
+        SHA-256 hex digest of the complete record, or ``None`` when *value* is
+        missing.
+    """
+    parsed = coerce_peptide_input(value)
+    return None if parsed is None else str(parsed.record_identity_sha256)
+
+
+def _stored_peptide_inference_identity(prediction: Mapping[Any, Any] | pd.Series) -> str:
+    """Extract and validate the stored ``peptide_inference_identity`` from a row."""
+    raw_id = prediction.get("peptide_inference_identity")
+    stored_id = str(raw_id).strip() if is_stated(raw_id) else ""
+    raw_input = prediction.get("peptide_input")
+    parsed: PeptideInput | None = None
+    if raw_input is not None and not (pd.api.types.is_scalar(raw_input) and pd.isna(raw_input)):
+        parsed = coerce_peptide_input(raw_input)
+    if parsed is not None:
+        derived = str(parsed.inference_identity_sha256)
+        if stored_id and stored_id != derived:
+            raise ValueError(
+                "Prediction peptide_inference_identity disagrees with peptide_input"
+            )
+        return derived
+    return stored_id
+
+
+def prediction_peptide_input_matches(
+    prediction: Mapping[Any, Any] | pd.Series,
+    peptide_input: Any = None,
+) -> bool:
+    """Whether a cached prediction matches the requested peptide chemical/context form.
+
+    Parameters
+    ----------
+    prediction : mapping
+        A prediction row carrying optional ``peptide``, ``peptide_input``, and
+        ``peptide_inference_identity`` fields.
+    peptide_input : mhctools.PeptideInput, mapping, str, or None, optional
+        - A ``PeptideInput`` (or serialized mapping) requires an exact match on
+          ``inference_identity_sha256``. Legacy rows without chemistry/context
+          metadata never satisfy an explicit ``PeptideInput`` query.
+        - A plain peptide ``str`` is the legacy natural-peptide shorthand: it
+          matches legacy rows without ``peptide_inference_identity`` as well as
+          rows recorded for the unmodified free-terminal sequence with no
+          attachments and ``context=None``, and never matches modified
+          chemistry or an explicit :class:`mhctools.PeptideContext`.
+        - ``None`` matches only rows with missing ``peptide_inference_identity``.
+
+    Returns
+    -------
+    bool
+        ``True`` only when the stored chemical form and model-input context
+        apply to the requested input.
+    """
+    stored_id = _stored_peptide_inference_identity(prediction)
+    row_peptide = prediction.get("peptide")
+    if peptide_input is None:
+        return stored_id == ""
+    if isinstance(peptide_input, str):
+        seq = peptide_input.strip()
+        if not seq:
+            raise ValueError("peptide_input string must be nonempty")
+        if is_stated(row_peptide) and str(row_peptide) != seq:
+            return False
+        if stored_id == "":
+            return True
+        try:
+            natural_id = str(PeptideInput(seq.upper()).inference_identity_sha256)
+        except (ValueError, UnsupportedResidueError):
+            return False
+        return stored_id == natural_id
+    if isinstance(peptide_input, (PeptideInput, Mapping)):
+        target = coerce_peptide_input(peptide_input)
+        assert target is not None
+        if is_stated(row_peptide) and str(row_peptide) != target.sequence:
+            return False
+        return stored_id == str(target.inference_identity_sha256)
+    raise TypeError(
+        "peptide_input must be mhctools.PeptideInput, mapping, str, or None; "
+        f"got {type(peptide_input).__name__}"
+    )
 
 
 def prediction_flank_limits(prediction: Mapping[Any, Any] | pd.Series) -> tuple[int | None, int | None]:
@@ -269,10 +490,12 @@ def _dependence_tag(value):
 
 def _cache_comparison_frame(df):
     """Use hashable context tokens only while comparing rows, preserving cells."""
-    if "measurement_context" not in df:
+    structured = [c for c in ("measurement_context", "peptide_input") if c in df]
+    if not structured:
         return df
     comparison = df.copy(deep=False)
-    comparison["measurement_context"] = df.measurement_context.map(group_token)
+    for column in structured:
+        comparison[column] = df[column].map(group_token)
     return comparison
 
 
@@ -598,6 +821,52 @@ class CachedPredictor:
                 stated_values(out["allele_set"]), ""
             ).astype(str).str.strip()
         out["peptide"] = out["peptide"].astype(str)
+        # Normalize optional PeptideInput records and derive the canonical
+        # inference_identity_sha256 cache key. Missing context stays None in
+        # peptide_input and "" in the key column, never coerced to a fake form.
+        has_peptide_input = "peptide_input" in out.columns
+        raw_inputs = (
+            out["peptide_input"].tolist() if has_peptide_input else [None] * len(out)
+        )
+        raw_identities = (
+            out["peptide_inference_identity"].tolist()
+            if "peptide_inference_identity" in out.columns
+            else [None] * len(out)
+        )
+        normalized_inputs: list[dict[str, Any] | None] = []
+        normalized_identities: list[str] = []
+        for row_peptide, raw_input, raw_id in zip(
+            out["peptide"].tolist(), raw_inputs, raw_identities,
+        ):
+            stated_id = str(raw_id).strip() if is_stated(raw_id) else ""
+            parsed_input: PeptideInput | None = None
+            if raw_input is not None and not (
+                pd.api.types.is_scalar(raw_input) and pd.isna(raw_input)
+            ):
+                parsed_input = coerce_peptide_input(raw_input)
+            if parsed_input is not None:
+                if parsed_input.sequence != row_peptide:
+                    raise ValueError(
+                        f"CachedPredictor: peptide_input.sequence "
+                        f"{parsed_input.sequence!r} disagrees with peptide "
+                        f"{row_peptide!r}."
+                    )
+                derived_id = str(parsed_input.inference_identity_sha256)
+                if stated_id and stated_id != derived_id:
+                    raise ValueError(
+                        "CachedPredictor: peptide_inference_identity disagrees "
+                        "with peptide_input."
+                    )
+                normalized_inputs.append(normalize_python_types(parsed_input.to_dict()))
+                normalized_identities.append(derived_id)
+            else:
+                normalized_inputs.append(None)
+                normalized_identities.append(stated_id)
+        if has_peptide_input:
+            out["peptide_input"] = pd.Series(normalized_inputs, index=out.index, dtype=object)
+        out["peptide_inference_identity"] = pd.Series(
+            normalized_identities, index=out.index, dtype=object,
+        ).astype(str)
         # allele *is* legitimately absent — an allele-free kind
         # (proteasome_cleavage, antigen_processing) has no allele. But
         # astype(str) would spell each absence differently: None becomes
@@ -671,6 +940,7 @@ class CachedPredictor:
         prediction_mhc_dependence=None,
         prediction_n_flank_limit=None,
         prediction_c_flank_limit=None,
+        peptide_inference_identity=None,
     ):
         """Composite cache key from already-extracted row values.
 
@@ -692,6 +962,7 @@ class CachedPredictor:
             _dependence_tag(prediction_mhc_dependence) or "",
             *prediction_flank_limits(dict(prediction_n_flank_limit=prediction_n_flank_limit,
                                           prediction_c_flank_limit=prediction_c_flank_limit)),
+            str(peptide_inference_identity).strip() if is_stated(peptide_inference_identity) else "",
         )
 
     @classmethod
@@ -721,6 +992,11 @@ class CachedPredictor:
             df["prediction_mhc_dependence"].to_numpy(copy=False)
             if "prediction_mhc_dependence" in df else repeat(None, n)
         )
+        peptide_ids = (
+            df["peptide_inference_identity"].to_numpy(copy=False)
+            if "peptide_inference_identity" in df.columns
+            else repeat(None, n)
+        )
         for values in zip(
             df["peptide"].to_numpy(copy=False),
             df["allele"].to_numpy(copy=False),
@@ -733,6 +1009,7 @@ class CachedPredictor:
             modes,
             df["prediction_n_flank_limit"].to_numpy(copy=False) if "prediction_n_flank_limit" in df else repeat(None, n),
             df["prediction_c_flank_limit"].to_numpy(copy=False) if "prediction_c_flank_limit" in df else repeat(None, n),
+            peptide_ids,
         ):
             yield cls._row_key_from_values(*values)
 
@@ -938,7 +1215,7 @@ class CachedPredictor:
         return retained
 
     def predict_peptides_dataframe(
-        self, peptides: Iterable[str],
+        self, peptides: Iterable[Any],
     ) -> pd.DataFrame:
         """Return one row per ``(peptide, allele, kind)`` — every kind
         the cache carries for a given ``(peptide, allele)`` produces
@@ -947,10 +1224,29 @@ class CachedPredictor:
         NetMHCpan ``-BA`` stores two (affinity + elution score).  This
         matches the shape ``mhctools.predict_proteins_dataframe`` emits.
 
+        Accepts plain peptide strings (legacy natural-peptide shorthand)
+        and :class:`mhctools.PeptideInput` records. Chemically distinct
+        forms (changed ``n_term``, ``c_term``, ``attachments``, or
+        :class:`mhctools.PeptideContext`) never share a cache identity or
+        substitute for one another. Repeated occurrences sharing an
+        ``inference_identity_sha256`` reuse cached inference while
+        retaining each requested occurrence's own provenance.
+
         Misses are resolved through ``self.fallback`` (which merges
-        into the cache) if set; else raise ``KeyError``.
+        into the cache) if set; else raise ``CachedPredictorCoverageError``.
         """
-        peptides = [str(p) for p in peptides]
+        items: list[tuple[str | PeptideInput, str, str]] = []
+        for item in peptides:
+            if isinstance(item, PeptideInput):
+                items.append((item, item.sequence, str(item.inference_identity_sha256)))
+            elif isinstance(item, str):
+                items.append((str(item), str(item), ""))
+            else:
+                raise TypeError(
+                    "predict_peptides_dataframe expects peptide strings or "
+                    f"mhctools.PeptideInput; got {type(item).__name__}"
+                )
+
         query_alleles = self._cache_alleles()
         if self.fallback is not None:
             query_alleles = sorted(
@@ -958,34 +1254,54 @@ class CachedPredictor:
                 | set(getattr(self.fallback, "alleles", []))
             )
 
-        # Identify peptides with at least one missing (peptide, allele)
-        # across any known kind.  Resolving at peptide granularity keeps
-        # the fallback call simple (it returns all kinds for each peptide
-        # anyway) and matches the prior behavior's semantics.
-        missed_peptides = set()
-        for peptide in peptides:
-            length = len(peptide)
+        # Identify items with at least one missing (peptide, allele,
+        # chemistry/context) across any known kind.
+        missed_by_key: dict[tuple[str, str], str | PeptideInput] = {}
+        for item, sequence, identity in items:
+            length = len(sequence)
+            if not query_alleles:
+                if self.fallback is not None:
+                    missed_by_key.setdefault((sequence, identity), item)
+                continue
             for allele in query_alleles:
-                # At least one cached row must exist at (pep, allele,
-                # length) across any kind / flank combo.
-                if not self._lookup_by_prefix(peptide, allele, length):
-                    missed_peptides.add(peptide)
+                matches = [
+                    row for row in self._lookup_by_prefix(sequence, allele, length)
+                    if prediction_peptide_input_matches(row, item)
+                ]
+                if not matches:
+                    missed_by_key.setdefault((sequence, identity), item)
                     break
 
         # Resolve misses through fallback (populates self._index in place).
-        if missed_peptides:
-            self._fallback_resolve(sorted(missed_peptides))
+        if missed_by_key:
+            ordered_misses = [
+                missed_by_key[key] for key in sorted(missed_by_key)
+            ]
+            self._fallback_resolve(ordered_misses)
+            query_alleles = self._cache_alleles()
+            if self.fallback is not None:
+                query_alleles = sorted(
+                    set(query_alleles)
+                    | set(getattr(self.fallback, "alleles", []))
+                )
 
-        # Assemble output — every cache row matching (peptide, allele)
-        # across every kind + flank combo.  Single-kind / single-flank
-        # caches return one row per (peptide, allele); multi-kind
-        # (mhcflurry -BA, class1_presentation) or multi-flank (same
-        # peptide across protein contexts) return multiple rows.
+        # Assemble output — every cache row matching (peptide, allele,
+        # chemistry/context) across every kind + flank combo.
         rows = []
-        for peptide in peptides:
-            length = len(peptide)
+        for item, sequence, identity in items:
+            length = len(sequence)
             for allele in query_alleles:
-                rows.extend(self._lookup_by_prefix(peptide, allele, length))
+                for matched in self._lookup_by_prefix(sequence, allele, length):
+                    if not prediction_peptide_input_matches(matched, item):
+                        continue
+                    row = dict(matched)
+                    if isinstance(item, PeptideInput):
+                        row["peptide_input"] = normalize_python_types(item.to_dict())
+                        row["peptide_inference_identity"] = identity
+                        row["peptide_offset"] = item.source_start
+                        if item.source_sequence_name is not None:
+                            row["source_sequence_name"] = item.source_sequence_name
+                    rows.append(row)
 
         if not rows:
             return pd.DataFrame(columns=list(_CACHE_COLUMNS))
@@ -1018,6 +1334,7 @@ class CachedPredictor:
         self, peptides: Iterable[str], *,
         n_flanks: Iterable[str] | None = None,
         c_flanks: Iterable[str] | None = None,
+        peptide_inputs: Iterable[Any] | None = None,
     ) -> pd.DataFrame:
         """Query exact peptides at one explicitly selected prediction context.
 
@@ -1030,6 +1347,12 @@ class CachedPredictor:
             Parallel upstream/downstream context. Both must be present or
             absent; empty strings mean known termini. Omitting both explicitly
             selects peptide-only predictions, never a different stored flank.
+        peptide_inputs : iterable of mhctools.PeptideInput, mapping, or None, optional
+            Parallel exact chemical/context specifications. When supplied for
+            an entry, cache matching requires exact agreement on
+            ``inference_identity_sha256`` in addition to flanking context and
+            MHC scope; missing stored chemistry never satisfies an explicit
+            ``PeptideInput``.
 
         Returns
         -------
@@ -1069,6 +1392,24 @@ class CachedPredictor:
                 raise ValueError("Known flanks must be strings; empty strings mean termini")
         else:
             n_contexts = c_contexts = [None] * len(peptides)
+        parsed_inputs: list[PeptideInput | None]
+        if peptide_inputs is not None:
+            if isinstance(peptide_inputs, (str, PeptideInput, Mapping)):
+                raise ValueError("peptide_inputs must be a parallel sequence")
+            raw_peptide_inputs = list(peptide_inputs)
+            if len(raw_peptide_inputs) != len(peptides):
+                raise ValueError("peptide_inputs must align positionally with peptides")
+            parsed_inputs = []
+            for peptide, raw_item in zip(peptides, raw_peptide_inputs):
+                parsed = coerce_peptide_input(raw_item)
+                if parsed is not None and parsed.sequence != peptide:
+                    raise ValueError(
+                        f"peptide_input.sequence {parsed.sequence!r} disagrees "
+                        f"with peptide {peptide!r}"
+                    )
+                parsed_inputs.append(parsed)
+        else:
+            parsed_inputs = [None] * len(peptides)
         if not peptides:
             return pd.DataFrame(columns=list(_CACHE_COLUMNS))
         support = self.kind_support()
@@ -1078,18 +1419,22 @@ class CachedPredictor:
         alleles = self.alleles
         if any(spec["mhc_dependence"] != "none" for spec in support.values()) and not alleles:
             raise ValueError("Allele-dependent cache queries require configured alleles")
-        requests = list(zip(peptides, n_contexts, c_contexts))
+        requests = list(zip(peptides, n_contexts, c_contexts, parsed_inputs))
 
-        def contextual_rows(peptide, n_flank, c_flank):
+        def contextual_rows(peptide, n_flank, c_flank, peptide_input):
             rows = pd.DataFrame(
                 self._selected_cache_rows(peptide, len(peptide)), columns=self._df.columns)
-            return rows.loc[[prediction_flanks_match(
-                row, n_flank=n_flank, c_flank=c_flank) for row in rows.to_dict("records")]]
+            target = peptide_input if peptide_input is not None else peptide
+            return rows.loc[[
+                prediction_flanks_match(row, n_flank=n_flank, c_flank=c_flank)
+                and prediction_peptide_input_matches(row, target)
+                for row in rows.to_dict("records")
+            ]]
 
         def lookup():
             output, missing = [], []
-            for peptide, n_flank, c_flank in requests:
-                contextual = contextual_rows(peptide, n_flank, c_flank)
+            for peptide, n_flank, c_flank, peptide_input in requests:
+                contextual = contextual_rows(peptide, n_flank, c_flank, peptide_input)
                 for kind, spec in support.items():
                     dependence = spec["mhc_dependence"]
                     expected = alleles if dependence == "single_allele" else [None]
@@ -1099,7 +1444,7 @@ class CachedPredictor:
                         matching = candidates.loc[[self._row_mhc_scope(row)[1] == scope
                                                    for row in candidates.to_dict("records")]]
                         if matching.empty:
-                            missing.append((peptide, n_flank, c_flank))
+                            missing.append((peptide, n_flank, c_flank, peptide_input))
                             continue
                         values = [c for c in PREDICTION_VALUE_COLUMNS if c in matching]
                         if len(_distinct_cache_rows(matching[values])) > 1:
@@ -1109,8 +1454,22 @@ class CachedPredictor:
                         # recorded inference explicitly omitted them. Report
                         # the queried inference context without rewriting the store.
                         selected.update(n_flank=n_flank, c_flank=c_flank)
+                        if peptide_input is not None:
+                            selected["peptide_input"] = normalize_python_types(peptide_input.to_dict())
+                            selected["peptide_inference_identity"] = str(peptide_input.inference_identity_sha256)
                         output.append(selected)
-            return output, list(dict.fromkeys(missing))
+            deduped_missing = []
+            seen_missing: set[tuple[str, str | None, str | None, str]] = set()
+            for entry in missing:
+                peptide, n_flank, c_flank, peptide_input = entry
+                miss_key = (
+                    peptide, n_flank, c_flank,
+                    "" if peptide_input is None else str(peptide_input.inference_identity_sha256),
+                )
+                if miss_key not in seen_missing:
+                    seen_missing.add(miss_key)
+                    deduped_missing.append(entry)
+            return output, deduped_missing
 
         output, missing = lookup()
         if missing and self.fallback is not None:
@@ -1126,18 +1485,24 @@ class CachedPredictor:
                     None, dependence="haplotype", allele_set=fallback_alleles) != prediction_mhc_scope(
                         None, dependence="haplotype", allele_set=alleles):
                     raise ValueError("Fallback genotype differs from the requested genotype")
-            batches: dict[tuple[str | None, str | None], list[str]] = {}
-            for peptide, n_flank, c_flank in missing:
-                batches.setdefault((n_flank, c_flank), []).append(peptide)
-            for (n_flank, c_flank), batch in batches.items():
+            batches: dict[tuple[str | None, str | None, str], list[tuple[str, PeptideInput | None]]] = {}
+            for peptide, n_flank, c_flank, peptide_input in missing:
+                identity = "" if peptide_input is None else str(peptide_input.inference_identity_sha256)
+                batches.setdefault((n_flank, c_flank, identity), []).append((peptide, peptide_input))
+            for (n_flank, c_flank, _identity), batch in batches.items():
                 # Use the public occurrence workflow for output validation and
                 # scope stamping, so fresh and fallback inference cannot drift.
                 from .peptide_occurrences import predict_peptide_occurrences
-                fresh = predict_peptide_occurrences([
-                    dict(prediction_id=str(index), peptide=peptide,
-                         n_flank=n_flank, c_flank=c_flank)
-                    for index, peptide in enumerate(batch)
-                ], self.fallback, use_flanks=supplied)
+                records = []
+                for index, (peptide, peptide_input) in enumerate(batch):
+                    rec: dict[str, Any] = dict(
+                        prediction_id=str(index), peptide=peptide,
+                        n_flank=n_flank, c_flank=c_flank,
+                    )
+                    if peptide_input is not None:
+                        rec["peptide_input"] = peptide_input
+                    records.append(rec)
+                fresh = predict_peptide_occurrences(records, self.fallback, use_flanks=supplied)
                 self._verify_fallback_version(fresh)
                 normalized = self._normalize(fresh)
                 conflicts = conflicting_predictions(normalized)
@@ -1146,11 +1511,17 @@ class CachedPredictor:
                 # A legacy row can answer the same query without carrying
                 # the explicit metadata emitted by fresh inference. Retain
                 # that measurement too, rather than introducing a second answer.
-                existing = {(row["peptide"], row["kind"], self._row_mhc_scope(row)[1])
-                            for peptide in batch
-                            for row in contextual_rows(peptide, n_flank, c_flank).to_dict("records")}
-                novel = normalized.loc[[(row["peptide"], row["kind"], self._row_mhc_scope(row)[1]) not in existing
-                                        for row in normalized.to_dict("records")]]
+                existing = {
+                    (row["peptide"], row["kind"], self._row_mhc_scope(row)[1],
+                     row.get("peptide_inference_identity", ""))
+                    for peptide, peptide_input in batch
+                    for row in contextual_rows(peptide, n_flank, c_flank, peptide_input).to_dict("records")
+                }
+                novel = normalized.loc[[
+                    (row["peptide"], row["kind"], self._row_mhc_scope(row)[1],
+                     row.get("peptide_inference_identity", "")) not in existing
+                    for row in normalized.to_dict("records")
+                ]]
                 if not novel.empty:
                     self._df = novel.copy() if self._df.empty else pd.concat([self._df, novel], ignore_index=True)
                     self._index, self._prefix_index = self._build_index(self._df)
@@ -1420,7 +1791,14 @@ class CachedPredictor:
         No return value — the caller re-reads from ``self._index``.
         """
         if self.fallback is None:
-            missed_preview = peptides[:5]
+            missed_preview = [
+                (
+                    f"{item.sequence}(n_term={item.n_term}, c_term={item.c_term}, "
+                    f"id={item.inference_identity_sha256[:12]})"
+                    if isinstance(item, PeptideInput) else item
+                )
+                for item in peptides[:5]
+            ]
             extra = _more_suffix(len(peptides), 5)
             raise CachedPredictorCoverageError(
                 f"CachedPredictor: {len(peptides)} peptide(s) missed and "
@@ -2260,6 +2638,10 @@ def prediction_matches_protein_context(
     offset = int(offset)
     length = len(peptide)
     if sequence[offset:offset + length] != peptide:
+        return False
+    # Administered chemical form / PeptideInput context is distinct from
+    # tumor-source protein scan windows; neither may substitute for the other.
+    if _stored_peptide_inference_identity(row):
         return False
     supplied = _flank_flag(row.get("prediction_flanks_supplied"))
     limits = prediction_flank_limits(row)

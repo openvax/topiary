@@ -35,11 +35,6 @@ nav:
   - API Reference: api.md
   - Project notes:
     - Public API Type Checks: typing.md
-    - Cache Miss Reports: cache-miss-reporting.md
-    - Osteosarc RNA Audit: osteosarc-rna-audit.md
-    - Osteosarc RNA Overlay: osteosarc-rna-overlay.md
-    - Osteosarc Variant Outcomes: osteosarc-variant-outcomes.md
-    - Shared Osteosarc Data: osteosarc-shared-data.md
 
 markdown_extensions:
   - pymdownx.highlight

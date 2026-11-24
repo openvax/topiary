@@ -36,5 +36,5 @@ python -m scripts.osteosarc_test_data --verify tests/data
 ```
 
 Fixtures and tests ship in the source distribution. See the
-[provenance and regeneration guide](../../docs/osteosarc-shared-data.md) for
+[provenance and regeneration guide](osteosarc_audits/osteosarc-shared-data.md) for
 selection policies, source identity, scientific expectations and cache options.

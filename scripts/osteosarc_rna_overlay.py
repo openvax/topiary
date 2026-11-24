@@ -2,7 +2,7 @@
 
 Run with the Isovar extra installed, from a Topiary checkout. Acquisition uses
 public HTTP sources and samtools indexed range requests, not whole BAM downloads.
-The two local roots must be separate. See docs/osteosarc-rna-overlay.md.
+The two local roots must be separate. See tests/data/osteosarc_audits/osteosarc-rna-overlay.md.
 """
 
 import argparse
