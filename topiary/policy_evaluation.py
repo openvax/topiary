@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
 import json
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -121,7 +122,7 @@ class PolicyEvaluation:
     @property
     def audit(self):
         """One criterion decision per occurrence, with all identity/row links."""
-        records = []
+        records: list[dict[Any, Any]] = []
         selection = self.evidence.extra["policy_evaluation"].get("representative_selection", {})
         choices = {alternative: (row["occurrence_id"], row["representative_reason"])
                    for row in selection.get("records", []) for alternative in row["alternative_occurrences"]}
@@ -129,7 +130,7 @@ class PolicyEvaluation:
             criteria = row.pop("criteria", [])
             chosen, rationale = choices.get(row["occurrence_id"], (None, None))
             row.update(representative_occurrence_id=chosen, representative_reason=rationale)
-            records.extend(dict(row, **criterion) for criterion in criteria)
+            records.extend({**row, **criterion} for criterion in criteria)
         return pd.DataFrame(records)
 
 
@@ -169,7 +170,7 @@ def _partition_decisions(frame, positions, context, policy, partition):
     for term, resolved in zip(policy.ranking_by, expanded["ranking_by"]):
         node = score_criteria.expression(term.expression) if score_criteria else as_dsl_node(resolved["expression"])
         tie_scores.append(node.eval(score_ctx).reindex(ctx.group_index))
-    criterion_records = {}
+    criterion_records: dict[str, dict[str, dict[str, Any]]] = {}
     for measurements in (filter_criteria, score_criteria):
         if measurements is None:
             continue
@@ -179,11 +180,11 @@ def _partition_decisions(frame, positions, context, policy, partition):
             if record["status"] != "not_evaluated" or record["criterion"] not in slot:
                 slot[record["criterion"]] = record
     peptide_keys = _peptide_keys(ctx.group_keys)
-    by_peptide = {}
+    by_peptide: dict[str, list[int]] = {}
     for row, position in zip(ctx.key_frame.to_dict("records"), positions):
         identity = _key([row[k] for k in peptide_keys])
         by_peptide.setdefault(identity, []).append(int(position))
-    by_group = {}
+    by_group: dict[int, list[int]] = {}
     for code, position in zip(ctx.row_group_codes(), positions):
         by_group.setdefault(int(code), []).append(int(position))
     decisions = []
@@ -287,6 +288,7 @@ def evaluate_selection_policy(result, policy, *, group_keys=None, alleles=None,
     options = dict(group_keys=group_keys, alleles=alleles,
                    default_methods=policy.default_methods, default_versions=policy.default_versions,
                    kind_support=result._kind_support() if kind_support is None else kind_support)
+    partitions: list[tuple[Any, np.ndarray, Any]]
     if source_contexts is None:
         partitions = [(None, np.arange(len(frame)), {})]
     else:

@@ -9,4 +9,4 @@ unset SCRIPT_DIR
 "${PYTHON}" -m ruff check topiary/ tests/
 "${PYTHON}" -m mypy
 
-echo 'Passes ruff and the declared public-API type checks'
+echo 'Passes ruff and package-wide mypy checks'

@@ -93,8 +93,8 @@ def match_self_peptides(reference, peptides, *, max_mismatches=0, max_edits=None
     alleles = [_canonical_allele_or_missing(value) for value in alleles]
     if isinstance(excluded_gene_ids, str):
         raise TypeError("excluded_gene_ids must be an iterable of gene IDs")
-    excluded = sorted(set(excluded_gene_ids))
-    if any(not isinstance(gene, str) or not gene for gene in excluded):
+    excluded_list = sorted(set(excluded_gene_ids))
+    if any(not isinstance(gene, str) or not gene for gene in excluded_list):
         raise ValueError("Excluded gene IDs must be nonempty strings")
     observation_records = _evidence_records(observations, observation=True)
     prediction_records = _evidence_records(predictions, observation=False)
@@ -104,7 +104,7 @@ def match_self_peptides(reference, peptides, *, max_mismatches=0, max_edits=None
     for row in prediction_records:
         by_prediction[row["peptide"]].append(row)
     supported = set(AMINO_ACIDS)
-    excluded = set(excluded)
+    excluded = set(excluded_list)
     reference_coverage = {}
     lengths = {length for peptide in peptides for length in (
         range(max(1, len(peptide) - max_edits), len(peptide) + max_edits + 1)

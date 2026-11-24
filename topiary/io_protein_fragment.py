@@ -16,7 +16,7 @@ from __future__ import annotations
 import dataclasses
 import json
 from pathlib import Path
-from typing import Iterable, Iterator, List
+from typing import Any, Iterable, Iterator, List
 
 import pandas as pd
 
@@ -118,7 +118,7 @@ def _row_to_fragment(row: dict) -> ProteinFragment:
             return None
         return v
 
-    values = {}
+    values: dict[str, Any] = {}
     for column in row:
         value = _clean(column)
         if column == "target_intervals":

@@ -460,7 +460,7 @@ _NTPM_SUFFIX = "_nTPM"
 
 def _tissue_column_map(pce):
     """Map tissue name -> expression column, under either naming form."""
-    columns = {}
+    columns: dict[str, str] = {}
     for col in pce.columns:
         if not isinstance(col, str):
             continue

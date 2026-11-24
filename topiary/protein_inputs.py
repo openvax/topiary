@@ -1,6 +1,7 @@
 """Shared input policy for protein scans, independent of antigen category."""
 
 import warnings
+from typing import Any
 
 import pandas as pd
 
@@ -172,7 +173,7 @@ def predict_protein_windows(model, named_sequences, windows):
     if limits is None:
         raise ValueError("Selected protein windows require declared model flank limits")
     n_limit, c_limit = limits
-    contexts = {}
+    contexts: dict[tuple[str, str, str], list[tuple[Any, int]]] = {}
     for name, offset, length in windows:
         sequence = named_sequences[name]
         key = (
@@ -213,7 +214,7 @@ def predict_protein_windows(model, named_sequences, windows):
                 )
         raw = pd.concat(frames, ignore_index=True)
     else:
-        records = []
+        records: list[dict[str, Any]] = []
         for (peptide, n_flank, c_flank), locations in contexts.items():
             for name, offset in locations:
                 records.append(

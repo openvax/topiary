@@ -221,3 +221,80 @@ def test_pip_install_retries_a_bounded_number_of_times(tmp_path, failures, statu
                for call in invocations[1:])
     if status:
         assert "pip install failed after 3 attempts" in result.stderr
+
+
+@pytest.mark.parametrize("case", ["cpu-ok", "cuda-torch", "nvidia-wheel", "triton-wheel"])
+def test_check_cpu_torch_enforces_cpu_only_ci_environment(monkeypatch, case):
+    import importlib.metadata
+
+    cuda_version = "13.0" if case == "cuda-torch" else None
+    fake_torch = SimpleNamespace(
+        __version__="2.15.0+cpu" if cuda_version is None else "2.15.0",
+        version=SimpleNamespace(cuda=cuda_version),
+    )
+    fake_dists = [
+        SimpleNamespace(metadata={"Name": "torch"}),
+        SimpleNamespace(metadata={"Name": "mhcflurry"}),
+    ]
+    if case == "nvidia-wheel":
+        fake_dists.append(SimpleNamespace(metadata={"Name": "nvidia-cudnn-cu13"}))
+    elif case == "triton-wheel":
+        fake_dists.append(SimpleNamespace(metadata={"Name": "triton"}))
+
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setattr(importlib.metadata, "distributions", lambda: fake_dists)
+    script = Path(__file__).resolve().parents[1] / "scripts/check_cpu_torch.py"
+
+    if case == "cpu-ok":
+        runpy.run_path(str(script), run_name="__main__")
+    elif case == "cuda-torch":
+        with pytest.raises(RuntimeError, match="Expected a CPU-only torch wheel"):
+            runpy.run_path(str(script), run_name="__main__")
+    else:
+        expected_name = "nvidia-cudnn-cu13" if case == "nvidia-wheel" else "triton"
+        with pytest.raises(RuntimeError, match=expected_name):
+            runpy.run_path(str(script), run_name="__main__")
+
+
+def test_ci_workflow_avoids_pip_cache_and_uses_cpu_torch_index():
+    import yaml
+
+    workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/tests.yml"
+    workflow = yaml.safe_load(workflow_path.read_text())
+
+    top_env = workflow.get("env", {})
+    assert top_env.get("PIP_NO_CACHE_DIR") == "1"
+    assert top_env.get("PIP_EXTRA_INDEX_URL") == "https://download.pytorch.org/whl/cpu"
+
+    for job_name, job in workflow["jobs"].items():
+        for step in job["steps"]:
+            if str(step.get("uses", "")).startswith("actions/setup-python"):
+                with_cfg = step.get("with", {})
+                assert "cache" not in with_cfg, (
+                    f"Job {job_name!r} must not save multi-GB pip caches (#564)"
+                )
+
+    for job_name in (
+        "weirdo-integration",
+        "vaxrank-candidate-workflow",
+        "build",
+        "isovar-integration",
+        "installed-wheel",
+    ):
+        runs = "\n".join(
+            step.get("run", "") for step in workflow["jobs"][job_name]["steps"]
+        )
+        assert "--no-deps --index-url https://download.pytorch.org/whl/cpu torch" in runs, job_name
+        assert "python -m pip check" in runs, job_name
+        assert "python scripts/check_cpu_torch.py" in runs, job_name
+
+    # Preserve Ensembl reference caching, idempotent install, and runtime validation.
+    build_steps = workflow["jobs"]["build"]["steps"]
+    assert any(
+        str(step.get("uses", "")).startswith("actions/cache")
+        and "pyensembl-data" in str(step.get("with", {}).get("path", ""))
+        for step in build_steps
+    )
+    build_runs = "\n".join(step.get("run", "") for step in build_steps)
+    assert "pyensembl install --release" in build_runs
+    assert "python scripts/check_default_ensembl.py" in build_runs

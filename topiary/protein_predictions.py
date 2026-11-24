@@ -82,8 +82,8 @@ def _protein_windows(sequences, peptide_lengths, windows=None):
     selected = []
     for name, offset, length in windows:
         if (name not in sequences or isinstance(offset, bool) or not isinstance(offset, Integral)
-                or offset < 0 or isinstance(length, bool) or not isinstance(length, Integral)
-                or length not in lengths or offset + length > len(sequences[name])):
+                or int(offset) < 0 or isinstance(length, bool) or not isinstance(length, Integral)
+                or length not in lengths or int(offset) + int(length) > len(sequences[name])):
             raise ValueError("Selected protein window has an invalid source, offset or length")
         selected.append((name, int(offset), int(length)))
     if len(set(selected)) != len(selected):
@@ -161,10 +161,18 @@ def validate_protein_predictions(predictions, sequences, model, *, peptide_lengt
         peptide, name, offset = row["peptide"], row["source_sequence_name"], row[offset_column]
         if not isinstance(peptide, str) or not peptide or not isinstance(name, str) or name not in sequences:
             raise ValueError("Protein fallback returned an unknown source or invalid peptide")
-        if (isinstance(offset, bool) or not isinstance(offset, Real) or not math.isfinite(offset)
-                or offset < 0 or offset != int(offset)):
+        if isinstance(offset, bool) or not isinstance(offset, Real):
             raise ValueError("Protein fallback offsets must be nonnegative integers")
-        if sequences[name][int(offset):int(offset) + len(peptide)] != peptide:
+        if isinstance(offset, Integral):
+            offset_int = int(offset)
+            if offset_int < 0:
+                raise ValueError("Protein fallback offsets must be nonnegative integers")
+        else:
+            offset_val = float(offset)
+            if not math.isfinite(offset_val) or offset_val < 0 or not offset_val.is_integer():
+                raise ValueError("Protein fallback offsets must be nonnegative integers")
+            offset_int = int(offset_val)
+        if sequences[name][offset_int:offset_int + len(peptide)] != peptide:
             raise ValueError("Protein fallback peptide does not match its source coordinate")
         for column in ("peptide_length", "length"):
             if column in row and (isinstance(row[column], bool) or row[column] != len(peptide)):

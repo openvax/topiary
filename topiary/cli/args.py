@@ -18,6 +18,7 @@ from importlib import import_module
 import logging
 from pathlib import Path
 import re
+from typing import Any
 
 from mhctools.cli import add_mhc_args, predictors_from_args
 from varcode.cli import add_variant_args, variant_collection_from_args
@@ -424,8 +425,8 @@ def _split_top_level_commas(text):
     if not text:
         return []
 
-    parts = []
-    current = []
+    parts: list[str] = []
+    current: list[str] = []
     paren_depth = 0
     bracket_depth = 0
 
@@ -491,7 +492,7 @@ def _parse_regions(region_strings):
     """Parse --regions args like 'spike:319-541' into {name: [(start, end)]}."""
     if not region_strings:
         return None
-    regions = {}
+    regions: dict[str, list[tuple[int, int]]] = {}
     for s in region_strings:
         if ":" not in s:
             raise ValueError(
@@ -772,7 +773,7 @@ def predict_epitopes_from_args(args):
         Parsed commandline arguments for Topiary
     """
     _validate_required_prediction_args(args)
-    cache_misses = []
+    cache_misses: list[Any] = []
     report_cache_misses = bool(getattr(args, "cache_miss_report", None))
     reference_options = None
 
@@ -820,7 +821,7 @@ def predict_epitopes_from_args(args):
 
     # Read actual loaded annotations: --genome can be ignored by MAF, and VCF /
     # JSON can supply their own references. None of this consults MHC alleles.
-    genomes = []
+    genomes: list[Any] = []
     if (has_builtin_exclusions(args)
             or getattr(args, "species", None) is not None
             or getattr(args, "ensembl_release", None) is not None):
@@ -908,7 +909,7 @@ def _apply_exclusion(df, args, reference_options=None):
     mode = getattr(args, "exclude_mode", "substring")
 
     # Collect all reference sequences into one dict
-    ref_sequences = {}
+    ref_sequences: dict[tuple[int, str], str] = {}
 
     def add_reference(sequences):
         # Header identities are local to a source. Two FASTAs (e.g. human and

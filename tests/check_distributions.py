@@ -50,7 +50,7 @@ def check_distributions(dist_dir, source_root):
     runtime_files = {
         path.relative_to(source_root).as_posix()
         for path in (source_root / "topiary").rglob("*.py")
-    }
+    } | {"topiary/py.typed"}
     license_text = (source_root / "LICENSE").read_bytes()
 
     with zipfile.ZipFile(wheels[0]) as wheel:

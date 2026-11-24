@@ -807,7 +807,7 @@ class _Parser:
     def _transform_args(self, name):
         """Decode scalar parameters, never pass expression nodes to transforms."""
         self.tokenizer.expect("LPAREN")
-        args = []
+        args: list[float | bool | None] = []
         while self.tokenizer.peek()[0] != "RPAREN":
             token = self.tokenizer.peek()
             sign = 1

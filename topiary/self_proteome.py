@@ -416,7 +416,7 @@ class SelfProteome:
             end = min(start + chunk_size, len(query_arr))
             q_chunk = query_arr[start:end]
 
-            if use_blosum:
+            if blosum_distances is not None:
                 # Sum explicit per-position distances. Canonical pairs retain
                 # historical behavior; ambiguous/unknown pairs are symmetric.
                 dists = blosum_distances[

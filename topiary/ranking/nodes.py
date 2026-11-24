@@ -3427,8 +3427,8 @@ def _gauss_cdf_vec(values: pd.Series) -> pd.Series:
     mask = ~np.isnan(arr)
     # frompyfunc returns object arrays; cast back to float
     if mask.any():
-        transformed = _ERF_UFUNC(arr[mask] / math.sqrt(2.0))
-        result[mask] = 0.5 * (1.0 + transformed.astype(float))
+        transformed = np.asarray(_ERF_UFUNC(arr[mask] / math.sqrt(2.0)), dtype=float)
+        result[mask] = 0.5 * (1.0 + transformed)
     result[~mask] = np.nan
     return pd.Series(result, index=values.index)
 

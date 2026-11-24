@@ -69,7 +69,7 @@ def mutation_intervals_from_positions(positions, peptide_length):
         low, high = max(0, start - 1), min(peptide_length, end)
         if low < high:
             intervals.append((low, high))
-    merged = []
+    merged: list[tuple[int, int]] = []
     for low, high in sorted(intervals):
         if merged and low <= merged[-1][1]:
             merged[-1] = (merged[-1][0], max(high, merged[-1][1]))

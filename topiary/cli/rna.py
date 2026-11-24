@@ -3,6 +3,7 @@ Commandline arguments for expression data and legacy RNA expression filtering.
 """
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,9 @@ def expression_data_from_args(args):
     list of (name_prefix, id_col, DataFrame) tuples. Empty lists if no
     args provided.
     """
-    result = {"gene": [], "transcript": [], "variant": []}
+    result: dict[str, list[tuple[str, str, Any]]] = {
+        "gene": [], "transcript": [], "variant": [],
+    }
 
     for level, attr, default_name in [
         ("gene", "gene_expression", "gene"),

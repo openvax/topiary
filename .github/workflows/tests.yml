@@ -7,6 +7,14 @@ on:
     branches: [master]
   pull_request:
 
+env:
+  # CPU CI runners have no GPU: disable pip's disk cache (avoiding multi-GB
+  # pip caches that evict the expensive Ensembl reference cache under GitHub's
+  # 10 GB repo cache limit, #564) and resolve torch from PyTorch's official
+  # CPU wheel index instead of PyPI's ~3.2 GB CUDA/cuDNN/Triton bundle.
+  PIP_NO_CACHE_DIR: "1"
+  PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+
 jobs:
   weirdo-integration:
     runs-on: ubuntu-22.04
@@ -21,8 +29,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install the released WEIRDO integration
         run: |
+          bash scripts/pip_install.sh --no-deps --index-url https://download.pytorch.org/whl/cpu torch
           bash scripts/pip_install.sh pytest pytest-cov pytest-xdist -e .
           python -m pip check
+          python scripts/check_cpu_torch.py
           python -c "from mhctools import WEIRDO; print(WEIRDO().predictor_version)"
       - name: Exercise scoring, mixed ranking, and cache replay
         run: ./test.sh -m weirdo --strict-markers
@@ -38,8 +48,10 @@ jobs:
         run: |
           # Exercise the published consumer with normal dependency resolution.
           # 3.56.1 uses Variant.genome instead of the deprecated ensembl alias.
+          bash scripts/pip_install.sh --no-deps --index-url https://download.pytorch.org/whl/cpu torch
           bash scripts/pip_install.sh pytest 'vaxrank==3.56.1' -e .
           python -m pip check
+          python scripts/check_cpu_torch.py
       - name: Verify table features through DSL scoring and vaccine construction
         run: python -m pytest scripts/check_vaxrank_candidates.py -q
 
@@ -76,10 +88,6 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-          cache-dependency-path: |
-            requirements.txt
-            pyproject.toml
       - name: Checkout private netmhc-bundle repo
         if: env.HAS_NETMHC_TOKEN == 'true'
         uses: actions/checkout@v7
@@ -110,9 +118,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
+          bash scripts/pip_install.sh --no-deps --index-url https://download.pytorch.org/whl/cpu torch
           bash scripts/pip_install.sh -e . "$PANDAS_REQUIREMENT"
           python -m pip check
-          python -m pip show pandas pyensembl gtfparse
+          python scripts/check_cpu_torch.py
+          python -m pip show pandas pyensembl gtfparse torch
       - name: Resolve the installed default Ensembl release
         id: ensembl-release
         run: |
@@ -233,17 +243,16 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: 'pip'
-          cache-dependency-path: |
-            requirements.txt
-            pyproject.toml
       - name: Install Topiary with Isovar (minimum and latest)
         run: |
           sudo apt-get update
           sudo apt-get install -y samtools
           python -m pip install --upgrade pip
           python -m pip install pytest pytest-cov pytest-xdist
+          bash scripts/pip_install.sh --no-deps --index-url https://download.pytorch.org/whl/cpu torch
           bash scripts/pip_install.sh -e . '${{ matrix.isovar }}'
+          python -m pip check
+          python scripts/check_cpu_torch.py
       - name: Verify Isovar imports
         run: |
           python -c "import sys; from importlib.metadata import version; import topiary; assert 'isovar' not in sys.modules; import isovar; print('Isovar', version('isovar'))"
@@ -278,14 +287,16 @@ jobs:
         run: |
           python -m pip install build
           python -m build
+          bash scripts/pip_install.sh --no-deps --index-url https://download.pytorch.org/whl/cpu torch
           bash scripts/pip_install.sh dist/*.whl pytest
           python -m pip check
+          python scripts/check_cpu_torch.py
       - name: Exercise installed RNA, reference, CTA, ranking and cache workflows
         run: |
           mkdir -p "$RUNNER_TEMP/topiary-wheel-check"
           cp -R tests scripts pyproject.toml "$RUNNER_TEMP/topiary-wheel-check/"
           cd "$RUNNER_TEMP/topiary-wheel-check"
-          python -c "import topiary; assert 'site-packages' in topiary.__file__, topiary.__file__"
+          python -c "from pathlib import Path; import topiary; assert 'site-packages' in topiary.__file__, topiary.__file__; assert (Path(topiary.__file__).parent / 'py.typed').is_file()"
           python -m pytest -q --strict-markers \
             tests/test_sources.py \
             tests/test_consumer_workflows.py::test_weirdo_model_mixed_ranking_and_cache_replay \

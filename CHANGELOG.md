@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.118.0
+
+- **CPU PyTorch CI wheels and pip-cache reduction (`#564`)**:
+  - Updated `.github/workflows/tests.yml` to disable pip's disk cache (`PIP_NO_CACHE_DIR=1`), remove `actions/setup-python` `cache: 'pip'` entries from `build` and `isovar-integration` (eliminating multi-GB pip caches that evicted the Ensembl reference cache under GitHub's 10 GB repo limit), and install PyTorch from the official CPU wheel index (`https://download.pytorch.org/whl/cpu`) via `--no-deps --index-url` + `PIP_EXTRA_INDEX_URL` across all CPU CI jobs while keeping normal Topiary dependencies, `pip check`, all model/inference tests, Ensembl caching, idempotent `pyensembl install`, and `scripts/check_default_ensembl.py` intact.
+  - Added `scripts/check_cpu_torch.py` and workflow/script regression tests in `tests/test_ci_coverage.py` to fail CI setup if CUDA `torch`, `nvidia-*`, or `triton` wheels are ever pulled into CPU jobs.
+- **Package-wide checked mypy typing and PEP 561 `py.typed` (`#532`)**:
+  - Resolved all 114 package-wide mypy errors across 34 modules in `topiary/` (including `no_implicit_optional`, container annotations, `numbers.Real`/`Integral` narrowing, `ProteinFragment` deduplication and default factories, LENS/pVACseq/Exacto loaders, evidence/reconciliation/policy helpers, and CLI cache/error handling) without global ignores or per-line `type: ignore` suppressions in `topiary/`.
+  - Expanded `[tool.mypy]` in `pyproject.toml` from 6 files with `follow_imports = "silent"` to the entire package (`files = ["topiary", "tests/typing"]` with normal import following) while narrowly listing only the 4 untyped upstream packages (`gtfparse`, `mhcgnomes`, `mhctools`, `osteosarc`) in `[[tool.mypy.overrides]]`.
+  - Added `topiary/py.typed`, configured `pyproject.toml` (`[tool.setuptools.package-data]`) and `MANIFEST.in` to ship it in both wheels and sdists, verified it in `tests/check_distributions.py` and CI's `installed-wheel` job, expanded static consumer tests in `tests/typing/public_api.py`, and updated `docs/typing.md`.
+
 ## 5.117.0
 
 - **CLI tab completion, shared subtle help styling, and import-light startup (`#588`)**:

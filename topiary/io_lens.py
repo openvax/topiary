@@ -37,6 +37,7 @@ import re
 import warnings
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -183,8 +184,8 @@ def _resolve_binding_metrics(
             f"(kind, field), got {type(binding_metrics).__name__}"
         )
     known_kinds = known_kind_short_names()
-    resolved = dict(_BINDING_METRICS)
-    seen = {}
+    resolved: dict[tuple[str, str], tuple[str, str] | None] = dict(_BINDING_METRICS)
+    seen: dict[tuple[str, str], tuple[str, str]] = {}
     for key, spec in binding_metrics.items():
         if (
             not isinstance(key, tuple)
@@ -293,7 +294,8 @@ def detect_lens_version(columns) -> str | None:
         if parsed is not None:
             tool, _, _, _ = parsed
             match = _BINDING_COLUMN.match(column)
-            present.add((tool, match.group(3).lower()))
+            if match is not None:
+                present.add((tool, match.group(3).lower()))
     for version, marker in _VERSION_MARKER_METRICS:
         if marker in present:
             return version
@@ -474,7 +476,7 @@ def _remap_binding_columns(
     """
     parsed_columns = []
     unmapped = []
-    versions_by_model = {}
+    versions_by_model: dict[str, list[str]] = {}
     for column in df.columns:
         parsed = _parse_binding_column(column, binding_metrics)
         if parsed is None:
@@ -483,8 +485,9 @@ def _remap_binding_columns(
         if kind is None:
             # A column the caller has acknowledged is not a gap.
             if field is not _ACKNOWLEDGED:
-                metric = _BINDING_COLUMN.match(column).group(3)
-                unmapped.append((column, model, metric.lower()))
+                match = _BINDING_COLUMN.match(column)
+                if match is not None:
+                    unmapped.append((column, model, match.group(3).lower()))
             continue
         parsed_columns.append((column, model, version, kind, field))
         versions_by_model.setdefault(model, []).append(version)
@@ -502,7 +505,7 @@ def _remap_binding_columns(
     # (``netmhcpan_4.1b.aff_nm`` beside ``netmhcpan_4.1.score_ba``) has
     # no collision, and splitting it into two predictors would undo
     # exactly what keying on (tool, metric) was for.
-    versions_by_output = {}
+    versions_by_output: dict[tuple[str, str, str], set[str]] = {}
     for column, model, version, kind, field in parsed_columns:
         versions_by_output.setdefault((model, kind, field), set()).add(version)
     collided_models = {
@@ -526,8 +529,8 @@ def _remap_binding_columns(
             UserWarning, stacklevel=3,
         )
 
-    rename = {}
-    models = {}
+    rename: dict[str, str] = {}
+    models: dict[str, str] = {}
     model_key_parts = {}
     for column, model, version, kind, field in parsed_columns:
         if model in collided:
@@ -553,7 +556,7 @@ def _remap_binding_columns(
     # same tool already produces. Unlike a version collision there is no
     # "keep both" to fall back on, since both would be the same
     # predictor's same field, so this is refused rather than qualified.
-    claimed = {}
+    claimed: dict[str, list[str]] = {}
     for column, target in rename.items():
         claimed.setdefault(target, []).append(column)
     conflicts = {
@@ -650,8 +653,8 @@ def _derive_peptide_columns(df: pd.DataFrame) -> pd.DataFrame:
     df["peptide_length"] = df["peptide"].str.len()
 
     flank_ok_sources = {"SNV", "SPLICE", "FUSION"}
-    n_flank = []
-    c_flank = []
+    n_flank: list[Any] = []
+    c_flank: list[Any] = []
     has_context = "pep_context" in df.columns
     has_source = "antigen_source" in df.columns
     for idx in df.index:

@@ -33,6 +33,9 @@ dependencies = {file = ["requirements.txt"]}
 include = ["topiary", "topiary.*"]
 namespaces = false
 
+[tool.setuptools.package-data]
+topiary = ["py.typed"]
+
 [project.urls]
 "Homepage" = "https://github.com/openvax/topiary"
 "Bug Tracker" = "https://github.com/openvax/topiary/issues"
@@ -63,16 +66,20 @@ markers = [
 ]
 
 [tool.mypy]
-files = ["topiary/io.py", "topiary/result.py", "topiary/cached.py", "topiary/io_isovar_hypotheses.py", "topiary/cleavage.py", "tests/typing/public_tables.py"]
+files = ["topiary", "tests/typing"]
 python_version = "3.11"
-follow_imports = "silent"
 check_untyped_defs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_optional = true
 
-# mhcgnomes and mhctools do not publish type information. Declared once here
-# so import sites stay free of per-line ignores.
+# Upstream dependencies that do not yet publish type information or py.typed.
+# Declared narrowly here so import sites stay free of per-line ignores.
 [[tool.mypy.overrides]]
-module = ["mhcgnomes", "mhcgnomes.*", "mhctools", "mhctools.*"]
+module = [
+    "gtfparse", "gtfparse.*",
+    "mhcgnomes", "mhcgnomes.*",
+    "mhctools", "mhctools.*",
+    "osteosarc", "osteosarc.*",
+]
 ignore_missing_imports = true
