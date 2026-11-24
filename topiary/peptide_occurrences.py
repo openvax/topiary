@@ -96,8 +96,45 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
     if any(spec["mhc_dependence"] != "none" for spec in support.values()) and not alleles:
         raise ValueError("Allele-dependent models require configured alleles")
     frame = _prepare_occurrence_context(frame)
+    has_peptide_input = "peptide_input" in frame
+    parsed_peptide_inputs = []
+    if has_peptide_input:
+        from .cached import coerce_peptide_input
+        from .serialization import normalize_python_types
+
+        normalized_input_dicts = []
+        derived_identities = []
+        for peptide, raw_input in zip(frame.peptide.tolist(), frame["peptide_input"].tolist()):
+            parsed = (
+                coerce_peptide_input(raw_input)
+                if raw_input is not None and not (pd.api.types.is_scalar(raw_input) and pd.isna(raw_input))
+                else None
+            )
+            if parsed is not None:
+                if parsed.sequence != peptide:
+                    raise ValueError(
+                        f"peptide_input.sequence {parsed.sequence!r} disagrees with peptide {peptide!r}"
+                    )
+                parsed_peptide_inputs.append(parsed)
+                normalized_input_dicts.append(normalize_python_types(parsed.to_dict()))
+                derived_identities.append(str(parsed.inference_identity_sha256))
+            else:
+                parsed_peptide_inputs.append(None)
+                normalized_input_dicts.append(None)
+                derived_identities.append("")
+        frame["peptide_input"] = pd.Series(normalized_input_dicts, index=frame.index, dtype=object)
+        if "peptide_inference_identity" in frame:
+            for existing, expected in zip(frame["peptide_inference_identity"].tolist(), derived_identities):
+                if isinstance(existing, str) and existing.strip() and expected and existing.strip() != expected:
+                    raise ValueError("peptide_inference_identity disagrees with peptide_input")
+        frame["peptide_inference_identity"] = derived_identities
+    else:
+        parsed_peptide_inputs = [None] * len(frame)
+
     identity_columns = ["prediction_id", "peptide", "peptide_offset"] + [
         column for column in ("sample_name", "candidate_sample") if column in frame]
+    if has_peptide_input:
+        identity_columns.append("peptide_inference_identity")
     if frame.duplicated(identity_columns).any():
         raise ValueError("Occurrence identity must be unique by prediction_id, peptide, peptide_offset and sample")
     if "peptide_length" in frame and not frame.peptide_length.eq(frame.peptide.str.len()).all():
@@ -152,14 +189,28 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
         flanks = (row.n_flank, row.c_flank) if use_flanks and has_flanks.iloc[index] else (None, None)
         samples = tuple(None if pd.isna(row.get(column)) else row[column]
                         for column in ("sample_name", "candidate_sample"))
-        partitions.setdefault((*samples, *flanks, genotypes.iloc[index]), []).append(index)
+        inference_id = row["peptide_inference_identity"] if has_peptide_input else ""
+        partitions.setdefault((*samples, *flanks, genotypes.iloc[index], inference_id), []).append(index)
     expanded = []
-    for (*_, n_flank, c_flank, genotype), indices in partitions.items():
+    for (*_, n_flank, c_flank, genotype, inference_id), indices in partitions.items():
         inputs = frame.iloc[indices]
-        peptides = inputs.peptide.drop_duplicates().tolist()
+        unique_rows = inputs.drop_duplicates(subset=["peptide"])
+        peptides = unique_rows.peptide.tolist()
+        partition_peptide_inputs = [parsed_peptide_inputs[i] for i in unique_rows.index]
         kwargs = {} if n_flank is None else dict(n_flanks=[n_flank] * len(peptides), c_flanks=[c_flank] * len(peptides))
         predict = contextual_predict or model.predict_dataframe
-        predicted = from_predictions(predict(peptides, **kwargs))
+        if any(item is not None for item in partition_peptide_inputs):
+            if contextual_predict is not None:
+                kwargs["peptide_inputs"] = partition_peptide_inputs
+                predicted = from_predictions(predict(peptides, **kwargs))
+            else:
+                query_items = [
+                    item if item is not None else seq
+                    for seq, item in zip(peptides, partition_peptide_inputs)
+                ]
+                predicted = from_predictions(predict(query_items, **kwargs))
+        else:
+            predicted = from_predictions(predict(peptides, **kwargs))
         if predicted.empty:
             raise ValueError(f"Model returned no prediction for {peptides}")
         if not predicted.peptide.isin(peptides).all():

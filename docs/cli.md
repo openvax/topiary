@@ -407,7 +407,8 @@ and `topiary --version` to print the installed version.
 
 `pip install topiary` requires Python 3.11 or newer and brings in Osteosarc and
 its read-extraction dependency, which supply shared source data and indexed
-regional read extraction; see [shared Osteosarc data](osteosarc-shared-data.md).
+regional read extraction; see [shared Osteosarc data](https://github.com/openvax/topiary/blob/master/tests/data/osteosarc_audits/osteosarc-shared-data.md)
+in `tests/data/osteosarc_audits/`.
 Importing topiary does not acquire any data.
 
 MHC predictors are installed separately and called through

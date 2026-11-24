@@ -1,6 +1,6 @@
 # Shared source and derived fixtures
 
-See [the workflow and provenance guide](../../../docs/osteosarc-shared-data.md)
+See [the workflow and provenance guide](../osteosarc_audits/osteosarc-shared-data.md)
 for source pins, scientific scope, acquisition, verification and regeneration.
 
 Only the NTF3 case required by Topiary tests is kept. Its 15 reads are the

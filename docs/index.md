@@ -128,3 +128,7 @@ others. Reports from [pVACseq](https://pvactools.readthedocs.io/),
 [LENS](https://uselens.io/) and [Exacto](exacto.md) can be read in and
 ranked beside fresh predictions, and peptides can be excluded by vital-organ
 proteome membership or prioritized by RNA expression.
+
+Dataset-specific Osteosarc regression audit notes are kept alongside the test
+fixtures under
+[`tests/data/osteosarc_audits/`](https://github.com/openvax/topiary/tree/master/tests/data/osteosarc_audits).

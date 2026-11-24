@@ -155,9 +155,14 @@ from .cached import (
     PREDICTION_KEY_COLUMNS,
     PREDICTION_VALUE_COLUMNS,
     PROTEIN_SCAN_COLUMNS,
+    coerce_peptide_input,
     conflicting_predictions,
+    peptide_chemical_identity,
+    peptide_inference_identity,
+    peptide_record_identity,
     prediction_flanks_match,
     prediction_matches_protein_context,
+    prediction_peptide_input_matches,
     prediction_flank_limits,
     mhcflurry_composite_version,
 )
@@ -262,7 +267,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.115.0"
+__version__ = "5.116.0"
 
 __all__ = [
     "best_protein_transcript",
@@ -518,8 +523,13 @@ __all__ = [
     "PREDICTION_VALUE_COLUMNS",
     "PREDICTION_CONTEXT_COLUMNS",
     "PROTEIN_SCAN_COLUMNS",
+    "coerce_peptide_input",
     "conflicting_predictions",
+    "peptide_chemical_identity",
+    "peptide_inference_identity",
+    "peptide_record_identity",
     "prediction_flanks_match",
+    "prediction_peptide_input_matches",
     "RNA_EVIDENCE_COLUMNS",
     "DNA_EVIDENCE_COLUMNS",
     "DNA_ALIGNMENT",

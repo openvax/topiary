@@ -46,6 +46,12 @@ elif [[ "${1:-}" == "-m" && "${2:-}" == "pip" ]]; then
     exit "${PYPI_LOOKUP_STATUS:-0}"
 elif [[ "${1:-}" == "scripts/check_pypi_release.py" ]]; then
     exec "$REAL_PYTHON" "$RELEASE_CHECK_DRIVER" "$@"
+elif [[ "${1:-}" == "scripts/check_release_environment.py" ]]; then
+    if [[ -n "${ENV_CHECK_ERROR:-}" ]]; then
+        printf 'ERROR: %s\\n' "$ENV_CHECK_ERROR" >&2
+        exit 1
+    fi
+    exit 0
 elif [[ "${1:-}" == "-m" && "${2:-}" == "build" ]]; then
     mkdir -p dist
     touch dist/topiary-5.52.5-py3-none-any.whl
@@ -73,6 +79,10 @@ def _release_repo(tmp_path):
     shutil.copy2(
         SOURCE_ROOT / "scripts" / "check_pypi_release.py",
         repo / "scripts" / "check_pypi_release.py",
+    )
+    shutil.copy2(
+        SOURCE_ROOT / "scripts" / "check_release_environment.py",
+        repo / "scripts" / "check_release_environment.py",
     )
     # Exercise the real preflight script in a subprocess; only the HTTP
     # boundary is replaced. No test may publish or contact PyPI.
@@ -363,6 +373,7 @@ def test_deploy_uses_one_interpreter_for_every_release_step(tmp_path, selection)
     invocations = (tmp_path / "python-invocations.log").read_text().splitlines()
     assert any(command.startswith("-c import topiary") for command in invocations)
     assert "scripts/check_pypi_release.py topiary 5.52.5" in invocations
+    assert "scripts/check_release_environment.py" in invocations
     assert (tmp_path / "pypi-requests.log").read_text().splitlines() == [
         "https://pypi.org/pypi/topiary/5.52.5/json",
     ]
@@ -385,3 +396,16 @@ def test_deploy_rejects_invalid_explicit_python_without_fallback(tmp_path, kind)
     assert result.returncode == 1
     assert f"Python interpreter not found or not executable: {invalid}" in result.stderr
     assert not (tmp_path / "gate-python.log").exists()
+
+
+def test_deploy_stops_before_lint_and_tests_on_release_environment_failure(tmp_path):
+    """#565: stale egg-info / metadata mismatch must fail before expensive gates."""
+    repo = _release_repo(tmp_path)
+    result = _deploy(repo, {
+        "PYTHON": str(_fake_python(tmp_path / "selected python")),
+        "ENV_CHECK_ERROR": "Stale topiary.egg-info shadows refreshed editable metadata",
+    })
+
+    assert result.returncode != 0
+    assert "Stale topiary.egg-info" in result.stderr
+    _assert_release_stopped(repo)

@@ -27,8 +27,8 @@ PYTHONPATH=. python tests/data/osteosarc_all_variants/regenerate.py AUDIT_ROOT
 ```
 
 For scope, outcomes, limitations and the other original-read indel/fusion
-fixtures, see `docs/osteosarc-variant-outcomes.md` and
-`docs/osteosarc-rna-audit.md`. No result here pools samples or declares a peptide
+fixtures, see `tests/data/osteosarc_audits/osteosarc-variant-outcomes.md` and
+`tests/data/osteosarc_audits/osteosarc-rna-audit.md`. No result here pools samples or declares a peptide
 clinically suitable. Source: https://osteosarc.com/variants/.
 
 The historical `expected.json` and `run.json` remain unchanged.

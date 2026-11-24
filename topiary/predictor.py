@@ -649,6 +649,29 @@ def _normalize_prediction_frame(df):
         df["affinity"] = np.where(
             df["kind"] == "pMHC_affinity", df["value"], np.nan
         )
+    if "peptide_input" in df.columns and df["peptide_input"].notna().any():
+        from .cached import peptide_inference_identity
+
+        derived = [
+            peptide_inference_identity(val)
+            if val is not None and not (pd.api.types.is_scalar(val) and pd.isna(val))
+            else None
+            for val in df["peptide_input"].tolist()
+        ]
+        if "peptide_inference_identity" in df.columns:
+            for existing, expected in zip(df["peptide_inference_identity"].tolist(), derived):
+                if is_stated(existing) and expected is not None and str(existing).strip() != expected:
+                    raise ValueError(
+                        "Prediction frame has peptide_inference_identity disagreeing with peptide_input"
+                    )
+            df["peptide_inference_identity"] = [
+                expected if expected is not None else (
+                    str(existing).strip() if is_stated(existing) else None
+                )
+                for existing, expected in zip(df["peptide_inference_identity"].tolist(), derived)
+            ]
+        else:
+            df["peptide_inference_identity"] = derived
     return df
 
 
@@ -1126,6 +1149,8 @@ class TopiaryPredictor(object):
         df = concat_frames(frames) if frames else pd.DataFrame()
         keys = ["prediction_id", "peptide", "peptide_offset", "allele"] + [
             column for column in ("sample_name", "candidate_sample") if column in occurrences]
+        if "peptide_inference_identity" in df.columns and df["peptide_inference_identity"].map(is_stated).any():
+            keys.append("peptide_inference_identity")
         return self._attach_result_attrs(self._strip_internal_columns(
             self._apply_filter(df, group_keys=keys)).reset_index(drop=True))
 
@@ -1207,20 +1232,71 @@ class TopiaryPredictor(object):
 
     def _predict_named_peptide_batch(self, model, name_to_peptide_dict, model_key):
         """Expand one successful raw peptide batch onto its input names."""
-        peptide_names_df = pd.DataFrame(
-            {
-                "source_sequence_name": list(name_to_peptide_dict.keys()),
-                "peptide": list(name_to_peptide_dict.values()),
-            }
-        )
-        if peptide_names_df.empty:
+        if not name_to_peptide_dict:
             return pd.DataFrame()
 
-        peptide_list = peptide_names_df["peptide"].drop_duplicates().tolist()
+        from mhctools import PeptideInput
+        from .serialization import normalize_python_types
+
+        has_peptide_inputs = any(
+            isinstance(value, PeptideInput) for value in name_to_peptide_dict.values()
+        )
+        if not has_peptide_inputs:
+            peptide_names_df = pd.DataFrame(
+                {
+                    "source_sequence_name": list(name_to_peptide_dict.keys()),
+                    "peptide": list(name_to_peptide_dict.values()),
+                }
+            )
+            peptide_list = peptide_names_df["peptide"].drop_duplicates().tolist()
+            if hasattr(model, "predict_dataframe"):
+                model_df = model.predict_dataframe(peptide_list)
+            else:
+                model_df = model.predict_peptides_dataframe(peptide_list)
+            expanded_df = self._expand_named_peptide_predictions(
+                model_df, peptide_names_df
+            )
+            return self._attach_model_key(
+                self._attach_allele_set(
+                    self._format_prediction_df(expanded_df), model
+                ),
+                model_key,
+            )
+
+        rows = []
+        unique_by_key = {}
+        for name, item in name_to_peptide_dict.items():
+            if isinstance(item, PeptideInput):
+                seq = item.sequence
+                identity = str(item.inference_identity_sha256)
+                input_dict = normalize_python_types(item.to_dict())
+                offset = item.source_start
+            elif isinstance(item, str):
+                seq = item
+                identity = ""
+                input_dict = None
+                offset = 0
+            else:
+                raise TypeError(
+                    "predict_from_named_peptides values must be peptide strings "
+                    f"or mhctools.PeptideInput; got {type(item).__name__}"
+                )
+            rows.append({
+                "source_sequence_name": name,
+                "peptide": seq,
+                "peptide_inference_identity": identity,
+                "_requested_item": item,
+                "_requested_peptide_input": input_dict,
+                "_requested_peptide_offset": offset,
+            })
+            unique_by_key.setdefault((seq, identity), item)
+
+        peptide_names_df = pd.DataFrame(rows)
+        unique_inputs = list(unique_by_key.values())
         if hasattr(model, "predict_dataframe"):
-            model_df = model.predict_dataframe(peptide_list)
+            model_df = model.predict_dataframe(unique_inputs)
         else:
-            model_df = model.predict_peptides_dataframe(peptide_list)
+            model_df = model.predict_peptides_dataframe(unique_inputs)
         expanded_df = self._expand_named_peptide_predictions(
             model_df, peptide_names_df
         )
@@ -1324,6 +1400,36 @@ class TopiaryPredictor(object):
         """Attach the original peptide names to model predictions."""
         if model_df.empty:
             return model_df.copy()
+
+        if "_requested_item" in peptide_names_df.columns:
+            from mhctools import PeptideInput
+            from .cached import prediction_peptide_input_matches
+
+            model_rows = model_df.to_dict("records")
+            by_peptide = {}
+            for row in model_rows:
+                by_peptide.setdefault(str(row["peptide"]), []).append(row)
+            expanded_rows = []
+            for req in peptide_names_df.to_dict("records"):
+                item = req["_requested_item"]
+                candidates = by_peptide.get(req["peptide"], ())
+                for matched in candidates:
+                    if not prediction_peptide_input_matches(matched, item):
+                        continue
+                    row = dict(matched)
+                    row["source_sequence_name"] = req["source_sequence_name"]
+                    if isinstance(item, PeptideInput):
+                        row["peptide_input"] = req["_requested_peptide_input"]
+                        row["peptide_inference_identity"] = req["peptide_inference_identity"]
+                    for offset_column in ("offset", "peptide_offset"):
+                        if offset_column in row:
+                            row[offset_column] = req["_requested_peptide_offset"]
+                    if "offset" not in row and "peptide_offset" not in row:
+                        row["peptide_offset"] = req["_requested_peptide_offset"]
+                    expanded_rows.append(row)
+            if not expanded_rows:
+                return model_df.iloc[:0].copy()
+            return pd.DataFrame(expanded_rows)
 
         expanded_df = model_df.drop(
             columns=["source_sequence_name"], errors="ignore"
