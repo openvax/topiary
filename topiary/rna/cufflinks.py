@@ -40,6 +40,39 @@ LOCUS_COLUMN = "locus"
 GENE_NAMES_COLUMN = "gene_short_name"
 
 
+def filter_cufflinks_status(
+    df,
+    filename,
+    status_column=STATUS_COLUMN,
+    drop_failed=True,
+    drop_lowdata=False,
+    drop_hidata=True,
+):
+    """Drop Cufflinks tracking rows according to their FPKM_status flags."""
+    for flag, status_value in [
+        (drop_failed, "FAIL"),
+        (drop_lowdata, "LOWDATA"),
+        (drop_hidata, "HIDATA"),
+    ]:
+        mask = df[status_column] == status_value
+        mask_count = mask.sum()
+        total_count = len(df)
+        if flag and mask_count > 0:
+            verb_str = "Dropping"
+            df = df[~mask]
+        else:
+            verb_str = "Keeping"
+        logging.info(
+            "%s %d/%d entries from %s with status=%s",
+            verb_str,
+            mask_count,
+            total_count,
+            filename,
+            status_value,
+        )
+    return df
+
+
 def load_cufflinks_dataframe(
     filename,
     id_column=ID_COLUMN,
@@ -131,27 +164,14 @@ def load_cufflinks_dataframe(
     }
     check_required_columns(df, filename, required_columns)
 
-    for flag, status_value in [
-        (drop_failed, "FAIL"),
-        (drop_lowdata, "LOWDATA"),
-        (drop_hidata, "HIDATA"),
-    ]:
-        mask = df[status_column] == status_value
-        mask_count = mask.sum()
-        total_count = len(df)
-        if flag and mask_count > 0:
-            verb_str = "Dropping"
-            df = df[~mask]
-        else:
-            verb_str = "Keeping"
-        logging.info(
-            "%s %d/%d entries from %s with status=%s",
-            verb_str,
-            mask_count,
-            total_count,
-            filename,
-            status_value,
-        )
+    df = filter_cufflinks_status(
+        df,
+        filename,
+        status_column=status_column,
+        drop_failed=drop_failed,
+        drop_lowdata=drop_lowdata,
+        drop_hidata=drop_hidata,
+    )
 
     if drop_nonchromosomal_loci:
         loci = df[locus_column]

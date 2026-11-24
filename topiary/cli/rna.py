@@ -145,6 +145,12 @@ def rna_gene_expression_dict_from_args(args):
         logging.warning(
             "--rna-gene-fpkm-tracking-file is deprecated; use --gene-expression instead.")
         return load_cufflinks_fpkm_dict(args.rna_gene_fpkm_tracking_file)
+    if getattr(args, "rna_min_gene_expression", 0.0):
+        logging.warning(
+            "--rna-min-gene-expression is deprecated and only applies to "
+            "--rna-gene-fpkm-tracking-file (it has no effect with --gene-expression); "
+            "use --filter-by 'gene_tpm >= N' or 'gene_fpkm >= N' instead."
+        )
     return None
 
 
@@ -157,4 +163,11 @@ def rna_transcript_expression_dict_from_args(args):
         logging.warning(
             "--rna-transcript-fpkm-gtf-file is deprecated; use --transcript-expression instead.")
         return load_transcript_fpkm_dict_from_gtf(args.rna_transcript_fpkm_gtf_file)
+    if getattr(args, "rna_min_transcript_expression", 0.0):
+        logging.warning(
+            "--rna-min-transcript-expression is deprecated and only applies to "
+            "--rna-transcript-fpkm-tracking-file / --rna-transcript-fpkm-gtf-file "
+            "(it has no effect with --transcript-expression); "
+            "use --filter-by 'transcript_tpm >= N' or 'transcript_fpkm >= N' instead."
+        )
     return None

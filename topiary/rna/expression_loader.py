@@ -107,6 +107,12 @@ def load_expression(filepath, id_col=None, val_cols=None):
     sep = _infer_sep(filepath)
     df = pd.read_csv(filepath, sep=sep, comment="#")
 
+    if fmt == "cufflinks":
+        from .cufflinks import STATUS_COLUMN, filter_cufflinks_status
+
+        if STATUS_COLUMN in df.columns:
+            df = filter_cufflinks_status(df, filepath)
+
     # Normalize val_cols to a list
     if isinstance(val_cols, str):
         if val_cols == "*":
@@ -215,11 +221,11 @@ def _infer_sep(filepath):
     """Infer delimiter, defaulting to tab."""
     try:
         sep = infer_delimiter(filepath)
-        # Convert regex patterns to literal for pd.read_csv C engine
+        # Convert literal-tab regex to "\t" for pd.read_csv C engine;
+        # keep r"\s+" directly (C engine handles r"\s+" natively without
+        # ParserWarning, unlike sep=None).
         if sep == r"\t":
             return "\t"
-        if sep == r"\s+":
-            return None  # whitespace — use python engine
         return sep
     except (ValueError, FileNotFoundError):
         return "\t"
