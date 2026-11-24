@@ -42,9 +42,9 @@ def load_transcript_fpkm_dict_from_gtf(
     IDs of transcripts to FPKM values.
     """
     if feature_column_name == "feature":
-        from .expression_loader import _load_gtf
+        from .expression_loader import load_gtf_expression
 
-        df = _load_gtf(
+        df = load_gtf_expression(
             gtf_path,
             id_col=transcript_id_column_name,
             val_cols=[fpkm_column_name],

@@ -86,7 +86,7 @@ def load_expression(filepath, id_col=None, val_cols=None):
     fmt = detect_format(filepath)
 
     if fmt == "stringtie_gtf":
-        return _load_gtf(filepath, id_col, val_cols)
+        return load_gtf_expression(filepath, id_col, val_cols)
 
     # Determine defaults from format
     if fmt and fmt in _FORMAT_DEFAULTS:
@@ -141,8 +141,24 @@ def load_expression(filepath, id_col=None, val_cols=None):
     return result
 
 
-def _load_gtf(filepath, id_col=None, val_cols=None):
-    """Load expression data from a StringTie GTF file."""
+def load_gtf_expression(filepath, id_col=None, val_cols=None):
+    """Load transcript-level expression values from a StringTie GTF file.
+
+    Parameters
+    ----------
+    filepath : str or Path
+        Path to a StringTie GTF file.
+    id_col : str, optional
+        Transcript ID attribute column (defaults to ``"reference_id"``).
+    val_cols : str or list of str, optional
+        Expression column(s) to extract. Defaults to ``"TPM"`` if present,
+        otherwise ``"FPKM"``. Pass ``"*"`` for all numeric columns.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with ``id_col`` followed by numeric expression column(s).
+    """
     import gtfparse
 
     # Keep the backend explicit: filtering and numeric conversion below
