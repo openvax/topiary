@@ -1,5 +1,43 @@
 # Changelog
 
+## 5.115.0
+
+- **NetMHC legacy macaque allele resolution (`#582`)**: added public
+  `canonical_native_allele_name()` and wired NetMHC stdout cache loaders
+  (`CachedPredictor.from_netmhc_stdout`, `from_netmhcpan_stdout`,
+  `from_netmhcpan_cons_stdout`, `from_netmhciipan_stdout`,
+  `from_netmhcstabpan_stdout`) to pass a native `allele_normalizer`. Short
+  historical macaque names (`Mamu-A01`, `Mamu-A02`, `Mamu-A07`, `Mamu-A11`,
+  `Mamu-A26`, `Mamu-B01`, `Mamu-B03`, `Mamu-B08`, plus classic NetMHC's
+  `Mamu-B17` -> `Mamu-B*017:01`) now resolve to canonical IPD-MHC identities at
+  stdout load time without renaming already-accepted specific alleles
+  (`Mamu-A2201`, `HLA-C*04:22`) or fabricating alleles for polymorphic genes
+  (`H-2-Qa1`, `H-2-Qa2`).
+- **Compact CLI CSV/HTML output (`#570`)**: omitted verbose per-variant
+  `varcode_candidate_selection` JSON from CLI CSV/HTML rows by default (while
+  preserving it on Python DataFrames and `ProteinFragment` annotations). Added
+  `--include-provenance` to opt back in on row-level outputs and
+  `--output-provenance PATH` to write deduplicated per-variant provenance once
+  per variant as a sidecar JSON file.
+- **CLI discoverability and fast-fail validation (`#574`)**:
+  - `topiary --print-columns` now works standalone without requiring an input
+    or MHC predictor.
+  - Passing class II alleles to class-I-only MHCflurry predictors
+    (`mhcflurry`, `mhcflurry-affinity`) now fails immediately before loading
+    model weights, states that the predictor predicts class I only, and echoes
+    each allele as the user typed it.
+  - `--subset-output-columns` and `--rename-output-column` typos now fail
+    before building predictors or running predictions.
+  - Varcode's `--skip-errors` flag is now honored alongside Topiary's canonical
+    `--skip-variant-errors`.
+- **Public ranking & cross-module helper API (`#585`)**: promoted the six
+  cross-module `topiary.ranking` helpers (`kind_name`, `kind_value`,
+  `kind_short_name`, `kind_matches`, `known_kinds`, `resolve_qualified_kind`)
+  and cross-module helpers (`model_version_str`, `concat_frames`,
+  `group_token`, `known_kind_short_names`) to documented public functions
+  exported in `topiary.__all__` (and `topiary.ranking.__all__`). Dropped all 20
+  underscore-private re-exports from `topiary/ranking/__init__.py`.
+
 ## 5.114.2
 
 - Compact `evidence["genomic_positions"]` arrays inside

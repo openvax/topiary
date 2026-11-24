@@ -51,8 +51,8 @@ from .evidence import (
 )
 from .result import TopiaryResult
 from .prediction_columns import parse_prediction_metric
-from .ranking import _kind_short_name
-from .wide import LONG_TO_WIDE_FIELD, WIDE_FIELDS, _known_kind_short_names
+from .ranking import kind_short_name
+from .wide import LONG_TO_WIDE_FIELD, WIDE_FIELDS, known_kind_short_names
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,7 @@ def _parse_binding_column(
         return (
             inferred.prediction_method_name,
             version,
-            _kind_short_name(inferred.kind),
+            kind_short_name(inferred.kind),
             LONG_TO_WIDE_FIELD[long_field],
         )
     spec = table[key]
@@ -182,7 +182,7 @@ def _resolve_binding_metrics(
             f"binding_metrics must be a mapping of (tool, metric) -> "
             f"(kind, field), got {type(binding_metrics).__name__}"
         )
-    known_kinds = _known_kind_short_names()
+    known_kinds = known_kind_short_names()
     resolved = dict(_BINDING_METRICS)
     seen = {}
     for key, spec in binding_metrics.items():

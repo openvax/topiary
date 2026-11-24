@@ -28,7 +28,7 @@ from .filters import (
 )
 from .ranking import (
     ALLELE_SET_COLUMN,
-    _kind_value,
+    kind_value,
     format_allele_set,
     apply_filter,
     apply_sort,
@@ -38,8 +38,8 @@ from .ranking import (
     mhc_dependence,
     prediction_mhc_scope,
 )
-from .io import _model_version_str
-from .wide import _concat_frames
+from .io import model_version_str
+from .wide import concat_frames
 from mhctools.pred import COLUMNS as _PRED_COLUMNS
 from mhctools.wrapper_base import AlleleFreePredictor
 
@@ -96,7 +96,7 @@ def _model_metadata_versions(models):
     versions = {}
     for model in models:
         name = _model_metadata_name(model)
-        version = _model_version_str(getattr(model, "predictor_version", None))
+        version = model_version_str(getattr(model, "predictor_version", None))
         if name and version:
             versions[str(name)] = version
     return versions
@@ -761,9 +761,9 @@ def _attach_allele_sets(df, allele_set, sources):
         ]
     elif isinstance(allele_set, Mapping):
         for kind, alleles in allele_set.items():
-            kind_value = _kind_value(kind)
+            resolved_kind = kind_value(kind)
             formatted = format_allele_set(alleles)
-            df.loc[df["kind"] == kind_value, ALLELE_SET_COLUMN] = formatted
+            df.loc[df["kind"] == resolved_kind, ALLELE_SET_COLUMN] = formatted
     else:
         df[ALLELE_SET_COLUMN] = format_allele_set(allele_set)
     return df
@@ -1123,7 +1123,7 @@ class TopiaryPredictor(object):
             frames.append(self._attach_model_key(predict_peptide_occurrences(
                 occurrences, model, use_flanks=use_flanks, predict_wt=self.predict_wt,
                 on_miss=handler), model_key))
-        df = _concat_frames(frames) if frames else pd.DataFrame()
+        df = concat_frames(frames) if frames else pd.DataFrame()
         keys = ["prediction_id", "peptide", "peptide_offset", "allele"] + [
             column for column in ("sample_name", "candidate_sample") if column in occurrences]
         return self._attach_result_attrs(self._strip_internal_columns(
@@ -1151,7 +1151,7 @@ class TopiaryPredictor(object):
             )
         if not dfs:
             return pd.DataFrame()
-        return _concat_frames(dfs)
+        return concat_frames(dfs)
 
     def _predict_raw_for_model(self, model, name_to_sequence_dict, model_key=None, stage="protein"):
         """Run one model on proteins, preserving source-sequence context."""
@@ -1180,7 +1180,7 @@ class TopiaryPredictor(object):
             dfs.append(model_df)
         if not dfs:
             return pd.DataFrame()
-        return _concat_frames(dfs)
+        return concat_frames(dfs)
 
     def _predict_raw_peptides_for_model(
         self, model, name_to_peptide_dict, model_key=None, stage="peptide"
@@ -1203,7 +1203,7 @@ class TopiaryPredictor(object):
     def _cache_miss_context(self, model, model_key, stage):
         """Provenance for one configured model's prediction pass."""
         return dict(model_key=model_key, prediction_method_name=str(_model_metadata_name(model)),
-                    predictor_version=_model_version_str(getattr(model, "predictor_version", None)), stage=stage)
+                    predictor_version=model_version_str(getattr(model, "predictor_version", None)), stage=stage)
 
     def _predict_named_peptide_batch(self, model, name_to_peptide_dict, model_key):
         """Expand one successful raw peptide batch onto its input names."""
@@ -1258,7 +1258,7 @@ class TopiaryPredictor(object):
         if not callable(support):
             return df
         genotype_kinds = {
-            _kind_value(kind)
+            kind_value(kind)
             for kind, meta in support().items()
             if meta.get("mhc_dependence") == "haplotype"
         }
@@ -1303,7 +1303,7 @@ class TopiaryPredictor(object):
                 if not method_str:
                     continue
                 for version in rows["predictor_version"]:
-                    version_str = _model_version_str(version)
+                    version_str = model_version_str(version)
                     if version_str:
                         model_versions[method_str] = version_str
                         break
@@ -2118,7 +2118,7 @@ def describe_prediction_models(predictor):
             "model_key": str(model_key),
             "model_class": type(model).__name__,
             "prediction_method_name": stated_method,
-            "predictor_version": _model_version_str(
+            "predictor_version": model_version_str(
                 getattr(model, "predictor_version", None)
             ) or None,
             "alleles": alleles,

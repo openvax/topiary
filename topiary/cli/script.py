@@ -39,9 +39,14 @@ from mhcgnomes.errors import ParseError as AlleleParseError
 from ..cached import CachedPredictorCoverageError, PredictorSetupError
 from ..ranking import stated_values
 from ..serialization import normalize_python_types
-from .args import CommandLineError, arg_parser, predict_epitopes_from_args
-
-from .outputs import write_outputs
+from .args import (
+    CommandLineError,
+    _has_prediction_input,
+    arg_parser,
+    predict_epitopes_from_args,
+)
+from .cached_predictor import cached_predictor_in_use
+from .outputs import print_default_columns, write_outputs
 
 
 def parse_args(args_list=None):
@@ -106,7 +111,8 @@ def _cache_report_path(args):
     path = Path(value).expanduser().resolve()
     for name, values in vars(args).items():
         if not (name in ("fasta", "vcf", "maf", "json_variants", "regions", "gene_expression",
-                         "transcript_expression", "variant_expression", "output_html")
+                         "transcript_expression", "variant_expression", "output_html",
+                         "output_provenance")
                 or name.endswith(("_file", "_files", "_csv", "_fasta", "_path", "_directory"))):
             continue
         for item in values if isinstance(values, (list, tuple)) else [values]:
@@ -115,7 +121,9 @@ def _cache_report_path(args):
             # Existing files cover inputs (including aliases/hardlinks); explicit
             # output paths must also be protected before those files exist.
             other = Path(item).expanduser()
-            if other.is_file() or name in ("output_csv", "output_html", "mhc_cache_directory"):
+            if other.is_file() or name in (
+                "output_csv", "output_html", "output_provenance", "mhc_cache_directory",
+            ):
                 other = other.resolve()
                 if (path == other or (path.exists() and other.exists() and path.samefile(other))
                         or name == "mhc_cache_directory" and other in path.parents):
@@ -129,7 +137,11 @@ def _check_paths_before_predicting(args):
     Predicting can take minutes, and an unwritable output used to surface
     only when the results were about to be saved (#310).
     """
-    for flag, value in (("--output-csv", args.output_csv), ("--output-html", args.output_html)):
+    for flag, value in (
+        ("--output-csv", args.output_csv),
+        ("--output-html", args.output_html),
+        ("--output-provenance", getattr(args, "output_provenance", None)),
+    ):
         if not value or value == "-":
             continue
         path = Path(value).expanduser()
@@ -154,6 +166,17 @@ def main(args_list=None):
     Topiary.
     """
     args = parse_args(args_list)
+    if (
+        getattr(args, "print_columns", False)
+        and not _has_prediction_input(args)
+        and not cached_predictor_in_use(args)
+        and not getattr(args, "mhc_predictor", None)
+    ):
+        try:
+            print_default_columns(args)
+        except _ACTIONABLE_ERRORS as e:
+            _exit_with_error(_error_message(e))
+        return 0
     cache_misses = []
     try:
         report_path = _cache_report_path(args)

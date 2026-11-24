@@ -29,6 +29,7 @@ Fallback semantics
 """
 from __future__ import annotations
 
+import functools
 import re
 from copy import copy
 from decimal import Decimal, InvalidOperation
@@ -42,11 +43,11 @@ from typing import Any, Callable, Iterable, List, Mapping, Optional, Union
 
 import numpy as np
 import pandas as pd
-from .alleles import canonical_allele_name
+from .alleles import canonical_allele_name, _normalize_native_allele_name_or_raw
 
 from .io import _float_precision_kwargs
 from .predictor import from_predictions
-from .wide import _group_token
+from .wide import group_token
 from .ranking import (
     KIND_MHC_DEPENDENCE, is_stated, stated_values, mhc_dependence,
     prediction_mhc_scope, split_allele_set,
@@ -271,7 +272,7 @@ def _cache_comparison_frame(df):
     if "measurement_context" not in df:
         return df
     comparison = df.copy(deep=False)
-    comparison["measurement_context"] = df.measurement_context.map(_group_token)
+    comparison["measurement_context"] = df.measurement_context.map(group_token)
     return comparison
 
 
@@ -1337,7 +1338,7 @@ class CachedPredictor:
             key = _coverage_key(row, row["source_sequence_name"], row["offset"])
             if key in original:
                 measurements = [column for column in PREDICTION_VALUE_COLUMNS if column in row]
-                if not any(all(_group_token(row.get(column)) == _group_token(old.get(column))
+                if not any(all(group_token(row.get(column)) == group_token(old.get(column))
                                for column in measurements) for old in original[key]):
                     raise ValueError("Protein fallback conflicts with an existing occurrence prediction")
         self._df, self._index, self._prefix_index = trial._df, trial._index, trial._prefix_index
@@ -1795,7 +1796,8 @@ class CachedPredictor:
         text = _read_text(path)
         if predictor_version is None:
             predictor_version = _version_from_header(text) or "unknown"
-        preds = parse_netmhcpan_to_preds(
+        preds = _call_mhctools_parser(
+            parse_netmhcpan_to_preds,
             text,
             predictor_name="netmhcpan",
             predictor_version=predictor_version,
@@ -1843,7 +1845,12 @@ class CachedPredictor:
                 f"from {sorted(parsers)}."
             )
         text = _read_text(path)
-        preds = parsers[version](text, prediction_method_name="netmhc")
+        preds = _call_mhctools_parser(
+            parsers[version],
+            text,
+            prediction_method_name="netmhc",
+            classic_netmhc=True,
+        )
         if predictor_version is None:
             predictor_version = _version_from_header(text) or version
         return cls.from_dataframe(
@@ -1867,7 +1874,11 @@ class CachedPredictor:
         methods)."""
         from mhctools.parsing import parse_netmhccons_stdout
         text = _read_text(path)
-        preds = parse_netmhccons_stdout(text)
+        preds = _call_mhctools_parser(
+            parse_netmhccons_stdout,
+            text,
+            classic_netmhc=True,
+        )
         if predictor_version is None:
             predictor_version = _version_from_header(text) or "unknown"
         return cls.from_dataframe(
@@ -1911,9 +1922,9 @@ class CachedPredictor:
         parser = parsers[version]
         # The legacy parser doesn't take mode; guard the call.
         if version == "legacy":
-            preds = parser(text)
+            preds = _call_mhctools_parser(parser, text)
         else:
-            preds = parser(text, mode=mode)
+            preds = _call_mhctools_parser(parser, text, mode=mode)
         if predictor_version is None:
             predictor_version = _version_from_header(text) or version
         kind = (
@@ -2119,7 +2130,7 @@ class CachedPredictor:
         """Load a NetMHCstabpan stdout capture (pMHC stability)."""
         from mhctools.parsing import parse_netmhcstabpan
         text = _read_text(path)
-        preds = parse_netmhcstabpan(text)
+        preds = _call_mhctools_parser(parse_netmhcstabpan, text)
         if predictor_version is None:
             predictor_version = _version_from_header(text) or "unknown"
         return cls.from_dataframe(
@@ -2134,6 +2145,30 @@ class CachedPredictor:
 # ---------------------------------------------------------------------------
 # Module-level helpers used by the NetMHC loaders
 # ---------------------------------------------------------------------------
+
+
+def _call_mhctools_parser(
+    parser: Callable[..., Any],
+    *args: Any,
+    classic_netmhc: bool = False,
+    **kwargs: Any,
+) -> Any:
+    """Invoke an mhctools stdout parser with Topiary's native allele normalizer.
+
+    Passes ``allele_normalizer`` when the installed mhctools parser accepts it
+    so NetMHC's legacy short macaque names (e.g. ``Mamu-A01`` ->
+    ``Mamu-A1*001:01``) resolve to canonical identities at load time without
+    renaming already-specific alleles.
+    """
+    params = inspect.signature(parser).parameters
+    if "allele_normalizer" in params or any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+    ):
+        kwargs["allele_normalizer"] = functools.partial(
+            _normalize_native_allele_name_or_raw,
+            classic_netmhc=classic_netmhc,
+        )
+    return parser(*args, **kwargs)
 
 
 def _read_text(path) -> str:

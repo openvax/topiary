@@ -17,12 +17,14 @@ Common commandline arguments for output files
 
 import argparse
 import html
+import json
 import sys
 from pathlib import Path
 
 import pandas as pd
 
 from ..io import _encode_json, _json_columns
+from ..serialization import normalize_python_types
 
 
 # Six significant digits. A predictor reporting 6.296 was written as
@@ -34,6 +36,72 @@ _PREVIEW_ROWS = 20
 _PREVIEW_COLUMNS = (
     "peptide", "allele", "kind", "value", "value_unit", "score",
     "percentile_rank", "source_sequence_name",
+)
+
+#: Verbose per-variant provenance columns omitted from CLI CSV/HTML rows by
+#: default so multi-variant runs do not repeat tens of kilobytes of JSON on
+#: every peptide row (#570). Opt in with ``--include-provenance`` (or name the
+#: column in ``--subset-output-columns``), or write deduplicated per-variant
+#: records once with ``--output-provenance PATH``.
+PROVENANCE_COLUMNS = ("varcode_candidate_selection",)
+
+_CORE_OUTPUT_COLUMNS = (
+    "sample_name",
+    "peptide",
+    "peptide_length",
+    "peptide_offset",
+    "n_flank",
+    "c_flank",
+    "source_sequence_name",
+    "allele",
+    "allele_set",
+    "tcr",
+    "kind",
+    "value",
+    "value_unit",
+    "score",
+    "affinity",
+    "percentile_rank",
+    "prediction_method_name",
+    "predictor_version",
+    "measurement_context",
+    "peptide_input",
+    "cache_key",
+    "prediction_flanks_supplied",
+    "prediction_mhc_dependence",
+    "prediction_n_flank_limit",
+    "prediction_c_flank_limit",
+)
+
+_VARIANT_OUTPUT_COLUMNS = (
+    "fragment_id",
+    "source_type",
+    "variant",
+    "effect",
+    "effect_type",
+    "gene",
+    "gene_id",
+    "transcript_id",
+    "transcript_name",
+    "gene_expression",
+    "transcript_expression",
+    "overlaps_target",
+    "contains_mutant_residues",
+    "wt_peptide",
+    "wt_peptide_length",
+    "mutation_input",
+    "mutation_start_in_peptide",
+    "mutation_end_in_peptide",
+    "novel_epitope",
+)
+
+_WT_OUTPUT_COLUMNS = (
+    "wt_value",
+    "wt_score",
+    "wt_affinity",
+    "wt_percentile_rank",
+    "wt_prediction_method_name",
+    "wt_predictor_version",
 )
 
 
@@ -171,10 +239,218 @@ def add_output_args(arg_parser):
         "--print-columns",
         default=False,
         action="store_true",
-        help="Print available output columns (to stderr when CSV uses stdout)",
+        help="Print available output columns (works standalone without an input; "
+             "writes to stderr when CSV uses stdout)",
+    )
+
+    output_group.add_argument(
+        "--include-provenance",
+        default=False,
+        action="store_true",
+        help="Include verbose per-variant provenance columns (such as "
+             "varcode_candidate_selection) in CSV/HTML output rows",
+    )
+
+    output_group.add_argument(
+        "--output-provenance",
+        default=None,
+        help="Path to sidecar JSON file storing deduplicated per-variant "
+             "provenance once per variant instead of repeating it on every row",
     )
 
     return output_group
+
+
+def _expression_output_columns(expression_data):
+    """Return column names that ``_attach_expression_data`` will join."""
+    if not expression_data:
+        return []
+    columns = []
+    for entries in expression_data.values():
+        for name_prefix, id_col, expr_df in entries:
+            for col in expr_df.columns:
+                if col == id_col:
+                    continue
+                if name_prefix:
+                    col_lower = col.lower()
+                    new_name = (
+                        col_lower
+                        if col_lower.startswith(name_prefix)
+                        else f"{name_prefix}_{col_lower}"
+                    )
+                else:
+                    new_name = col
+                if new_name not in columns:
+                    columns.append(new_name)
+    return columns
+
+
+def default_output_columns(args=None, *, include_variant=True, expression_data=None):
+    """Return the static list of standard Topiary CLI output columns.
+
+    Parameters
+    ----------
+    args : argparse.Namespace, optional
+        Parsed CLI options. Controls optional columns (``output_row`` when
+        ``--sort-by`` is set, ``wt_*`` when ``--predict-wt`` is set,
+        ``varcode_candidate_selection`` when ``--include-provenance`` is set)
+        as well as ``--subset-output-columns`` and ``--rename-output-column``.
+    include_variant : bool, default True
+        Whether to include variant / mutation-effect columns alongside the
+        core prediction schema.
+    expression_data : dict, optional
+        Expression tables loaded by ``expression_data_from_args`` whose
+        joined columns should be included.
+
+    Returns
+    -------
+    list of str
+        Ordered output column names.
+    """
+    columns = []
+    if args is not None and getattr(args, "sort_by", None):
+        columns.append("output_row")
+    columns.extend(_CORE_OUTPUT_COLUMNS)
+    if include_variant:
+        columns.extend(_VARIANT_OUTPUT_COLUMNS)
+    if args is not None and getattr(args, "predict_wt", False):
+        columns.extend(_WT_OUTPUT_COLUMNS)
+    for col in _expression_output_columns(expression_data):
+        if col not in columns:
+            columns.append(col)
+    if args is not None and (
+        getattr(args, "include_provenance", False)
+        or any(
+            col in PROVENANCE_COLUMNS
+            for col in (getattr(args, "subset_output_columns", None) or ())
+        )
+        or any(
+            old in PROVENANCE_COLUMNS
+            for old, _ in (getattr(args, "rename_output_column", None) or ())
+        )
+    ):
+        for col in PROVENANCE_COLUMNS:
+            if col not in columns:
+                columns.append(col)
+    if args is None:
+        return columns
+
+    all_columns = list(columns)
+    subset = getattr(args, "subset_output_columns", None)
+    if subset:
+        unknown = [c for c in subset if c not in all_columns]
+        if unknown:
+            raise ValueError(
+                f"--subset-output-columns: no column named {', '.join(map(repr, unknown))}; "
+                f"available: {', '.join(all_columns)}"
+            )
+        columns = list(subset)
+    renames = getattr(args, "rename_output_column", None)
+    if renames:
+        for old_name, new_name in renames:
+            if old_name not in columns:
+                reason = (
+                    "--subset-output-columns removed it"
+                    if old_name in all_columns
+                    else "no such column"
+                )
+                raise ValueError(
+                    f"--rename-output-column: cannot rename {old_name!r}: {reason}; "
+                    f"available: {', '.join(map(str, columns))}"
+                )
+            columns = [new_name if c == old_name else c for c in columns]
+    return columns
+
+
+def validate_output_column_args(
+    args,
+    *,
+    is_variant=False,
+    expression_data=None,
+    allow_extra_columns=False,
+):
+    """Fail fast on unknown ``--subset-output-columns`` or ``--rename-output-column``.
+
+    Checked before building MHC predictors so typos fail in milliseconds
+    rather than after a full prediction run (#574). When *allow_extra_columns*
+    is True (for example, an arbitrary cache table whose extra columns are not
+    known statically), only self-consistency between subset and rename flags
+    is checked up front; exact column availability is still verified in
+    :func:`write_outputs`.
+    """
+    subset = getattr(args, "subset_output_columns", None)
+    renames = getattr(args, "rename_output_column", None)
+    if not subset and not renames:
+        return
+    if not allow_extra_columns:
+        default_output_columns(
+            args,
+            include_variant=is_variant,
+            expression_data=expression_data,
+        )
+        return
+    if subset and renames:
+        current = list(subset)
+        for old_name, new_name in renames:
+            if old_name not in current:
+                raise ValueError(
+                    f"--rename-output-column: cannot rename {old_name!r}: "
+                    f"--subset-output-columns removed it; "
+                    f"available: {', '.join(map(str, current))}"
+                )
+            current = [new_name if c == old_name else c for c in current]
+
+
+def print_default_columns(args):
+    """Print the static Topiary output column list for standalone ``--print-columns``."""
+    csv_stdout = getattr(args, "output_csv", None) == "-"
+    stream = sys.stderr if csv_stdout else sys.stdout
+    columns = default_output_columns(args)
+    print("Columns:", file=stream)
+    for column in columns:
+        print("-- %s" % column, file=stream)
+
+
+def _provenance_key_column(df):
+    for candidate in ("variant", "fragment_id", "source_sequence_name"):
+        if candidate in df.columns and df[candidate].notna().any():
+            return candidate
+    return None
+
+
+def _write_provenance_sidecar(df, path, provenance_columns):
+    """Write deduplicated per-variant provenance JSON once per variant (#570)."""
+    key_col = _provenance_key_column(df)
+    records = {}
+    for row_idx, row in df.iterrows():
+        entry = {}
+        for col in provenance_columns:
+            value = row[col]
+            if isinstance(value, (dict, list)) or pd.notna(value):
+                entry[col] = value
+        if not entry:
+            continue
+        if key_col is not None and pd.notna(row[key_col]):
+            key = str(row[key_col])
+        else:
+            key = str(row_idx)
+        if key not in records:
+            records[key] = entry
+    Path(path).write_text(
+        json.dumps(normalize_python_types(records), indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _provenance_columns_to_drop(df, args):
+    """Return provenance columns to omit from row-level CSV/HTML outputs."""
+    present = [c for c in PROVENANCE_COLUMNS if c in df.columns]
+    if not present or getattr(args, "include_provenance", False):
+        return []
+    explicitly_requested = set(getattr(args, "subset_output_columns", None) or ()) | {
+        old for old, _ in (getattr(args, "rename_output_column", None) or ())
+    }
+    return [c for c in present if c not in explicitly_requested]
 
 
 def write_outputs(
@@ -201,6 +477,16 @@ def write_outputs(
         print(df, file=diagnostic_stream)
 
     df = _with_output_row(_ordered_rows(df, args), args)
+
+    present_provenance = [c for c in PROVENANCE_COLUMNS if c in df.columns]
+    provenance_path = getattr(args, "output_provenance", None)
+    if provenance_path:
+        print("Saving %s..." % provenance_path, file=sys.stderr)
+        _write_provenance_sidecar(df, provenance_path, present_provenance)
+
+    drop_provenance = _provenance_columns_to_drop(df, args)
+    if drop_provenance:
+        df = df.drop(columns=drop_provenance)
 
     # An unknown column is an error, raised before anything is written: a
     # warning let a typo produce an index-only file and exit 0 (#326).

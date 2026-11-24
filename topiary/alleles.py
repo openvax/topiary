@@ -198,9 +198,10 @@ def resolve_old_allele_name(value, species=None):
     Some single molecules have old names that now read as allele groups,
     such as NetMHC's ``Mamu-A01``, which mhcgnomes parses by default as the
     group ``Mamu-A*01``. mhcgnomes resolves old names only when asked
-    (``use_allele_aliases=True``). Topiary keeps the default names, since
-    resolving would rename alleles it already accepts, and uses this only to
-    say in an error which allele an old name meant.
+    (``use_allele_aliases=True``). Topiary keeps the default names in
+    :func:`canonical_allele_name`, since resolving unconditionally would
+    rename alleles it already accepts, and uses this for error hints and for
+    verified native predictor output via :func:`canonical_native_allele_name`.
 
     Parameters
     ----------
@@ -218,13 +219,74 @@ def resolve_old_allele_name(value, species=None):
         as an allele this module accepts. Also None when *value* does not
         parse.
     """
-    parsed = mhcgnomes.parse(value, species=species, raise_on_error=False)
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().replace(";", "/")
+    parse_kwargs = dict(
+        species=species,
+        infer_class2_pairing=False,
+        collapse_singleton_haplotypes=True,
+        collapse_singleton_serotypes=False,
+        max_allele_fields=None,
+        raise_on_error=False,
+    )
+    parsed = mhcgnomes.parse(normalized, use_allele_aliases=False, **parse_kwargs)
     if not isinstance(parsed, mhcgnomes.Allele) or not parsed.is_allele_group:
         return None
-    resolved = mhcgnomes.parse(value, species=species, use_allele_aliases=True, raise_on_error=False)
+    resolved = mhcgnomes.parse(normalized, use_allele_aliases=True, **parse_kwargs)
     if resolved is None or allele_rejection_reason(resolved) is not None:
         return None
     return resolved.to_string()
+
+
+def canonical_native_allele_name(value, species=None):
+    """Canonicalize a verified predictor-output allele, bridging legacy short names.
+
+    Specific alleles accepted by :func:`canonical_allele_name` are returned
+    unchanged — for example, ``Mamu-A2201`` stays ``Mamu-A*22:01`` and
+    ``HLA-C*04:22`` stays ``HLA-C*04:22``, preserving existing canonical names
+    and cache keys.
+
+    Only when default parsing rejects *value* as an allele group does this
+    consult mhcgnomes' curated historical aliases (:func:`resolve_old_allele_name`).
+    That resolves NetMHC's short macaque spellings such as ``Mamu-A01``
+    (``Mamu-A1*001:01``) and ``Mamu-B08`` (``Mamu-B*008:01``) while continuing
+    to refuse genuine allele groups (``HLA-A*02``, ``Mamu-B*008``), G/P
+    typings, serotypes, null alleles, and genes (``HLA-A``, ``H-2-Qa1``,
+    ``H-2-Qa2``, ``Mamu-B17``).
+
+    This function is intended for adapter boundaries reading predictor catalogs
+    or stdout captures (such as :meth:`topiary.CachedPredictor.from_netmhc_stdout`),
+    not as a general user-input normalizer.
+
+    Parameters
+    ----------
+    value : str
+        One allele token from a predictor catalog or stdout capture.
+    species : str, optional
+        The species of *value*; see :func:`parse_allele`.
+
+    Returns
+    -------
+    str
+        Canonical allele name.
+
+    Raises
+    ------
+    AlleleError
+        If *value* does not identify one specific allele even after consulting
+        historical allele-group aliases.
+    ValueError
+        If *species* is not one species mhcgnomes knows.
+    """
+    try:
+        return canonical_allele_name(value, species=species)
+    except AlleleError as error:
+        if isinstance(error.parsed, mhcgnomes.Allele) and error.parsed.is_allele_group:
+            resolved = resolve_old_allele_name(value, species=species)
+            if resolved is not None:
+                return canonical_allele_name(resolved, species=species)
+        raise
 
 
 def allele_expression_caveats(parsed):
@@ -486,6 +548,34 @@ def _normalize_allele_name_or_raw(value):
     stripped = str(value).strip()
     try:
         return canonical_allele_name(stripped)
+    except AlleleError as error:
+        if isinstance(error.__cause__, mhcgnomes.ParseError):
+            return stripped.replace("*", "")
+        if error.parsed is not None and _is_only_null_allele_rejection(error.parsed):
+            return error.parsed.to_string()
+        raise
+
+
+def _normalize_native_allele_name_or_raw(value, *, classic_netmhc=False):
+    """Normalize one allele token emitted by a NetMHC-family stdout parser.
+
+    Specific alleles keep their :func:`canonical_allele_name` identity without
+    renaming. Historical short names that parse as allele groups resolve via
+    :func:`canonical_native_allele_name` (for example ``Mamu-A01`` ->
+    ``Mamu-A1*001:01``, ``Mamu-B08`` -> ``Mamu-B*008:01``). When
+    ``classic_netmhc=True`` (NetMHC 3/4 and NetMHCcons stdout captures),
+    ``Mamu-B17`` — NetMHC's published ``MHC_allele_names.txt`` shorthand for
+    ``Mamu-B*017:01`` — resolves through ``Mamu-B*17`` without altering
+    general user-input parsing where ``Mamu-B17`` is an IPD-MHC gene.
+    Unparseable native tokens keep ``stripped.replace("*", "")`` and null
+    alleles keep their canonical spelling, matching
+    :func:`_normalize_allele_name_or_raw`.
+    """
+    stripped = str(value).strip()
+    if classic_netmhc and stripped == "Mamu-B17":
+        return canonical_native_allele_name("Mamu-B*17")
+    try:
+        return canonical_native_allele_name(stripped)
     except AlleleError as error:
         if isinstance(error.__cause__, mhcgnomes.ParseError):
             return stripped.replace("*", "")

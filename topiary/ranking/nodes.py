@@ -55,28 +55,98 @@ from mhctools import MHC_DEPENDENCE_VALUES, Kind
 # =============================================================================
 
 
-def _kind_name(kind):
-    """Return the canonical mhctools kind name."""
+def kind_name(kind):
+    """Return the canonical mhctools kind name string.
+
+    Parameters
+    ----------
+    kind : mhctools.Kind or str
+        A prediction kind constant or string spelling (for example,
+        ``Kind.pMHC_affinity`` or ``"pMHC_affinity"``).
+
+    Returns
+    -------
+    str
+        The canonical name (``kind.name`` for enum members, otherwise
+        ``str(kind)``). Preserves original casing such as ``"pMHC_affinity"``
+        so callers working across enum and string-constant mhctools APIs see
+        one uniform label.
+    """
     return getattr(kind, "name", str(kind))
 
 
-def _kind_value(kind):
-    """Return the DataFrame ``kind`` value for a kind constant."""
+def kind_value(kind):
+    """Return the DataFrame ``kind`` column value for a prediction kind.
+
+    Parameters
+    ----------
+    kind : mhctools.Kind or str
+        A prediction kind constant or string value.
+
+    Returns
+    -------
+    object
+        ``kind.value`` when *kind* is an enum-like constant, otherwise *kind*
+        unchanged. Use this when comparing against or writing into a
+        prediction DataFrame's ``kind`` column, which stores plain strings
+        rather than enum members.
+    """
     return getattr(kind, "value", kind)
 
 
-def _kind_short_name(kind):
-    """Return the DSL short name for a kind."""
-    return _kind_name(kind).lower().replace("pmhc_", "")
+def kind_short_name(kind):
+    """Return the lowercase DSL and wide-column short name for a kind.
+
+    Parameters
+    ----------
+    kind : mhctools.Kind or str
+        A prediction kind constant or canonical name string.
+
+    Returns
+    -------
+    str
+        Lowercase name with the ``"pmhc_"`` prefix stripped — for example,
+        ``"affinity"`` for ``pMHC_affinity``, ``"presentation"`` for
+        ``pMHC_presentation``, and ``"antigen_processing"`` for
+        ``antigen_processing``. Matches the short kind tokens used in the
+        ranking DSL and wide-table column prefixes.
+    """
+    return kind_name(kind).lower().replace("pmhc_", "")
 
 
-def _kind_matches(left, right):
-    """Check whether two kind constants refer to the same prediction kind."""
-    return _kind_value(left) == _kind_value(right)
+def kind_matches(left, right):
+    """Check whether two prediction kinds refer to the same kind.
+
+    Parameters
+    ----------
+    left, right : mhctools.Kind or str
+        Kind constants or string values to compare.
+
+    Returns
+    -------
+    bool
+        True when :func:`kind_value` agrees for both inputs, so enum members
+        and their corresponding DataFrame string values compare equal.
+    """
+    return kind_value(left) == kind_value(right)
 
 
-def _iter_known_kinds(kind_source=Kind):
-    """Enumerate mhctools kind constants across enum and string-class APIs."""
+def known_kinds(kind_source=Kind):
+    """Return the known mhctools prediction kind constants in canonical order.
+
+    Parameters
+    ----------
+    kind_source : type or iterable, optional
+        Enum class or string-constant namespace exposing prediction kinds.
+        Defaults to ``mhctools.Kind``.
+
+    Returns
+    -------
+    list
+        Deduplicated kind constants in declaration order. Supports both
+        ``Enum``-based and plain string-constant ``Kind`` classes so callers
+        do not need to inspect mhctools internals directly.
+    """
     try:
         candidates = list(kind_source)
     except TypeError:
@@ -89,7 +159,7 @@ def _iter_known_kinds(kind_source=Kind):
     seen = set()
     kinds = []
     for kind in candidates:
-        name = _kind_name(kind)
+        name = kind_name(kind)
         if name in seen:
             continue
         seen.add(name)
@@ -100,10 +170,10 @@ def _iter_known_kinds(kind_source=Kind):
 def _build_kind_aliases(kind_source=Kind):
     """Build parser aliases for the currently installed mhctools Kind API."""
     aliases = {}
-    for kind in _iter_known_kinds(kind_source):
-        name = _kind_name(kind).lower()
+    for kind in known_kinds(kind_source):
+        name = kind_name(kind).lower()
         aliases[name] = kind
-        aliases[_kind_short_name(kind)] = kind
+        aliases[kind_short_name(kind)] = kind
     aliases["el"] = kind_source.pMHC_presentation
     aliases["ba"] = kind_source.pMHC_affinity
     aliases["aff"] = kind_source.pMHC_affinity
@@ -1018,14 +1088,14 @@ def _normalize_default_methods(mapping):
 
 def _canonical_kind_key(key, aliases, label):
     """A kind spelling → its canonical ``kind`` value, or a helpful raise."""
-    kind = aliases.get(_kind_name(key).lower())
+    kind = aliases.get(kind_name(key).lower())
     if kind is None:
         # Surface the canonical kind values and every DSL short alias so
         # a user who typed 'banana' sees that 'ba' / 'affinity' /
         # 'pMHC_affinity' all map to the same kind. The alias dict is
         # lower-cased for case-insensitive lookup; skip lower-case
         # duplicates of canonicals to keep the list readable.
-        canonical = {_kind_value(k) for k in aliases.values()}
+        canonical = {kind_value(k) for k in aliases.values()}
         canonical_lower = {c.lower() for c in canonical}
         shorts = {a for a in aliases.keys() if a not in canonical_lower}
         accepted = sorted(shorts | canonical)
@@ -1033,7 +1103,7 @@ def _canonical_kind_key(key, aliases, label):
             f"{label} key {key!r} is not a known kind. "
             f"Accepted spellings: {accepted}"
         )
-    return _kind_value(kind)
+    return kind_value(kind)
 
 
 class EvalContext:
@@ -1976,7 +2046,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
     if df.empty or "kind" not in df.columns:
         return None
 
-    kind_val = _kind_value(kind)
+    kind_val = kind_value(kind)
     sub = df[df["kind"] == kind_val]
     if sub.empty:
         return None
@@ -2002,7 +2072,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
             if matched.empty:
                 available = sorted(sub[col].dropna().unique())
                 raise _method_not_found_error(
-                    _kind_name(kind), effective_method, available
+                    kind_name(kind), effective_method, available
                 )
             sub = matched
 
@@ -2025,7 +2095,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
                     sub[col][named].astype(str).str.strip().unique()
                 )
                 raise ValueError(
-                    f"No {_kind_name(kind)} predictions from "
+                    f"No {kind_name(kind)} predictions from "
                     f"predictor_version {version!r}. "
                     f"Available: {available}"
                 )
@@ -2037,7 +2107,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
             ctx.group_keys, sort=False, dropna=False
         )["prediction_method_name"].nunique()
         if (methods_per_group > 1).any():
-            default = (ctx.default_methods.get(_kind_value(kind))
+            default = (ctx.default_methods.get(kind_value(kind))
                        if effective_method is None else None)
             if default is not None:
                 col = "prediction_method_name"
@@ -2050,7 +2120,7 @@ def _filter_kind_method_version(ctx, kind, method, version):
                 if matched.empty:
                     available = sorted(sub[col].dropna().unique())
                     raise _method_not_found_error(
-                        _kind_name(kind), default, available
+                        kind_name(kind), default, available
                     )
                 sub = matched
                 if sub.groupby(ctx.group_keys, sort=False, dropna=False)[col].nunique().gt(1).any():
@@ -2061,10 +2131,10 @@ def _filter_kind_method_version(ctx, kind, method, version):
                 )
                 raise ValueError(
                     f"Ambiguous: multiple models produce "
-                    f"{_kind_name(kind)} ({method_list}). "
-                    f"Use {_kind_short_name(kind)}['modelname'] "
+                    f"{kind_name(kind)} ({method_list}). "
+                    f"Use {kind_short_name(kind)}['modelname'] "
                     f"to disambiguate, or pass "
-                    f"default_methods={{{_kind_value(kind)!r}: "
+                    f"default_methods={{{kind_value(kind)!r}: "
                     f"'modelname'}} to EvalContext."
                 )
 
@@ -2134,9 +2204,9 @@ def _filter_kind_method_version(ctx, kind, method, version):
                 )
             )
             raise ValueError(
-                f"Ambiguous: {_kind_name(kind)} is present at more than "
+                f"Ambiguous: {kind_name(kind)} is present at more than "
                 f"one predictor version ({listed}). Use "
-                f"{_kind_short_name(kind)}['modelname', 'version'] "
+                f"{kind_short_name(kind)}['modelname', 'version'] "
                 f"to pick one, or pass default_versions="
                 f"{{{(kind_val, 'modelname')!r}: 'version'}} to "
                 f"EvalContext (resolve_default_versions(df) builds one)."
@@ -2251,7 +2321,7 @@ class Field(DSLNode):
         if dependence not in ("none", "haplotype"):
             return None
 
-        kind_name = _kind_short_name(self.kind)
+        kind_name = kind_short_name(self.kind)
         if dependence == "none":
             # Say which shape the rows are actually in. A frame whose
             # peptide-level rows name alleles is no longer broadcast
@@ -2300,7 +2370,7 @@ class Field(DSLNode):
         return PeptideView(self).eval(ctx)
 
     def __repr__(self):
-        kind_name = _kind_short_name(self.kind)
+        kind_name = kind_short_name(self.kind)
         if self.field == "percentile_rank":
             field_str = "rank"
         else:
@@ -2315,7 +2385,7 @@ class Field(DSLNode):
         return f"{scope_str}{accessor}.{field_str}"
 
     def to_ast_string(self):
-        kind_name = _kind_short_name(self.kind)
+        kind_name = kind_short_name(self.kind)
         parts = [f"kind={kind_name}", f"field={self.field!r}"]
         if self.method is not None:
             parts.append(f"method={self.method!r}")
@@ -2426,7 +2496,7 @@ class BestAlleleField(DSLNode):
                 )
                 warnings.warn(
                     f"{label or default_label} on "
-                    f"({_kind_short_name(self.kind)}, model={model_key!r}) "
+                    f"({kind_short_name(self.kind)}, model={model_key!r}) "
                     f"where mhc_dependence='single_allele': returns the "
                     f"best per-allele score, not a joint multi-allele "
                     f"aggregate. Use a haplotype-mode predictor (e.g. "
@@ -2494,7 +2564,7 @@ class BestAlleleField(DSLNode):
         return pd.to_numeric(result, errors="coerce")
 
     def __repr__(self):
-        kind_name = _kind_short_name(self.kind)
+        kind_name = kind_short_name(self.kind)
         if self.return_allele:
             field_label = f"best_{_field_short(self.field)}_allele"
         else:
@@ -2510,7 +2580,7 @@ class BestAlleleField(DSLNode):
 
     def to_ast_string(self):
         parts = [
-            f"kind={_kind_short_name(self.kind)}",
+            f"kind={kind_short_name(self.kind)}",
             f"field={self.field!r}",
         ]
         if self.method is not None:
@@ -2617,7 +2687,7 @@ def _reported_dependences(kind_support, kind, methods=None):
     """
     if not kind_support:
         return {}
-    kind_val = _kind_value(kind)
+    kind_val = kind_value(kind)
     reported = {}
     for model_key, kind_map in kind_support.items():
         if kind_val not in kind_map:
@@ -2637,7 +2707,7 @@ def _rows_for_kind(rows, kind):
     """Narrow *rows* to one kind, so callers may pass a whole frame."""
     if rows is None or rows.empty or "kind" not in rows.columns:
         return rows
-    return rows[rows["kind"] == _kind_value(kind)]
+    return rows[rows["kind"] == kind_value(kind)]
 
 
 def _warn_missing_allele(kind, sub):
@@ -2660,8 +2730,8 @@ def _warn_missing_allele(kind, sub):
     blank = ~stated_values(values)
     import warnings
     warnings.warn(
-        f"{int(blank.sum())} {_kind_short_name(kind)} row(s) carry no "
-        f"allele, but {_kind_value(kind)} describes a peptide-MHC pair. "
+        f"{int(blank.sum())} {kind_short_name(kind)} row(s) carry no "
+        f"allele, but {kind_value(kind)} describes a peptide-MHC pair. "
         f"They are kept as per-allele rows with a missing allele rather "
         f"than read as peptide-level predictions, which would spread one "
         f"value across alleles no model scored — check the producer of "
@@ -2738,7 +2808,7 @@ def _mhc_dependence(kind, kind_support, rows):
     for dependence in set(reported.values()):
         if dependence not in _MHC_DEPENDENCE_VALUES:
             raise ValueError(
-                f"peptide_view on {_kind_short_name(kind)}: unknown "
+                f"peptide_view on {kind_short_name(kind)}: unknown "
                 f"mhc_dependence {dependence!r} (known: "
                 f"{sorted(_MHC_DEPENDENCE_VALUES)}). This topiary is older "
                 f"than the mhctools that produced the metadata; upgrade "
@@ -2755,7 +2825,7 @@ def _mhc_dependence(kind, kind_support, rows):
             # The rows say so themselves — no kind_support needed.
             return "haplotype"
 
-    declared = KIND_MHC_DEPENDENCE.get(_kind_value(kind))
+    declared = KIND_MHC_DEPENDENCE.get(kind_value(kind))
     if declared is not None:
         if declared != "none":
             _warn_missing_allele(kind, rows)
@@ -2769,7 +2839,7 @@ def _mhc_dependence(kind, kind_support, rows):
 
 def _dependence_conflict_error(kind, reported):
     """Explain disagreeing models — and whether method can separate them."""
-    kind_name = _kind_short_name(kind)
+    kind_name = kind_short_name(kind)
     modes = sorted(set(reported.values()))
     base_names = {_model_base_name(k) for k in reported}
     if len(base_names) == 1:
@@ -2913,13 +2983,13 @@ class PeptideView(DSLNode):
     def _nothing_to_aggregate_error(self, dependence, aggregable):
         """Explain a best_* field that cannot be aggregated here."""
         inner = self.inner
-        kind_name = _kind_short_name(inner.kind)
+        kind_name = kind_short_name(inner.kind)
         best_label = f"best_{_field_short(inner.field)}"
         plain = f"peptide_view({kind_name}.{_field_short(inner.field)})"
         if not aggregable:
             return ValueError(
                 f"peptide_view({best_label}) on {kind_name}: "
-                f"{_kind_short_name(inner.kind)}.{inner.field} has no "
+                f"{kind_short_name(inner.kind)}.{inner.field} has no "
                 f"defined best direction, so there is no best row to pick "
                 f"across alleles. Use {plain} to read the peptide's value."
             )
@@ -3027,7 +3097,7 @@ class PeptideView(DSLNode):
         if conflicting.empty:
             return
         inner = self.inner
-        kind_name = _kind_short_name(inner.kind)
+        kind_name = kind_short_name(inner.kind)
         if not aggregable:
             # We are reading per peptide because the field has no
             # ordering, not because the kind is peptide-level — say that,
@@ -3637,7 +3707,7 @@ def _collect_unqualified_kinds(node):
         if n is None:
             continue
         if isinstance(n, Field) and n.method is None:
-            kinds.add(_kind_value(n.kind))
+            kinds.add(kind_value(n.kind))
         stack.extend(n.child_nodes())
     return kinds
 
@@ -4187,8 +4257,38 @@ def resolve_kind(name):
     raise ValueError(msg)
 
 
-def _resolve_qualified_kind(name):
-    """Resolve ``tool_kind`` or plain ``kind`` to ``(Kind, method|None)``."""
+def resolve_qualified_kind(name):
+    """Resolve a plain kind or ``tool_kind`` token to ``(kind, method)``.
+
+    Extends :func:`resolve_kind` with the underscore-qualified shorthand used
+    in CLI ``--sort-by`` tokens and DSL expressions (for example,
+    ``"mhcflurry_el"`` -> ``(Kind.pMHC_presentation, "mhcflurry")`` or
+    ``"netmhcpan_antigen_processing"`` ->
+    ``(Kind.antigen_processing, "netmhcpan")``).
+
+    Plain kind spellings are checked before splitting on ``"_"`` so
+    multi-word kinds like ``"antigen_processing"`` resolve as
+    ``(Kind.antigen_processing, None)`` rather than treating ``"antigen"``
+    as a tool name. Case-insensitive; surrounding whitespace is stripped.
+
+    Parameters
+    ----------
+    name : str
+        A registered kind spelling or ``<method>_<kind>`` token.
+
+    Returns
+    -------
+    tuple of (mhctools.Kind or str, str or None)
+        ``(kind, method)`` where *kind* is the registered value from
+        :data:`KIND_ALIASES` and *method* is the lowercase method prefix or
+        ``None`` for an unqualified kind.
+
+    Raises
+    ------
+    ValueError
+        If *name* matches neither a registered kind nor a ``tool_kind``
+        prefix/suffix split, listing close matches when available.
+    """
     key = name.strip().lower()
     if key in KIND_ALIASES:
         return KIND_ALIASES[key], None

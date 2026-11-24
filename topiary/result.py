@@ -18,8 +18,8 @@ if TYPE_CHECKING:
 
 import pandas as pd
 
-from .io import Metadata, _model_version_str, _models_from_dataframe, _version_from_rows
-from .wide import detect_form, _concat_frames
+from .io import Metadata, model_version_str, _models_from_dataframe, _version_from_rows
+from .wide import detect_form, concat_frames
 
 
 class _MissingIdentityValue:
@@ -641,7 +641,7 @@ def stack_results(results: Iterable[TopiaryResult]) -> TopiaryResult:
     else:
         raise ValueError(f"Cannot stack TopiaryResults with form {form!r}")
 
-    df = _concat_frames(frames)
+    df = concat_frames(frames)
 
     return TopiaryResult(
         df,
@@ -785,7 +785,7 @@ def _drop_non_identity_source(result, on):
 def _models_from_observed_rows(df, fallback_models):
     models = OrderedDict()
     fallback = OrderedDict(
-        (str(model).strip(), _model_version_str(version))
+        (str(model).strip(), model_version_str(version))
         for model, version in fallback_models.items()
         if str(model).strip()
     )

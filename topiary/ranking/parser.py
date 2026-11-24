@@ -51,7 +51,7 @@ from .nodes import (
     KIND_ALIASES,
     _combine_bool,
     resolve_kind,
-    _resolve_qualified_kind,
+    resolve_qualified_kind,
     geomean,
     maximum,
     mean,
@@ -601,7 +601,7 @@ class _Parser:
                 f"used as a kind name in {self.text!r}"
             )
         if name not in _KIND_ACCESSOR_ALIASES:
-            kind, method = _resolve_qualified_kind(name)
+            kind, method = resolve_qualified_kind(name)
             accessor = KindAccessor(kind, method=method, scope=scope)
         else:
             accessor = KindAccessor(
@@ -903,7 +903,7 @@ class _Parser:
         if name in _KIND_ACCESSOR_ALIASES:
             return True
         try:
-            _resolve_qualified_kind(name)
+            resolve_qualified_kind(name)
             return True
         except ValueError:
             return False

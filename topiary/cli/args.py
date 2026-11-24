@@ -16,12 +16,15 @@ Common commandline arguments used by scripts
 
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import logging
+from pathlib import Path
+import re
 
 import pandas as pd
 from mhctools.cli import add_mhc_args, predictors_from_args
 from varcode.cli import add_variant_args, variant_collection_from_args
 
 from .. import __version__
+from ..alleles import _class_of_allele
 from .cached_predictor import (
     add_cached_predictor_args,
     cached_predictor_from_args,
@@ -37,7 +40,7 @@ from .rna import (
 )
 from .sequence import add_sequence_args
 from .errors import add_error_args
-from .outputs import add_output_args
+from .outputs import add_output_args, validate_output_column_args
 from .references import (
     exclusion_options,
     has_builtin_exclusions,
@@ -74,9 +77,9 @@ from ..ranking import (
     BoolOp,
     KindAccessor,
     Presentation,
-    _kind_matches,
-    _resolve_qualified_kind,
+    kind_matches,
     parse,
+    resolve_qualified_kind,
 )
 
 
@@ -422,9 +425,9 @@ def _parse_sort_expr(text):
         raise ValueError("Empty sort key in --sort-by")
 
     if _looks_like_plain_kind_name(text):
-        kind, method = _resolve_qualified_kind(text)
+        kind, method = resolve_qualified_kind(text)
         accessor = KindAccessor(kind, method=method)
-        if _kind_matches(kind, Affinity.kind):
+        if kind_matches(kind, Affinity.kind):
             return accessor.value
         return accessor.score
 
@@ -438,7 +441,7 @@ def _looks_like_plain_kind_name(text):
     if any(ch in text for ch in ".()[]+-*/"):
         return False
     try:
-        _resolve_qualified_kind(text)
+        resolve_qualified_kind(text)
         return True
     except ValueError:
         return False
@@ -644,6 +647,72 @@ def _validate_required_prediction_args(args):
         raise CommandLineError(missing[0])
 
 
+_CLASS1_ONLY_MHCFLURRY_PREDICTORS = frozenset({"mhcflurry", "mhcflurry-affinity"})
+
+
+def _iter_cli_strings(value):
+    """Yield flattened string items from argparse string, list, or nested-list values."""
+    if not value:
+        return
+    if isinstance(value, str):
+        yield value
+        return
+    for item in value:
+        yield from _iter_cli_strings(item)
+
+
+def _raw_cli_alleles(args):
+    """Return user-supplied allele strings before mhctools normalizes them."""
+    raw_tokens = []
+    for item in _iter_cli_strings(getattr(args, "mhc_alleles", None)):
+        for token in re.split(r"[\s,]+", item.strip()):
+            if token:
+                raw_tokens.append(token)
+    alleles_file = getattr(args, "mhc_alleles_file", None)
+    if alleles_file:
+        for line in Path(alleles_file).read_text(encoding="utf-8").splitlines():
+            line = line.split("#", 1)[0].strip()
+            for token in re.split(r"[\s,]+", line):
+                if token:
+                    raw_tokens.append(token)
+    return raw_tokens
+
+
+def _cli_predictor_names(args):
+    """Return normalized predictor names requested via ``--mhc-predictor``."""
+    names = []
+    for item in _iter_cli_strings(getattr(args, "mhc_predictor", None)):
+        for part in item.split(","):
+            part = part.strip().lower()
+            if part:
+                names.append(part)
+    return names
+
+
+def _validate_predictor_alleles(args):
+    """Reject class II alleles for class-I-only MHCflurry predictors early (#574).
+
+    Echoes each allele exactly as the user typed it rather than leaking
+    mhctools' internal class II pairing spelling, and fails before loading
+    MHCflurry model weights.
+    """
+    predictors = [
+        name for name in _cli_predictor_names(args)
+        if name in _CLASS1_ONLY_MHCFLURRY_PREDICTORS
+    ]
+    if not predictors:
+        return
+    raw_alleles = _raw_cli_alleles(args)
+    class2 = [allele for allele in raw_alleles if _class_of_allele(allele) == "II"]
+    if class2:
+        predictor_label = predictors[0]
+        noun = "allele" if len(class2) == 1 else "alleles"
+        raise ValueError(
+            f"{predictor_label} predicts class I only; unsupported class II "
+            f"{noun}: {', '.join(class2)}"
+        )
+
+
 def predict_epitopes_from_args(args):
     """
     Returns an epitope collection from the given commandline arguments.
@@ -671,6 +740,7 @@ def predict_epitopes_from_args(args):
     direct_input, is_peptides = _get_direct_input(args)
     protein_change_effects = None
     variants = None
+    expr_data = None
     if direct_input is None:
         _require_variant_input(args)
         if getattr(args, "protein_change", None):
@@ -690,6 +760,15 @@ def predict_epitopes_from_args(args):
         transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
         expr_data = expression_data_from_args(args)
 
+    # Validate output column flags and predictor/allele compatibility before
+    # loading heavy models or running predictions (#574).
+    validate_output_column_args(
+        args,
+        is_variant=(direct_input is None),
+        expression_data=expr_data,
+        allow_extra_columns=cached_predictor_in_use(args),
+    )
+
     # Read actual loaded annotations: --genome can be ignored by MAF, and VCF /
     # JSON can supply their own references. None of this consults MHC alleles.
     genomes = []
@@ -708,8 +787,12 @@ def predict_epitopes_from_args(args):
     if cached_predictor_in_use(args):
         models = cached_predictor_from_args(args)
     else:
+        _validate_predictor_alleles(args)
         models = predictors_from_args(args)
 
+    skip_errors = bool(
+        args.skip_variant_errors or getattr(args, "skip_errors", False)
+    )
     predictor = TopiaryPredictor(
         models=models,
         padding_around_mutation=args.padding_around_mutation,
@@ -719,7 +802,7 @@ def predict_epitopes_from_args(args):
         min_transcript_expression=args.rna_min_transcript_expression,
         min_gene_expression=args.rna_min_gene_expression,
         only_novel_epitopes=args.only_novel_epitopes,
-        raise_on_error=not args.skip_variant_errors,
+        raise_on_error=not skip_errors,
         protein_x_policy=getattr(args, "protein_x_policy", "skip"),
         predict_wt=getattr(args, "predict_wt", False),
         cache_miss_handler=cache_misses.append if report_cache_misses else None,

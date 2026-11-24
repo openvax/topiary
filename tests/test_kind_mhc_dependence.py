@@ -20,7 +20,7 @@ from topiary.ranking import EvalContext, evaluate_scores, parse
 from topiary.ranking.nodes import (
     _MHC_DEPENDENCE_VALUES,
     _filter_kind_method_version,
-    _kind_value,
+    kind_value,
     _resolve_mhc_dependence,
 )
 
@@ -32,7 +32,7 @@ from topiary.ranking.nodes import (
 
 def test_every_known_kind_is_classified():
     """Completeness drift is what a downstream copy of this table can't catch."""
-    known = {_kind_value(kind) for kind in KIND_ALIASES.values()}
+    known = {kind_value(kind) for kind in KIND_ALIASES.values()}
 
     assert known == set(KIND_MHC_DEPENDENCE)
 
@@ -81,7 +81,7 @@ def test_substrate_cleavage_is_mhc_independent_when_registered():
 
 @pytest.mark.parametrize("kind", ["serum_half_life", "blood_half_life"])
 def test_circulating_peptide_half_life_is_not_pmhc_stability(kind):
-    assert _kind_value(KIND_ALIASES[kind]) == kind
+    assert kind_value(KIND_ALIASES[kind]) == kind
     assert KIND_MHC_DEPENDENCE[kind] == "none"
     assert KIND_MHC_DEPENDENCE["pMHC_stability"] == "single_allele"
 

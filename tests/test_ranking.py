@@ -374,7 +374,7 @@ def test_negation():
 
 def test_norm_basic():
     """norm(mean=0, std=1) of 0 should be 0.5"""
-    from topiary.ranking import _gauss_cdf
+    from topiary.ranking.nodes import _gauss_cdf
     assert abs(_gauss_cdf(0) - 0.5) < 1e-9
 
 
@@ -1255,41 +1255,41 @@ def test_bracket_arithmetic():
 
 
 def test_resolve_qualified_kind_plain():
-    from topiary.ranking import _resolve_qualified_kind
-    kind, method = _resolve_qualified_kind("affinity")
+    from topiary.ranking import resolve_qualified_kind
+    kind, method = resolve_qualified_kind("affinity")
     assert kind == Kind.pMHC_affinity
     assert method is None
 
 
 def test_resolve_qualified_kind_with_tool():
-    from topiary.ranking import _resolve_qualified_kind
-    kind, method = _resolve_qualified_kind("netmhcpan_affinity")
+    from topiary.ranking import resolve_qualified_kind
+    kind, method = resolve_qualified_kind("netmhcpan_affinity")
     assert kind == Kind.pMHC_affinity
     assert method == "netmhcpan"
 
 
 def test_resolve_qualified_kind_short_aliases():
-    from topiary.ranking import _resolve_qualified_kind
-    kind, method = _resolve_qualified_kind("netmhcpan_ba")
+    from topiary.ranking import resolve_qualified_kind
+    kind, method = resolve_qualified_kind("netmhcpan_ba")
     assert kind == Kind.pMHC_affinity
     assert method == "netmhcpan"
 
-    kind, method = _resolve_qualified_kind("mhcflurry_el")
+    kind, method = resolve_qualified_kind("mhcflurry_el")
     assert kind == Kind.pMHC_presentation
     assert method == "mhcflurry"
 
 
 def test_resolve_qualified_kind_underscore_kind():
     """Kind names with underscores (antigen_processing) resolve without a tool."""
-    from topiary.ranking import _resolve_qualified_kind
-    kind, method = _resolve_qualified_kind("antigen_processing")
+    from topiary.ranking import resolve_qualified_kind
+    kind, method = resolve_qualified_kind("antigen_processing")
     assert kind == Kind.antigen_processing
     assert method is None
 
 
 def test_resolve_qualified_kind_tool_plus_underscore_kind():
-    from topiary.ranking import _resolve_qualified_kind
-    kind, method = _resolve_qualified_kind("netmhcpan_antigen_processing")
+    from topiary.ranking import resolve_qualified_kind
+    kind, method = resolve_qualified_kind("netmhcpan_antigen_processing")
     assert kind == Kind.antigen_processing
     assert method == "netmhcpan"
 
@@ -1574,15 +1574,15 @@ def test_sort_by_qualified_field():
 
 
 def test_resolve_qualified_kind_unknown_raises():
-    from topiary.ranking import _resolve_qualified_kind
+    from topiary.ranking import resolve_qualified_kind
     with pytest.raises(ValueError, match="Unknown prediction kind"):
-        _resolve_qualified_kind("totally_bogus_nonsense")
+        resolve_qualified_kind("totally_bogus_nonsense")
 
 
 def test_resolve_qualified_kind_empty_raises():
-    from topiary.ranking import _resolve_qualified_kind
+    from topiary.ranking import resolve_qualified_kind
     with pytest.raises(ValueError):
-        _resolve_qualified_kind("")
+        resolve_qualified_kind("")
 
 
 def test_filter_or_across_models():
@@ -3399,3 +3399,68 @@ def test_a_filter_on_an_unpopulated_reserved_scope_keeps_nothing():
     # The same expression keeps the row once the producer supplies the column.
     supplied = _make_df([{**_UNSCOPED_ROW[0], "shuffled_value": 400.0}])
     assert len(apply_filter(supplied, parse("shuffled.affinity < 500"))) == 1
+
+
+# Public ranking & cross-module helper API (#585).
+
+
+def test_ranking_package_reexports_no_underscore_private_names():
+    import types
+    import topiary.ranking as ranking_pkg
+
+    leaked = [
+        name for name, obj in vars(ranking_pkg).items()
+        if not name.startswith("__")
+        and not isinstance(obj, types.ModuleType)
+        and (name.startswith("_") or name not in ranking_pkg.__all__)
+    ]
+    assert leaked == []
+
+
+def test_promoted_kind_and_cross_module_helpers_are_public_and_exported():
+    import topiary
+    import topiary.ranking as ranking_pkg
+
+    ranking_promoted = (
+        "kind_name",
+        "kind_value",
+        "kind_short_name",
+        "kind_matches",
+        "known_kinds",
+        "resolve_qualified_kind",
+    )
+    for name in ranking_promoted:
+        assert name in ranking_pkg.__all__
+        assert name in topiary.__all__
+        fn = getattr(topiary, name)
+        assert fn is getattr(ranking_pkg, name)
+        assert fn.__doc__
+
+    other_promoted = (
+        "model_version_str",
+        "concat_frames",
+        "group_token",
+        "known_kind_short_names",
+    )
+    for name in other_promoted:
+        assert name in topiary.__all__
+        fn = getattr(topiary, name)
+        assert fn.__doc__
+
+    assert topiary.kind_name(Kind.pMHC_affinity) == "pMHC_affinity"
+    assert topiary.kind_value(Kind.pMHC_affinity) == "pMHC_affinity"
+    assert topiary.kind_short_name(Kind.pMHC_affinity) == "affinity"
+    assert topiary.kind_matches(Kind.pMHC_affinity, "pMHC_affinity")
+    assert not topiary.kind_matches(Kind.pMHC_affinity, Kind.pMHC_presentation)
+    assert Kind.pMHC_affinity in topiary.known_kinds()
+    assert "antigen_processing" in topiary.known_kind_short_names()
+    assert topiary.resolve_qualified_kind("mhcflurry_el") == (Kind.pMHC_presentation, "mhcflurry")
+    assert topiary.model_version_str("4.1b") == "4.1b"
+    assert topiary.model_version_str(None) == ""
+    assert topiary.group_token({"b": 2, "a": 1}) == topiary.group_token({"a": 1, "b": 2})
+    assert topiary.group_token(True) != topiary.group_token(1)
+    combined = topiary.concat_frames([
+        pd.DataFrame({"a": [None], "b": [1]}),
+        pd.DataFrame({"a": [1.5], "b": [2]}),
+    ])
+    assert combined["a"].tolist()[1] == 1.5
