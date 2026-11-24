@@ -188,3 +188,34 @@ def test_load_from_spec_with_name():
     assert name == "gene_tpm"
     assert id_col == "Name"
     assert list(df.columns) == ["Name", "TPM"]
+
+
+def test_load_cufflinks_drops_fail_and_hidata_matching_legacy_reader():
+    from topiary.rna.cufflinks import load_cufflinks_fpkm_dict
+
+    path = os.path.join(DATA_DIR, "genes.fpkm_tracking")
+    df = load_expression(path)
+    loaded = dict(zip(df["tracking_id"], df["FPKM"]))
+    expected = load_cufflinks_fpkm_dict(path)
+    assert loaded == expected
+
+
+def test_deprecated_rna_min_expression_warns_without_legacy_file(caplog):
+    from types import SimpleNamespace
+    from topiary.cli.rna import (
+        rna_gene_expression_dict_from_args,
+        rna_transcript_expression_dict_from_args,
+    )
+
+    args = SimpleNamespace(
+        rna_gene_fpkm_tracking_file=None,
+        rna_min_gene_expression=5.0,
+        rna_transcript_fpkm_tracking_file=None,
+        rna_transcript_fpkm_gtf_file=None,
+        rna_min_transcript_expression=2.0,
+    )
+    with caplog.at_level("WARNING"):
+        assert rna_gene_expression_dict_from_args(args) is None
+        assert rna_transcript_expression_dict_from_args(args) is None
+    assert "--rna-min-gene-expression" in caplog.text
+    assert "--rna-min-transcript-expression" in caplog.text
