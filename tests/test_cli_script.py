@@ -409,3 +409,150 @@ def test_help_warns_off_the_underscore_form_that_means_something_else():
     assert parse("wt_affinity").to_expr_string() == "affinity['wt'].value"
     assert "wt_affinity" in help_text and "fails" in help_text
     assert "wt.affinity" in help_text
+
+
+# CLI discoverability (#574) and provenance sidecar preflight (#570).
+
+
+def test_version_flag_prints_installed_version_and_exits_zero(capsys):
+    import topiary
+
+    with pytest.raises(SystemExit) as caught:
+        cli_script.main(["--version"])
+    assert caught.value.code == 0
+    captured = capsys.readouterr()
+    assert f"topiary {topiary.__version__}" in captured.out
+
+
+def test_print_columns_alone_lists_static_columns_without_input(capsys):
+    result = cli_script.main(["--print-columns"])
+    assert result == 0
+    captured = capsys.readouterr()
+    assert "Columns:" in captured.out
+    assert "-- peptide" in captured.out
+    assert "-- allele" in captured.out
+    assert "-- variant" in captured.out
+    assert "-- varcode_candidate_selection" not in captured.out
+
+
+def test_print_columns_alone_honors_optional_column_flags(capsys):
+    result = cli_script.main([
+        "--print-columns", "--sort-by", "affinity", "--predict-wt", "--include-provenance",
+    ])
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "-- output_row" in out
+    assert "-- wt_value" in out
+    assert "-- varcode_candidate_selection" in out
+
+
+def test_mhcflurry_class2_allele_fails_early_and_echoes_raw_allele(monkeypatch, capsys, tmp_path):
+    import topiary.cli.args as cli_args
+
+    def must_not_build(args):
+        pytest.fail("built mhcflurry before rejecting class II allele")
+
+    peptides = tmp_path / "peptides.csv"
+    peptides.write_text("peptide\nSIINFEKL\n", encoding="utf-8")
+    monkeypatch.setattr(cli_args, "predictors_from_args", must_not_build)
+    code, err = _run([
+        "--mhc-predictor", "mhcflurry",
+        "--mhc-alleles", "HLA-DRB1*01:01",
+        "--peptide-csv", str(peptides),
+    ], capsys)
+    assert code == 1
+    msg = _error_line(err)
+    assert "mhcflurry predicts class I only" in msg
+    assert "HLA-DRB1*01:01" in msg
+    assert "HLA-DRA1*01:01-DRB1*01:01" not in msg
+
+
+def test_mhcflurry_class2_allele_in_file_fails_early(monkeypatch, capsys, tmp_path):
+    import topiary.cli.args as cli_args
+
+    def must_not_build(args):
+        pytest.fail("built mhcflurry before rejecting class II allele from file")
+
+    peptides = tmp_path / "peptides.csv"
+    peptides.write_text("peptide\nSIINFEKL\n", encoding="utf-8")
+    alleles = tmp_path / "alleles.txt"
+    alleles.write_text("# patient alleles\nHLA-A*02:01\nHLA-DRB1*04:01\n", encoding="utf-8")
+    monkeypatch.setattr(cli_args, "predictors_from_args", must_not_build)
+    code, err = _run([
+        "--mhc-predictor", "mhcflurry-affinity",
+        "--mhc-alleles-file", str(alleles),
+        "--peptide-csv", str(peptides),
+    ], capsys)
+    assert code == 1
+    msg = _error_line(err)
+    assert "mhcflurry-affinity predicts class I only" in msg
+    assert "HLA-DRB1*04:01" in msg
+
+
+def test_unknown_subset_output_columns_fails_before_predictors_are_built(monkeypatch, capsys, tmp_path):
+    import topiary.cli.args as cli_args
+
+    def must_not_build(args):
+        pytest.fail("built predictors before validating --subset-output-columns")
+
+    peptides = tmp_path / "peptides.csv"
+    peptides.write_text("peptide\nSIINFEKL\n", encoding="utf-8")
+    monkeypatch.setattr(cli_args, "predictors_from_args", must_not_build)
+    code, err = _run([
+        *_REQUEST, "--peptide-csv", str(peptides),
+        "--subset-output-columns", "peptide", "ic50_typo",
+    ], capsys)
+    assert code == 1
+    assert "'ic50_typo'" in _error_line(err)
+
+
+def test_unknown_rename_output_column_fails_before_predictors_are_built(monkeypatch, capsys, tmp_path):
+    import topiary.cli.args as cli_args
+
+    def must_not_build(args):
+        pytest.fail("built predictors before validating --rename-output-column")
+
+    peptides = tmp_path / "peptides.csv"
+    peptides.write_text("peptide\nSIINFEKL\n", encoding="utf-8")
+    monkeypatch.setattr(cli_args, "predictors_from_args", must_not_build)
+    code, err = _run([
+        *_REQUEST, "--peptide-csv", str(peptides),
+        "--rename-output-column", "nonexistent_col", "renamed",
+    ], capsys)
+    assert code == 1
+    assert "'nonexistent_col'" in _error_line(err)
+
+
+def test_skip_errors_flag_disables_raise_on_error(monkeypatch, tmp_path):
+    import pandas as pd
+    import topiary.cli.args as cli_args
+
+    peptides = tmp_path / "peptides.csv"
+    peptides.write_text("peptide\nSIINFEKL\n", encoding="utf-8")
+    captured = {}
+
+    class SpyPredictor:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def predict_from_named_peptides(self, seqs):
+            return pd.DataFrame({"peptide": list(seqs.values())})
+
+    monkeypatch.setattr(cli_args, "TopiaryPredictor", SpyPredictor)
+    args = cli_args.arg_parser.parse_args([
+        "--mhc-predictor", "random", "--mhc-alleles", "HLA-A*02:01",
+        "--peptide-csv", str(peptides), "--skip-errors",
+    ])
+    cli_args.predict_epitopes_from_args(args)
+    assert captured["raise_on_error"] is False
+
+
+def test_output_provenance_preflight_checks_missing_parent_dir(capsys, tmp_path):
+    peptides = tmp_path / "peptides.csv"
+    peptides.write_text("peptide\nSIINFEKL\n", encoding="utf-8")
+    code, err = _run([
+        *_REQUEST, "--peptide-csv", str(peptides),
+        "--output-provenance", str(tmp_path / "no_such_dir" / "prov.json"),
+    ], capsys)
+    assert code == 1
+    assert "--output-provenance" in _error_line(err)

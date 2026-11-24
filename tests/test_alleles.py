@@ -346,7 +346,8 @@ def test_lenient_and_strict_agree(value):
 def test_the_api_is_exported_from_the_package():
     names = {
         "AlleleError", "allele_expression_caveats", "allele_rejection_reason",
-        "canonical_allele_name", "canonical_allele_names_or_raw", "derive_mhc_class",
+        "canonical_allele_name", "canonical_allele_names_or_raw",
+        "canonical_native_allele_name", "derive_mhc_class",
         "parse_allele", "resolve_old_allele_name",
     }
     assert names <= set(topiary.__all__)
@@ -381,3 +382,109 @@ def test_normalize_allele_name_or_raw_still_refuses_non_alleles(bad):
 
     with pytest.raises(AlleleError):
         _normalize_allele_name_or_raw(bad)
+
+
+# NetMHC native allele resolution (#582): resolve legacy allele-group short
+# names at predictor-output boundaries without renaming already-accepted
+# specific alleles or fabricating alleles for polymorphic genes.
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Mamu-A01", "Mamu-A1*001:01"),
+    ("Mamu-A02", "Mamu-A1*002:01"),
+    ("Mamu-A07", "Mamu-A1*007:01"),
+    ("Mamu-A11", "Mamu-A1*011:01"),
+    ("Mamu-A26", "Mamu-A1*026:01"),
+    ("Mamu-B01", "Mamu-B*001:01"),
+    ("Mamu-B03", "Mamu-B*003:01"),
+    ("Mamu-B08", "Mamu-B*008:01"),
+    # Already-accepted specific alleles keep their exact canonical identity
+    # and cache key rather than being renamed via aliases.
+    ("Mamu-A2201", "Mamu-A*22:01"),
+    ("HLA-C*04:22", "HLA-C*04:22"),
+    ("HLA-MICA*001", "HLA-MICA*001"),
+    ("HLA-A0201", "HLA-A*02:01"),
+])
+def test_canonical_native_allele_name_resolves_short_mamu_without_renaming_accepted(raw, expected):
+    assert topiary.canonical_native_allele_name(raw) == expected
+
+
+@pytest.mark.parametrize("bad", [
+    "HLA-A*02",
+    "Mamu-B*008",
+    "HLA-A*02:01:01G",
+    "HLA-A*02:01N",
+    "A2",
+    "HLA-A",
+    "H-2-Qa1",
+    "H-2-Qa2",
+    "Mamu-B17",
+])
+def test_canonical_native_allele_name_still_refuses_non_alleles_and_genes(bad):
+    with pytest.raises(AlleleError):
+        topiary.canonical_native_allele_name(bad)
+
+
+def test_netmhc4_stdout_cache_resolves_legacy_mamu_alleles_for_occurrences(tmp_path):
+    netmhc4_stdout = (
+        "# Peptide length 9\n"
+        "# Rank Threshold for Strong binding peptides   0.500\n"
+        "# Rank Threshold for Weak binding peptides   2.000\n"
+        "-----------------------------------------------------------------------------------\n"
+        "  pos          HLA      peptide         Core Offset  I_pos  I_len  D_pos  D_len        iCore        Identity 1-log50k(aff) Affinity(nM)    %Rank  BindLevel\n"
+        "-----------------------------------------------------------------------------------\n"
+        "    0     Mamu-A01    SIINFEKLL    SIINFEKLL      0      0      0      0      0    SIINFEKLL        seq1         0.500        200.00     0.50\n"
+        "    0     Mamu-B08    SIINFEKLL    SIINFEKLL      0      0      0      0      0    SIINFEKLL        seq1         0.480        250.00     0.80\n"
+        "    0     Mamu-B17    SIINFEKLL    SIINFEKLL      0      0      0      0      0    SIINFEKLL        seq1         0.460        300.00     1.00\n"
+        "    0   Mamu-A2201    SIINFEKLL    SIINFEKLL      0      0      0      0      0    SIINFEKLL        seq1         0.440        350.00     1.20\n"
+        "    0    HLA-A0201    SIINFEKLL    SIINFEKLL      0      0      0      0      0    SIINFEKLL        seq1         0.600         80.00     0.20\n"
+    )
+    capture = tmp_path / "netmhc4.txt"
+    capture.write_text(netmhc4_stdout, encoding="utf-8")
+
+    cache = topiary.CachedPredictor.from_netmhc_stdout(capture, version="4", predictor_version="4.0")
+    assert cache.alleles == [
+        "HLA-A*02:01",
+        "Mamu-A*22:01",
+        "Mamu-A1*001:01",
+        "Mamu-B*008:01",
+        "Mamu-B*017:01",
+    ]
+
+    occ = pd.DataFrame([dict(prediction_id="occ1", peptide="SIINFEKLL", peptide_offset=0)])
+    out = topiary.TopiaryPredictor(models=[cache]).predict_from_peptide_occurrences(
+        occ, use_flanks=False
+    )
+    assert set(out["allele"]) == set(cache.alleles)
+    assert len(out) == 5
+
+
+def test_netmhcpan_stdout_cache_resolves_short_mamu_and_refuses_gene_names(tmp_path):
+    mamu_capture = tmp_path / "netmhcpan_mamu.txt"
+    mamu_capture.write_text(
+        "# NetMHCpan version 4.1b\n"
+        "---------------------------------------------------------------------------------------------------------------------------\n"
+        " Pos         MHC        Peptide      Core Of Gp Gl Ip Il        Icore        Identity  Score_EL %Rank_EL Score_BA %Rank_BA  Aff(nM) BindLevel\n"
+        "---------------------------------------------------------------------------------------------------------------------------\n"
+        "   1    Mamu-A01      SIINFEKLL SIINFEKLL  0  0  0  0  0    SIINFEKLL            seq1 0.8000000    0.400 0.700000    0.500   120.00 <= SB\n",
+        encoding="utf-8",
+    )
+    cache = topiary.CachedPredictor.from_netmhcpan_stdout(mamu_capture)
+    assert cache.alleles == ["Mamu-A1*001:01"]
+    occ = pd.DataFrame([dict(prediction_id="occ1", peptide="SIINFEKLL", peptide_offset=0)])
+    out = topiary.TopiaryPredictor(models=[cache]).predict_from_peptide_occurrences(
+        occ, use_flanks=False
+    )
+    assert set(out["allele"]) == {"Mamu-A1*001:01"}
+
+    qa1_capture = tmp_path / "netmhcpan_qa1.txt"
+    qa1_capture.write_text(
+        "# NetMHCpan version 4.1b\n"
+        "---------------------------------------------------------------------------------------------------------------------------\n"
+        " Pos         MHC        Peptide      Core Of Gp Gl Ip Il        Icore        Identity  Score_EL %Rank_EL Score_BA %Rank_BA  Aff(nM) BindLevel\n"
+        "---------------------------------------------------------------------------------------------------------------------------\n"
+        "   1     H-2-Qa1      SIINFEKLL SIINFEKLL  0  0  0  0  0    SIINFEKLL            seq1 0.8000000    0.400 0.700000    0.500   120.00 <= SB\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(AlleleError, match="Gene H2-T23"):
+        topiary.CachedPredictor.from_netmhcpan_stdout(qa1_capture)

@@ -7,6 +7,7 @@ from .alleles import (
     allele_rejection_reason,
     canonical_allele_name,
     canonical_allele_names_or_raw,
+    canonical_native_allele_name,
     derive_mhc_class,
     parse_allele,
     resolve_old_allele_name,
@@ -67,9 +68,15 @@ from .ranking import (
     CANONICAL_METHOD_PREFERENCE,
     KIND_MHC_DEPENDENCE,
     MHC_DEPENDENCE_VALUES,
+    kind_matches,
+    kind_name,
+    kind_short_name,
+    kind_value,
+    known_kinds,
     mhc_dependence,
     prediction_mhc_scope,
     resolve_kind,
+    resolve_qualified_kind,
     resolve_default_methods,
     describe_default_versions,
     is_named_version,
@@ -182,7 +189,7 @@ from .protein_fragment import (
 from .self_proteome import SelfProteome
 from .self_evidence import match_self_peptides, self_matches_in_windows
 from .self_binding import binding_aware_self_evidence
-from .io import Metadata, read_csv, read_tsv, to_csv, to_tsv
+from .io import Metadata, model_version_str, read_csv, read_tsv, to_csv, to_tsv
 from .io_protein_fragment import read_fragments, write_fragments, iter_fragments
 from .io_lens import detect_lens_version, read_lens
 from .io_isovar_hypotheses import (
@@ -235,7 +242,15 @@ from .result import (
     combine_predictions,
 )
 from .prediction_columns import PredictionMetric, parse_prediction_metric
-from .wide import detect_form, from_wide, to_wide, PROTEIN_SCAN_METADATA_COLUMNS
+from .wide import (
+    PROTEIN_SCAN_METADATA_COLUMNS,
+    concat_frames,
+    detect_form,
+    from_wide,
+    group_token,
+    known_kind_short_names,
+    to_wide,
+)
 from .amino_acids import (
     AMINO_ACIDS,
     AMINO_ACID_INDEX,
@@ -247,7 +262,7 @@ from .amino_acids import (
     encode_amino_acids,
 )
 
-__version__ = "5.114.3"
+__version__ = "5.115.0"
 
 __all__ = [
     "best_protein_transcript",
@@ -355,8 +370,15 @@ __all__ = [
     "CANONICAL_METHOD_PREFERENCE",
     "KIND_MHC_DEPENDENCE",
     "MHC_DEPENDENCE_VALUES",
+    "kind_matches",
+    "kind_name",
+    "kind_short_name",
+    "kind_value",
+    "known_kinds",
+    "known_kind_short_names",
     "mhc_dependence",
     "resolve_kind",
+    "resolve_qualified_kind",
     "resolve_default_methods",
     "describe_default_versions",
     "is_named_version",
@@ -405,6 +427,7 @@ __all__ = [
     "allele_rejection_reason",
     "canonical_allele_name",
     "canonical_allele_names_or_raw",
+    "canonical_native_allele_name",
     "parse_allele",
     "resolve_old_allele_name",
     "format_allele_set",
@@ -447,6 +470,7 @@ __all__ = [
     "write_fragments",
     "iter_fragments",
     "Metadata",
+    "model_version_str",
     "join_annotations",
     "derive_mhc_class",
     "detect_lens_version",
@@ -459,8 +483,10 @@ __all__ = [
     "read_tsv",
     "to_csv",
     "to_tsv",
+    "concat_frames",
     "detect_form",
     "from_wide",
+    "group_token",
     "to_wide",
     "RNA_ALIGNMENT",
     "RNA_DEPTH_X_SOURCE_VAF",

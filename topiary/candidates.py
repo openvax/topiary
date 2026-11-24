@@ -19,7 +19,7 @@ from .ranking import (
 )
 from .result import TopiaryResult, stack_results
 from .serialization import normalize_python_types
-from .wide import PREDICTION_COLUMNS, SOURCE_PREDICTION_COLUMNS, PROTEIN_SCAN_METADATA_COLUMNS, _group_token
+from .wide import PREDICTION_COLUMNS, SOURCE_PREDICTION_COLUMNS, PROTEIN_SCAN_METADATA_COLUMNS, group_token
 
 
 # Comparator scores vary by model/kind/allele just like the primary scores.
@@ -473,7 +473,7 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
                     else measurement)
             elif isinstance(measurement, Mapping):
                 descriptor["measurement_context"] = dict(measurement)
-            if column in descriptors and _group_token(descriptors[column]) != _group_token(descriptor):
+            if column in descriptors and group_token(descriptors[column]) != group_token(descriptor):
                 raise ValueError("Multiple versions/units/contexts or historical sources need separate re-scoring prefixes")
             descriptors[column] = descriptor
             values = features.setdefault(column, {})

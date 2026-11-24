@@ -267,3 +267,76 @@ def test_the_callers_frame_is_never_reordered_or_widened(tmp_path):
     write_outputs(df, arg_parser.parse_args([
         "--sort-by", "value", "--output-csv", str(tmp_path / "out.csv")]))
     pd.testing.assert_frame_equal(df, before)
+
+
+# Verbose per-variant provenance (#570): omitted from CLI CSV/HTML rows by
+# default, opt-in via --include-provenance or --subset-output-columns, or
+# written once per variant via --output-provenance.
+
+
+def _provenance_frame():
+    proof_a = {"rule": "highest", "selected_alternative_index": 0, "alternatives": [{"effect_type": "Substitution"}]}
+    proof_b = {"rule": "highest", "selected_alternative_index": 1, "alternatives": [{"effect_type": "Deletion"}]}
+    return pd.DataFrame({
+        "peptide": ["SIINFEKL", "SIINFEKLL", "GILGFVFTL"],
+        "variant": ["chr7 g.1A>G", "chr7 g.1A>G", "chr12 g.2C>T"],
+        "value": [12.0, 45.0, 88.0],
+        "varcode_candidate_selection": [proof_a, proof_a, proof_b],
+    })
+
+
+def test_csv_and_html_omit_varcode_candidate_selection_by_default(tmp_path):
+    df = _provenance_frame()
+    csv_path = tmp_path / "run.csv"
+    html_path = tmp_path / "run.html"
+    write_outputs(df, arg_parser.parse_args([
+        "--output-csv", str(csv_path), "--output-html", str(html_path),
+    ]))
+    written = pd.read_csv(csv_path)
+    assert "varcode_candidate_selection" not in written.columns
+    assert "varcode_candidate_selection" not in html_path.read_text()
+    # In-memory DataFrame keeps full provenance for Python consumers.
+    assert "varcode_candidate_selection" in df.columns
+
+
+def test_include_provenance_opts_varcode_candidate_selection_back_in(tmp_path):
+    import json
+
+    df = _provenance_frame()
+    csv_path = tmp_path / "run.csv"
+    write_outputs(df, arg_parser.parse_args([
+        "--output-csv", str(csv_path), "--include-provenance",
+    ]))
+    written = pd.read_csv(csv_path)
+    assert "varcode_candidate_selection" in written.columns
+    assert json.loads(written.varcode_candidate_selection.iloc[0])["rule"] == "highest"
+
+
+def test_explicit_subset_output_columns_can_request_provenance(tmp_path):
+    df = _provenance_frame()
+    csv_path = tmp_path / "run.csv"
+    write_outputs(df, arg_parser.parse_args([
+        "--output-csv", str(csv_path),
+        "--subset-output-columns", "peptide", "varcode_candidate_selection",
+    ]))
+    written = pd.read_csv(csv_path)
+    assert list(written.columns) == ["peptide", "varcode_candidate_selection"]
+
+
+def test_output_provenance_writes_deduplicated_sidecar_json_once_per_variant(tmp_path):
+    import json
+
+    df = _provenance_frame()
+    csv_path = tmp_path / "run.csv"
+    prov_path = tmp_path / "provenance.json"
+    write_outputs(df, arg_parser.parse_args([
+        "--output-csv", str(csv_path),
+        "--output-provenance", str(prov_path),
+    ]))
+    written = pd.read_csv(csv_path)
+    assert "varcode_candidate_selection" not in written.columns
+    sidecar = json.loads(prov_path.read_text(encoding="utf-8"))
+    # Two rows shared chr7 g.1A>G, so provenance is stored once per variant.
+    assert set(sidecar) == {"chr7 g.1A>G", "chr12 g.2C>T"}
+    assert sidecar["chr7 g.1A>G"]["varcode_candidate_selection"]["selected_alternative_index"] == 0
+    assert sidecar["chr12 g.2C>T"]["varcode_candidate_selection"]["selected_alternative_index"] == 1

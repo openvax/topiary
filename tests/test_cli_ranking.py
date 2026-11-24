@@ -52,7 +52,7 @@ def test_sort_by_simple_affinity_kind_name_uses_raw_value():
 def test_sort_by_string_style_affinity_kind_uses_raw_value(monkeypatch):
     monkeypatch.setattr(
         cli_args,
-        "_resolve_qualified_kind",
+        "resolve_qualified_kind",
         lambda text: ("pMHC_affinity", None),
     )
     expr = cli_args._parse_sort_expr("ba")

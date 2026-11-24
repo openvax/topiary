@@ -264,20 +264,32 @@ def _version_from_rows(rows):
     if "predictor_version" not in rows.columns:
         return ""
     for version in rows["predictor_version"]:
-        version_str = _model_version_str(version)
+        version_str = model_version_str(version)
         if version_str:
             return version_str
     return ""
 
 
-def _model_version_str(value):
-    """The version as text, or "" when none was stated.
+def model_version_str(value: Any) -> str:
+    """Normalize a predictor version value to stripped text, or ``""`` when absent.
 
     Delegates the "was a version named at all" test to
-    :func:`~topiary.is_named_version` rather than restating it — a
-    local ``str(value).strip()`` admits the literal "nan"/"None" a
-    missing value becomes under ``astype(str)``, which is how a phantom
-    version gets into a model key.
+    :func:`~topiary.is_named_version` rather than calling ``str(value).strip()``
+    directly — plain stringification turns missing values into literal
+    ``"nan"`` or ``"None"`` strings, which would leak phantom versions into
+    model keys and metadata headers.
+
+    Parameters
+    ----------
+    value : object
+        A predictor version scalar (for example ``"4.1b"``, ``None``,
+        ``np.nan``, ``""``, or ``"unknown"``).
+
+    Returns
+    -------
+    str
+        Stripped version text when :func:`~topiary.is_named_version` accepts
+        *value*, otherwise ``""``.
     """
     from .ranking import is_named_version
     return str(value).strip() if is_named_version(value) else ""
@@ -334,7 +346,7 @@ def _fill_missing_model_versions(models, *fallbacks):
     models = OrderedDict(models)
     fallback_models = [
         OrderedDict(
-            (str(model).strip(), _model_version_str(version))
+            (str(model).strip(), model_version_str(version))
             for model, version in fallback.items()
             if str(model).strip()
         )

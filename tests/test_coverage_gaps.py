@@ -16,13 +16,12 @@ from topiary.ranking import (
     Comparison,
     Field,
     KindAccessor,
-    _build_kind_aliases,
-    _gauss_cdf,
-    _iter_known_kinds,
     apply_filter,
     apply_sort,
+    known_kinds,
     parse,
 )
+from topiary.ranking.nodes import _build_kind_aliases, _gauss_cdf
 from mhctools import Kind
 
 
@@ -415,7 +414,7 @@ def test_iter_known_kinds_supports_string_constant_kind_class():
         antigen_processing = "antigen_processing"
         tap_transport = "tap_transport"
 
-    assert _iter_known_kinds(FakeKind) == [
+    assert known_kinds(FakeKind) == [
         "pMHC_affinity",
         "pMHC_presentation",
         "antigen_processing",

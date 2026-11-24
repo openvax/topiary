@@ -14,9 +14,9 @@ from .nodes import (
     Column,
     EvalContext,
     Field,
-    _kind_value,
+    kind_value,
     _peptide_keys,
-    _kind_matches,
+    kind_matches,
     _missing_column_error,
     _normalize_group_keys,
     _unwrap_peptide_view,
@@ -138,7 +138,7 @@ def _collect_kinds(node):
             continue
         kind = getattr(n, "kind", None)
         if kind is not None:
-            kinds.add(_kind_value(kind))
+            kinds.add(kind_value(kind))
         kinds.update(getattr(n, "prediction_kinds", ()))
         stack.extend(n.child_nodes())
     return kinds
@@ -221,7 +221,7 @@ def _infer_sort_direction(node):
     if isinstance(node, (Field, BestAlleleField)):
         if node.field == "percentile_rank":
             return "asc"
-        if _kind_matches(node.kind, Kind.pMHC_affinity) and node.field == "value":
+        if kind_matches(node.kind, Kind.pMHC_affinity) and node.field == "value":
             return "asc"
     return "desc"
 

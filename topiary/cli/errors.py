@@ -34,7 +34,8 @@ def add_error_args(arg_parser):
         "--skip-variant-errors",
         default=False,
         action="store_true",
-        help="Skip variants which cause runtime errors of any kind",
+        help="Skip variants which cause runtime errors of any kind "
+             "(canonical Topiary flag; varcode's --skip-errors has the same effect)",
     )
 
     return error_group

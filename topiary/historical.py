@@ -15,7 +15,7 @@ from .cached import CachedPredictorCoverageError, prediction_flanks_match, _flan
 from .io import Metadata, read_csv, read_tsv, _decode_json, _encode_json, _json_columns
 from .ranking import format_allele_set, is_stated, mhc_dependence, split_allele_set
 from .result import TopiaryResult
-from .wide import _concat_frames, _group_token
+from .wide import concat_frames, group_token
 from .wide import SOURCE_PREDICTION_COLUMNS
 
 
@@ -73,7 +73,7 @@ def _copy_frame(frame):
 
 
 def _comparison(frame):
-    return frame.map(_group_token)
+    return frame.map(group_token)
 
 
 def conflicting_historical_predictions(df):
@@ -375,7 +375,7 @@ class HistoricalPredictor:
         if row["peptide"] != query["peptide"]:
             return False
         for column in _OCCURRENCE_COLUMNS:
-            if is_stated(row.get(column)) and _group_token(row[column]) != _group_token(query.get(column)):
+            if is_stated(row.get(column)) and group_token(row[column]) != group_token(query.get(column)):
                 return False
         if is_stated(_sample(row)) and _sample(row) != _sample(query):
             return False
@@ -392,16 +392,16 @@ class HistoricalPredictor:
         if use_flanks:
             # Replay a reported occurrence, without claiming that the original
             # model used its annotated flanks as inference inputs.
-            if any(_group_token(row.get(column)) != _group_token(query.get(column))
+            if any(group_token(row.get(column)) != group_token(query.get(column))
                    for column in ("n_flank", "c_flank")):
                 return False
         elif not prediction_flanks_match(row):
             return False
-        if any(column in query and _group_token(row.get(column)) != _group_token(query[column])
+        if any(column in query and group_token(row.get(column)) != group_token(query[column])
                for column in self._annotation_keys):
             return False
         for column in ("wt_peptide", "wt_n_flank", "wt_c_flank", "wt_peptide_offset"):
-            if column in query and _group_token(query[column]) != _group_token(row.get(column)):
+            if column in query and group_token(query[column]) != group_token(row.get(column)):
                 return False
         return True
 
@@ -456,7 +456,7 @@ class HistoricalPredictor:
             raise CachedPredictorCoverageError(f"Historical source has no matching reported occurrence at query positions {missing[:5]}")
         if not frames:
             return self.df.iloc[:0].assign(**{_QUERY_INDEX: pd.Series(dtype=int)})
-        return _copy_frame(_concat_frames(frames))
+        return _copy_frame(concat_frames(frames))
 
     def predict_peptides_dataframe(self, peptides):
         """Retrieve all reported records for sequences, without reassigning context.
@@ -474,7 +474,7 @@ class HistoricalPredictor:
         missing = set(peptides) - set(rows.peptide)
         if missing and self.missing == "raise":
             raise CachedPredictorCoverageError(f"Historical source has no reported peptide: {sorted(missing)[:5]}")
-        return _copy_frame(_concat_frames([rows.loc[rows.peptide.eq(peptide)] for peptide in peptides])) if peptides else self.df.iloc[:0]
+        return _copy_frame(concat_frames([rows.loc[rows.peptide.eq(peptide)] for peptide in peptides])) if peptides else self.df.iloc[:0]
 
     def to_result(self):
         """Return all backing rows and original result metadata, detached from this source."""

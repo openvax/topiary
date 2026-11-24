@@ -16,7 +16,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from .ranking import _iter_known_kinds, _kind_name, _kind_short_name, KIND_ALIASES
+from .io import model_version_str
+from .ranking import known_kinds, kind_name, kind_short_name, KIND_ALIASES
 
 # Columns that are prediction-specific and get pivoted in wide form.
 PREDICTION_COLUMNS = frozenset({
@@ -65,14 +66,26 @@ WIDE_TO_LONG_FIELD = {v: k for k, v in LONG_TO_WIDE_FIELD.items()}
 WIDE_TO_LONG_FIELD["present"] = None
 
 
-def _concat_frames(frames):
-    """Concatenate rows after giving inferred null columns a sibling's dtype.
+def concat_frames(frames):
+    """Concatenate DataFrames while preserving nullable dtypes across all-NA columns.
 
-    Pandas infers object or float for columns containing only None/NaN, and is
-    changing how these affect concat's dtype inference. Give those placeholders
-    an explicit dtype when the other inputs supply one that can hold missing
-    values. Preserve explicitly nullable extension dtypes and columns missing
-    in every input; no schema or rows should disappear with absent measurements.
+    Pandas infers ``object`` or ``float`` for columns containing only
+    ``None`` / ``NaN``, and pandas 3+ changes how all-NA inputs influence
+    concatenation dtypes. This helper gives all-NA placeholder columns the
+    concrete nullable dtype supplied by sibling frames while keeping
+    explicitly nullable extension dtypes and columns missing in every input.
+
+    Parameters
+    ----------
+    frames : sequence of pandas.DataFrame
+        Non-empty sequence of DataFrames to stack vertically with a fresh
+        ``RangeIndex``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Concatenated frame with consolidated block layout when placeholder
+        columns were normalized.
     """
     untyped = [
         {column for column in frame
@@ -109,11 +122,22 @@ def _concat_frames(frames):
 
 
 @functools.lru_cache(maxsize=1)
-def _known_kind_short_names():
-    """Return known kind short names sorted longest-first (for suffix matching)."""
+def known_kind_short_names():
+    """Return known prediction-kind short names sorted longest-first.
+
+    Longest-first ordering ensures multi-word kinds such as
+    ``"antigen_processing"`` match before shorter suffixes when parsing
+    wide-form column names.
+
+    Returns
+    -------
+    tuple of str
+        Unique short kind names from :func:`~topiary.known_kinds` formatted
+        via :func:`~topiary.kind_short_name`, sorted by descending length.
+    """
     names = set()
-    for kind in _iter_known_kinds():
-        names.add(_kind_short_name(kind))
+    for kind in known_kinds():
+        names.add(kind_short_name(kind))
     return tuple(sorted(names, key=len, reverse=True))
 
 
@@ -122,20 +146,7 @@ def _kind_short_to_canonical(short_name):
     kind = KIND_ALIASES.get(short_name)
     if kind is None:
         return short_name
-    return _kind_name(kind)
-
-
-def _version_str(value):
-    """The version as text, or "" when none was stated.
-
-    Delegates the "was a version named at all" test to
-    :func:`~topiary.is_named_version` rather than restating it — a
-    local ``str(value).strip()`` admits the literal "nan"/"None" a
-    missing value becomes under ``astype(str)``, which is how a phantom
-    version gets into a model key.
-    """
-    from .ranking import is_named_version
-    return str(value).strip() if is_named_version(value) else ""
+    return kind_name(kind)
 
 
 def _parse_wide_column(col_name):
@@ -167,7 +178,7 @@ def _parse_wide_column(col_name):
     # Try matching against known kind short names, longest first, so
     # multi-underscore kinds like "antigen_processing" match before
     # shorter kinds.
-    for kind_short in _known_kind_short_names():
+    for kind_short in known_kind_short_names():
         if prefix == kind_short:
             # Kind-only column with no model prefix — unusual but valid
             return (None, kind_short, field)
@@ -216,18 +227,29 @@ def _normalized_container(value):
     return value
 
 
-def _group_token(value):
-    """A hashable stand-in for one annotation cell.
+def group_token(value):
+    """Return a hashable equality token for one annotation or metadata cell.
 
-    Topiary's own fragments carry list-valued annotations —
-    ``supporting_reference_transcripts`` is a list of transcript ids, and
-    prediction preserves it — so grouping the frame by its annotation
-    columns raised ``TypeError: unhashable type: 'list'`` on ordinary RNA
-    results (#287).
+    Topiary frames can carry unhashable containers (for example
+    ``supporting_reference_transcripts`` lists or ``measurement_context``
+    dicts) as well as mixed missing-value spellings (``None``, ``NaN``,
+    ``pd.NA``) and booleans alongside integers. Grouping or comparing cells
+    directly raises ``TypeError: unhashable type``, fails ``nan == nan``, or
+    conflates ``True`` with ``1``.
 
-    The token stands in only while rows are being grouped. The original
-    object is what reaches the output, so transcript identities survive
-    and a list is still a list on the far side.
+    Parameters
+    ----------
+    value : object
+        Any scalar, missing value, sequence, set, mapping, or array cell.
+
+    Returns
+    -------
+    object
+        A hashable token suitable for grouping, deduplication, and equality
+        checks. Missing values collapse to one sentinel, booleans stay
+        distinct from ``0`` / ``1``, sequences preserve element order, and
+        mappings and sets normalize key/element order. The caller's original
+        value is never mutated.
     """
     if isinstance(value, (bool, np.bool_)):
         # Boolean provenance must not compare equal to numeric zero or one.
@@ -266,12 +288,12 @@ def _group_ids(df, group_cols):
         if pd.api.types.is_object_dtype(series):
             # Mixed scalar columns need the same typed comparison as nested
             # annotations; pandas otherwise coalesces False/0 and True/1.
-            series = series.map(_group_token)
+            series = series.map(group_token)
         try:
             column_codes, _ = pd.factorize(series, use_na_sentinel=True)
         except TypeError:
             column_codes, _ = pd.factorize(
-                series.map(_group_token), use_na_sentinel=True
+                series.map(group_token), use_na_sentinel=True
             )
         codes.append(column_codes)
     ids, _ = pd.factorize(pd.Series(list(zip(*codes))))
@@ -374,7 +396,7 @@ def to_wide(df):
 
     model_key_parts = {}
     if version_collision and "predictor_version" in work.columns:
-        version_col = work["predictor_version"].map(_version_str).fillna("")
+        version_col = work["predictor_version"].map(model_version_str).fillna("")
         work["_model_key"] = model_col + "_" + version_col
         for key, method, version in zip(
             work["_model_key"], model_col, version_col
@@ -385,7 +407,7 @@ def to_wide(df):
         for key, method in zip(work["_model_key"], model_col):
             model_key_parts[str(key)] = [str(method), None]
 
-    work["_kind_short"] = work["kind"].apply(_kind_short_name)
+    work["_kind_short"] = work["kind"].apply(kind_short_name)
 
     # Build model→version metadata for .attrs.
     model_versions = {}
@@ -405,7 +427,7 @@ def to_wide(df):
             if not method_str:
                 continue
             for version in rows["predictor_version"]:
-                version_str = _version_str(version)
+                version_str = model_version_str(version)
                 if version_str:
                     model_versions[method_str] = version_str
                     break
@@ -415,7 +437,7 @@ def to_wide(df):
             method_str = str(method).strip()
             if not method_str or method_str not in observed_methods:
                 continue
-            version_str = _version_str(version)
+            version_str = model_version_str(version)
             if version_str and not model_versions.get(method_str):
                 model_versions[method_str] = version_str
 
@@ -658,7 +680,7 @@ def from_wide(df, metadata=None):
             mask = (chunk.source_prediction_kind.eq(canonical_kind)
                     & chunk.source_prediction_method.astype(object).fillna("unknown").astype(str).eq(method_name))
             if recorded and model_key != method_name:
-                mask &= chunk.source_predictor_version.map(_version_str).eq(_version_str(recorded[1]))
+                mask &= chunk.source_predictor_version.map(model_version_str).eq(model_version_str(recorded[1]))
             represented |= mask
             chunk = chunk.loc[mask].copy()
             for column, source_column in SOURCE_PREDICTION_COLUMNS.items():
@@ -677,10 +699,10 @@ def from_wide(df, metadata=None):
                 unpredicted[column] = unpredicted[source_column]
             long_rows.append(unpredicted)
 
-    result = _concat_frames(long_rows)
+    result = concat_frames(long_rows)
 
     # Reconstruct the affinity convenience column.
-    is_affinity = result["kind"].apply(_kind_name) == "pMHC_affinity"
+    is_affinity = result["kind"].apply(kind_name) == "pMHC_affinity"
     result["affinity"] = np.where(is_affinity, result["value"], np.nan)
     result["wt_affinity"] = np.where(
         is_affinity, result["wt_value"], np.nan,

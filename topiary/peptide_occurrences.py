@@ -8,7 +8,7 @@ from .predictor import from_predictions
 from .prediction_batch import predict_with_cache_miss_report
 from .ranking import format_allele_set, split_allele_set, prediction_mhc_scope
 from .sequence_helpers import peptide_occurrence_flanks
-from .wide import PREDICTION_COLUMNS, _concat_frames
+from .wide import PREDICTION_COLUMNS, concat_frames
 
 
 def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_wt=False, on_miss=None):
@@ -211,7 +211,7 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
             payload["allele_set"] = predicted.allele_set
         context = inputs.drop(columns=["allele_set"], errors="ignore")
         expanded.append(context.merge(payload, on="peptide", how="left", validate="many_to_many"))
-    output = _concat_frames(expanded)
+    output = concat_frames(expanded)
     positions = pd.MultiIndex.from_frame(frame[identity_columns]).get_indexer(
         pd.MultiIndex.from_frame(output[identity_columns]))
     order = np.argsort(positions, kind="stable")
