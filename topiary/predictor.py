@@ -16,6 +16,7 @@ from collections.abc import Iterable, Mapping
 from functools import lru_cache
 from inspect import Parameter, signature
 from types import MappingProxyType
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -81,7 +82,7 @@ def _unique_model_keys(models):
     bases = [str(_model_metadata_name(model)) for model in models]
 
     totals = Counter(bases)
-    seen = Counter()
+    seen: Counter[str] = Counter()
     keys = []
     for base in bases:
         seen[base] += 1
@@ -972,7 +973,7 @@ class TopiaryPredictor(object):
         self._model_keys = _unique_model_keys(self.models)
 
         # Whole-peptide models have no scanning window or flanking requirement.
-        all_lengths = set()
+        all_lengths: set[int] = set()
         for m in self.models:
             lengths = getattr(m, "default_peptide_lengths", ())
             all_lengths.update(lengths if lengths is not None else ())
@@ -1264,7 +1265,7 @@ class TopiaryPredictor(object):
             )
 
         rows = []
-        unique_by_key = {}
+        unique_by_key: dict[tuple[str, str], Any] = {}
         for name, item in name_to_peptide_dict.items():
             if isinstance(item, PeptideInput):
                 seq = item.sequence
@@ -1406,7 +1407,7 @@ class TopiaryPredictor(object):
             from .cached import prediction_peptide_input_matches
 
             model_rows = model_df.to_dict("records")
-            by_peptide = {}
+            by_peptide: dict[str, list[dict[str, Any]]] = {}
             for row in model_rows:
                 by_peptide.setdefault(str(row["peptide"]), []).append(row)
             expanded_rows = []
@@ -2151,7 +2152,7 @@ def describe_prediction_models(predictor):
     if not isinstance(predictor, TopiaryPredictor):
         raise TypeError("predictor must be a TopiaryPredictor")
 
-    missing = object()
+    missing: Any = object()
     inventory = []
     for model_key, model in zip(predictor._model_keys, predictor.models):
         stated_method = _stated_model_metadata_name(model)
@@ -2216,7 +2217,7 @@ def describe_prediction_models(predictor):
                         else str(getattr(metadata["mhc_class"], "value", metadata["mhc_class"]))
                     ),
                 })
-            kinds.sort(key=lambda record: record["kind"])
+            kinds.sort(key=lambda record: record["kind"] or "")
         else:
             kinds = None
 

@@ -234,8 +234,11 @@ class HistoricalPredictor:
             out["peptide_offset"] = pd.array([None] * len(out), dtype="Int64")
         for column in ("peptide_offset", "wt_peptide_offset"):
             if column in out and not out[column].dropna().map(
-                    lambda value: not isinstance(value, bool) and isinstance(value, Real)
-                    and math.isfinite(value) and value >= 0 and value == int(value)).all():
+                    lambda value: not isinstance(value, bool) and (
+                        (isinstance(value, Integral) and int(value) >= 0)
+                        or (isinstance(value, Real) and math.isfinite(float(value))
+                            and float(value) >= 0 and float(value).is_integer())
+                    )).all():
                 raise ValueError(f"{column} must be a nonnegative integer or missing")
         for column in ("prediction_method_name", "predictor_version"):
             if column not in out:

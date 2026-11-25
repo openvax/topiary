@@ -1,5 +1,7 @@
 """Predict explicitly supplied peptide occurrences without scanning proteins."""
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from .alleles import canonical_allele_name
@@ -184,7 +186,7 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
                 configured_alleles=alleles, use_flanks=use_flanks))
         return reported if not reported.empty else predict_peptide_occurrences(frame.iloc[:0], model)
 
-    partitions = {}
+    partitions: dict[tuple[Any, ...], list[int]] = {}
     for index, row in frame.iterrows():
         flanks = (row.n_flank, row.c_flank) if use_flanks and has_flanks.iloc[index] else (None, None)
         samples = tuple(None if pd.isna(row.get(column)) else row[column]
@@ -223,9 +225,9 @@ def predict_peptide_occurrences(occurrences, model, *, use_flanks=True, predict_
             for kind, spec in support.items():
                 rows = predicted[predicted.peptide.eq(peptide) & predicted.kind.eq(kind)]
                 dependence = spec["mhc_dependence"]
-                expected = set(alleles) if dependence == "single_allele" else None
+                expected_alleles = set(alleles) if dependence == "single_allele" else None
                 actual = set(rows.allele)
-                if rows.empty or (expected is not None and expected != actual):
+                if rows.empty or (expected_alleles is not None and expected_alleles != actual):
                     raise ValueError(f"Model returned no complete {kind} prediction for {peptide}/{','.join(alleles)}")
                 if dependence == "none" and actual != {""}:
                     raise ValueError(f"Allele-free {kind} output must not name an allele")

@@ -50,7 +50,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 import math
-from numbers import Integral, Real
+from numbers import Integral, Rational, Real
 
 import numpy as np
 import pandas as pd
@@ -244,9 +244,9 @@ def attach_rna_evidence_columns(df: pd.DataFrame) -> pd.DataFrame:
             out[fragment_col] if fragment_col in out.columns else None
         )
         reads = out[read_col] if read_col in out.columns else None
-        if fragments is None and reads is None:
-            continue
         if fragments is None:
+            if reads is None:
+                continue
             values, from_fragments = reads, pd.Series(False, index=out.index)
         elif reads is None:
             values, from_fragments = fragments, fragments.notna()
@@ -759,7 +759,7 @@ def attach_dna_evidence(
     has_count = counted_alt.notna() | counted_ref.notna() | overlapping.notna()
     inferred_subject = (
         READS if overlapping.notna().any()
-        else METHOD_SUBJECT.get(derivation)
+        else (METHOD_SUBJECT.get(derivation) if derivation is not None else None)
     )
     if (
         has_count.any()
@@ -903,7 +903,7 @@ def source_column(source: str, name: str) -> str:
     return f"{SOURCE_PREFIXES[source]}{name}"
 
 
-def source_columns(df: pd.DataFrame, source: str = None) -> tuple:
+def source_columns(df: pd.DataFrame, source: str | None = None) -> tuple:
     """The tool-specific columns present in *df*, in column order.
 
     Parameters
@@ -1014,18 +1014,27 @@ def _validated_stated_counts(values, column, identity):
         )
     numeric = []
     for value in stated_counts:
+        count: int | None
         if isinstance(value, Integral):
             count = int(value)
+        elif isinstance(value, Rational):
+            q, r = divmod(int(value.numerator), int(value.denominator))
+            count = q if r == 0 and 0 <= q <= _MAX_EVIDENCE_COUNT else None
         elif isinstance(value, Real):
-            if (
-                value < 0
-                or value > _MAX_EVIDENCE_COUNT
-                or not math.isfinite(value)
-                or value != int(value)
-            ):
+            try:
+                numeric_val = float(value)
+            except OverflowError:
                 count = None
             else:
-                count = int(value)
+                if (
+                    numeric_val < 0
+                    or numeric_val > _MAX_EVIDENCE_COUNT
+                    or not math.isfinite(numeric_val)
+                    or not numeric_val.is_integer()
+                ):
+                    count = None
+                else:
+                    count = int(numeric_val)
         elif isinstance(value, (str, Decimal)):
             try:
                 exact = value if isinstance(value, Decimal) else Decimal(
@@ -1350,7 +1359,7 @@ def describe_read_evidence(df: pd.DataFrame) -> dict:
     a caller reporting how a run's numbers were obtained without walking
     the rows.
     """
-    described = {}
+    described: dict[str, str] = {}
     for column, method_column in (
         ("n_rna_alt", "rna_evidence_method"),
         ("n_rna_ref", "rna_evidence_method"),

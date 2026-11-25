@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import re
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -440,7 +441,8 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
         lambda value: isinstance(value, str) and bool(value)) & requests.peptide_offset.notna()
     requests.loc[exact_source, ["n_flank", "c_flank"]] = None
     requests["prediction_id"] = [str(index) for index in range(len(requests))]
-    features, descriptors = {}, {}
+    features: dict[str, dict[Any, Any]] = {}
+    descriptors: dict[str, dict[str, Any]] = {}
 
     def add_prediction(prediction, dependence, model, historical, key=None):
         kind = str(prediction.kind)
@@ -506,7 +508,7 @@ def rescore_candidates(result, models, *, prefix, select=None, use_flanks=True):
             matched_kinds = set()
             for _, prediction in predictions.iterrows():
                 kind = str(prediction.kind)
-                spec = next((v for k, v in support.items() if str(getattr(k, "value", k)) == kind), {})
+                spec: dict[str, Any] = next((v for k, v in support.items() if str(getattr(k, "value", k)) == kind), {})
                 dependence = prediction.prediction_mhc_dependence if historical else spec.get("mhc_dependence")
                 if dependence not in {"none", "single_allele", "haplotype"}:
                     raise ValueError(f"Model must declare MHC dependence for {kind!r}")

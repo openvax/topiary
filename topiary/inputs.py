@@ -149,7 +149,7 @@ def iter_fasta_records(path: str | PathLike[str]) -> Iterator[tuple[str, str]]:
         or the generator is closed.
     """
     current_name = None
-    current_seq = []
+    current_seq: list[str] = []
     with open(path) as f:
         for line in f:
             line = line.strip()

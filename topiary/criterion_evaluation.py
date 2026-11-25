@@ -1,6 +1,7 @@
 """Named-criterion measurements and reasons, evaluated by the Topiary DSL."""
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -71,7 +72,8 @@ def evaluate_selection_criteria(policy, context, *, references):
     definitions = {item.name: item for item in policy.criteria}
     expanded = policy.expanded
     nodes = {name: parse(record["expression"]["expression"]) for name, record in expanded["criteria"].items()}
-    values, records = {}, []
+    values: dict[str, pd.Series] = {}
+    records: list[dict[str, Any]] = []
     index = ctx.group_index
 
     def measured(text):

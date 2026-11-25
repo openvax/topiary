@@ -120,7 +120,8 @@ def resolve_selection_expression(expression, criteria=(), *, role="score"):
         definitions[criterion.name] = criterion
     if role not in {"eligibility", "score", "ranking"}:
         raise ValueError("Unknown expression role")
-    visited, active = [], []
+    visited: list[str] = []
+    active: list[str] = []
 
     def expand(text, expected):
         expanded_references = {}

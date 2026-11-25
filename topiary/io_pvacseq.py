@@ -287,7 +287,7 @@ def _parse_algorithm_column(column, default_kind=None):
 def _algorithm_columns(df):
     """Return classified predictions and ambiguous predictor-like columns."""
     candidates = []
-    kinds_by_algorithm = {}
+    kinds_by_algorithm: dict[str, set[str]] = {}
     for column in df.columns:
         parts = _algorithm_metric(column)
         if parts is None:
@@ -300,7 +300,7 @@ def _algorithm_columns(df):
                 parsed.kind,
             )
 
-    by_prediction = {}
+    by_prediction: dict[tuple[str, str], dict[str, str]] = {}
     unmapped = []
     for column, algorithm, parsed in candidates:
         if parsed is None:
@@ -341,8 +341,8 @@ def _algorithm_columns(df):
 
 def _summary_prediction_columns(df):
     """Map each non-affinity summary kind to its preferred MT/WT columns."""
-    by_kind = {}
-    priorities = {}
+    by_kind: dict[str, dict[str, str]] = {}
+    priorities: dict[tuple[str, str], int] = {}
     for column in df.columns:
         if not isinstance(column, str):
             continue
@@ -407,7 +407,7 @@ def _coords_variant_id(df: pd.DataFrame) -> pd.Series:
     ids = (
         text["Chromosome"] + "-" + text["Start"] + "-"
         + text["Reference"] + "-" + text["Variant"]
-    ).where(complete, pd.NA)
+    ).where(complete, None)
 
     missing = int((~complete).sum())
     if missing:
@@ -462,7 +462,7 @@ def _build_kind_support(mhc_class, rows):
     ``model_key -> {kind -> {mhc_dependence, mhc_class}}``. Every
     method/kind pair actually emitted by the reader is registered.
     """
-    support = {}
+    support: dict[str, dict[str, dict[str, str]]] = {}
     mhc_independent = {
         "antigen_processing", "proteasome_cleavage",
         "endolysosomal_cleavage", "tap_transport", "erap_trimming",

@@ -338,10 +338,10 @@ def add_peptide_properties(
             )
     elif groups is not None:
         group_set = set(groups)
-        bad = group_set - {"core", "manufacturability", "immunogenicity"}
-        if bad:
+        bad_groups = sorted(group_set - {"core", "manufacturability", "immunogenicity"})
+        if bad_groups:
             raise ValueError(
-                f"Unknown groups: {sorted(bad)}. "
+                f"Unknown groups: {bad_groups}. "
                 f"Available: core, manufacturability, immunogenicity"
             )
         names = [

@@ -11,6 +11,7 @@ both. Wildtype predictions use ``wt_value``, ``wt_score``, ``wt_rank``,
 """
 
 import functools
+from typing import Any
 import warnings
 
 import numpy as np
@@ -60,7 +61,7 @@ LONG_TO_WIDE_FIELD = {
 }
 
 # Wide field suffix → long column name.
-WIDE_TO_LONG_FIELD = {v: k for k, v in LONG_TO_WIDE_FIELD.items()}
+WIDE_TO_LONG_FIELD: dict[str, str | None] = {v: k for k, v in LONG_TO_WIDE_FIELD.items()}
 # A presence bit preserves rows whose scores and input declarations are all
 # missing, and distinguishes them from another model's absent measurement.
 WIDE_TO_LONG_FIELD["present"] = None
@@ -93,7 +94,7 @@ def concat_frames(frames):
          and frame[column].dtype.kind in "Of" and frame[column].isna().all()}
         for frame in frames
     ]
-    replacements = [{} for _ in frames]
+    replacements: list[dict[str, pd.Series]] = [{} for _ in frames]
     for column in set().union(*untyped):
         typed = [frame[column] for frame, missing in zip(frames, untyped)
                  if column in frame and column not in missing]
@@ -584,7 +585,7 @@ def from_wide(df, metadata=None):
         return df.long_df
 
     # Classify columns.
-    pred_mapping = {}  # (model_key, kind_short) → {field: col_name}
+    pred_mapping: dict[tuple[str, str], dict[str, str]] = {}  # (model_key, kind_short) → {field: col_name}
     group_cols = []
 
     for col in df.columns:
@@ -610,13 +611,13 @@ def from_wide(df, metadata=None):
         return result
 
     # Build version lookup from metadata.
-    version_lookup = {}
+    version_lookup: dict[str, Any] = {}
     if metadata is not None and hasattr(metadata, "models"):
         version_lookup = metadata.models or {}
     # Also check .attrs if available.
     if not version_lookup and hasattr(df, "attrs"):
         version_lookup = df.attrs.get("topiary_models", {})
-    key_parts = {}
+    key_parts: dict[str, Any] = {}
     if metadata is not None and hasattr(metadata, "extra"):
         key_parts = (metadata.extra or {}).get("topiary_model_keys") or {}
     if not key_parts and hasattr(df, "attrs"):

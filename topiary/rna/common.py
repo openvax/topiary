@@ -23,7 +23,7 @@ def infer_delimiter(filename, comment_char="#", n_lines=3):
     of the file's contents. ``n_lines`` is an inspection limit, not a
     minimum file length: a header alone can identify the separator.
     """
-    lines = []
+    lines: list[str] = []
     with open(filename, "r") as f:
         for line in f:
             if line.startswith(comment_char) or not line.strip():

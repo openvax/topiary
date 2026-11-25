@@ -18,7 +18,7 @@ import inspect
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from .serialization import normalize_python_types
 
@@ -312,8 +312,8 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
         n_rna_ref_fragments: Optional[int] = None,
         n_rna_other_fragments: Optional[int] = None,
         n_rna_alt_fragments_supporting_protein_sequence: Optional[int] = None,
-        field_provenance: dict = _DEFAULT_FACTORY,
-        annotations: dict = _DEFAULT_FACTORY,
+        field_provenance: dict[Any, Any] | _DefaultFactory = _DEFAULT_FACTORY,
+        annotations: dict[Any, Any] | _DefaultFactory = _DEFAULT_FACTORY,
         sample_name: Optional[str] = None,
         **legacy_fields,
     ) -> None:
@@ -333,7 +333,8 @@ n_rna_alt_fragments_supporting_protein_sequence : int, optional
         for fragment_field in fragment_fields:
             value = arguments[fragment_field.name]
             if value is _DEFAULT_FACTORY:
-                value = fragment_field.default_factory()
+                factory = fragment_field.default_factory
+                value = factory() if factory is not dataclasses.MISSING else {}
             values[fragment_field.name] = value
 
         values.update(legacy_fields)
@@ -1036,13 +1037,14 @@ def unique_fragments(fragments: Iterable[ProteinFragment]) -> list:
         the other observation's evidence: give distinct observations
         distinct samples (:func:`fragments_for_sample`) or distinct IDs.
     """
-    first = {}
-    candidates = {}
+    first: dict[tuple[str | None, str], ProteinFragment] = {}
+    stored_by_key: dict[tuple[str | None, str], dict[str, Any]] = {}
+    candidates: dict[str, ProteinFragment] = {}
     for fragment in fragments:
         key = (fragment.sample_name, fragment.fragment_id)
         seen = first.get(key)
         if seen is None:
-            first[key] = [fragment, None]
+            first[key] = fragment
             other = candidates.setdefault(fragment.fragment_id, fragment)
             differing = [
                 name for name in CANDIDATE_FIELDS
@@ -1056,14 +1058,16 @@ def unique_fragments(fragments: Iterable[ProteinFragment]) -> list:
                     "candidates."
                 )
             continue
-        if fragment is seen[0]:
+        if fragment is seen:
             continue
-        if seen[1] is None:
-            seen[1] = _stored_content(seen[0])
+        stored = stored_by_key.get(key)
+        if stored is None:
+            stored = _stored_content(seen)
+            stored_by_key[key] = stored
         content = _stored_content(fragment)
         differing = sorted(
-            name for name in content.keys() | seen[1].keys()
-            if content.get(name) != seen[1].get(name)
+            name for name in content.keys() | stored.keys()
+            if content.get(name) != stored.get(name)
         )
         if differing:
             raise ValueError(
@@ -1072,7 +1076,7 @@ def unique_fragments(fragments: Iterable[ProteinFragment]) -> list:
                 "Label distinct observations with fragments_for_sample, or give "
                 "distinct candidates distinct IDs."
             )
-    return [fragment for fragment, _ in first.values()]
+    return list(first.values())
 
 
 def _as_candidate(value):
@@ -1116,7 +1120,7 @@ def _stored_content(fragment: ProteinFragment) -> dict:
 def collect_annotations(fragments: Iterable[ProteinFragment]) -> set:
     """Return the union of annotation keys across *fragments*.  Useful
     for TSV writers deciding whether to expand known keys into columns."""
-    keys = set()
+    keys: set[str] = set()
     for f in fragments:
         keys.update(f.annotations.keys())
     return keys

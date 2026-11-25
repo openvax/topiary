@@ -83,13 +83,13 @@ def actionable_error_types():
     mhcgnomes_errors = sys.modules.get("mhcgnomes.errors")
     if mhcgnomes_errors is not None:
         parse_error = getattr(mhcgnomes_errors, "ParseError", None)
-        if isinstance(parse_error, type):
+        if isinstance(parse_error, type) and issubclass(parse_error, Exception):
             types.append(parse_error)
     cached_module = sys.modules.get("topiary.cached")
     if cached_module is not None:
         for name in ("PredictorSetupError", "CachedPredictorCoverageError"):
             err_type = getattr(cached_module, name, None)
-            if isinstance(err_type, type):
+            if isinstance(err_type, type) and issubclass(err_type, Exception):
                 types.append(err_type)
     return tuple(types)
 

@@ -1,11 +1,12 @@
 """Native Exacto tables, retaining observed RNA versus predicted protein evidence."""
 
 from collections import defaultdict
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from copy import deepcopy
 import csv
 import gzip
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -44,6 +45,7 @@ _COLUMNS = (
 
 
 def _table(path, schema=None):
+    context: AbstractContextManager[Any]
     if hasattr(path, "read"):
         context = nullcontext(path)
         name = getattr(path, "name", "stream")
@@ -108,7 +110,7 @@ def _protein(sequence, coding):
 
 
 def _intervals(indices):
-    intervals = []
+    intervals: list[list[int]] = []
     for index in sorted(set(indices)):
         if intervals and intervals[-1][1] == index:
             intervals[-1][1] = index + 1
@@ -128,7 +130,7 @@ def _primary(rows):
         ordered = sorted(native, key=lambda pair: _integer(pair[1], "primary_structure_index"))
         if [_integer(r, "primary_structure_index") for _, r in ordered] != list(range(len(ordered))):
             raise ValueError("Exacto primary indices must be unique and contiguous from zero")
-        bases = []
+        bases: list[dict[str, str]] = []
         for _, row in ordered:
             if row["type"] not in {"base", "event"}:
                 raise ValueError(f"Unsupported Exacto primary event type {row['type']!r}")

@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from copy import deepcopy
 import math
+from typing import Any
 
 import pandas as pd
 
@@ -168,7 +169,9 @@ def reconcile_evidence(result):
     """
     frame = _combined_frame(result).copy()
     records = frame.to_dict("records")
-    descriptors, local_keys, events_by_row = {}, [], []
+    descriptors: dict[str, dict[str, Any]] = {}
+    local_keys: list[str | None] = []
+    events_by_row: list[list[str]] = []
     for row in records:
         sample, source = row["candidate_sample"], row["source_label"]
         reference = _value(row.get("reference_name"))
@@ -210,14 +213,14 @@ def reconcile_evidence(result):
                     previous[key] = value
     enriched = []
     for row, local, events in zip(records, local_keys, events_by_row):
-        descriptor = deepcopy(descriptors.get(local))
+        orf_descriptor = deepcopy(descriptors[local]) if local is not None and local in descriptors else None
         orf = local
-        if descriptor is not None:
-            located = descriptor["transcript_path"] is not None or (
-                descriptor["transcript_id"] is not None and descriptor["orf_start"] is not None
-                and descriptor["orf_end"] is not None)
-            if descriptor["reference_name"] is not None and descriptor["coding_sequence"] is not None and located:
-                orf = _identity(["orf", descriptor])
+        if orf_descriptor is not None:
+            located = orf_descriptor["transcript_path"] is not None or (
+                orf_descriptor["transcript_id"] is not None and orf_descriptor["orf_start"] is not None
+                and orf_descriptor["orf_end"] is not None)
+            if orf_descriptor["reference_name"] is not None and orf_descriptor["coding_sequence"] is not None and located:
+                orf = _identity(["orf", orf_descriptor])
         peptide, occurrence = _value(row.get("peptide")), None
         if peptide is not None:
             start, end = _value(row.get("peptide_start")), _value(row.get("peptide_end"))
@@ -229,7 +232,7 @@ def reconcile_evidence(result):
                 start, end = int(start), int(end)
                 if start < 0 or end - start != len(peptide):
                     raise ValueError("Peptide coordinates disagree with peptide length")
-                sequence = (descriptor or {}).get("protein_sequence") or (descriptor or {}).get("protein_hypothesis_sequence")
+                sequence = (orf_descriptor or {}).get("protein_sequence") or (orf_descriptor or {}).get("protein_hypothesis_sequence")
                 if sequence is not None and sequence[start:end] != peptide:
                     raise ValueError("Peptide coordinates disagree with the supporting protein")
             occurrence = _identity([
@@ -245,7 +248,7 @@ def reconcile_evidence(result):
             raise ValueError("rna_observations must be a list of measurement mappings")
         rna = [normalize_rna_observation(r, sample_name=row["candidate_sample"]) for r in rna]
         enriched.append(dict(biological_event_ids=events, orf_hypothesis_id=orf,
-                             orf_descriptor=descriptor, peptide_occurrence_id=occurrence,
+                             orf_descriptor=orf_descriptor, peptide_occurrence_id=occurrence,
                              rna_observations=rna,
                              rna_observation_ids=[_identity(["rna", row["source_label"], r]) for r in rna]))
     for column in (*_ID_COLUMNS, "orf_descriptor", "rna_observations"):
@@ -291,7 +294,9 @@ def evidence_views(result, *, source_labels=None):
         if labels - set(frame.source_label):
             raise ValueError("Unknown source_labels")
         frame = frame[frame.source_label.isin(labels)]
-    tables = {name: {} for name in ("events", "orfs", "proteins", "occurrences", "candidates", "rna_observations")}
+    tables: dict[str, dict[str, dict[str, Any]]] = {
+        name: {} for name in ("events", "orfs", "proteins", "occurrences", "candidates", "rna_observations")
+    }
     links = {}
 
     def add(table, identity, payload, observation):
@@ -334,7 +339,7 @@ def evidence_views(result, *, source_labels=None):
              for name, nodes in tables.items()}
     views["links"] = pd.DataFrame(list(links.values()), columns=[
         "source_label", "source_observation_id", "candidate_id", "protein_sequence_id", *_ID_COLUMNS])
-    occurrences = {}
+    occurrences: dict[tuple[Any, Any], list[dict[str, Any]]] = {}
     for row in tables["occurrences"].values():
         occurrences.setdefault((row["sample_name"], row["peptide"]), []).append(row)
     reported = {(row["candidate_id"], row["peptide_occurrence_id"]) for row in links.values()

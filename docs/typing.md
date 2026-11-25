@@ -1,34 +1,51 @@
-# Public API type checks
+# Static Typing & `py.typed`
 
-Topiary checks its table and cache boundary incrementally. Install the
-development tools with `pip install -r requirements-dev.txt`, then run
-`./lint.sh`. The supported checker is mypy 2.4.0 with pandas-stubs
-3.0.5.260914, pinned together for reproducible pandas signatures.
+Topiary ships a PEP 561 `topiary/py.typed` marker and runs package-wide static
+type checking as part of `./lint.sh` and CI.
 
-The current checked scope is:
+## Supported checker and stubs
 
-- `TopiaryResult` tables, metadata, long/wide views and result operations;
-- native TSV/CSV readers and writers, including nullable `Metadata` fields;
-- `CachedPredictor` loading, querying and saving;
-- Isovar hypothesis and patient-background export readers;
-- native per-bond evidence conversion with `from_cleavage_results`.
+Install the development tools with `pip install -r requirements-dev.txt`, then
+run `./lint.sh`. The supported checker baseline is mypy 2.4.0 with
+pandas-stubs 3.0.5.260914 (`mypy>=2.4,<3` and `pandas-stubs>=3,<4` in
+`requirements-dev.txt`), pinned together for reproducible pandas 3 signatures.
 
-`tests/typing/public_tables.py` checks a consumer that loads a table, changes
-views, queries a cache and saves the result. It also includes invalid calls
-whose expected errors must remain errors. Function bodies in the declared
-modules are checked, including functions without complete annotations.
-Imported source modules supply their available type information but are not
-yet part of this diagnostic scope (`follow_imports = "silent"`).
+## Checked scope
 
-Prediction-table cells, custom metadata and dynamically supplied predictor
+`[tool.mypy]` in `pyproject.toml` checks the entire `topiary` package and
+`tests/typing` (`files = ["topiary", "tests/typing"]`) with:
+
+- `python_version = "3.11"` (matching `requires-python`);
+- `check_untyped_defs = true` (function bodies across all package modules are
+  checked even where annotations are partial);
+- `no_implicit_optional = true`;
+- `warn_unused_ignores = true` and `warn_redundant_casts = true`.
+
+There is no global `ignore_missing_imports`, no `follow_imports = "silent"`,
+and no per-module error suppression. Only the four upstream dependencies that
+do not yet publish type information or a `py.typed` marker (`gtfparse`,
+`mhcgnomes`, `mhctools`, and `osteosarc`) are listed in the narrow
+`[[tool.mypy.overrides]]` entry in `pyproject.toml`.
+
+## Consumer verification and packaging
+
+- `tests/typing/public_tables.py` checks table, metadata, view, cache, and
+  Isovar hypothesis workflows, including negative cases whose expected errors
+  must stay errors.
+- `tests/typing/public_api.py` checks expanded public APIs including
+  `ProteinFragment` and fragment I/O, LENS loaders, read/DNA/RNA evidence
+  helpers, allele class derivation, and cleavage tables, along with negative
+  boundary checks.
+- `tests/check_distributions.py` verifies that `topiary/py.typed` is included
+  in both the wheel and source distribution, and the `installed-wheel` CI job
+  verifies `py.typed` in the installed package.
+
+## Relationship to runtime validation
+
+Prediction-table cells, custom metadata, and dynamically supplied predictor
 plugins still use `Any` where the input schema is open. Pandas-compatible
-indexing can return a Series or another TopiaryResult; use `.df` when the
-consumer needs pandas' full indexing API. Specific MHCTools/MHCgnomes
-imports have local `import-untyped` allowances because those upstream
-packages do not publish type information. There is no global missing-import
-ignore and no blanket module error suppression.
+indexing on `TopiaryResult` can return a `Series` or another `TopiaryResult`;
+use `.df` when a consumer needs pandas' full indexing API.
 
-This is a development gate, not a package-wide typing promise. Topiary does
-not yet publish `py.typed`. Expand the named checked scope and qualify
-installed-package consumers before adding that marker. Runtime validation
-and error messages remain necessary for notebook and CLI inputs.
+Static typing complements, and does not replace, runtime input validation and
+clear error messages at public, notebook, and CLI boundaries.

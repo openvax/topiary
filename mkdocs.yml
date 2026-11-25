@@ -34,7 +34,7 @@ nav:
   - Consumer Guide: consumer-guide.md
   - API Reference: api.md
   - Project notes:
-    - Public API Type Checks: typing.md
+    - Static Typing & py.typed: typing.md
 
 markdown_extensions:
   - pymdownx.highlight

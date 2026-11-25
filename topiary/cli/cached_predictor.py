@@ -289,6 +289,11 @@ def _build_cached_predictor(args) -> CachedPredictor:
             predictor_version=args.mhc_cache_predictor_version,
         )
 
+    if cache_file is None:
+        raise ValueError(
+            "Provide either --mhc-cache-file or --mhc-cache-directory."
+        )
+
     fmt = getattr(args, "mhc_cache_format", None)
     if not fmt:
         fmt = _sniff_format(cache_file)
@@ -402,9 +407,12 @@ def _sniff_format(path):
         return "topiary_output"
 
     import gzip
-    opener = gzip.open if magic.startswith(b"\x1f\x8b") else open
-    with opener(path, "rt" if magic.startswith(b"\x1f\x8b") else "r", errors="replace") as f:
-        head = f.read(10000)
+    if magic.startswith(b"\x1f\x8b"):
+        with gzip.open(path, "rt", errors="replace") as f:
+            head = f.read(10000)
+    else:
+        with open(path, "r", errors="replace") as f:
+            head = f.read(10000)
 
     if head.startswith("#topiary_version="):
         return "topiary_output"

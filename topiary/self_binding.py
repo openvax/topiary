@@ -2,6 +2,7 @@
 
 import math
 from numbers import Real
+from typing import Any
 
 import pandas as pd
 
@@ -91,7 +92,7 @@ def binding_aware_self_evidence(reference, peptides, *, alleles, predictions,
         reference, peptides, alleles=alleles, predictions=records,
         max_mismatches=max_mismatches, max_edits=max_edits,
         excluded_gene_ids=excluded_gene_ids, observations=observations)
-    selected = {}
+    selected: dict[tuple[str, str | None], list[dict[str, Any]]] = {}
     for record in records:
         if (record["prediction_method_name"] == prediction_method_name
                 and record["predictor_version"] == predictor_version
@@ -189,8 +190,10 @@ def _measurement(records, metric):
         return None, "ambiguous"
     record = records[0]
     value = record.get(metric)
-    if (not isinstance(value, Real) or isinstance(value, bool) or not math.isfinite(value)
-            or (metric == "percentile_rank" and not 0 <= value <= 100)):
+    if not isinstance(value, Real) or isinstance(value, bool):
+        return None, "invalid_metric"
+    numeric = float(value)
+    if not math.isfinite(numeric) or (metric == "percentile_rank" and not 0 <= numeric <= 100):
         return None, "invalid_metric"
     return dict(record), "reported"
 

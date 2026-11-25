@@ -6,6 +6,7 @@ include LICENSE
 include requirements.txt
 include requirements-dev.txt
 include mkdocs.yml
+include topiary/py.typed
 include *.sh
 recursive-include docs *.md
 recursive-include scripts *.sh
