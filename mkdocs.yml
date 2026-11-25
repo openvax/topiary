@@ -3,6 +3,7 @@ site_description: Predict cancer & viral epitopes from sequence data
 site_url: https://openvax.github.io/topiary/
 repo_url: https://github.com/openvax/topiary
 repo_name: openvax/topiary
+strict: true
 
 theme:
   name: material

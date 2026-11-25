@@ -77,6 +77,7 @@ no_implicit_optional = true
 # Declared narrowly here so import sites stay free of per-line ignores.
 [[tool.mypy.overrides]]
 module = [
+    "datacache", "datacache.*",
     "gtfparse", "gtfparse.*",
     "mhcgnomes", "mhcgnomes.*",
     "mhctools", "mhctools.*",
