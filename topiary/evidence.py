@@ -50,7 +50,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 import math
-from numbers import Integral, Real
+from numbers import Integral, Rational, Real
 
 import numpy as np
 import pandas as pd
@@ -1014,19 +1014,27 @@ def _validated_stated_counts(values, column, identity):
         )
     numeric = []
     for value in stated_counts:
+        count: int | None
         if isinstance(value, Integral):
             count = int(value)
+        elif isinstance(value, Rational):
+            q, r = divmod(int(value.numerator), int(value.denominator))
+            count = q if r == 0 and 0 <= q <= _MAX_EVIDENCE_COUNT else None
         elif isinstance(value, Real):
-            numeric_val = float(value)
-            if (
-                numeric_val < 0
-                or numeric_val > _MAX_EVIDENCE_COUNT
-                or not math.isfinite(numeric_val)
-                or not numeric_val.is_integer()
-            ):
+            try:
+                numeric_val = float(value)
+            except OverflowError:
                 count = None
             else:
-                count = int(numeric_val)
+                if (
+                    numeric_val < 0
+                    or numeric_val > _MAX_EVIDENCE_COUNT
+                    or not math.isfinite(numeric_val)
+                    or not numeric_val.is_integer()
+                ):
+                    count = None
+                else:
+                    count = int(numeric_val)
         elif isinstance(value, (str, Decimal)):
             try:
                 exact = value if isinstance(value, Decimal) else Decimal(
