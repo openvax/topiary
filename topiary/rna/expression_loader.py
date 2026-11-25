@@ -88,6 +88,35 @@ def load_expression(filepath, id_col=None, val_cols=None):
     if fmt == "stringtie_gtf":
         return load_gtf_expression(filepath, id_col, val_cols)
 
+    if fmt == "cufflinks":
+        defaults = _FORMAT_DEFAULTS["cufflinks"]
+        eff_id_col = id_col or defaults["id_col"]
+        eff_val_cols = val_cols if val_cols is not None else defaults["val_col"]
+        if isinstance(eff_val_cols, str) and eff_val_cols != "*":
+            from .cufflinks import load_cufflinks_dataframe
+
+            logger.info(
+                "Detected %s format for %s (id=%s, value=%s)",
+                fmt, filepath, eff_id_col, eff_val_cols,
+            )
+            cuff_df = load_cufflinks_dataframe(
+                filepath,
+                id_column=eff_id_col,
+                fpkm_column=eff_val_cols,
+            )
+            result = cuff_df[["id", "fpkm"]].rename(
+                columns={"id": eff_id_col, "fpkm": eff_val_cols}
+            )
+            result[eff_val_cols] = pd.to_numeric(
+                result[eff_val_cols], errors="coerce"
+            )
+            result = result.dropna(subset=[eff_id_col])
+            logger.info(
+                "Loaded %d rows from %s (%s)",
+                len(result), filepath, eff_val_cols,
+            )
+            return result
+
     # Determine defaults from format
     if fmt and fmt in _FORMAT_DEFAULTS:
         defaults = _FORMAT_DEFAULTS[fmt]
@@ -141,7 +170,7 @@ def load_expression(filepath, id_col=None, val_cols=None):
     return result
 
 
-def load_gtf_expression(filepath, id_col=None, val_cols=None):
+def load_gtf_expression(filepath, id_col=None, val_cols=None, feature_col="feature"):
     """Load transcript-level expression values from a StringTie GTF file.
 
     Parameters
@@ -153,6 +182,9 @@ def load_gtf_expression(filepath, id_col=None, val_cols=None):
     val_cols : str or list of str, optional
         Expression column(s) to extract. Defaults to ``"TPM"`` if present,
         otherwise ``"FPKM"``. Pass ``"*"`` for all numeric columns.
+    feature_col : str, optional
+        Feature type column used to select ``"transcript"`` rows
+        (defaults to ``"feature"``).
 
     Returns
     -------
@@ -165,8 +197,14 @@ def load_gtf_expression(filepath, id_col=None, val_cols=None):
     # use pandas, which is also gtfparse 3's default result type.
     df = gtfparse.read_gtf(filepath, result_type="pandas")
     # Filter to transcript features only
-    if "feature" in df.columns:
-        df = df[df["feature"] == "transcript"]
+    if feature_col in df.columns:
+        df = df[df[feature_col] == "transcript"]
+    elif feature_col != "feature":
+        available = sorted(df.columns.tolist())
+        raise ValueError(
+            f"Feature column {feature_col!r} not found in {filepath}. "
+            f"Available: {available}"
+        )
 
     id_col = id_col or "reference_id"
     if val_cols is None:

@@ -101,8 +101,6 @@ policy composition and interpretation of missing results.
 | `sort_direction` | "auto", "asc", or "desc" | Direction for sort keys (auto infers per-key: percentile ranks and raw affinity ascending, everything else descending). |
 | `padding_around_mutation` | int | Residues around mutation for candidate epitopes. |
 | `only_novel_epitopes` | bool | Keep known mutation/target/junction overlaps; exclude unknown geometry. Does not establish tumor specificity. |
-| `min_gene_expression` | float | Minimum gene FPKM (variant inputs). |
-| `min_transcript_expression` | float | Minimum transcript FPKM (variant inputs). |
 | `raise_on_error` | bool | Raise on variant-effect errors vs. skip. |
 | `protein_x_policy` | "skip", "windows", "allow" | Default `skip`: exclude whole X-containing scan inputs with a warning. `windows`: score only X-free peptides and required context. `allow`: pass through unchanged with strict errors. Applies to fragment and WT scans. |
 

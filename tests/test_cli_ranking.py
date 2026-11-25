@@ -22,7 +22,7 @@ from topiary.ranking import (
 def _make_args(sort_by, extra_args=None):
     """Build a minimal parsed args namespace with --sort-by set."""
     parser = create_arg_parser(
-        mhc=False, rna=False, output=False, variants=False,
+        mhc=False, output=False, variants=False,
         protein_changes=False, sequence_options=False, error_options=False,
         direct_inputs=False,
     )
@@ -130,7 +130,7 @@ def test_sort_by_negation_expression():
     # Leading '-' looks like a flag to argparse, so use --sort-by=VALUE
     # form. This matches real CLI usage: --sort-by='-affinity.value'
     parser = create_arg_parser(
-        mhc=False, rna=False, output=False, variants=False,
+        mhc=False, output=False, variants=False,
         protein_changes=False, sequence_options=False, error_options=False,
         direct_inputs=False,
     )

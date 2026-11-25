@@ -229,8 +229,8 @@ def test_gene_expression_help_examples_yield_the_gene_tpm_filter_column():
         )
         assert "gene_tpm" in result.columns, example
         assert "gene_tpm_tpm" not in result.columns, example
-        # The deprecated --rna-min-gene-expression help and the --filter-by
-        # examples both point at this exact expression.
+        # The --gene-expression help and --filter-by examples point at this
+        # exact expression.
         kept = apply_filter(result, parse("gene_tpm >= 20"))
         assert set(kept["gene_id"]) == {"ENSG00000157764"}, example
 

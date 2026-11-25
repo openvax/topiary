@@ -44,8 +44,6 @@ def test_ensembl_release_reaches_variant_loading_when_genome_omitted(monkeypatch
         return [SimpleNamespace(genome=sentinel_genome)]
 
     monkeypatch.setattr(cli_args, "variant_collection_from_args", fake_variant_collection)
-    monkeypatch.setattr(cli_args, "rna_gene_expression_dict_from_args", lambda _a: None)
-    monkeypatch.setattr(cli_args, "rna_transcript_expression_dict_from_args", lambda _a: None)
     monkeypatch.setattr(cli_args, "expression_data_from_args", lambda _a: None)
     monkeypatch.setattr(cli_args, "predictors_from_args", lambda _a: [SimpleNamespace()])
 
@@ -91,16 +89,11 @@ def test_ensembl_release_reaches_variant_loading_when_genome_omitted(monkeypatch
         ic50_cutoff=None,
         percentile_cutoff=None,
         padding_around_mutation=None,
-        rna_min_transcript_expression=0.0,
-        rna_min_gene_expression=0.0,
         only_novel_epitopes=False,
         skip_variant_errors=False,
         protein_x_policy="skip",
         predict_wt=False,
         cache_miss_report=None,
-        rna_gene_fpkm_tracking_file=None,
-        rna_transcript_fpkm_tracking_file=None,
-        rna_transcript_fpkm_gtf_file=None,
         gene_expression=None,
         transcript_expression=None,
         variant_expression=None,

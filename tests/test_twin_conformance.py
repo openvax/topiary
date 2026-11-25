@@ -367,12 +367,25 @@ def test_human_reference_subsets_select_compartment_specific_genetic_codes(name,
         assert translate_sequence("ATATGA", table, to_stop=False) == expected
 
 
-# The three public Cufflinks readers must expose the same expression values.
+# All four public Cufflinks readers must expose the same expression values.
 CUFFLINKS_FPKM_TWINS = (
     ("dataframe", lambda *a, **kw: load_cufflinks_dataframe(*a, **kw).set_index("id").fpkm.to_dict()),
     ("rows", lambda *a, **kw: {key: row.fpkm for key, row in load_cufflinks_dict(*a, **kw).items()}),
     ("values", load_cufflinks_fpkm_dict),
+    ("expression", lambda path: load_expression(path).set_index("tracking_id")["FPKM"].to_dict()),
 )
+
+
+@pytest.mark.parametrize("fixture", ["genes.fpkm_tracking", "isoforms.fpkm_tracking"])
+def test_cufflinks_fpkm_twins_agree_on_fixtures(fixture):
+    from .data import data_path
+
+    path = data_path(fixture)
+    results = {name: reader(path) for name, reader in CUFFLINKS_FPKM_TWINS}
+    expected = results["dataframe"]
+    assert expected
+    for name, actual in results.items():
+        assert actual == expected, name
 
 
 # Both public StringTie readers must retain the same transcript FPKM values.
@@ -520,12 +533,25 @@ MUTATION_PREDICTION_TWINS = (
     ),
 )
 
+def _transcript_expression_data(expression):
+    if not expression:
+        return None
+    df = pd.DataFrame(
+        list(expression.items()), columns=["transcript_id", "FPKM"]
+    )
+    return {
+        "gene": [],
+        "transcript": [("transcript", "transcript_id", df)],
+        "variant": [],
+    }
+
+
 # Reference translation and the mutation predictor must select the same
 # concrete Varcode comparison, including candidate-bearing ordinary effects.
 # Driven by the real Varcode 11 regressions in test_consumer_workflows.py.
 VARCODE_FRAGMENT_TWINS = (
     lambda predictor, effects, expression: predictor.predict_from_mutation_effects(
-        effects, transcript_expression_dict=expression),
+        effects, expression_data=_transcript_expression_data(expression)),
     lambda predictor, effects, expression: predictor.predict_from_fragments(
         fragments_from_effects(effects, predictor.padding_around_mutation,
                                transcript_expression=expression)),
@@ -546,18 +572,18 @@ def test_variant_and_effect_prediction_doors_agree_on_shared_mutation():
     variants = VariantCollection([
         Variant("7", 55249071, "C", "T", ensembl_grch37),
     ])
-    expression = {effects[0].transcript_id: 2.0}
+    expression_data = _transcript_expression_data({effects[0].transcript_id: 2.0})
     frames = []
     for _, door in MUTATION_PREDICTION_TWINS:
         predictor = TopiaryPredictor(
             models=ProteinModel(),
-            min_transcript_expression=1.0,
+            filter_by="transcript_fpkm >= 1.0",
         )
         frame = door(
             predictor,
             variants,
             effects,
-            transcript_expression_dict=expression,
+            expression_data=expression_data,
         ).sort_values(["peptide", "allele"]).reset_index(drop=True)
         frames.append(frame)
 

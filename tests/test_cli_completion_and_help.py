@@ -512,7 +512,6 @@ def test_pty_help_output_respects_tty_no_color_and_term_dumb():
 
 def test_create_arg_parser_returns_help_argument_parser():
     parser = create_arg_parser(
-        rna=False,
         expression=False,
         mhc=False,
         variants=False,

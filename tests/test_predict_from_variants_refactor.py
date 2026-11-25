@@ -14,6 +14,7 @@ These tests assert:
 
 from unittest.mock import MagicMock
 
+import pandas as pd
 import pytest
 from mhctools import RandomBindingPredictor
 from topiary import TopiaryPredictor
@@ -324,34 +325,53 @@ class TestFragmentFromEffect:
 
 
 # ---------------------------------------------------------------------------
-# Legacy expression-dict plumbing
+# Expression-data plumbing and removed legacy expression arguments (#611)
 # ---------------------------------------------------------------------------
 
 
-class TestExpressionDictPlumbing:
-    """Regression: legacy gene_expression_dict / transcript_expression_dict
-    still propagate into the column output through the refactored path."""
+class TestExpressionDataPlumbing:
+    """expression_data propagates into output columns and legacy kwargs are removed."""
 
-    def test_transcript_expression_dict_populates_column(self, cancer_test_variants):
-        expr_dict = {
-            transcript_id: 42.0
+    def test_transcript_expression_data_populates_column(self, cancer_test_variants):
+        expr_df = pd.DataFrame([
+            {"transcript_id": transcript_id, "FPKM": 42.0}
             for v in cancer_test_variants
             for transcript_id in v.transcript_ids
-        }
+        ])
         df = _predictor().predict_from_variants(
-            cancer_test_variants, transcript_expression_dict=expr_dict,
+            cancer_test_variants,
+            expression_data={
+                "gene": [],
+                "transcript": [("transcript", "transcript_id", expr_df)],
+                "variant": [],
+            },
         )
-        assert "transcript_expression" in df.columns
-        assert (df["transcript_expression"] == 42.0).all()
+        assert "transcript_fpkm" in df.columns
+        assert (df["transcript_fpkm"] == 42.0).all()
 
-    def test_gene_expression_dict_populates_column(self, cancer_test_variants):
-        expr_dict = {
-            gene_id: 7.5
+    def test_gene_expression_data_populates_column(self, cancer_test_variants):
+        expr_df = pd.DataFrame([
+            {"gene_id": gene_id, "FPKM": 7.5}
             for v in cancer_test_variants
             for gene_id in v.gene_ids
-        }
+        ])
         df = _predictor().predict_from_variants(
-            cancer_test_variants, gene_expression_dict=expr_dict,
+            cancer_test_variants,
+            expression_data={
+                "gene": [("gene", "gene_id", expr_df)],
+                "transcript": [],
+                "variant": [],
+            },
         )
-        assert "gene_expression" in df.columns
-        assert (df["gene_expression"] == 7.5).all()
+        assert "gene_fpkm" in df.columns
+        assert (df["gene_fpkm"] == 7.5).all()
+
+    def test_legacy_predictor_expression_args_removed(self, cancer_test_variants):
+        with pytest.raises(TypeError):
+            TopiaryPredictor(models=RandomBindingPredictor(alleles=["A0201"]), min_gene_expression=1.0)
+        with pytest.raises(TypeError):
+            TopiaryPredictor(models=RandomBindingPredictor(alleles=["A0201"]), min_transcript_expression=1.0)
+        with pytest.raises(TypeError):
+            _predictor().predict_from_variants(cancer_test_variants, gene_expression_dict={})
+        with pytest.raises(TypeError):
+            _predictor().predict_from_variants(cancer_test_variants, transcript_expression_dict={})

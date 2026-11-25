@@ -152,6 +152,8 @@ def load_cufflinks_dataframe(
     """
     if sep is None:
         sep = infer_delimiter(filename)
+    if sep == r"\t":
+        sep = "\t"
 
     df = pd.read_csv(filename, sep=sep, engine="c")
 

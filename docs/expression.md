@@ -54,6 +54,12 @@ three steps:
 | anything else | generic | first column | all numeric columns |
 
 Override any of these with the full spec, `name:file:id_col:val_col`.
+Cufflinks `.fpkm_tracking` files are loaded through `load_cufflinks_dataframe`,
+which drops `FAIL` and `HIDATA` `FPKM_status` rows by default while keeping `OK`
+and `LOWDATA` rows. StringTie `.gtf` files are loaded through
+`load_gtf_expression` (filtering to `transcript` features). Use `--filter-by`
+(for example `--filter-by "gene_fpkm >= 5"` or `--filter-by "transcript_tpm >= 1"`)
+to threshold expression values.
 
 ### Column naming
 
