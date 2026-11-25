@@ -23,10 +23,6 @@ import pandas as pd
 
 from .protein_inputs import filter_protein_sequences, predict_x_free_proteins
 
-from .filters import (
-    apply_effect_expression_filters,
-    apply_variant_expression_filters,
-)
 from .ranking import (
     ALLELE_SET_COLUMN,
     kind_value,
@@ -804,8 +800,6 @@ class TopiaryPredictor(object):
         default_methods=None,
         padding_around_mutation=None,
         only_novel_epitopes=False,
-        min_gene_expression=0.0,
-        min_transcript_expression=0.0,
         raise_on_error=True,
         mhc_model=None,
         mhc_models=None,
@@ -906,12 +900,6 @@ class TopiaryPredictor(object):
             geometry is excluded; this flag does not establish somatic
             origin or absence from the reference proteome.
 
-        min_gene_expression : float
-            Minimum gene FPKM to keep a variant effect.
-
-        min_transcript_expression : float
-            Minimum transcript FPKM to keep a variant effect.
-
         raise_on_error : bool
             Raise on variant-effect errors vs. skip.
 
@@ -988,8 +976,6 @@ class TopiaryPredictor(object):
         self.sort_direction = sort_direction
         self.default_methods = default_methods
 
-        self.min_transcript_expression = min_transcript_expression
-        self.min_gene_expression = min_gene_expression
         self.only_novel_epitopes = only_novel_epitopes
         self.raise_on_error = raise_on_error
         if cache_miss_handler is not None and not callable(cache_miss_handler):
@@ -1980,8 +1966,7 @@ class TopiaryPredictor(object):
         return df.rename(columns={"source_sequence_name": "source_sequence"})
 
     def predict_from_mutation_effects(
-        self, effects, transcript_expression_dict=None, gene_expression_dict=None,
-        expression_data=None,
+        self, effects, expression_data=None,
     ):
         """Given a Varcode.EffectCollection of predicted protein effects,
         return predicted epitopes around each mutation.
@@ -1989,12 +1974,6 @@ class TopiaryPredictor(object):
         Parameters
         ----------
         effects : Varcode.EffectCollection
-
-        transcript_expression_dict : dict, optional
-            Transcript ID -> RNA expression estimates (deprecated).
-
-        gene_expression_dict : dict, optional
-            Gene ID -> RNA expression estimates (deprecated).
 
         expression_data : dict, optional
             From expression_data_from_args(). Keys: 'gene', 'transcript',
@@ -2004,29 +1983,17 @@ class TopiaryPredictor(object):
         -------
         pandas.DataFrame
         """
-        effects = apply_effect_expression_filters(
-            effects,
-            transcript_expression_dict=transcript_expression_dict,
-            transcript_expression_threshold=self.min_transcript_expression,
-            gene_expression_dict=gene_expression_dict,
-            gene_expression_threshold=self.min_gene_expression,
+        effective_transcript_expr = (
+            _transcript_expression_dict_from_data(expression_data)
+            if expression_data
+            else None
         )
-
-        # Derive a transcript expression dict from new-style data when
-        # the legacy dict is absent, so that transcript selection stays
-        # expression-aware after migrating to --transcript-expression.
-        effective_transcript_expr = transcript_expression_dict
-        if not effective_transcript_expr and expression_data:
-            effective_transcript_expr = _transcript_expression_dict_from_data(
-                expression_data
-            )
 
         from .io_isovar import fragments_from_effects
 
         fragments = fragments_from_effects(
             effects,
             self.padding_around_mutation,
-            gene_expression=gene_expression_dict,
             transcript_expression=effective_transcript_expr,
         )
 
@@ -2051,8 +2018,7 @@ class TopiaryPredictor(object):
         return self._finalize_rows(df, fragments=fragments)
 
     def predict_from_variants(
-        self, variants, transcript_expression_dict=None, gene_expression_dict=None,
-        expression_data=None, additional_effects=None,
+        self, variants, expression_data=None, additional_effects=None,
     ):
         """
         Predict epitopes from a Variant collection, filtering options, and
@@ -2062,38 +2028,21 @@ class TopiaryPredictor(object):
         ----------
         variants : varcode.VariantCollection
 
-        transcript_expression_dict : dict, optional
-            Maps from Ensembl transcript IDs to FPKM expression values
-            (deprecated — use expression_data).
-
-        gene_expression_dict : dict, optional
-            Maps from Ensembl gene IDs to FPKM expression values
-            (deprecated — use expression_data).
-
         expression_data : dict, optional
             From expression_data_from_args(). Keys: 'gene', 'transcript',
             'variant', each mapping to list of (name, id_col, DataFrame).
 
         additional_effects : varcode.EffectCollection, optional
             Explicit protein changes to predict alongside the genomic
-            variants. These effects bypass variant-level expression filters
-            because they have no genomic coordinate, then share the ordinary
-            effect filtering, model execution, row filtering and sorting.
-            Output column ``mutation_input`` identifies their rows as
+            variants. These effects have no genomic coordinate, then share
+            the ordinary effect filtering, model execution, row filtering and
+            sorting. Output column ``mutation_input`` identifies their rows as
             ``"protein_change"`` rather than ``"genomic_variant"``.
 
         Returns
         -------
         pandas.DataFrame
         """
-        variants = apply_variant_expression_filters(
-            variants,
-            transcript_expression_dict=transcript_expression_dict,
-            transcript_expression_threshold=self.min_transcript_expression,
-            gene_expression_dict=gene_expression_dict,
-            gene_expression_threshold=self.min_gene_expression,
-        )
-
         effects = variants.effects(raise_on_error=self.raise_on_error)
         if additional_effects is not None:
             effects = effects.clone_with_new_elements(
@@ -2102,8 +2051,6 @@ class TopiaryPredictor(object):
 
         return self.predict_from_mutation_effects(
             effects=effects,
-            transcript_expression_dict=transcript_expression_dict,
-            gene_expression_dict=gene_expression_dict,
             expression_data=expression_data,
         )
 

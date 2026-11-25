@@ -1,18 +1,13 @@
 """Tests for previously untested CLI helper functions."""
 
 import os
-import warnings
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
-from topiary.cli.args import _apply_exclusion
+from topiary.cli.args import _apply_exclusion, create_arg_parser
 from topiary.cli.protein_changes import genome_from_args, protein_change_effects_from_args
-from topiary.cli.rna import (
-    rna_gene_expression_dict_from_args,
-    rna_transcript_expression_dict_from_args,
-)
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
@@ -154,95 +149,25 @@ def test_protein_change_without_a_matching_transcript_yields_no_effect(monkeypat
 
 
 # ---------------------------------------------------------------------------
-# rna_gene_expression_dict_from_args
+# Removed legacy --rna-* flags (#611)
 # ---------------------------------------------------------------------------
 
 
-def _make_rna_args(**overrides):
-    defaults = dict(
-        rna_gene_fpkm_tracking_file=None,
-        rna_transcript_fpkm_tracking_file=None,
-        rna_transcript_fpkm_gtf_file=None,
-    )
-    defaults.update(overrides)
-    return SimpleNamespace(**defaults)
-
-
-def test_rna_gene_expression_none():
-    result = rna_gene_expression_dict_from_args(_make_rna_args())
-    assert result is None
-
-
-def test_rna_gene_expression_with_file():
-    path = os.path.join(DATA_DIR, "genes.fpkm_tracking")
-    args = _make_rna_args(rna_gene_fpkm_tracking_file=path)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        result = rna_gene_expression_dict_from_args(args)
-    assert isinstance(result, dict)
-    assert len(result) > 0
-
-
-def test_rna_gene_expression_deprecation_warning(caplog):
-    """A visible notice, not a DeprecationWarning Python hides (#322)."""
-    path = os.path.join(DATA_DIR, "genes.fpkm_tracking")
-    args = _make_rna_args(rna_gene_fpkm_tracking_file=path)
-    with caplog.at_level("WARNING"):
-        assert rna_gene_expression_dict_from_args(args)
-    assert caplog.messages == [
-        "--rna-gene-fpkm-tracking-file is deprecated; "
-        "use --gene-expression instead."
-    ]
-
-
-# ---------------------------------------------------------------------------
-# rna_transcript_expression_dict_from_args
-# ---------------------------------------------------------------------------
-
-
-def test_rna_transcript_expression_none():
-    result = rna_transcript_expression_dict_from_args(_make_rna_args())
-    assert result is None
-
-
-def test_rna_transcript_expression_cufflinks():
-    path = os.path.join(DATA_DIR, "isoforms.fpkm_tracking")
-    args = _make_rna_args(rna_transcript_fpkm_tracking_file=path)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        result = rna_transcript_expression_dict_from_args(args)
-    assert isinstance(result, dict)
-    assert len(result) > 0
-
-
-def test_rna_transcript_expression_gtf():
-    path = os.path.join(DATA_DIR, "B16-StringTie-chr1-subset.gtf")
-    args = _make_rna_args(rna_transcript_fpkm_gtf_file=path)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        result = rna_transcript_expression_dict_from_args(args)
-    assert isinstance(result, dict)
-    assert len(result) > 0
-
-
-@pytest.mark.parametrize("flag,replacement,fixture", [
-    ("rna_transcript_fpkm_tracking_file", "--transcript-expression",
-     "isoforms.fpkm_tracking"),
-    ("rna_transcript_fpkm_gtf_file", "--transcript-expression",
-     "B16-StringTie-chr1-subset.gtf"),
-])
-def test_rna_transcript_expression_cufflinks_deprecation(
-    caplog, flag, replacement, fixture,
-):
-    """A visible notice, not a DeprecationWarning Python hides (#322)."""
-    path = os.path.join(DATA_DIR, fixture)
-    args = _make_rna_args(**{flag: path})
-    with caplog.at_level("WARNING"):
-        assert rna_transcript_expression_dict_from_args(args)
-    named = "--" + flag.replace("_", "-")
-    assert caplog.messages == [
-        f"{named} is deprecated; use {replacement} instead."
-    ]
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "--rna-gene-fpkm-tracking-file",
+        "--rna-transcript-fpkm-tracking-file",
+        "--rna-transcript-fpkm-gtf-file",
+        "--rna-min-gene-expression",
+        "--rna-min-transcript-expression",
+    ],
+)
+def test_removed_legacy_rna_flags_are_rejected(flag):
+    parser = create_arg_parser()
+    with pytest.raises(SystemExit) as exit_info:
+        parser.parse_args([flag, "value"])
+    assert exit_info.value.code == 2
 
 
 # ---------------------------------------------------------------------------

@@ -1186,6 +1186,28 @@ class TestRealNetMHCFixtures:
         out = cache.predict_peptides_dataframe(["SLLQHLIGL"])
         assert len(out) == 1
 
+    def test_netmhccons_real_values(self):
+        cache_a = CachedPredictor.from_netmhcpan_cons_stdout(
+            _FIXTURE_DIR / "netmhccons-a0101.stdout",
+            predictor_version="1.1",
+        )
+        cache_b = CachedPredictor.from_netmhcpan_cons_stdout(
+            _FIXTURE_DIR / "netmhccons-b0801.stdout",
+            predictor_version="1.1",
+        )
+        assert cache_a.prediction_method_name == "netmhccons"
+        assert cache_a.predictor_version == "1.1"
+        assert cache_a.alleles == ["HLA-A*01:01"]
+        assert cache_b.alleles == ["HLA-B*08:01"]
+
+        out_a = cache_a.predict_peptides_dataframe(["ATAVYPTDL", "KIILNFTTL"]).set_index("peptide")
+        out_b = cache_b.predict_peptides_dataframe(["ATAVYPTDL", "KIILNFTTL"]).set_index("peptide")
+        assert out_a.loc["ATAVYPTDL", "affinity"] == pytest.approx(13722.81, rel=1e-4)
+        assert out_a.loc["ATAVYPTDL", "percentile_rank"] == pytest.approx(6.0, rel=1e-4)
+        assert out_b.loc["KIILNFTTL", "affinity"] == pytest.approx(2797.01, rel=1e-4)
+        assert out_b.loc["KIILNFTTL", "percentile_rank"] == pytest.approx(4.0, rel=1e-4)
+        assert out_b.loc["KIILNFTTL", "affinity"] < out_a.loc["KIILNFTTL", "affinity"]
+
 
 @pytest.mark.skipif(
     not _FIXTURE_DIR.exists(),

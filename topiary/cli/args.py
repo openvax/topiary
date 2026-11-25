@@ -33,10 +33,7 @@ from .filtering import add_filter_args
 from .help import HelpArgumentParser
 from .rna import (
     add_expression_args,
-    add_rna_args,
     expression_data_from_args,
-    rna_gene_expression_dict_from_args,
-    rna_transcript_expression_dict_from_args,
 )
 from .sequence import add_sequence_args
 from .errors import add_error_args
@@ -295,7 +292,6 @@ INPUT_SOURCE_ERROR = (
 
 
 def create_arg_parser(
-    rna=True,
     expression=True,
     mhc=True,
     variants=True,
@@ -329,8 +325,6 @@ def create_arg_parser(
     )
     if expression:
         add_expression_args(arg_parser)
-    if rna:
-        add_rna_args(arg_parser)
     if mhc:
         # --mhc-predictor is optional so a run can be answered entirely from
         # --mhc-cache-file / --mhc-cache-directory; predict_epitopes_from_args
@@ -630,12 +624,6 @@ def _validate_input_modes(args):
         incompatible_flags.append("--json-variants")
     if getattr(args, "protein_change", None):
         incompatible_flags.append("--protein-change")
-    if getattr(args, "rna_gene_fpkm_tracking_file", None):
-        incompatible_flags.append("--rna-gene-fpkm-tracking-file")
-    if getattr(args, "rna_transcript_fpkm_tracking_file", None):
-        incompatible_flags.append("--rna-transcript-fpkm-tracking-file")
-    if getattr(args, "rna_transcript_fpkm_gtf_file", None):
-        incompatible_flags.append("--rna-transcript-fpkm-gtf-file")
     if getattr(args, "gene_expression", None):
         incompatible_flags.append("--gene-expression")
     if getattr(args, "transcript_expression", None):
@@ -806,8 +794,6 @@ def predict_epitopes_from_args(args):
                 variant_args = copy(args)
                 variant_args.genome = ensembl_genome(**source_options(args))
             variants = variant_collection_from_args(variant_args)
-        gene_expression_dict = rna_gene_expression_dict_from_args(args)
-        transcript_expression_dict = rna_transcript_expression_dict_from_args(args)
         expr_data = expression_data_from_args(args)
 
     # Validate output column flags and predictor/allele compatibility before
@@ -849,8 +835,6 @@ def predict_epitopes_from_args(args):
         filter_by=filter_by,
         sort_by=sort_by,
         sort_direction=sort_direction,
-        min_transcript_expression=args.rna_min_transcript_expression,
-        min_gene_expression=args.rna_min_gene_expression,
         only_novel_epitopes=args.only_novel_epitopes,
         raise_on_error=not skip_errors,
         protein_x_policy=getattr(args, "protein_x_policy", "skip"),
@@ -870,11 +854,7 @@ def predict_epitopes_from_args(args):
             df = predictor.predict_from_named_sequences(direct_input)
         return finish(df)
 
-    shared = dict(
-        transcript_expression_dict=transcript_expression_dict,
-        gene_expression_dict=gene_expression_dict,
-        expression_data=expr_data,
-    )
+    shared = dict(expression_data=expr_data)
     if variants is not None:
         df = predictor.predict_from_variants(
             variants=variants,

@@ -1,3 +1,4 @@
+import pandas as pd
 import pytest
 from mhctools import NetMHC
 from topiary import TopiaryPredictor
@@ -20,38 +21,47 @@ def mhc_model():
 
 def test_epitopes_to_dataframe_transcript_expression(mhc_model, cancer_test_variants):
     predictor = TopiaryPredictor(mhc_model=mhc_model, only_novel_epitopes=False)
+    transcript_df = pd.DataFrame([
+        {"transcript_id": transcript_id, "FPKM": DEFAULT_FPKM}
+        for variant in cancer_test_variants
+        for transcript_id in variant.transcript_ids
+    ])
     df = predictor.predict_from_variants(
         variants=cancer_test_variants,
-        transcript_expression_dict={
-            transcript_id: DEFAULT_FPKM
-            for variant in cancer_test_variants
-            for transcript_id in variant.transcript_ids
+        expression_data={
+            "gene": [],
+            "transcript": [("transcript", "transcript_id", transcript_df)],
+            "variant": [],
         },
     )
 
     assert (
-        "transcript_expression" in df.columns
-    ), "transcript_expression missing from %s" % (df.columns,)
+        "transcript_fpkm" in df.columns
+    ), "transcript_fpkm missing from %s" % (df.columns,)
     assert (
-        df["transcript_expression"] == DEFAULT_FPKM
-    ).all(), "Invalid FPKM values in DataFrame transcript_expression column"
+        df["transcript_fpkm"] == DEFAULT_FPKM
+    ).all(), "Invalid FPKM values in DataFrame transcript_fpkm column"
 
 
 def test_epitopes_to_dataframe_gene_expression(mhc_model, cancer_test_variants):
     predictor = TopiaryPredictor(mhc_model=mhc_model, only_novel_epitopes=False)
-
+    gene_df = pd.DataFrame([
+        {"gene_id": gene_id, "FPKM": DEFAULT_FPKM}
+        for variant in cancer_test_variants
+        for gene_id in variant.gene_ids
+    ])
     df = predictor.predict_from_variants(
         variants=cancer_test_variants,
-        gene_expression_dict={
-            gene_id: DEFAULT_FPKM
-            for variant in cancer_test_variants
-            for gene_id in variant.gene_ids
+        expression_data={
+            "gene": [("gene", "gene_id", gene_df)],
+            "transcript": [],
+            "variant": [],
         },
     )
 
-    assert "gene_expression" in df.columns, "gene_expression missing from %s" % (
+    assert "gene_fpkm" in df.columns, "gene_fpkm missing from %s" % (
         df.columns,
     )
     assert (
-        df["gene_expression"] == DEFAULT_FPKM
-    ).all(), "Invalid FPKM values in DataFrame gene_expression column"
+        df["gene_fpkm"] == DEFAULT_FPKM
+    ).all(), "Invalid FPKM values in DataFrame gene_fpkm column"

@@ -198,24 +198,35 @@ def test_load_cufflinks_drops_fail_and_hidata_matching_legacy_reader():
     loaded = dict(zip(df["tracking_id"], df["FPKM"]))
     expected = load_cufflinks_fpkm_dict(path)
     assert loaded == expected
+    assert "CUFF.6" not in loaded  # FAIL
+    assert "CUFF.8" not in loaded  # HIDATA
+    assert "CUFF.7" in loaded  # LOWDATA retained by default
 
 
-def test_deprecated_rna_min_expression_warns_without_legacy_file(caplog):
-    from types import SimpleNamespace
-    from topiary.cli.rna import (
-        rna_gene_expression_dict_from_args,
-        rna_transcript_expression_dict_from_args,
-    )
+def test_load_cufflinks_routes_through_load_cufflinks_dataframe(monkeypatch):
+    from topiary.rna import cufflinks
 
-    args = SimpleNamespace(
-        rna_gene_fpkm_tracking_file=None,
-        rna_min_gene_expression=5.0,
-        rna_transcript_fpkm_tracking_file=None,
-        rna_transcript_fpkm_gtf_file=None,
-        rna_min_transcript_expression=2.0,
-    )
-    with caplog.at_level("WARNING"):
-        assert rna_gene_expression_dict_from_args(args) is None
-        assert rna_transcript_expression_dict_from_args(args) is None
-    assert "--rna-min-gene-expression" in caplog.text
-    assert "--rna-min-transcript-expression" in caplog.text
+    called = {}
+    orig = cufflinks.load_cufflinks_dataframe
+
+    def spy(*args, **kwargs):
+        called["args"] = args
+        called["kwargs"] = kwargs
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr(cufflinks, "load_cufflinks_dataframe", spy)
+    path = os.path.join(DATA_DIR, "genes.fpkm_tracking")
+    df = load_expression(path)
+    assert called["args"] == (path,)
+    assert called["kwargs"] == {"id_column": "tracking_id", "fpkm_column": "FPKM"}
+    assert list(df.columns) == ["tracking_id", "FPKM"]
+
+
+def test_load_gtf_expression_missing_custom_feature_col_raises():
+    from topiary.rna.gtf import load_transcript_fpkm_dict_from_gtf
+
+    path = os.path.join(DATA_DIR, "B16-StringTie-chr1-subset.gtf")
+    with pytest.raises(ValueError, match="Feature column 'nonexistent_feature' not found"):
+        load_transcript_fpkm_dict_from_gtf(
+            path, feature_column_name="nonexistent_feature"
+        )

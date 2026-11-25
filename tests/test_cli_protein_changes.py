@@ -3,7 +3,7 @@ from topiary.cli.args import create_arg_parser
 
 from .common import eq_
 
-arg_parser = create_arg_parser(mhc=False, rna=False, output=False)
+arg_parser = create_arg_parser(mhc=False, output=False)
 
 
 def test_protein_change_effects_from_args_substitutions():

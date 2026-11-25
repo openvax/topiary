@@ -1,5 +1,17 @@
 # Changelog
 
+## 5.119.0
+
+- **Remove deprecated `--rna-*` expression path and unify Cufflinks + StringTie GTF reading (`#611`)**:
+  - Routed `.fpkm_tracking` reads in `topiary.rna.expression_loader.load_expression` through `load_cufflinks_dataframe` (sharing the `drop_failed=True, drop_hidata=True` status policy) and added `load_expression` to `CUFFLINKS_FPKM_TWINS` in `tests/test_twin_conformance.py` verified against `tests/data/genes.fpkm_tracking` and `tests/data/isoforms.fpkm_tracking`.
+  - Unified StringTie GTF loading on `load_gtf_expression(..., feature_col="feature")` so `load_transcript_fpkm_dict_from_gtf` always delegates to it and only one `gtfparse.read_gtf` reader remains.
+  - Deleted the deprecated `--rna-*` CLI flags and legacy expression helpers: `add_rna_args`, `rna_gene_expression_dict_from_args`, `rna_transcript_expression_dict_from_args`, `apply_variant_expression_filters`, `apply_effect_expression_filters`, `create_arg_parser(rna=...)`, and `TopiaryPredictor`'s legacy `min_gene_expression`, `min_transcript_expression`, `gene_expression_dict`, and `transcript_expression_dict` arguments. Use `--gene-expression` / `--transcript-expression` / `expression_data=` with `--filter-by` / `filter_by=`.
+  - Updated `docs/api.md` and `docs/expression.md`.
+- **Authentic licensed NetMHCcons cache fixtures and end-to-end CLI regression (`#333`)**:
+  - Removed the broken error-dump fixture `tests/data/netmhc_fixtures/netmhccons_SLLQHLIGL.out`.
+  - Added byte-faithful licensed `netMHCcons-1.1` stdout captures (`netmhccons-a0101.stdout` and `netmhccons-b0801.stdout`) copied verbatim from `openvax/mhctools/tests/data/osteosarc/outputs/` with documented provenance in `tests/data/netmhc_fixtures/README.md`.
+  - Added end-to-end file-to-CLI `--mhc-cache-format netmhccons`, auto-sniff, and `CachedPredictor.from_netmhcpan_cons_stdout` regression tests asserting actual affinity, score, percentile_rank measurements, alleles, peptides, and provenance.
+
 ## 5.118.0
 
 - **CPU PyTorch CI wheels and pip-cache reduction (`#564`)**:

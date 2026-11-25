@@ -10,24 +10,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-
-import gtfparse
-
-
-def _get_gtf_column(column_name, gtf_path, df):
-    """
-    Helper function which returns a dictionary column or raises an ValueError
-    abou the absence of that column in a GTF file.
-    """
-    if column_name in df.columns:
-        return list(df[column_name])
-
-    else:
-        raise ValueError(
-            "Missing '%s' in columns of %s, available: %s"
-            % (column_name, gtf_path, list(df.columns))
-        )
+from .expression_loader import load_gtf_expression
 
 
 def load_transcript_fpkm_dict_from_gtf(
@@ -41,40 +24,16 @@ def load_transcript_fpkm_dict_from_gtf(
     quantification of abundance. Returns a dictionary mapping Ensembl
     IDs of transcripts to FPKM values.
     """
-    if feature_column_name == "feature":
-        from .expression_loader import load_gtf_expression
-
-        df = load_gtf_expression(
-            gtf_path,
-            id_col=transcript_id_column_name,
-            val_cols=[fpkm_column_name],
-        )
-        return {
-            transcript_id: float(fpkm)
-            for transcript_id, fpkm in zip(
-                df[transcript_id_column_name], df[fpkm_column_name]
-            )
-            if transcript_id is not None and len(str(transcript_id)) > 0
-        }
-
-    df = gtfparse.read_gtf(
-        gtf_path, column_converters={fpkm_column_name: float}, result_type="pandas")
-    transcript_ids = _get_gtf_column(transcript_id_column_name, gtf_path, df)
-    fpkm_values = _get_gtf_column(fpkm_column_name, gtf_path, df)
-    features = _get_gtf_column(feature_column_name, gtf_path, df)
-    logging.info("Loaded %d rows from %s" % (len(transcript_ids), gtf_path))
-    logging.info(
-        "Found %s transcript entries"
-        % sum(feature == "transcript" for feature in features)
+    df = load_gtf_expression(
+        gtf_path,
+        id_col=transcript_id_column_name,
+        val_cols=[fpkm_column_name],
+        feature_col=feature_column_name,
     )
-    result = {
+    return {
         transcript_id: float(fpkm)
-        for (transcript_id, fpkm, feature) in zip(transcript_ids, fpkm_values, features)
-        if (
-            (transcript_id is not None)
-            and (len(transcript_id) > 0)
-            and (feature == "transcript")
+        for transcript_id, fpkm in zip(
+            df[transcript_id_column_name], df[fpkm_column_name]
         )
+        if transcript_id is not None and len(str(transcript_id)) > 0
     }
-    logging.info("Keeping %d transcript rows with reference IDs" % (len(result),))
-    return result

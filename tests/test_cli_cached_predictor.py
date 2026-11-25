@@ -125,6 +125,46 @@ class TestCachedPredictorCliHappyPath:
         assert len(df) == 1
         assert df.iloc[0]["prediction_method_name"] == "netmhcstabpan"
 
+    def test_netmhccons_stdout_a0101_and_b0801(self, tmp_path):
+        """End-to-end file-to-CLI regression on licensed NetMHCcons 1.1 captures (#333)."""
+        pep_csv = tmp_path / "cons_peptides.csv"
+        pep_csv.write_text("peptide\nATAVYPTDL\nKIILNFTTL\nTLSPNGKSL\n")
+
+        df_a0101 = _run([
+            "--peptide-csv", str(pep_csv),
+            "--mhc-cache-file", str(_FIXTURE_DIR / "netmhccons-a0101.stdout"),
+            "--mhc-cache-format", "netmhccons",
+            "--mhc-cache-predictor-version", "1.1",
+        ])
+        assert len(df_a0101) == 3
+        assert set(df_a0101["allele"]) == {"HLA-A*01:01"}
+        assert set(df_a0101["kind"]) == {"pMHC_affinity"}
+        assert (df_a0101["prediction_method_name"] == "netmhccons").all()
+        assert (df_a0101["predictor_version"] == "1.1").all()
+        by_pep_a = df_a0101.set_index("peptide")
+        assert by_pep_a.loc["ATAVYPTDL", "affinity"] == pytest.approx(13722.81, rel=1e-4)
+        assert by_pep_a.loc["ATAVYPTDL", "percentile_rank"] == pytest.approx(6.0, rel=1e-4)
+        assert by_pep_a.loc["ATAVYPTDL", "score"] == pytest.approx(0.119, rel=1e-3)
+        assert by_pep_a.loc["KIILNFTTL", "affinity"] == pytest.approx(26407.71, rel=1e-4)
+        assert by_pep_a.loc["KIILNFTTL", "percentile_rank"] == pytest.approx(50.0, rel=1e-4)
+
+        df_b0801 = _run([
+            "--peptide-csv", str(pep_csv),
+            "--mhc-cache-file", str(_FIXTURE_DIR / "netmhccons-b0801.stdout"),
+            "--mhc-cache-format", "netmhccons",
+        ])
+        assert len(df_b0801) == 3
+        assert set(df_b0801["allele"]) == {"HLA-B*08:01"}
+        assert set(df_b0801["kind"]) == {"pMHC_affinity"}
+        assert (df_b0801["prediction_method_name"] == "netmhccons").all()
+        # NetMHCcons stdout header omits a version token, so default provenance is "unknown".
+        assert (df_b0801["predictor_version"] == "unknown").all()
+        by_pep_b = df_b0801.set_index("peptide")
+        assert by_pep_b.loc["KIILNFTTL", "affinity"] == pytest.approx(2797.01, rel=1e-4)
+        assert by_pep_b.loc["KIILNFTTL", "percentile_rank"] == pytest.approx(4.0, rel=1e-4)
+        assert by_pep_b.loc["TLSPNGKSL", "affinity"] == pytest.approx(4429.97, rel=1e-4)
+        assert by_pep_b.loc["TLSPNGKSL", "percentile_rank"] == pytest.approx(6.0, rel=1e-4)
+
     def test_explicit_predictor_version_override(self, tmp_path):
         fixture = _FIXTURE_DIR / "netmhcpan_41_SLLQHLIGL_A0201.out"
         csv = _write_peptide_csv(tmp_path / "pep.csv", "SLLQHLIGL")
@@ -379,6 +419,20 @@ class TestCachedPredictorCliAutoSniff:
         ])
         # NetMHC classic — multi-allele file → 3 rows
         assert len(df) == 3
+
+    def test_netmhccons_autodetected(self, tmp_path):
+        fixture = _FIXTURE_DIR / "netmhccons-a0101.stdout"
+        csv = _write_peptide_csv(tmp_path / "pep.csv", "ATAVYPTDL")
+        df = _run([
+            "--peptide-csv", csv,
+            "--mhc-cache-file", str(fixture),
+        ])
+        assert len(df) == 1
+        row = df.iloc[0]
+        assert row["allele"] == "HLA-A*01:01"
+        assert row["prediction_method_name"] == "netmhccons"
+        assert row["affinity"] == pytest.approx(13722.81, rel=1e-4)
+        assert row["percentile_rank"] == pytest.approx(6.0, rel=1e-4)
 
     @pytest.mark.parametrize("suffix", ["tsv", "csv", "tsv.gz", "csv.gz", "parquet"])
     def test_topiary_output_autodetected(self, tmp_path, suffix):
