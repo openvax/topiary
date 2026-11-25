@@ -1,5 +1,6 @@
 """Tests for topiary.inputs — CSV, FASTA, regions, exclusion."""
 
+import gzip
 import os
 import tempfile
 
@@ -153,6 +154,16 @@ def test_fasta_records_preserve_duplicate_ids_and_sequence_text(tmp_path):
     assert records == [("same", "aX*C D"), ("same", "GGHH"), ("empty", "")]
     for reader in (read_fasta, read_peptide_fasta):
         assert reader(path) == {"same": "GGHH", "empty": ""}
+
+
+def test_fasta_gzipped_round_trip(tmp_path):
+    path = tmp_path / "proteins.fa.gz"
+    path.write_bytes(gzip.compress(b">prot1 desc\nMASIIN\nFEKL\n>prot2\nMRKK\n"))
+    assert list(iter_fasta_records(path)) == [
+        ("prot1", "MASIINFEKL"),
+        ("prot2", "MRKK"),
+    ]
+    assert read_fasta(path) == {"prot1": "MASIINFEKL", "prot2": "MRKK"}
 
 
 # ---------------------------------------------------------------------------
