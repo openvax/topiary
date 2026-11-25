@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.120.0
+
+- Deduplicate `topiary/cli/help.py` onto the shared `datacache.cli_help` module
+  (requiring `datacache>=1.38.0,<2.0.0`) and enable `strict: true` in `mkdocs.yml`.
+
 ## 5.119.0
 
 - **Remove deprecated `--rna-*` expression path and unify Cufflinks + StringTie GTF reading (`#611`)**:
