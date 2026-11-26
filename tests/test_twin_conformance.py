@@ -1141,14 +1141,14 @@ DEPENDENCY_TWINS = (
         ("run_isovar", "ProteinSequenceCreator"),
         _check_isovar,
         "assembling protein fragments from RNA alignments",
-        "<2,>=1.78.0",
+        "<2,>=1.97.0",
     ),
     (
         "pirlygenes",
         ("pan_cancer_expression",),
         lambda: _check_pirlygenes("pan_cancer_expression"),
         "cancer-testis antigen and tissue-expression gene lists",
-        ">=6.0.18",
+        ">=6.4.0",
     ),
 )
 

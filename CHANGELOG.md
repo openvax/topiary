@@ -1,5 +1,24 @@
 # Changelog
 
+## 5.122.0
+
+- **Adopt Varcode 13.0's 3-noun DNA API (`#635`)**:
+  - Updated `requirements.txt` from `varcode>=11.1.0,<13` to `varcode>=13.0.0,<14`.
+  - Simplified `topiary.varcode_evidence.varcode_candidate_provenance()` to remove
+    the temporary Varcode 12.4 `DNAHypothesis` branch and directly serialize
+    Varcode 13 `EffectCandidate` provenance (`source`, `mechanisms`, `phase`,
+    `uncertainty`, optional `ordinal_key` / `probability`, `baseline` and
+    `mutant` sequences, `MutantTranscript` junction/template metadata including
+    `is_complete`, `novel_junctions`, `back_junctions`, `wildtype_junctions`,
+    `mate_region`, `exit_frame`, and compacted evidence, plus candidate
+    `evidence`) while omitting `.effect` to avoid back-reference cycles and
+    keeping `RealizedEffectCandidate` support intact for explicit
+    `annotator="transcript_model"`.
+  - Updated Varcode provenance tests and `docs/consumer-guide.md`, adding
+    regression coverage for both default `"dna"` (`EffectCandidate` +
+    `MutantTranscript`) and explicit `annotator="transcript_model"`
+    (`RealizedEffectCandidate`).
+
 ## 5.120.0
 
 - Deduplicate `topiary/cli/help.py` onto the shared `datacache.cli_help` module

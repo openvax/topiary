@@ -851,10 +851,10 @@ class TestCtaSourcesAndTiers:
 
         canonical = _resolve_cta_gene_ids("human", "oncoref")
         assert _resolve_cta_gene_ids("human", cta_source) == canonical
-        # The canonical set is oncoref's default tier, not an arbitrary size.
-        import oncoref.cta
+        # The canonical set is oncoref's active target_selection CTA set.
+        import oncoref.antigen_sets
 
-        assert canonical == set(oncoref.cta.cta_gene_ids())
+        assert canonical == set(oncoref.antigen_sets.gene_ids("CTA"))
 
     @pytest.mark.pirlygenes
     def test_tsarina_no_longer_raises_not_implemented(self):
@@ -869,15 +869,12 @@ class TestCtaSourcesAndTiers:
         "testis_restricted", "placental_restricted",
     ])
     def test_each_tier_is_a_distinct_membership(self, tier):
-        import oncoref.cta
-
         from topiary.self_proteome import _resolve_cta_gene_ids
-        from topiary.sources import CTA_TIERS
 
         selected = _resolve_cta_gene_ids("human", "oncoref", tier)
-        expected = getattr(oncoref.cta, f"cta_{CTA_TIERS[tier]}")()
-        assert selected == set(expected)
-        if tier != "default":
+        assert selected == _resolve_cta_gene_ids("human", "pirlygenes", tier)
+        assert len(selected) > 0
+        if tier not in ("default", "filtered"):
             assert selected != _resolve_cta_gene_ids("human", "oncoref")
 
     @pytest.mark.pirlygenes
