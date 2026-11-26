@@ -27,8 +27,12 @@ Rejected, with :class:`AlleleError`
   than substituted with one full allele identity.
 - An allele mhcgnomes marks as null (``annotation_null``): it is not
   expressed, so Topiary excludes it from presentation analysis.
-- A ``Pair`` that is not a class II alpha/beta heterodimer, including a
-  beta chain written first.
+- A ``Pair`` that is not a class II alpha/beta heterodimer, or a
+  slash/semicolon combination of parseable MHC chains that mhcgnomes
+  refuses as a biologically invalid pair (for example two class I alleles,
+  two alpha chains, or a cross-locus class II pair such as ``DQA1/DRB1``).
+  Reversed same-locus class II pairs (``DRB1/DRA``) are canonicalized to
+  ``alpha/beta`` by ``mhcgnomes>=3.83.0``.
 
 Old names
 ---------
@@ -346,6 +350,34 @@ def log_allele_caveat_once(caveat):
     )
 
 
+def _invalid_allele_pair_parts(normalized, species=None):
+    """Return parsed chains if *normalized* is a slash-joined invalid MHC pair."""
+    if "/" not in normalized:
+        return None
+    parts = [part.strip() for part in normalized.split("/")]
+    if len(parts) < 2 or any(not part for part in parts):
+        return None
+    parse_kwargs = dict(
+        use_allele_aliases=False,
+        infer_class2_pairing=False,
+        collapse_singleton_haplotypes=True,
+        collapse_singleton_serotypes=False,
+        max_allele_fields=None,
+        raise_on_error=False,
+    )
+    first = mhcgnomes.parse(parts[0], species=species, **parse_kwargs)
+    if first is None:
+        return None
+    part_species = species if species is not None else getattr(first, "species", None)
+    parsed_parts = [first]
+    for part in parts[1:]:
+        parsed_part = mhcgnomes.parse(part, species=part_species, **parse_kwargs)
+        if parsed_part is None:
+            return None
+        parsed_parts.append(parsed_part)
+    return tuple(parsed_parts)
+
+
 def parse_allele(value, species=None):
     """Parse one MHC allele with mhcgnomes, refusing anything else.
 
@@ -395,13 +427,26 @@ def parse_allele(value, species=None):
         raise AlleleError(f"missing allele: got {value!r}", value)
     if not isinstance(value, str):
         raise AlleleError(f"an allele must be a string, not {type(value).__name__}: {value!r}", value)
+    normalized = value.strip().replace(";", "/")
     try:
         parsed = mhcgnomes.parse(
-            value.strip().replace(";", "/"), species=species,
+            normalized, species=species,
             use_allele_aliases=False, infer_class2_pairing=False,
             collapse_singleton_haplotypes=True, collapse_singleton_serotypes=False,
             max_allele_fields=None, raise_on_error=True)
     except mhcgnomes.ParseError as error:
+        invalid_parts = _invalid_allele_pair_parts(normalized, species=species)
+        if invalid_parts is not None:
+            if len(invalid_parts) == 2:
+                pair_desc = f"{invalid_parts[0].to_string()} with {invalid_parts[1].to_string()}"
+            else:
+                pair_desc = " / ".join(part.to_string() for part in invalid_parts)
+            raise AlleleError(
+                f"{value!r} pairs {pair_desc}, which is not a class II alpha/beta "
+                f"heterodimer; give one allele, or a class II pair written alpha/beta "
+                f"such as {EXAMPLE_CLASS2_PAIR}",
+                value,
+            ) from None
         if species is None:
             raise AlleleError(
                 f"could not parse {value!r} as one MHC allele (mhcgnomes: {error}). Give one "

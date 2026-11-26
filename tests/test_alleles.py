@@ -60,6 +60,7 @@ ACCEPTED = [
     ("HLA-MICA*001", "HLA-MICA*001"),
     ("SLA-1*es11", "SLA-1*es11"),  # a provisional name, not a group
     ("HLA-DRA*01:01/DRB1*04:01", "HLA-DRA*01:01/DRB1*04:01"),
+    ("HLA-DRB1*01:01/DRA*01:01", "HLA-DRA*01:01/DRB1*01:01"),
 ]
 
 
@@ -123,9 +124,12 @@ REJECTED = [
      r"mhcgnomes resolves 'Mamu-A01' as an old name of Mamu-A1\*001:01; write that if you mean it$"),
     ("HLA-A*02:01N", mhcgnomes.Allele, r"^'HLA-A\*02:01N' is the null allele HLA-A\*02:01N, which is not expressed"),
     ("HLA-DQA1*01:01/DQB1*06:02N", mhcgnomes.Pair, r"contains the null allele HLA-DQB1\*06:02N"),
-    ("HLA-A*02:01/HLA-A*02:02", mhcgnomes.Pair,
+    ("HLA-A*02:01/HLA-A*02:02", None,
      r"pairs HLA-A\*02:01 with HLA-A\*02:02, which is not a class II alpha/beta heterodimer"),
-    ("HLA-DRB1*01:01/DRA*01:01", mhcgnomes.Pair, r"pairs HLA-DRB1\*01:01 with HLA-DRA\*01:01"),
+    ("HLA-DQA1*01:02/DRB1*15:01", None,
+     r"pairs HLA-DQA1\*01:02 with HLA-DRB1\*15:01, which is not a class II alpha/beta heterodimer"),
+    ("HLA-A*02:01/B2M", mhcgnomes.Pair,
+     r"pairs HLA-A\*02:01 with HLA-B2M, which is not a class II alpha/beta heterodimer"),
 ]
 
 
