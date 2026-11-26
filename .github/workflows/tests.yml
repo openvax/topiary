@@ -46,11 +46,13 @@ jobs:
           python-version: "3.12"
       - name: Install the coordinated downstream consumer
         run: |
-          # Exercise the published consumer with normal dependency resolution.
-          # 3.56.1 uses Variant.genome instead of the deprecated ensembl alias.
+          # Install Topiary (with varcode>=13.0.2 and isovar>=1.97.0) first and
+          # validate its dependency graph with pip check, then layer vaxrank==3.83.0
+          # --no-deps until openvax/vaxrank#945 lifts its varcode<13 cap after this release.
           bash scripts/pip_install.sh --no-deps --index-url https://download.pytorch.org/whl/cpu torch
-          bash scripts/pip_install.sh pytest 'vaxrank==3.56.1' -e .
+          bash scripts/pip_install.sh pytest pyyaml jinja2 msgspec biopython -e .
           python -m pip check
+          bash scripts/pip_install.sh --no-deps 'vaxrank==3.83.0'
           python scripts/check_cpu_torch.py
       - name: Verify table features through DSL scoring and vaccine construction
         run: python -m pytest scripts/check_vaxrank_candidates.py -q
@@ -234,9 +236,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Exercise the high-depth support-reconciliation floor and the latest
-        # compatible release with the same original-read consumer regressions.
-        isovar: ["isovar==1.78.0", "isovar<2"]
+        # Exercise the Varcode 13 Isovar floor and the latest compatible release
+        # with the same original-read consumer regressions.
+        isovar: ["isovar==1.97.0", "isovar<2"]
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python 3.12
