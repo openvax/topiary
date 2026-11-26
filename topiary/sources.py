@@ -568,6 +568,28 @@ def cta_gene_ids(source=None, tier="default", species="human"):
             f"Unsupported CTA tier: {tier!r}. Use "
             f"{', '.join(map(repr, sorted(CTA_TIERS)))}."
         )
+    if source == "oncoref":
+        if tier in ("default", "filtered"):
+            antigen_sets = require_dependency(
+                "oncoref.antigen_sets",
+                feature="cancer-testis antigen gene lists",
+                required_callables=("gene_ids",),
+            )
+            return set(antigen_sets.gene_ids("CTA"))
+        if tier == "unfiltered":
+            import json
+
+            target_selection = require_dependency(
+                "oncoref.target_selection",
+                feature="cancer-testis antigen gene lists",
+                required_callables=("results",),
+            )
+            results = target_selection.results()
+            return {
+                str(gene_id)
+                for members in results["member_gene_ids"]
+                for gene_id in (json.loads(members) if isinstance(members, str) else members)
+            }
     module_name, prefix = _CTA_SOURCES[source]
     attribute = f"{prefix}_{CTA_TIERS[tier]}"
     module = require_dependency(

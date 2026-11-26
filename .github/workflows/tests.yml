@@ -50,7 +50,7 @@ jobs:
           # validate its dependency graph with pip check, then layer vaxrank==3.83.0
           # --no-deps until openvax/vaxrank#945 lifts its varcode<13 cap after this release.
           bash scripts/pip_install.sh --no-deps --index-url https://download.pytorch.org/whl/cpu torch
-          bash scripts/pip_install.sh pytest pyyaml jinja2 msgspec biopython -e .
+          bash scripts/pip_install.sh pytest pyyaml jinja2 msgspec biopython dnachisel -e .
           python -m pip check
           bash scripts/pip_install.sh --no-deps 'vaxrank==3.83.0'
           python scripts/check_cpu_torch.py
