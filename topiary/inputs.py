@@ -32,11 +32,11 @@ Example — CTA-like targets with vital-organ exclusion::
     df = exclude_by(df, vital_seqs, mode="exact")
 """
 
+import gzip
 import logging
 from collections.abc import Iterator
-from os import PathLike
+from os import PathLike, fspath
 
-from datacache.fasta import iter_fasta as _iter_datacache_fasta
 import pandas as pd
 
 
@@ -149,19 +149,32 @@ def iter_fasta_records(path: str | PathLike[str]) -> Iterator[tuple[str, str]]:
         header has no identifier. The file closes when iteration completes
         or the generator is closed.
     """
-    try:
-        yield from _iter_datacache_fasta(path, gzipped=None)
-    except ValueError as exc:
-        message = str(exc)
-        if message.startswith("FASTA header without an identifier:"):
-            raise ValueError(
-                "Empty FASTA header in %s (line is just '>')" % path
-            ) from exc
-        if message.startswith("FASTA sequence before the first header:"):
-            raise ValueError(
-                "Sequence data before first header in %s" % path
-            ) from exc
-        raise
+    current_name = None
+    current_seq: list[str] = []
+    opener = gzip.open if fspath(path).lower().endswith(".gz") else open
+    with opener(path, "rt", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith(">"):
+                if current_name is not None:
+                    yield current_name, "".join(current_seq)
+                header = line[1:].strip()
+                if not header:
+                    raise ValueError(
+                        "Empty FASTA header in %s (line is just '>')" % path
+                    )
+                current_name = header.split()[0]
+                current_seq = []
+            else:
+                if current_name is None:
+                    raise ValueError(
+                        "Sequence data before first header in %s" % path
+                    )
+                current_seq.append(line)
+    if current_name is not None:
+        yield current_name, "".join(current_seq)
 
 
 # ---------------------------------------------------------------------------
