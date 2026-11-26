@@ -102,3 +102,49 @@ def test_ensembl_release_reaches_variant_loading_when_genome_omitted(monkeypatch
     assert captured["genome"] is sentinel_genome
     # Original args namespace is not mutated
     assert ns.genome is None
+
+
+def test_varcode_candidate_provenance_reads_varcode13_effect_candidate():
+    from varcode import EffectCandidate, MutantTranscript
+    from topiary.varcode_evidence import varcode_candidate_provenance
+
+    model = MutantTranscript(
+        reference_transcript=None,
+        reference_segments=(),
+        cdna_sequence=None,
+        evidence={
+            "novel_junctions": (("7", 55181379, 55191718, "+"),),
+            "back_junctions": (("7", 55181379, 55200317, "+"),),
+            "mate_search_region": ("7", 55191000, 55195000, "+"),
+            "exit_frame": 1,
+        },
+    )
+    effect = SimpleNamespace(
+        mutant_transcript=model,
+        original_protein_sequence="MAAA",
+        mutant_protein_sequence=None,
+        transcript=SimpleNamespace(sequence="ATGGCTGCTGCTTAA"),
+    )
+    candidate = EffectCandidate(
+        effect=effect,
+        source="varcode.dna",
+        evidence={"n_merged_outcomes": 1},
+        mechanisms=("exon_skipping",),
+        phase=(("chr7 g.1A>G", "cis"),),
+        uncertainty=("splice",),
+    )
+    provenance = varcode_candidate_provenance(candidate)
+    assert provenance["source"] == "varcode.dna"
+    ev = provenance["evidence"]
+    assert ev["mechanisms"] == ["exon_skipping"]
+    assert ev["phase"] == [["chr7 g.1A>G", "cis"]]
+    assert ev["uncertainty"] == ["splice"]
+    outcome = ev["outcomes"][0]
+    assert outcome["baseline"]["protein_sequence"] == "MAAA"
+    assert outcome["mutant"]["cdna_sequence"] is None
+    assert outcome["is_complete"] is False
+    assert outcome["novel_junctions"] == [["7", 55181379, 55191718, "+"]]
+    assert outcome["back_junctions"] == [["7", 55181379, 55200317, "+"]]
+    assert outcome["mate_region"] == ["7", 55191000, 55195000, "+"]
+    assert outcome["exit_frame"] == 1
+    assert json.loads(json.dumps(provenance)) == provenance

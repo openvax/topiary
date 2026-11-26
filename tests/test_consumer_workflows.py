@@ -4672,7 +4672,7 @@ def test_varcode11_alternatives_flow_through_both_prediction_doors(
     proof = fragment.annotations["varcode_candidate_selection"]
     assert {a["effect_type"] for a in proof["alternatives"]} == {preferred, "Deletion", "Unresolved"}
     evidence = proof["alternatives"][proof["selected_alternative_index"]]["path"][-1]["evidence"]
-    assert evidence["probability"] is None
+    assert evidence.get("probability") is None
     comparison = evidence["outcomes"][0]
     assert comparison["baseline"]["cdna_sequence"]
     assert comparison["mutant"]["cdna_sequence"]
