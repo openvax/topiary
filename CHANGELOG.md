@@ -2,7 +2,7 @@
 
 ## 5.122.0
 
-- Adopt `varcode>=13.0.2,<14` and `isovar>=1.97.0,<2` (#635):
+- Support `varcode>=11.1.0,!=12.4.0,<14` (adopting `varcode>=13.0.2`, #635):
   - Simplify `topiary/varcode_evidence.py` (`varcode_candidate_provenance`) by
     removing the temporary `varcode 12.4.0` `DNAHypothesis` branch and reading
     `varcode>=13.0.0` `EffectCandidate` provenance (`mechanisms`, `phase`,
