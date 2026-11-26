@@ -32,28 +32,56 @@ def varcode_candidate_provenance(candidate):
 
     Parameters
     ----------
-    candidate : varcode.EffectCandidate or varcode.RealizedEffectCandidate
+    candidate : varcode.EffectCandidate, varcode.RealizedEffectCandidate, or varcode.DNAHypothesis
         An original wrapper from ``varcode.iter_candidate_paths``.
 
     Returns
     -------
     dict
-        JSON-compatible source and evidence. Realized evidence includes every
-        hypothesis and full baseline/mutant product, including unavailable
-        sequences. Ordinal preference, phase mass and probability remain separate.
-        The effect is omitted because it can point back to all alternatives.
+        JSON-compatible source and evidence. Realized and DNA-hypothesis
+        evidence includes baseline/mutant products (including unavailable
+        sequences), ordinal preference, and probability. The effect is omitted
+        because it can point back to all alternatives.
 
     Raises
     ------
     TypeError
         If the input is not a supported native candidate wrapper.
     """
+    import varcode
     from varcode.effect_candidates import EffectCandidate
     from varcode.effect_hypotheses import RealizedEffectCandidate
+
+    dna_hypothesis_cls = getattr(varcode, "DNAHypothesis", None)
 
     if isinstance(candidate, EffectCandidate):
         return json.loads(to_json(dict(source=candidate.source, evidence=dict(candidate.evidence))),
                           object_hook=_plain_record)
+    if dna_hypothesis_cls is not None and isinstance(candidate, dna_hypothesis_cls):
+        outcome = dict(
+            baseline=dict(
+                cdna_sequence=candidate.baseline_cdna,
+                protein_sequence=candidate.baseline_protein,
+            ),
+            mutant=dict(
+                cdna_sequence=candidate.mutant_cdna,
+                protein_sequence=candidate.mutant_protein,
+            ),
+            uncertainty=candidate.uncertainty,
+            splice_mechanisms=candidate.splice_mechanisms,
+            phase=candidate.phase,
+            novel_junctions=candidate.novel_junctions,
+        )
+        evidence = dict(
+            ordinal_key=candidate.ordinal_rank,
+            probability=candidate.probability,
+            outcomes=[outcome],
+            **dict(candidate.evidence),
+        )
+        return dict(
+            source=candidate.source,
+            evidence=json.loads(to_json(evidence), object_hook=_plain_record),
+        )
     if not isinstance(candidate, RealizedEffectCandidate):
         raise TypeError(f"Unsupported Varcode candidate {type(candidate).__name__}")
     evidence = dict(
