@@ -4671,13 +4671,63 @@ def test_varcode11_alternatives_flow_through_both_prediction_doors(
     fragment = fragments_from_effects(effects, 12, transcript_expression=expression)[0]
     proof = fragment.annotations["varcode_candidate_selection"]
     assert {a["effect_type"] for a in proof["alternatives"]} == {preferred, "Deletion", "Unresolved"}
-    evidence = proof["alternatives"][proof["selected_alternative_index"]]["path"][-1]["evidence"]
+    selected_entry = proof["alternatives"][proof["selected_alternative_index"]]["path"][-1]
+    assert selected_entry["source"] == "varcode.dna"
+    assert "effect" not in selected_entry
+    assert selected_entry["mechanisms"] == ["exon_skip"]
+    assert selected_entry["uncertainty"] == ["splicing"]
+    assert selected_entry["baseline"]["cdna_sequence"]
+    assert selected_entry["mutant"]["cdna_sequence"]
+    assert selected_entry["mutant"]["is_complete"] is True
+    assert selected_entry["mutant"]["novel_junctions"]
+    assert "genomic_positions" not in selected_entry["mutant"]["evidence"]
+    assert selected_entry["mutant"]["evidence"]["genomic_positions_count"] > 0
+    assert (
+        selected_entry["mutant"]["protein_sequence"]
+        == effect.highest_priority_candidate.effect.mutant_protein_sequence
+    )
+    unresolved_entries = [
+        alt["path"][-1]
+        for alt in proof["alternatives"]
+        if alt["effect_type"] == "Unresolved"
+    ]
+    assert unresolved_entries
+    assert all(entry["mutant"]["is_complete"] is False for entry in unresolved_entries)
+    assert all(entry["mutant"]["cdna_sequence"] is None for entry in unresolved_entries)
+    assert all(entry["mutant"]["protein_sequence"] is None for entry in unresolved_entries)
+    path = tmp_path / "fragments.json"
+    write_fragments([fragment], path)
+    restored = read_fragments(path)[0]
+    assert restored.annotations == fragment.annotations
+    assert restored.sequence == fragment.sequence
+
+
+def test_varcode_transcript_model_annotator_retains_realized_provenance(tmp_path):
+    """Explicit annotator='transcript_model' preserves RealizedEffectCandidate provenance."""
+    from pyensembl import EnsemblRelease
+    from varcode import EffectCollection, Variant
+    from topiary import fragments_from_effects, read_fragments, write_fragments
+
+    genome = EnsemblRelease(75)
+    transcript = genome.transcript_by_id("ENST00000003084")
+    effect = Variant("7", 117171168, "G", "T", genome=genome).effect_on_transcript(
+        transcript, annotator="transcript_model",
+    )
+    assert type(effect).__name__ == "Substitution"
+    assert type(effect.highest_priority_candidate.effect).__name__ == "Deletion"
+    fragment = fragments_from_effects(EffectCollection([effect]), 12)[0]
+    proof = fragment.annotations["varcode_candidate_selection"]
+    assert {a["effect_type"] for a in proof["alternatives"]} == {"Substitution", "Deletion", "Unresolved"}
+    selected_entry = proof["alternatives"][proof["selected_alternative_index"]]["path"][-1]
+    assert selected_entry["source"] == "varcode.transcript_model"
+    evidence = selected_entry["evidence"]
     assert evidence["probability"] is None
+    assert evidence["ordinal_key"]
     comparison = evidence["outcomes"][0]
     assert comparison["baseline"]["cdna_sequence"]
     assert comparison["mutant"]["cdna_sequence"]
     assert comparison["mutant"]["protein_sequence"] == effect.highest_priority_candidate.effect.mutant_protein_sequence
-    path = tmp_path / "fragments.json"
+    path = tmp_path / "fragments-tm.json"
     write_fragments([fragment], path)
     restored = read_fragments(path)[0]
     assert restored.annotations == fragment.annotations
@@ -4707,7 +4757,22 @@ def test_varcode11_patient_baseline_and_unavailable_comparisons():
     assert transcript.protein_sequence[158] == "L"
     proof = fragment.annotations["varcode_candidate_selection"]
     selected = proof["alternatives"][proof["selected_alternative_index"]]
-    assert selected["path"][-1]["evidence"]["outcomes"][0]["baseline"]["protein_sequence"][158] == "S"
+    selected_entry = selected["path"][-1]
+    assert selected_entry["source"] == "varcode.dna"
+    assert selected_entry["baseline"]["protein_sequence"][158] == "S"
+    assert selected_entry["mutant"]["protein_sequence"][158] == "T"
+    assert selected_entry["phase"][0][1] == "cis"
+
+    tm_effect = variant.effect_on_transcript(
+        transcript, germline=GermlineContext.from_variants([germline]),
+        phase_resolver=SimpleNamespace(in_cis=lambda *args: True),
+        annotator="transcript_model")
+    tm_fragment, = fragments_from_effects(EffectCollection([tm_effect]), 12)
+    tm_proof = tm_fragment.annotations["varcode_candidate_selection"]
+    tm_selected = tm_proof["alternatives"][tm_proof["selected_alternative_index"]]
+    assert tm_selected["path"][-1]["source"] == "varcode.transcript_model"
+    assert tm_selected["path"][-1]["evidence"]["outcomes"][0]["baseline"]["protein_sequence"][158] == "S"
+
     unknown = Unresolved(variant, transcript, mechanism="supplied_rna",
                          reason="No mapped patient baseline")
     for effects, should_be_empty in (([effect], False), ([unknown], True), ([], True)):

@@ -215,25 +215,28 @@ an older release can import cleanly and still return wrong evidence (1.17.x
 miscounts reads at insertion boundaries), so Topiary refuses it with an
 upgrade instruction. Upgrade with `pip install --upgrade topiary`.
 
-Topiary supports `varcode>=11.1.0,<13`. Its default transcript-model annotation
-retains alternative comparisons on ordinary effects: a preferred intronic
-result can still have a protein-changing exon-skip alternative. Topiary uses
-Varcode's shared traversal, selects the transcript by expression when supplied
-or consequence priority otherwise, and selects its highest-priority usable
-protein-changing comparison. `fragments_from_effects` and
-`predict_from_mutation_effects` use this same selection. Unavailable protein
-sequences or offsets do not produce a predicted peptide.
+Topiary supports `varcode>=13.0.0,<14`. Its default `"dna"` annotator
+retains alternative comparisons on ordinary effects as flat `EffectCandidate`
+records backed by `MutantTranscript` junction/template metadata: a preferred
+intronic result can still have a protein-changing exon-skip alternative.
+Topiary uses Varcode's shared traversal, selects the transcript by expression
+when supplied or consequence priority otherwise, and selects its
+highest-priority usable protein-changing comparison. `fragments_from_effects`
+and `predict_from_mutation_effects` use this same selection. Unavailable
+protein sequences or offsets do not produce a predicted peptide.
 
 Fragments retain the selection and alternative paths in
-`annotations["varcode_candidate_selection"]`, including full native products
-and hypothesis evidence. `varcode_candidate_provenance(candidate)` exposes
-the same JSON-compatible evidence conversion for consumers that select their
-own windows. Ordinal preference and consequence severity are ordering rules,
-not calibrated probabilities. A candidate's comparator is its own recorded
-baseline, which may include inherited alleles; it is not necessarily the
-canonical annotated protein. Varcode 11's composed annotation can cost more
-CPU and memory than the older local classifier. Topiary uses the selected
-upstream annotator without silently switching to the legacy implementation.
+`annotations["varcode_candidate_selection"]`, including candidate mechanisms,
+phase, uncertainty, baseline/mutant sequences, and `MutantTranscript`
+junction/template metadata (or realized hypothesis outcomes when callers
+explicitly opt into `annotator="transcript_model"`).
+`varcode_candidate_provenance(candidate)` exposes the same JSON-compatible
+evidence conversion for consumers that select their own windows. Ordinal
+preference and consequence severity are ordering rules, not calibrated
+probabilities. A candidate's comparator is its own recorded baseline, which
+may include inherited alleles; it is not necessarily the canonical annotated
+protein. Topiary uses the selected upstream annotator without silently
+switching to a legacy implementation.
 
 Reading an existing versioned Isovar comparison export does not run RNA
 assembly. `read_isovar_hypotheses` imports all protein hypotheses, while
