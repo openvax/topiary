@@ -3,7 +3,7 @@
 from importlib import import_module
 from typing import TYPE_CHECKING
 
-__version__ = "5.122.0"
+__version__ = "5.122.1"
 
 # Static aliases for type checkers, docs, and editor discovery.
 # LAZY_EXPORTS below is the runtime source of truth.

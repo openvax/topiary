@@ -35,6 +35,7 @@ def check_runtime_metadata(metadata):
     assert any(value in ("varcode>=13.0.2,<14", "varcode<14,>=13.0.2")
                for value in requirements)
     assert "pyarrow>=18" in requirements
+    assert "mhctools>=4.10.0" in requirements
     for name in ("isovar", "pirlygenes", "oncoref", "weirdo"):
         assert any(value.startswith(name + ">=") or value.startswith(name + "<")
                    for value in requirements if ";" not in value), name
