@@ -1,5 +1,13 @@
 # Changelog
 
+## 5.122.1
+
+- **Raise `mhctools` dependency floor to `>=4.10.0` (`#639`)**:
+  - Updated `requirements.txt` from `mhctools>=4.5.0` to `mhctools>=4.10.0`,
+    which introduced `mhctools.unsupported_residue` (`UnsupportedResidueError`)
+    imported by `topiary.cached` and `topiary.ranking.nodes`, and asserted
+    `mhctools>=4.10.0` in `tests/check_distributions.py`.
+
 ## 5.122.0
 
 - **Adopt Varcode 13.0's 3-noun DNA API (`#635`)**:
